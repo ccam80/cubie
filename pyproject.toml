@@ -16,7 +16,8 @@ license-files = ["LICEN[CS]E*"]
 dependencies = [
     "numpy",
     "numba",
-    "cupy",
+    "numba-cuda",
+    "cupy-cuda12x",
     "scipy",
 ]
 [project.urls]

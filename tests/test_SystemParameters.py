@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from SystemParameters import SystemParametersDict, SystemParameters
+from CuMC.SystemModels.SystemParameters import SystemParametersDict, SystemParameters
 
 def retrieves_existing_parameter():
     params = SystemParametersDict({"a": 1, "b": 2})
