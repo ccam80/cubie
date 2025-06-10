@@ -31,20 +31,18 @@ elif precision is None:
     precision = float64
 ### END WORKAROUND
 
-#careful, this is a model-specific thing, why is it in this general-purpose machinery area?
-from threeCM import three_chamber_model_dV
-
 
 #ERROR These will need to be made in a factory function that has the dxdt device function ,or else they'll be lacking
 #dxdt when compiling. Maybe.
 @cuda.jit(
-    # (threeCM_precision[:],
-    #           threeCM_precision[:],
-    #           threeCM_precision[:],
-    #           threeCM_precision,
-    #           threeCM_precision,
-    #           int32,
-    #           )#, keep it lazy for now - pre-compiling caused issues with literals in previous iteration of code
+    #LOOKHEREFORTYPEERRORS: go back to lazy compilation (no signature) if some weird type errors occur.
+             (precision[:],
+              precision[:],
+              precision[:],
+              precision,
+              precision,
+              int32,
+              )#, keep it lazy for now - pre-compiling caused issues with literals in previous iteration of code
              device=True,
              inline=True)
 # TODO: Reorder arguments once list finalised
@@ -376,15 +374,21 @@ def single_integrator_kernel(xblocksize,
         s_obs_temp[l_tx * nobs + i] = precision(0.0)
         s_obs_saved[l_tx * nobs + i] = precision(0.0)
 
+    dxdt_func = None
+    forcing_vec = None
+    output_samples = None
+    filtercoeffs =
+
+    #Run the integrator
     integrator(dxdt_func,
                inits,
-               parameters,
+               c_params,
                forcing_vec,
                step_size,
                output_samples,
-               filtercoeffs,
-               dstates_temp,
-               states_temp,
+               c_filtercoefficients,
+               l_dstates_temp,
+               s_state_temp,
                saved_state_indices,
                saved_states_temp,
                output_array,
@@ -396,6 +400,7 @@ def single_integrator_kernel(xblocksize,
                save_every=save_every,
                warmup_samples=warmup_samples
                )
+
 def batch_integrator(nsavedobs, nsavedstates):
     saved_obs_indices = cuda.constant.array(
         shape=(nsavedobs),
