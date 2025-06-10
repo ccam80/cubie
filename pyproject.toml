@@ -3,20 +3,25 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "smc"
-version = "0.1.0"
+name = "CC_CuMC"
+version = "0.0.1"
 description = "GPU-native (ish - compiled using Numba in Python) forward-integration and monte-carlo analysis of ODE systems."
 authors = [
     { name="Chris Cameron" }
 ]
-readme = ""
-requires-python = ">=3.11"
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
 dependencies = [
     "numpy",
     "numba",
     "cupy",
     "scipy",
 ]
+[project.urls]
+Homepage = "https://github.com/ccam80/smc.git"
+Issues = "https://github.com/https://github.com/ccam80/smc/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -25,7 +30,11 @@ dev = [
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra"
 testpaths = [
     "tests"
+    ]
+addopts = [
+    "--import-mode=importlib",
+    "-ra"
 ]
+
