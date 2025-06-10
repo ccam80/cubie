@@ -151,7 +151,7 @@ def euler_run(dxdt_func,
         None, modifications are made in-place.
     """
 
-    #Note: We will only need to keep track of time for non-autonomous systems,
+    #Note: We will only need to keep track of time for non-autonomous SystemModels,
     # or if we choose to provide a parameterised driver function, but we can
     # do this at a higher level instead and pass a vector unless very memory-bound.
     # l_t = 0
@@ -214,7 +214,7 @@ def euler_run(dxdt_func,
 def single_integrator(dxdt_func,
                       inits,                     # pass as local array, thread-specific
                       parameters,                # pass as local array from batch-organising function. thread-specific
-                      forcing_vec,               # Forcing vector (repeating) for non-autonomous systems
+                      forcing_vec,               # Forcing vector (repeating) for non-autonomous SystemModels
                       duration,                  # pass as device constant?
                       step_size,                 # pass as device constant?
                       output_fs,                 # pass as device constant?

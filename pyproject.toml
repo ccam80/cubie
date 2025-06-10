@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smc"
+version = "0.1.0"
+description = "GPU-native (ish - compiled using Numba in Python) forward-integration and monte-carlo analysis of ODE systems."
+authors = [
+    { name="Chris Cameron" }
+]
+readme = ""
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "numba",
+    "cupy",
+    "scipy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra"
+testpaths = [
+    "tests"
+]

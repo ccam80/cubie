@@ -22,14 +22,11 @@ if __name__ == "__main__":
 
 
 import numpy as np
-from cupy import asarray, asnumpy, ascontiguousarray, get_default_memory_pool
+from cupy import asarray, asnumpy, get_default_memory_pool
 from numba import cuda, from_dtype
-from numba import float32, float64, int32, int64, void, int16
-from numba.extending import as_numba_type
-from _utils import timing
+from numba import float32, int32, int16
 
-
-# from systems import  thermal_cantilever_ax_b # For testing code only, do not touch otherwise
+# from SystemModels import  thermal_cantilever_ax_b # For testing code only, do not touch otherwise
 # from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_normal_float64, xoroshiro128p_dtype
 from warnings import catch_warnings, filterwarnings
 with catch_warnings():

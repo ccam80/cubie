@@ -34,6 +34,15 @@ elif precision is None:
 
 #ERROR These will need to be made in a factory function that has the dxdt device function ,or else they'll be lacking
 #dxdt when compiling. Maybe.
+class NumericalIntegrator():
+
+    def __init__(self,
+                 precision = np.float32,
+                 ):
+
+        self.precision = precision
+        self.
+
 @cuda.jit(
     #LOOKHEREFORTYPEERRORS: go back to lazy compilation (no signature) if some weird type errors occur.
              (precision[:],
@@ -42,7 +51,7 @@ elif precision is None:
               precision,
               precision,
               int32,
-              )#, keep it lazy for now - pre-compiling caused issues with literals in previous iteration of code
+              ),#, keep it lazy for now - pre-compiling caused issues with literals in previous iteration of code
              device=True,
              inline=True)
 # TODO: Reorder arguments once list finalised
@@ -151,7 +160,7 @@ def euler_run(dxdt_func,
         None, modifications are made in-place.
     """
 
-    #Note: We will only need to keep track of time for non-autonomous systems,
+    #Note: We will only need to keep track of time for non-autonomous SystemModels,
     # or if we choose to provide a parameterised driver function, but we can
     # do this at a higher level instead and pass a vector unless very memory-bound.
     # l_t = 0
@@ -214,7 +223,7 @@ def euler_run(dxdt_func,
 def single_integrator(dxdt_func,
                       inits,                     # pass as local array, thread-specific
                       parameters,                # pass as local array from batch-organising function. thread-specific
-                      forcing_vec,               # Forcing vector (repeating) for non-autonomous systems
+                      forcing_vec,               # Forcing vector (repeating) for non-autonomous SystemModels
                       duration,                  # pass as device constant?
                       step_size,                 # pass as device constant?
                       output_fs,                 # pass as device constant?

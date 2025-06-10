@@ -7,4 +7,5 @@
 /dataSources/
 /dataSources.local.xml
 /.spyproject/
+/.idea/
 /__pycache__/
