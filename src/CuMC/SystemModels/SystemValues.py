@@ -5,26 +5,41 @@ class SystemValues:
     values, parameters, and observables (auxiliary variables).
 
     This is just a fancy dictionary with some tricks for interacting with the CUDA machinery.
-    Set it up with a dictionary of values (just the ones that you don't want to be the default),
-    a dictionary of default values (use these if a custom value not set, and a precision). This
-    object creates a corresponding array to feed to CUDA functions for compiling, and a dictionary
-    of indices to look up that array.
+    When you initialise it with a dictionary of values, or a subset-dictionary of updated values and the
+    system's default values, this object creates a corresponding array to feed to CUDA functions for compiling,
+    and a dictionary of indices to look up that array.
+
+    If given a list of strings, it will create a dictionary with those strings as keys and 0.0 as the default value.
 
     You can index into this object like a dictionary or an array, i.e. values['key'] or values[index or slice].
 
-    Specify labels and default values (0.0 if not specified) for each value in a dictionary.
-
     """
-    def __init__(self, values_dict, defaults, precision, **kwargs):
+    def __init__(self,
+                 values_dict,
+                 precision,
+                 defaults = None,
+                 **kwargs):
         """
         Initialize the system parameters with default values, user-specified values from a dictionary,
         then any keyword arguments. Sets up an array of values and a dictionary mapping parameter names to indices.
 
         Args:
-            values_dict (dict): Dictionary of parameter values to override defaults
-            defaults (dict): Dictionary of default parameter values
-            precision (numpy.dtype): Data type for the values array (e.g., np.float32, np.float64)
-            **kwargs: Additional parameter values that override both defaults and values_dict
+            values_dict (dict or list(str)):
+                Full dictionary of parameter values, or dictionary of a subset of parameter values for use with a
+                second dictionary of default values (if your system has default parameters, for example, and you want
+                to create a new system with only one different value, you can just pass that one value in a dict).
+                This argument can also be a list of strings, in which case it will create a dictionary with those
+                strings as keys.
+
+            precision (numpy.dtype):
+                Data type for the values array (e.g., np.float32, np.float64)
+
+            defaults (dict)=None:
+                Dictionary of default parameter values, if you're only updating a subset.
+
+            **kwargs: 
+                Additional parameter values that override both defaults and values_dict. Don't know why you would
+                use this, to be honest, but better to have it and not need it than need it and not have it.
         """
         if values_dict is None:
             values_dict = {}

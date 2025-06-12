@@ -4,118 +4,90 @@ Created on Wed May 28 10:36:56 2025
 
 @author: cca79
 """
-
+if __name__ == "__main__":
+    import os
+    os.environ["NUMBA_ENABLE_CUDASIM"] = "0"
+    os.environ["NUMBA_CUDA_DEBUGINFO"] = "0"
+    os.environ["NUMBA_OPT"] = "1"
 
 import numba as nb
-from numba import cuda
+from numba import cuda, from_dtype
 from numba import float64, float32
 
-from CuMC.SystemModels.SystemValues import SystemValues
+from CuMC.SystemModels.genericODE import genericODE
 
 import numpy as np
 
-#Grab the system precision from an environment variable. This is onerous, but
-#allows the device function to be compiled at import time using the correct value.
-import os
-precision = os.environ.get("cuda_precision")
-
-if precision == "float32":
-    precision = float32
-elif precision == "float64":
-    precision = float64
-elif precision is None:
-    precision = float64
-
 
 default_parameters = {'E_h': 0.52,
-                'E_a' : 0.0133,
-                'E_v' : 0.0624,
-                'R_i' : 0.012,
-                'R_o' : 1.0,
-                'R_c' : 1/114,
-                'V_s3' : 2.0}
+                     'E_a': 0.0133,
+                     'E_v': 0.0624,
+                     'R_i': 0.012,
+                     'R_o': 1.0,
+                     'R_c': 1/114,
+                     'V_s3': 2.0}
 
-default_initial_values = {'Arterial pressure': 0.0,
-                        'Arterial SBV': 1.0,
-                        'Venous pressure': 2.0,
-                        'Venous SBV': 3.0,
-                        'Cardiac Pressure': 4.0,
-                        'Cardiac SBV': 5.0,
-                        'Circulatory Flow': 6.0,
-                        'Cardiac input flow': 7.0,
-                        'Cardiac output flow': 8.0}
+default_initial_values = {'V_h': 1.0,
+                          'V_a': 1.0,
+                          'V_v': 1.0}
 
-""" state array looks like:
-    [P_a,  #0
-     V_sa, #1
-     P_v,  #2
-     V_sv, #3
-     P_h,  #4
-     V_sh, #5
-     Q_c,  #6
-     W_i,  #7
-     Q_o   #8] """
+default_observables =['P_a','P_v','P_h','Q_i','Q_o','Q_c']   # Flow in circulation
+
+default_constants = {}
 
 
 
 
-class diffeq_system:
-    """.
+class ThreeChamberModel(genericODE):
+    """ Three chamber model as laid out in [Pironet's thesis reference].
 
     """
     def __init__(self,
-                 initial_values,
-                 parameters,
-                 observables,
+                 initial_values = None,
+                 parameters = None,
+                 observables = default_observables,
+                 constants = None,
                  precision=np.float64,
+                 default_initial_values = default_initial_values,
+                 default_parameters = default_parameters,
+                 default_constants = default_constants,
                  **kwargs):
-        """Set system constant values then function as a factory function to
-        build CUDA device functions for use in the ODE solver kernel. No
-        arguments, no returns it's all just bad coding practice in here.
-        Everything except for the constants_array and constant_indices generators
-        and dxdt assignment at the end is an example, you will need to overwrite"""
+        super().__init__(initial_values=initial_values,
+                        parameters=parameters, #parameters that can change during simulation
+                        constants=constants, #Parameters that are not expected to change during simulation
+                        observables=observables, #Auxiliary variables you might want to track during simulation
+                        default_initial_values=default_initial_values,
+                        default_parameters=default_parameters,
+                        default_constants=default_constants,
+                        precision=precision)
 
-        self.init_values = SystemValues(initial_values, default_inits, precision=precision)
-        self.parameters = SystemValues(parameters, default_parameters, precision=precision)
-        self.observables = SystemValues(observables, default_observables, precision=precision)
 
     def build(self):
-        self.num_states = num_states
-        self.precision = precision
-        self.numba_precision = from_dtype(precision)
-        # self.noise_sigmas = np.zeros(self.num_states, dtype=precision)
+        # Hoist fixed parameters to global namespace
+        global global_constants
+        global_constants = self.constants
 
-        self.constants_dict  = system_constants(kwargs)
-        self.constants_array = asarray([constant for (label, constant) in self.constants_dict.items()], dtype=precision)
-        self.constant_indices = {label: index for index, (label, constant) in enumerate(self.constants_dict.items())}
-
-        self.state_labels = state_labels
-
-        @cuda.jit((precision[:],
-                   precision[:],
-                   precision,
-                   precision[:],
-                   precision[:]),
+        @cuda.jit((self.precision[:],
+                   self.precision[:],
+                   self.precision[:],
+                   self.precision[:],
+                   self.precision[:]),
                   device=True,
                   inline=True)
         def three_chamber_model_dV(state,
-                                   parameters,
-                                   driver,
-                                   observables,
-                                   dxdt
-                                   ):
+                                 parameters,
+                                 driver,
+                                 observables,
+                                 dxdt
+                                 ):
             """
-            Driver/forcing (numeric):
 
-                e(t):  current value of driver function
-
-            State (np.array or array-like):
-
+            State (CUDA device array - local or shared for speed):
                 0: V_h: Volume in heart - dV_h/dt = Q_i - Q_o
                 1: V_a: Volume in arteries - dV_a/dt = Q_o - Q_c
                 2: V_v: Volume in vains - dV_v/dt = Q_c - Q_i
 
-            Parameters (np.array or array-like):
+            Parameters (CUDA device array - local or shared for speed):
 
                 0: E_h: Elastance of Heart  (e(t) multiplier)
                 1: E_a: Elastance of Arteries
@@ -126,15 +98,18 @@ class diffeq_system:
                 6: SBV: The total stressed blood volume - the volume in the three chambers,
                         not pooled in the body
 
+            Driver/forcing (CUDA device array - local or shared for speed):
 
-            dxdt (np.array or array-like):
+                e(t):  current value of driver function
+
+            dxdt (CUDA device array - local or shared for speed):
 
                 Input values not used!
                 0: dV_h: increment in V_h
                 1: dV_a: increment in V_a
                 2: dV_v: increment in V_v
 
-            Observables (np.array or array-like):
+            Observables (CUDA device array - local or shared for speed):
 
                 Input values not used!
                 0: P_a: Pressure in arteries -  E_a * V_a
@@ -164,15 +139,15 @@ class diffeq_system:
             # Calculate auxiliary (observable) values
             P_a = E_a * V_a
             P_v = E_v * V_v
-            P_h = E_h * V_h * driver;
+            P_h = E_h * V_h * driver[0]
             Q_i = ((P_v - P_h) / R_i) if (P_v > P_h) else 0
             Q_o = ((P_h - P_a) / R_o) if (P_h > P_a) else 0
-            Q_c = P_a - P_v / R_c;
+            Q_c = (P_a - P_v) / R_c
 
             # Calculate gradient
-            dV_h = Q_i - Q_o;
-            dV_a = Q_o - Q_c;
-            dV_v = Q_c - Q_i;
+            dV_h = Q_i - Q_o
+            dV_a = Q_o - Q_c
+            dV_v = Q_c - Q_i
 
             # Package values up into output arrays, overwriting for speed.
             # TODO: Optimisation target. some of these values will go unused, can reduce memory operations by only saving a requested subset.
@@ -188,59 +163,76 @@ class diffeq_system:
             dxdt[2] = dV_v
 
 
-        self.dxdtfunc = dxdtfunc
-        self.clipfunc = clamp
-
-
-    def update_constants(self, updates_dict=None, **kwargs):
-        if updates_dict is None:
-            updates_dict = {}
-
-        combined_updates = {**updates_dict, **kwargs}
-
-        # Note: If the same value occurs in the dict and
-        # keyword args, the kwargs one will win.
-        for key, item in combined_updates.items():
-            self.constants_dict.set_parameter(key, self.precision(item))
-
-        self.constants_array = asarray([constant for (label, constant) in self.constants_dict.items()], dtype=self.precision)
-
-    def set_noise_sigmas(self, noise_vector):
-        self.noise_sigmas = np.asarray(noise_vector, dtype=self.precision)
-
-    def get_noise_sigmas(self):
-        return self.noise_sigmas.copy()
+        self.dxdtfunc = three_chamber_model_dV
 
 #******************************* TEST CODE ******************************** #
-# if __name__ == '__main__':
-    # sys = diffeq_system()
-    # dxdt = sys.dxdtfunc
+if __name__ == '__main__':
+    precision = np.float32
 
-    # @cuda.jit()
-    # def testkernel(out):
-    #     # precision = np.float32
-    #     # numba_precision = float32
-    #     l_dxdt = cuda.local.array(shape=NUM_STATES, dtype=numba_precision)
-    #     l_states = cuda.local.array(shape=NUM_STATES, dtype=numba_precision)
-    #     l_constants = cuda.local.array(shape=NUM_CONSTANTS, dtype=numba_precision)
-    #     l_states[:] = precision(1.0)
-    #     l_constants[:] = precision(1.0)
+    sys = ThreeChamberModel(precision=precision)
+    sys.build()
+    dxdtfunc = sys.dxdtfunc
+    numba_precision = from_dtype(precision)
 
-    #     t = precision(1.0)
-    #     dxdt(l_dxdt,
-    #         l_states,
-    #         l_constants,
-    #         t)
+    nstates = sys.num_states
+    npar = sys.num_parameters
+    nobs = sys.num_observables
 
-    #     out = l_dxdt
+    @cuda.jit()
+    def dummykernel(outarray,
+                    d_inits,
+                    parameters,
+                    driver):
+
+        l_dxdt = cuda.local.array(shape=(nstates), dtype=numba_precision)
+        l_states = cuda.local.array(shape=(nstates), dtype=numba_precision)
+        l_parameters = cuda.local.array(shape=(npar), dtype=numba_precision)
+        l_observables = cuda.local.array(shape=(nobs), dtype=numba_precision)
+        l_driver = cuda.local.array(shape=(1), dtype=numba_precision)
 
 
-    #     NUM_STATES = 5
-    #     NUM_CONSTANTS = 14
-    #     outtest = np.zeros(NUM_STATES, dtype=np.float4)
-    #     out = cuda.to_device(outtest)
-    #     print("Testing to see if your dxdt function compiles using CUDA...")
-    #     testkernel[1,1](out)
-    #     cuda.synchronize()
-    #     out.copy_to_host(outtest)
-    #     print(outtest)
+        for i in range(npar):
+            l_parameters[i] = parameters[i]
+            # print(l_parameters[i])
+        for i in range(nstates):
+            l_states[i] = d_inits[i]
+
+
+        # x = cuda.threadIdx.x
+        # bx = cuda.blockIdx.x
+        # if x == 0 and bx == 0:
+        #     from pdb import set_trace;
+        #     set_trace()
+        # print(l_parameters)
+        l_driver[0] = driver[0]
+        l_dxdt[:] = precision(0.0)
+
+        dxdtfunc(l_states,
+             l_parameters,
+             l_driver,
+             l_observables,
+             l_dxdt
+             )
+
+        for i in range(nstates):
+            outarray[i] = l_dxdt[i]
+
+
+
+    outtest = np.zeros(sys.num_states, dtype=precision)
+    out = cuda.to_device(outtest)
+    params = cuda.to_device(sys.parameters.values_array)
+    inits = cuda.to_device(sys.init_values.values_array)
+
+    driver=[precision(1.0)]
+    driver = cuda.to_device(driver)
+
+    print("Testing to see if your dxdt function compiles using CUDA...")
+    dummykernel[1,1](out,
+                     inits,
+                     params,
+                     driver
+                     )
+    cuda.synchronize()
+    out.copy_to_host(outtest)
+    print(outtest)
