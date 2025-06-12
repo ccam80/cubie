@@ -7,33 +7,22 @@ Created on Wed May 28 10:36:56 2025
 
 
 import numba as nb
-from numba import cuda
-from numba import float64, float32
+from numba import cuda, from_dtype
 
 from CuMC.SystemModels.SystemValues import SystemValues
 
 import numpy as np
+from cupy import asarray
 
-#Grab the system precision from an environment variable. This is onerous, but
-#allows the device function to be compiled at import time using the correct value.
-import os
-precision = os.environ.get("cuda_precision")
-
-if precision == "float32":
-    precision = float32
-elif precision == "float64":
-    precision = float64
-elif precision is None:
-    precision = float64
 
 
 default_parameters = {'E_h': 0.52,
-                'E_a' : 0.0133,
-                'E_v' : 0.0624,
-                'R_i' : 0.012,
-                'R_o' : 1.0,
-                'R_c' : 1/114,
-                'V_s3' : 2.0}
+                    'E_a' : 0.0133,
+                    'E_v' : 0.0624,
+                    'R_i' : 0.012,
+                    'R_o' : 1.0,
+                    'R_c' : 1/114,
+                    'V_s3' : 2.0}
 
 default_initial_values = {'Arterial pressure': 0.0,
                         'Arterial SBV': 1.0,
@@ -45,51 +34,59 @@ default_initial_values = {'Arterial pressure': 0.0,
                         'Cardiac input flow': 7.0,
                         'Cardiac output flow': 8.0}
 
-""" state array looks like:
-    [P_a,  #0
-     V_sa, #1
-     P_v,  #2
-     V_sv, #3
-     P_h,  #4
-     V_sh, #5
-     Q_c,  #6
-     W_i,  #7
-     Q_o   #8] """
+default_observables = {'P_a': 0.0,  # Pressure in arteries
+                      'P_v': 0.0,   # Pressure in veins
+                      'P_h': 0.0,   # Pressure in heart
+                      'Q_i': 0.0,   # Flow through input valve
+                      'Q_o': 0.0,   # Flow through output valve
+                      'Q_c': 0.0}   # Flow in circulation
+
+default_constants = {}
 
 
 
+class genericODE:
 
-class diffeq_system:
-    """.
-
+    
+    """
     """
     def __init__(self,
                  initial_values,
                  parameters,
-                 observables,
+                 observables=None,
+                 constants=None,
+                 mutable_parameters=None,
                  precision=np.float64,
                  **kwargs):
-        """Set system constant values then function as a factory function to
-        build CUDA device functions for use in the ODE solver kernel. No
-        arguments, no returns it's all just bad coding practice in here.
-        Everything except for the constants_array and constant_indices generators
-        and dxdt assignment at the end is an example, you will need to overwrite"""
+        """Initialize the ODE system with initial values, parameters, and observables.
 
-        self.init_values = SystemValues(initial_values, default_inits, precision=precision)
+        Args:
+            initial_values (dict): Initial values for state variables
+            parameters (dict): Parameter values for the system
+            observables (dict): Observable values to track
+            mutable_parameters (list, optional): List of parameter names that can change during simulation
+            precision (numpy.dtype, optional): Precision to use for calculations
+            **kwargs: Additional arguments
+        """
+
+        self.init_values = SystemValues(initial_values, default_initial_values, precision=precision)
         self.parameters = SystemValues(parameters, default_parameters, precision=precision)
         self.observables = SystemValues(observables, default_observables, precision=precision)
+        self.constants = SystemValues(constants, default_constants, precision=precision)
+        self.mutable_parameters = mutable_parameters if mutable_parameters is not None else []
+        
+        self.precision = precision
+
 
     def build(self):
-        self.num_states = num_states
-        self.precision = precision
-        self.numba_precision = from_dtype(precision)
-        # self.noise_sigmas = np.zeros(self.num_states, dtype=precision)
+        """Build the ODE system by setting up the dxdt function and related attributes."""
+        num_states = self.init_values.n
+        precision = from_dtype(self.precision)
+        self.noise_sigmas = np.zeros(num_states, dtype=precision)
 
-        self.constants_dict  = system_constants(kwargs)
-        self.constants_array = asarray([constant for (label, constant) in self.constants_dict.items()], dtype=precision)
-        self.constant_indices = {label: index for index, (label, constant) in enumerate(self.constants_dict.items())}
-
-        self.state_labels = state_labels
+        # Hoist fixed parameters to global namespace
+        global global_constants
+        global_constants = self.constants
 
         @cuda.jit((precision[:],
                    precision[:],
@@ -98,8 +95,9 @@ class diffeq_system:
                    precision[:]),
                   device=True,
                   inline=True)
-        def three_chamber_model_dV(state,
+        def three_chamber_model_dv(state,
                                    parameters,
+                                   constants,
                                    driver,
                                    observables,
                                    dxdt
@@ -148,26 +146,35 @@ class diffeq_system:
                 None, modifications are made to the dxdt and observables arrays in-place to avoid allocating
 
            """
-            # Extract parameters from input arrays - purely for readability
+
+            #Extract parameters from the parameters array
+            # Note: There is some balance to be struck here between flexibility and performance. In most kernels, many
+            # parameters will be fixed, so we can hoist them to the global namespace for speed. However, it would be 
+            # too onerous to modify the code in this function manually for every different combination of fixed/free parameters.
+            # Junie: please provide a solution to this problem ideally shifting all but a given list of parameters to 
+            # the global namespace when the system is built.
+            # For now, we assume that all parameters are mutable and passed in the parameters array.
             E_h = parameters[0]
             E_a = parameters[1]
             E_v = parameters[2]
             R_i = parameters[3]
             R_o = parameters[4]
             R_c = parameters[5]
-            # SBV = parameters[6]
+            SBV = parameters[6]
 
             V_h = state[0]
             V_a = state[1]
             V_v = state[2]
 
-            # Calculate auxiliary (observable) values
+            # Calculate pressures
             P_a = E_a * V_a
             P_v = E_v * V_v
-            P_h = E_h * V_h * driver;
+            P_h = E_h * V_h * driver
+
+            # Calculate flows
             Q_i = ((P_v - P_h) / R_i) if (P_v > P_h) else 0
             Q_o = ((P_h - P_a) / R_o) if (P_h > P_a) else 0
-            Q_c = P_a - P_v / R_c;
+            Q_c = (P_a - P_v) / R_c  # Fixed the division operator
 
             # Calculate gradient
             dV_h = Q_i - Q_o;
@@ -188,11 +195,20 @@ class diffeq_system:
             dxdt[2] = dV_v
 
 
-        self.dxdtfunc = dxdtfunc
-        self.clipfunc = clamp
+        self.dxdtfunc = three_chamber_model_dv
+        
+        #Clean up globals
+        del global_constants
+    
 
 
     def update_constants(self, updates_dict=None, **kwargs):
+        """Update parameter values.
+
+        Args:
+            updates_dict (dict, optional): Dictionary of parameter updates
+            **kwargs: Additional parameter updates
+        """
         if updates_dict is None:
             updates_dict = {}
 
@@ -200,10 +216,13 @@ class diffeq_system:
 
         # Note: If the same value occurs in the dict and
         # keyword args, the kwargs one will win.
-        for key, item in combined_updates.items():
-            self.constants_dict.set_parameter(key, self.precision(item))
+        for key, value in combined_updates.items():
+            # Update the parameter in the parameters SystemValues object
+            self.parameters.set_parameter(key, self.precision(value))
 
-        self.constants_array = asarray([constant for (label, constant) in self.constants_dict.items()], dtype=self.precision)
+            # If this is a fixed parameter, update the global variable too
+            if key not in self.mutable_parameters:
+                globals()[key] = self.precision(value)
 
     def set_noise_sigmas(self, noise_vector):
         self.noise_sigmas = np.asarray(noise_vector, dtype=self.precision)
@@ -213,6 +232,8 @@ class diffeq_system:
 
 #******************************* TEST CODE ******************************** #
 # if __name__ == '__main__':
+
+
     # sys = diffeq_system()
     # dxdt = sys.dxdtfunc
 
