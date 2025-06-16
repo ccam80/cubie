@@ -100,3 +100,52 @@ def get_readonly_view(array):
     view = array.view()
     view.flags.writeable = False
     return view
+
+def _convert_to_indices(keys_or_indices, systemvalues_object):
+    """ Convert from the many possible forms that a user might specify parameters (str, int, list of either, array of
+     indices) into an array of indices that can be passed to the CUDA functions.
+
+     Arguments:
+        keys_or_indices (Union[str, int, List[Union[str, int]], numpy.ndarray]): Parameter identifiers that can be:
+            - Single string parameter name
+            - Single integer index
+            - List of string parameter names
+            - List of integer indices
+            - Numpy array of indices
+        systemvalues_object (SystemValues): Object containing parameter mapping information
+
+     Returns:
+        numpy.ndarray: Array of parameter indices as np.int16 values
+     """
+    if isinstance(keys_or_indices, list):
+        if all(isinstance(item, str) for item in keys_or_indices):
+            # A list of strings
+            saved_states = np.array([systemvalues_object.get_param_index(state) for state in keys_or_indices],
+                                    dtype=np.int16)
+        elif all(isinstance(item, int) for item in keys_or_indices):
+            # A list of ints
+            saved_states = np.array(keys_or_indices, dtype=np.int16)
+        else:
+            # List contains mixed types or unsupported types
+            non_str_int_types = [type(item) for item in keys_or_indices if not isinstance(item, (str, int))]
+            if non_str_int_types:
+                raise TypeError(
+                    f"When specifying a variable to save or modify, you can provide strings that match the labels,"
+                    f" or integers that match the indices - you provided a list containing {non_str_int_types[0]}")
+            else:
+                raise TypeError(
+                    f"When specifying a variable to save or modify, you can provide a list of strings or a list of integers,"
+                    f" but not a mixed list of both")
+    elif isinstance(keys_or_indices, str):
+        # A single string
+        saved_states = np.array([systemvalues_object.get_param_index(keys_or_indices)], dtype=np.int16)
+    elif isinstance(keys_or_indices, int):
+        #A single int
+        saved_states = np.array([keys_or_indices], dtype=np.int16)
+    elif isinstance(keys_or_indices, np.ndarray):
+        saved_states = keys_or_indices.astype(np.int16)
+    else:
+        raise TypeError(f"When specifying a variable to save or modify, you can provide strings that match the labels,"
+                        f" or integers that match the indices - you provided a {type(keys_or_indices)}")
+
+    return saved_states

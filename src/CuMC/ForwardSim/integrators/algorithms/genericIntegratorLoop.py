@@ -4,209 +4,273 @@ Created on Tue May 27 17:45:03 2025
 
 @author: cca79
 """
-#Clumsy way to force precision
-
 
 import numpy as np
 from numba import float32, float64, int32, int16, literally
 from numba import cuda
 
 
-### WORKAROUND This section is a potentially cludgey way to manage setting the
-### precision (data type) for all CUDA device functions at module input,
-### allowing them to compile for 32 or 64 bit floats, configurable in the top
-### module. There's got to be a better way, I just don't know it yet.
-if __name__ == '__main__':
-    import os
-    os.environ["cuda_precision"] = "float64"
-
-import os
-precision = os.environ.get("cuda_precision")
-
-if precision == "float32":
-    precision = float32
-elif precision == "float64":
-    precision = float64
-elif precision is None:
-    precision = float64
-### END WORKAROUND
-
-
-#ERROR These will need to be made in a factory function that has the dxdt device function ,or else they'll be lacking
-#dxdt when compiling. Maybe.
-class NumericalIntegrator():
-
+# noinspection PyRedundantParentheses
+class genericODEIntegrator():
+    """ Contains generic implementation of an ODE integrator, including allocation and the inner loop.
+     Allocation might """
     def __init__(self,
-                 precision = np.float32,
-                 ):
+                 precision,
+                 saved_states,
+                 saved_observables):
 
         self.precision = precision
-        self.
+        self.saved_states = saved_states
+        self.saved_observables = saved_observables
 
-@cuda.jit(
-    #LOOKHEREFORTYPEERRORS: go back to lazy compilation (no signature) if some weird type errors occur.
-             (precision[:],
-              precision[:],
-              precision[:],
-              precision,
-              precision,
-              int32,
-              ),#, keep it lazy for now - pre-compiling caused issues with literals in previous iteration of code
-             device=True,
-             inline=True)
-# TODO: Reorder arguments once list finalised
-def euler_run(dxdt_func,
-              inits,
-              parameters,
-              forcing_vec,
-              step_size,
-              output_length,
-              filter_coefficients,
-              dxdt_temp,
-              state_temp,
-              saved_states,
-              output_temp,
-              state_output,
-              saved_observables,
-              observables_temp,
-              observables_output_temp,
-              observables_output,
-              precision=precision,
-              save_every = 1,
-              warmup_samples=0):
-    """
-    Note to self: This is an attempt to isolate the integrator algorithm from
-    the surrounding solver support, with a view to make it easier to implement
-    other algorithms. Inputs to this function should be problem-independent, and
-    cover as much of the possible algorithms as possible. This might not work.
+    #TODO: force rebuild if system or saved states change
 
-    CUDA memory management notes: This function does not create any new device
-        arrays. Placement of arrays into memory locations should be handled
-        in a higher-level function. This is why there's about a million arguments.
+    def get_shared_memory_requirements(self):
+        """Overload this function with the number of bytes of shared memory required for a single run of the integrator"""
+        return 2*nstates*self.precision().itemsize
 
-    Arguments:
-        dxdt_func (device function):
-            A function that modifies an observables and
-            dxdt array based on a state, parameters, and forcing term. One
-            step only - this is the gradient function, or transition kernel(?).
+    def solve_single(self):
 
-        parameters (1d device array (floats)):
-            Parameters for the dxdt_func. Must correspond element-wise to the
-            expected values in dxdt_func
+    def solve_batch(self):
 
-        inits (1d device array, (floats)):
-            initial values for each state variable
+    def build_single_kernel(self):
 
-        forcing_vec: (1d device array, (floats)):
-            A forcing function, interpolated to have a step_size (internal,
-            integrator loop step) resolution. This will loop indefinitely if shorter
-            than the number of samples requested.
+        sharedbytes = self.get_shared_memory_requirements(self)
+        @cuda.jit((self.precision[:,:],
+                   self.precision[:])
+                  )
+        def single_kernel(inits,
+                          parameters,
+                          output,
+                          observables
+                          ):
+            """A single run of the integrator, with a single set of initial conditions and parameters."""
+            tx = int16(cuda.threadIdx.x)
 
-        step_size (float):
-            The step size for each iteration of the internal integrator loop
+            if (tx==1):
+                # Allocate shared memory for this thread
+                shared_memory = cuda.shared.array(self.get_shared_memory_requirements(),
+                                                  dtype=self.precision)
 
-        output_length (int):
-            The number of output samples to run for, duration * output_fs
-
-        filter_coefficients (1d device array, (floats)):
-            Coefficients for a downsampling filter, for simulations with noise.
-            Not required for noiseless simulations (just give a vector of 1/save_every),
-            as no aliasing will occur unless you're sampling well below the speed
-            of the system dynamics. Should be length save_every.
+    def build_batch_kernel(self,
+                           inits,
+                           parameters,
+                           output,
+                           observables
+                           ):
+        """A single run of the integrator, with a single set of initial conditions and parameters."""
+        tx = int16(cuda.threadIdx.x)
+        block_index = int32(cuda.blockIdx.x)
+        l_param_set = int32(xblocksize * block_index + tx)
+        ):
 
 
-        dxdt_temp (1d device array, floats):
-            An array to hold individual samples of the state inside an iteration;
-            should be stored somewhere fast.
+    def build_loop(self,
+                  system,
+                  step_size,
+                  output_step_size,
+                  warmup_time=0,
+                  saved_states=None,
+                  saved_observables=None):
+        """Implementation notes:
+        -
+        - The integrator loop is compiled once for all threads, even though its contents vary between threads.
+        between-thread-variable elements should be passed in device arrays.
+        - To reduce memory requirements, saved states and observables should be
+        passed as function-scope variables (considered global by the device function),
+        so that they're "baked in" to the loop. This might cause issues with repeated
+        compilations when the saved states change, but I think that will happen outside
+        of the time-intensive algorithm, a once-per-run change that won't add significant
+        overhead to the whole process.
 
-        state_temp (1d device array, (floats)):
-            An array to hold individual samples of the state between iterations;
-            should be stored somewhere fast.
+        - How far can I push the hard-coding and globalisation of constants?
+            - can I hard-code the whole forcing vector? It's pre-calculated... Fine if forcing is
+            same between threads, but not if it's different for each thread. Perhaps that's acceptable, and we accomodate
+            variable forcing by modifying the system such that it's a state.
 
-        state_output (2d device array, (floats)):
-            Bulk storage for integrator output - should be shape (num_states, output_length)
+        - The memory needs are still high - an inner-loop temp and output array to keep current and running sums,
+        and a bulk output array to write to in the outer loop. Each algorithm function should allocate its own temporary arrays,
+        only taking input and output arrays. HOWEVER this does not allow for access to dynamically allocated shared memory.
+        UNLESS we give information about thread indices etc. so that the function can find the correct slice of shared memory.
+        Should we just pass it a pointer to allocated shared memory, and let it pick it's own slice, or should we pass it a slice
+        address, so that it can ignore whether it's shared or local? Total shared memory allocation must be done by the kernel,
+        we can only pass a reference to this function.
 
-        output_temp (1d device array, (floats)):
-            An array to hold running sums of the output states between iterations;
-            should be stored somewhere fast. Length: nsavedstates.
+        - Will the storage arrays differ between algorithms? I think an algorithm should work on a dxdt function, and produce
+        output arrays for states and observables only. A Euler integrator will just need one temp dxdt array. An RK4
+        algorithm, depending on whether it's one-step-per-thread or all operations in one thread, will have different
+        memory requirements.
 
-        saved_states (1d device array, (int)):
-            Indices of states to save.
+        - Some user control over storage of temp values should be available, as this offers a performance booth for
+        some system sizes.
 
-        saved_observables (1d device array, (int)):
-            Indices of obervables to save.
+        -The device function MUST accept varying initial conditions and parameters.
+        - We could possibly have a separate inner and outer loop function - the outer loop function can handle saving and
+        downsampling. This will be a pain if the function isn't inlined properly by the compiler.
 
-        obervables_temp (1d device array, (floats)):
-            An array to hold individual samples of observable (auxiliary) variables
-            between iterations; should be stored somewhere fast.
+        Consider adaptive-step-size requirements - keeping an unspecified number of time steps, modifying the step size if
+        an output sample is requested at that time step. Do we need to allow for full output, or only downsampled/regular?
 
-        observables_output_temp (1d device arrat (float)):
-            An array to hold running sums of the saved observables between iterations;
-            should be stored somewhere fast. Length: nsavedobs
+        When is this compiled? Do we compile the solver once for each run, or in a full monte-carlo simulation, once per monte-carlo?
+        What changes?
+            - Changes in step size require changes in downsampling if filter is used
+            - Changes in selection of saved states and obeservables require reallocation
+            - Changes in system (reallocation of storage arrays)
+            - Changes in sampling freq (simulated or saving) but not duration. this might allow the compiler
+            to optimise e.g. save_every=1
+            """
 
-        observables_output (2d device array, (floats)):
-            Bulk storage for observable (auxiliary) variables for output -
-            should be shape (num_states, output_length)
+        #Parameters to size the arrays in the integrator loop
+        nstates = system.num_states
+        nobs = system.num_observables
+        npar = system.num_parameters
+        n_saved_states = len(saved_states) if saved_states is not None else nstates
+        n_saved_observables = len(saved_observables) if saved_observables is not None else nobs
 
-        save_every (int):
-            Downsampling rate - number of step_size increments to take before
-            saving a value.
-
-        warmup_samples (int):
-            How many output samples to wait (to allow system to settle) before
-            recording output in precious, precious memory.
-
-    returns:
-        None, modifications are made in-place.
-    """
-
-    #Note: We will only need to keep track of time for non-autonomous SystemModels,
-    # or if we choose to provide a parameterised driver function, but we can
-    # do this at a higher level instead and pass a vector unless very memory-bound.
-    # l_t = 0
-    nsavedstates = len(saved_states)
-    nsavedobs = len(saved_observables)
-    nstates = len(inits)
-
-    # Loop through output samples, one iteration per output
-    for i in range(warmup_samples + output_length):
-
-        #Loop through euler solver steps - smaller step than output for numerical accuracy reasons
-        for j in range(save_every):
-
-            # l_t += step_size
-            driver = forcing_vec[(i*save_every + j) % len(forcing_vec)]
+        precision = system.precision
 
 
-            #Get current filter coefficient for the downsampling filter
-            filter_coefficient = filter_coefficients[j]
+        dxdt_func = system.dxdt
 
-            # Calculate derivative at sample
-            dxdt_func(state_temp,
-                     parameters,
-                     driver,
-                     observables_temp,
-                     dxdt_temp)
+        @cuda.jit(
+                     (self.precision[:],
+                      self.precision[:],
+                      self.precision[:],
+                      self.precision,
+                      self.precision,
+                      int32,
+                      ),
+                     device=True,
+                     inline=True)
+        def euler_loop(inits,
+                      parameters,
+                      forcing_vec, # Device array (floats) - constant memory if all-threads, local if per-thread
+                      shared_memory,
+                      state_output,
+                      observables_output,
+                      output_length,
+                      save_every = 1,
+                      warmup_samples=0):
+            """
+            Note to self: This is an attempt to isolate the integrator algorithm from
+            the surrounding solver support, with a view to make it easier to implement
+            other algorithms. Inputs to this function should be problem-independent, and
+            cover as much of the possible algorithms as possible. This might not work.
 
-            #Forward-step state using euler
-            #Add sum*filter coefficient to a running sum for downsampler
-            for k in range(nstates):
-                state_temp[k] += dxdt_temp[k] * step_size
-            for k in range(nsavedstates):
-                output_temp[k] += state_temp[saved_states[k]] * filter_coefficient
-            for k in range(nsavedobs):
-                observables_output_temp[k] += observables_temp[saved_observables[k]] * filter_coefficient
+            CUDA memory management notes: This function does not create any new device
+                arrays. Placement of arrays into memory locations should be handled
+                in a higher-level function. This is why there's about a million arguments.
 
-        #Start saving only after warmup period (to get past transient behaviour)
-        if i > (warmup_samples - 1):
+            Arguments:
+                dxdt_func (device function):
+                    A function that modifies an observables and
+                    dxdt array based on a state, parameters, and forcing term. One
+                    step only - this is the gradient function, or transition kernel(?).
 
-            for n in range(nsavedstates):
-                state_output[i-warmup_samples, n] = output_temp[n]
-            for n in range(nsavedobs):
-                observables_output[i-warmup_samples, n] = observables_temp[n]
+                parameters (1d device array (floats)):
+                    Parameters for the dxdt_func. Must correspond element-wise to the
+                    expected values in dxdt_func
 
-        #Reset filters to zero for another run
-        output_temp[:] = precision(0.0)
+                inits (1d device array, (floats)):
+                    initial values for each state variable
+
+                forcing_vec: (1d device array, (floats)):
+                    A forcing function, interpolated to have a step_size (internal,
+                    integrator loop step) resolution. This will loop indefinitely if shorter
+                    than the number of samples requested.
+
+                step_size (float):
+                    The step size for each iteration of the internal integrator loop
+
+                output_length (int):
+                    The number of output samples to run for, duration * output_fs
+
+                filter_coefficients (1d device array, (floats)):
+                    Coefficients for a downsampling filter, for simulations with noise.
+                    Not required for noiseless simulations (just give a vector of 1/save_every),
+                    as no aliasing will occur unless you're sampling well below the speed
+                    of the system dynamics. Should be length save_every.
+
+                state_output (2d device array, (floats)):
+                    Bulk storage for integrator output - should be shape (num_states, output_length)
+
+                output_temp (1d device array, (floats)):
+                    An array to hold running sums of the output states between iterations;
+                    should be stored somewhere fast. Length: nsavedstates.
+
+                saved_states (1d device array, (int)):
+                    Indices of states to save.
+
+                saved_observables (1d device array, (int)):
+                    Indices of obervables to save.
+
+                obervables_temp (1d device array, (floats)):
+                    An array to hold individual samples of observable (auxiliary) variables
+                    between iterations; should be stored somewhere fast.
+
+                observables_output_temp (1d device arrat (float)):
+                    An array to hold running sums of the saved observables between iterations;
+                    should be stored somewhere fast. Length: nsavedobs
+
+                observables_output (2d device array, (floats)):
+                    Bulk storage for observable (auxiliary) variables for output -
+                    should be shape (num_states, output_length)
+
+                save_every (int):
+                    Downsampling rate - number of step_size increments to take before
+                    saving a value.
+
+                warmup_samples (int):
+                    How many output samples to wait (to allow system to settle) before
+                    recording output in precious, precious memory.
+
+            returns:
+                None, modifications are made in-place.
+            """
+
+            #Allocate state and dxdt a slice of the shared memory slice passed to this thread
+            state = shared_memory[:nstates]
+            dxdt = shared_memory[nstates:2*nstates]
+
+
+            #Initialise/Assign values to allocated memory
+            for i in range(nstates):
+                state[:] = inits[i]
+            dxdt[:] = precision[0.0]
+            l_parameters = cuda.local.array((npar),
+                                          dtype=precision)
+
+            for i in range(npar):
+                l_parameters[i] = parameters[i]
+
+            # Loop through output samples, one iteration per output sample
+            for i in range(warmup_samples + output_length):
+
+                # Euler loop
+                for j in range(save_every):
+                    driver = forcing_vec[(i*save_every + j) % len(forcing_vec)]
+
+                    # Calculate derivative at sample
+                    dxdt_func(state,
+                             parameters,
+                             driver,
+                             observables,
+                             dxdt)
+
+                    #Forward-step state using euler
+                    for k in range(nstates):
+                        state[k] += dxdt[k] * step_size
+
+
+                #Start saving only after warmup period (to get past transient behaviour)
+                if i > (warmup_samples - 1):
+
+                    for n in range(n_saved_states):
+                        state_output[i-warmup_samples, n] = output[n]
+                    for n in range(n_saved_observables):
+                        observables_output[i-warmup_samples, n] = observables[n]
+
+        self.integratorLoop = euler_loop
 
 
 @cuda.jit(
@@ -229,7 +293,6 @@ def single_integrator(dxdt_func,
                       output_fs,                 # pass as device constant?
                       saved_state_indices,       # Pass as constant device array
                       saved_observable_indices,  # pass as constant device array
-                      filtercoeffs,              # pass as constant device array
                       output_array,              # Reference to device array view
                       observables_array,         # Reference to device array view
                       integrator=euler_run,      # Device function

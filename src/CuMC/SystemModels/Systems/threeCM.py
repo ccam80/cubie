@@ -51,6 +51,7 @@ class ThreeChamberModel(genericODE):
                  default_initial_values = default_initial_values,
                  default_parameters = default_parameters,
                  default_constants = default_constants,
+                 num_drivers = 1, #Number of external "forcing" variables
                  **kwargs):
         super().__init__(initial_values=initial_values,
                         parameters=parameters, #parameters that can change during simulation
@@ -59,7 +60,8 @@ class ThreeChamberModel(genericODE):
                         default_initial_values=default_initial_values,
                         default_parameters=default_parameters,
                         default_constants=default_constants,
-                        precision=precision)
+                        precision=precision,
+                        num_drivers=num_drivers)
 
 
     def build(self):
@@ -82,7 +84,6 @@ class ThreeChamberModel(genericODE):
                                  ):
             """
 
-            State (CUDA device array - local or shared for speed):
                 0: V_h: Volume in heart - dV_h/dt = Q_i - Q_o
                 1: V_a: Volume in arteries - dV_a/dt = Q_o - Q_c
                 2: V_v: Volume in vains - dV_v/dt = Q_c - Q_i
@@ -198,12 +199,6 @@ if __name__ == '__main__':
             l_states[i] = d_inits[i]
 
 
-        # x = cuda.threadIdx.x
-        # bx = cuda.blockIdx.x
-        # if x == 0 and bx == 0:
-        #     from pdb import set_trace;
-        #     set_trace()
-        # print(l_parameters)
         l_driver[0] = driver[0]
         l_dxdt[:] = precision(0.0)
 

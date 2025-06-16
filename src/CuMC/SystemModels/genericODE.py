@@ -33,6 +33,7 @@ class genericODE:
                  default_parameters=None,
                  default_constants=None,
                  precision=np.float64,
+                 num_drivers=1,
                  **kwargs):
         """Initialize the ODE system with initial values, parameters, and observables.
 
@@ -57,7 +58,7 @@ class genericODE:
         self.num_states = self.init_values.n
         self.num_parameters = self.parameters.n
         self.num_observables = self.observables.n
-
+        self.num_drivers = num_drivers
     def build(self):
         """Compile the dxdt system as a CUDA device function."""
         # Hoist fixed parameters to global namespace

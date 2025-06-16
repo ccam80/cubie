@@ -155,8 +155,7 @@ class genericSolver(object):
         # dynamic_sharedmem = 0 # Current cell immplementation requires no shared memory
         if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1":
             cuda.profile_start()
-        self.integratorKernel[BLOCKSPERGRID, blocksize_x,
-                              0, dynamic_sharedmem](
+        self.integratorKernel[BLOCKSPERGRID, blocksize_x](
                                   blocksize_x,
                                   d_outputstates,
                                   d_gridvalues,
@@ -168,7 +167,8 @@ class genericSolver(object):
                                   d_filtercoefficients,
                                   # d_noise,
                                   # d_noisesigmas,
-                                  warmup_time)
+                                  warmup_time,
+                                  shared_mem=dynamic_sharedmem)
 
         if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1":
             cuda.profile_stop()
