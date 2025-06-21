@@ -15,6 +15,7 @@ import numpy as np
 from numba import float32, float64, int32, int16, literally
 from numba import cuda, from_dtype
 from warnings import warn
+from CuMC.ForwardSim.integrators.output_functions import build_output_functions
 
 
 class genericODEIntegratorLoop():
@@ -85,7 +86,14 @@ class genericODEIntegratorLoop():
         ndrivers = system.num_drivers
 
         #Update the loop's memory requirement if the system has changed
-        self.shared_memory_required = self.get_shared_memory_required(system)
+
+        funcreturn = build_output_functions(self.settings)
+        save_summary_func = funcreturn.save_summary_metrics_func
+        update_summary_func = funcreturn.update_summary_metrics_func
+        save_state_func = funcreturn.save_state_func
+        summary_memory_required = funcreturn.summary_memory_required
+
+        self.shared_memory_required = self.get_shared_memory_required(system) + summary_memory_required
 
         saved_states = self.settings['saved_states']
         saved_observables = self.settings['saved_observables']
@@ -105,7 +113,7 @@ class genericODEIntegratorLoop():
         summarise_every_samples = int32(round(self.settings['summarise_every'] / self.settings['save_every']))
 
         #samples < 1 won't make much sense.
-        if self.summarise_every_samples <= 1:
+        if summarise_every_samples <= 1:
             raise ValueError("summarise_every must be greater than save_every, as it sets the number of saved samples between summaries,"
                              "which must be >1")
         if self.settings['save_every'] > self.settings['dtmin']:
@@ -115,6 +123,7 @@ class genericODEIntegratorLoop():
         # a multiple of the loop step size.
         new_save_every = save_every_samples * self.settings['dtmin']
         new_summarise_every = summarise_every_samples
+
         if new_save_every != self.settings['save_every']:
             self.settings['save_every'] = new_save_every
             warn("save_every was set to {new_save_every}s, because it is not a multiple of dtmin ({self.settings['dtmin']}s)."
@@ -124,7 +133,8 @@ class genericODEIntegratorLoop():
             warn("summarise_every was set to {new_summarise_every}s, because it is not a multiple of save_every ({self.settings['save_every']}s)."
                  "summarise_every can only save a value after an integer number of steps in a fixed-step integrator")
 
-        save_state, update_running_summaries, save_summary = system.build_output_functions(self.settings)
+
+
 
         #Pick up here - add temporary summary array (can be length 0) then we can save summaries and outputs in this loop
 
@@ -152,85 +162,22 @@ class genericODEIntegratorLoop():
                       warmup_samples=0):
             """
 
-
-            CUDA memory management notes: This function does not create any new device
-                arrays. Placement of arrays into memory locations should be handled
-                in a higher-level function. This is why there's about a million arguments.
-
-            Arguments:
-                dxdt_func (device function):
-                    A function that modifies an observables and
-                    dxdt array based on a state, parameters, and forcing term. One
-                    step only - this is the gradient function, or transition kernel(?).
-
-                parameters (1d device array (floats)):
-                    Parameters for the dxdt_func. Must correspond element-wise to the
-                    expected values in dxdt_func
-
-                inits (1d device array, (floats)):
-                    initial values for each state variable
-
-                forcing_vec: (1d device array, (floats)):
-                    A forcing function, interpolated to have a step_size (internal,
-                    integrator loop step) resolution. This will loop indefinitely if shorter
-                    than the number of samples requested.
-
-                step_size (float):
-                    The step size for each iteration of the internal integrator loop
-
-                output_length (int):
-                    The number of output samples to run for, duration * output_fs
-
-                filter_coefficients (1d device array, (floats)):
-                    Coefficients for a downsampling filter, for simulations with noise.
-                    Not required for noiseless simulations (just give a vector of 1/save_every),
-                    as no aliasing will occur unless you're sampling well below the speed
-                    of the system dynamics. Should be length save_every.
-
-                state_output (2d device array, (floats)):
-                    Bulk storage for integrator output - should be shape (num_states, output_length)
-
-                output_temp (1d device array, (floats)):
-                    An array to hold running sums of the output states between iterations;
-                    should be stored somewhere fast. Length: nsavedstates.
-
-                saved_states (1d device array, (int)):
-                    Indices of states to save.
-
-                saved_observables (1d device array, (int)):
-                    Indices of obervables to save.
-
-                obervables_temp (1d device array, (floats)):
-                    An array to hold individual samples of observable (auxiliary) variables
-                    between iterations; should be stored somewhere fast.
-
-                observables_output_temp (1d device arrat (float)):
-                    An array to hold running sums of the saved observables between iterations;
-                    should be stored somewhere fast. Length: nsavedobs
-
-                observables_output (2d device array, (floats)):
-                    Bulk storage for observable (auxiliary) variables for output -
-                    should be shape (num_states, output_length)
-
-                save_every (int):
-                    Downsampling rate - number of step_size increments to take before
-                    saving a value.
-
-                warmup_samples (int):
-                    How many output samples to wait (to allow system to settle) before
-                    recording output in precious, precious memory.
-
-            returns:
-                None, modifications are made in-place.
             """
 
             #Allocate state and dxdt a slice of the shared memory slice passed to this thread
-            state = shared_memory[:nstates]
-            dxdt = shared_memory[nstates:2*nstates]
-            observables = shared_memory[2*nstates:2*nstates + nobs]
-            drivers = shared_memory[2*nstates + nobs: 2*nstates + nobs + ndrivers]
-            driver_length = forcing_vec.shape[0]
+            state = shared_memory[:running_index]
+            running_index = int16(nstates)
+            dxdt = shared_memory[running_index:running_index + nstates]
+            running_index += nstates
+            observables = shared_memory[running_index:running_index + nobs]
+            running_index += nobs
+            drivers = shared_memory[running_index: running_index + ndrivers]
+            running_index += ndrivers
+            state_summaries = shared_memory[running_index:running_index + n_saved_states]
+            running_index += n_saved_states
+            observables_summaries = shared_memory[running_index: running_index + n_saved_observables]
 
+            driver_length = forcing_vec.shape[0]
             #Initialise/Assign values to allocated memory
             for i in range(nstates):
                 state[:] = inits[i]
@@ -244,10 +191,10 @@ class genericODEIntegratorLoop():
             # Loop through output samples, one iteration per output sample
             for i in range(warmup_samples + output_length):
 
-                # Euler loop
+                # Euler loop - internal step size <= outout step size
                 for j in range(save_every_samples):
                     for k in range(ndrivers):
-                        drivers[k] = forcing_vec[(i*save_every + j) % driver_length,k]
+                        drivers[k] = forcing_vec[(i*save_every_samples + j) % driver_length,k]
 
                     # Calculate derivative at sample
                     dxdt_func(state,
@@ -264,10 +211,13 @@ class genericODEIntegratorLoop():
                 #Start saving only after warmup period (to get past transient behaviour)
                 if i > (warmup_samples - 1):
 
-                    save_and_update(outputs, observables)
-                    for n in range(n_saved_observables):
-                        observables_output[i-warmup_samples, n] = observables[saved_observables[n]]
+                    save_state_func(state_output, observables_output, state, observables, i - warmup_samples)
+                    update_summary_func(state_summaries, observables_summaries, state, observables,
+                                                i - warmup_samples)
 
+                    if i % summarise_every_samples == 0:
+                        save_summary_func(state_summaries, observables_summaries,
+                                                  state_summaries_output, observables_summaries_output, i)
         self.integratorLoop = euler_loop
 
     def get_shared_memory_required(self, system):
