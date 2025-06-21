@@ -38,4 +38,7 @@ addopts = [
     "--import-mode=importlib",
     "-ra"
 ]
+filterwarnings = [
+    "ignore::numba.core.errors.NumbaPerformanceWarning",
+]
 

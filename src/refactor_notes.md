@@ -13,3 +13,5 @@ bx = cuda.blockIdx.x
 if x == 0 and bx == 0:
     from pdb import set_trace;
     set_trace()
+
+The integrator loops should be built with optional output device functions - for example, we might want to save only a mean, mean error compared to a reference, peak time, etc etc and we shouldn't save the whole dataset for processing if we only want to see features. This looks like a separate file in solvers, integrator_outputs.py.

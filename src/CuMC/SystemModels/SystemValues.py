@@ -1,4 +1,5 @@
 import numpy as np
+from collections.abc import Sized # Workaround just to check if an argument has len()
 
 class SystemValues:
     """ A container for numerical values used to specify ODE systems, such as initial state
@@ -44,10 +45,14 @@ class SystemValues:
         if values_dict is None:
             values_dict = {}
 
+        if np.issubdtype(precision, np.integer) or np.issubdtype(precision, np.floating):
+            self.precision = precision
+        else:
+            raise TypeError(f"precision must be a numpy dtype, you provided a {type(precision)}")
 
-        self.precision = precision
         self.values_array = None
         self.indices_dict = None
+        self.keys_by_index = None
 
         # Instantiate parameters dictionary
         # Handle case where values_dict is a list of strings
@@ -84,13 +89,13 @@ class SystemValues:
         keys = list(self.values_dict.keys())
         self.values_array = np.array([self.values_dict[k] for k in keys], dtype=self.precision)
         self.indices_dict = {k: i for i, k in enumerate(keys)}
+        self.keys_by_index = {i: k for i, k in enumerate(keys)}
 
 
-    def get_param_index(self, parameter_key):
+    def get_index_of_key(self, parameter_key):
         """
-        Retrieve the index (or indices) of the parameter(s) in the values_array.
-        Accepts a single string or a list of strings.
-        Raises KeyErrorif a key is not found.
+        Retrieve the index of a given key in the values_array.
+        Accepts a single string.  Raises KeyError if a key is not found.
         """
         if isinstance(parameter_key, str):
             if parameter_key in self.indices_dict:
@@ -98,58 +103,129 @@ class SystemValues:
             else:
                 raise KeyError(f"'{parameter_key}' not found in this SystemValues object. Double check that you're looking " +
                                f"in the right place (i.e. states, or parameters, or constants)")
-        elif isinstance(parameter_key, (list, tuple)):
-            missing = [k for k in parameter_key if k not in self.indices_dict]
-            if missing:
-                raise KeyError(f"Parameter key(s) {missing} not found in this SystemValues object. Double check that you're looking " +
-                               f"in the right place (i.e. states, or parameters, or constants)")
-            return [self.indices_dict[k] for k in parameter_key]
         else:
-            raise TypeError("parameter_key must be a string or a list/tuple of strings.")
+            raise TypeError(f"parameter_key must be a string, you submitted a {type(parameter_key)}.")
 
-    def print_param_indices(self):
-        """
-        Print each parameter and its index, one per line, for terminal readout.
-        """
-        for key, idx in self.indices_dict.items():
-            print(f"{key}: {idx}")
+    def get_indices(self, keys_or_indices):
+        """ Convert from the many possible forms that a user might specify parameters (str, int, list of either, array of
+         indices) into an array of indices that can be passed to the CUDA functions.
 
-    def get_value(self, key):
+         Arguments:
+            keys_or_indices (Union[str, int, slice, List[Union[str, int]], numpy.ndarray]): Parameter identifiers that can be:
+                - Single string parameter name
+                - Single integer index
+                - Slice object
+                - List of string parameter names
+                - List of integer indices
+                - Numpy array of indices
+            systemvalues_object (SystemValues): Object containing parameter mapping information
+
+         Returns:
+            numpy.ndarray: Array of parameter indices as np.int16 values
+         """
+        if isinstance(keys_or_indices, list):
+            if all(isinstance(item, str) for item in keys_or_indices):
+                # A list of strings
+                indices = np.asarray([self.get_index_of_key(state) for state in keys_or_indices],
+                                   dtype=np.int16)
+            elif all(isinstance(item, int) for item in keys_or_indices):
+                # A list of ints
+                indices = np.asarray(keys_or_indices, dtype=np.int16)
+            else:
+                # List contains mixed types or unsupported types
+                non_str_int_types = [type(item) for item in keys_or_indices if not isinstance(item, (str, int))]
+                if non_str_int_types:
+                    raise TypeError(
+                        f"When specifying a variable to save or modify, you can provide strings that match the labels,"
+                        f" or integers that match the indices - you provided a list containing {non_str_int_types[0]}")
+                else:
+                    raise TypeError(
+                        f"When specifying a variable to save or modify, you can provide a list of strings or a list of integers,"
+                        f" but not a mixed list of both")
+
+        elif isinstance(keys_or_indices, str):
+            # A single string
+            indices = np.asarray([self.get_index_of_key(keys_or_indices)], dtype=np.int16)
+        elif isinstance(keys_or_indices, int):
+            # A single int
+            indices = np.asarray([keys_or_indices], dtype=np.int16)
+
+        elif isinstance(keys_or_indices, slice):
+            # A slice object
+            indices = np.arange(len(self.values_array))[keys_or_indices].astype(np.int16)
+
+        elif isinstance(keys_or_indices, np.ndarray):
+            indices = keys_or_indices.astype(np.int16)
+
+        else:
+            raise TypeError(
+                f"When specifying a variable to save or modify, you can provide strings that match the labels,"
+                f" or integers that match the indices - you provided a {type(keys_or_indices)}")
+
+        if any(index < 0 or index >= len(self.values_array) for index in indices):
+            raise IndexError(
+                f"One or more indices are out of bounds. Valid indices are from 0 to {len(self.values_array) - 1}.")
+
+        return indices
+
+    def get_values(self, keys_or_indices):
         """
         Retrieve the value(s) of the parameter(s) from the values_dict.
-        Accepts a single string or a list of strings.
-        Raises KeyError if a key is not found.
+        Accepts the same range of input types as get_indices:
+        - Single string parameter name
+        - Single integer index
+        - List of string parameter names
+        - List of integer indices
+        - Numpy array of indices
 
         Args:
-            key: string or list of strings
-                The parameter key(s) to retrieve values for
+            keys_or_indices (Union[str, int, List[Union[str, int]], numpy.ndarray]): Parameter identifiers that can be:
+                - Single string parameter name
+                - Single integer index
+                - List of string parameter names
+                - List of integer indices
+                - Numpy array of indices
 
         Returns:
             value: float or list of floats
                 The parameter value(s) requested
 
         Raises:
-            KeyError: If the key is not found in the parameters dictionary
-            TypeError: If the key is not a string or list/tuple of strings
+            KeyError: If a string key is not found in the parameters dictionary
+            IndexError: If an integer index is out of bounds
+            TypeError: If the input type is not supported
         """
-        if isinstance(key, str):
-            if key in self.indices_dict:
-                return self.values_dict.get(key)
-            else:
-                raise KeyError(
-                    f"'{key}' not found in this SystemValues object. Double check that you're looking " +
-                    f"in the right place (i.e. states, or parameters, or constants)")
-        elif isinstance(key, (list, tuple)):
-            missing = [k for k in key if k not in self.indices_dict]
-            if missing:
-                raise KeyError(
-                    f"key(s) {missing} not found in this SystemValues object. Double check that you're looking " +
-                    f"in the right place (i.e. states, or parameters, or constants)")
-            return [self.values_dict.get(k) for k in key]
-        else:
-            raise TypeError("key must be a string or a list/tuple of strings.")
+        indices = self.get_indices(keys_or_indices)
+        if len(indices) == 1:
+            return np.asarray(self.values_array[indices[0]], dtype=self.precision)
+        return np.asarray([self.values_array[index] for index in  indices], dtype=self.precision)
 
-    def set_values_dict(self, values_dict):
+    def set_values(self, keys, values):
+
+        indices = self.get_indices(keys)
+
+        #Checks for mismatches between lengths of indices and values
+        if len(indices) == 1:
+            if isinstance(values, Sized):
+                # Check for one key, multiple values
+                if len(values) != 1:
+                    raise ValueError("The number of indices does not match the number of values provided. ")
+                else:
+                    updates = {self.keys_by_index[indices[0]]: values[0]}
+            else:
+                updates = {self.keys_by_index[indices[0]]: values}
+
+        elif not isinstance(values, Sized):
+            #Check for two keys, one value
+            raise ValueError("The number of indices does not match the number of values provided. ")
+
+        elif len(indices) != len(values):
+            raise ValueError("The number of indices does not match the number of values provided. ")
+        else:
+            updates = {self.keys_by_index[index]: value for index, value in zip(indices, values)}
+        self.update_from_dict(updates)
+
+    def update_from_dict(self, values_dict):
         """
         Update dictionary and values_array with new values
         Updates both the values_dict and the values_array.
@@ -166,11 +242,16 @@ class SystemValues:
             raise KeyError(
                 f"Parameter key(s) {missing} not found in this SystemValues object. Double check that you're looking " +
                 f"in the right place (i.e. states, or parameters, or constants)")
+        if any(np.can_cast(value, self.precision) is False for value in values_dict.values()):
+            raise TypeError(
+                f"One or more values in the provided dictionary cannot be cast to the specified precision {self.precision}. "
+                f"Please ensure all values are compatible with this precision.")
         else:
+            # Update the dictionary
             self.values_dict.update(values_dict)
             # Update the values_array
             for key, value in values_dict.items():
-                index = self.get_param_index(key)
+                index = self.get_index_of_key(key)
                 self.values_array[index] = value
 
     def __getitem__(self, key):
@@ -191,17 +272,7 @@ class SystemValues:
             IndexError: If the integer index is out of bounds
             TypeError: If the key is not a string, integer, or slice
         """
-        if isinstance(key, str):
-            return self.get_value(key)
-        elif isinstance(key, int):
-            if 0 <= key < len(self.values_array):
-                return self.values_array[key]
-            else:
-                raise IndexError(f"Index {key} is out of bounds for values_array with length {len(self.values_array)}")
-        elif isinstance(key, slice):
-            return self.values_array[key]
-        else:
-            raise TypeError("key must be a string, integer, or slice.")
+        return self.get_values(key)
 
     def __setitem__(self, key, value):
         """
@@ -220,39 +291,4 @@ class SystemValues:
             IndexError: If the integer index is out of bounds
             TypeError: If the key is not a string, integer, or slice
         """
-        if isinstance(key, str):
-            self.set_values_dict({key: value})
-        elif isinstance(key, int):
-            if 0 <= key < len(self.values_array):
-                # Update the array
-                self.values_array[key] = value
-                # Find the corresponding key in the dictionary
-                for dict_key, idx in self.indices_dict.items():
-                    if idx == key:
-                        # Update the dictionary
-                        self.values_dict[dict_key] = value
-                        break
-            else:
-                raise IndexError(f"Index {key} is out of bounds for values_array with length {len(self.values_array)}")
-        elif isinstance(key, slice):
-            # Get the indices that would be accessed by this slice
-            indices = list(range(*key.indices(len(self.values_array))))
-
-            # Update the array
-            self.values_array[key] = value
-
-            # Update the corresponding dictionary entries
-            for idx_pos, i in enumerate(indices):
-                for dict_key, idx in self.indices_dict.items():
-                    if idx == i:
-                        # If value is a sequence, use the appropriate element
-                        if hasattr(value, '__len__') and not isinstance(value, (str, dict)):
-                            # Use the position in the indices list, not the actual index value
-                            if idx_pos < len(value):
-                                self.values_dict[dict_key] = value[idx_pos]
-                        else:
-                            # If value is a scalar, use it for all elements
-                            self.values_dict[dict_key] = value
-                        break
-        else:
-            raise TypeError("key must be a string, integer, or slice.")
+        self.set_values(key, value)

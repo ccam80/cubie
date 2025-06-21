@@ -1,265 +1,393 @@
 import pytest
 import numpy as np
+
 from CuMC.SystemModels.SystemValues import SystemValues
 
-def test_systemvalues_init_and_array_dtype():
+def test_init_edge_cases():
+    """Test edge cases for the __init__ method."""
+    # Test with None values_dict
+    precision = np.float32
+    params = SystemValues(None, precision)
+    assert len(params.values_array) == 0
+    assert params.values_dict == {}
+
+    # Test with empty dictionary
+    params = SystemValues({}, precision)
+    assert len(params.values_array) == 0
+    assert params.values_dict == {}
+
+    # Test with list of strings as values_dict
+    params = SystemValues(["x", "y", "z"], precision)
+    assert len(params.values_array) == 3
+    assert params.values_dict == {"x": 0.0, "y": 0.0, "z": 0.0}
+
+    # Test with kwargs
+    params = SystemValues({"a": 1.0}, precision, x=10.0, y=20.0)
+    assert params.values_dict == {"a": 1.0, "x": 10.0, "y": 20.0}
+    assert len(params.values_array) == 3
+
+def test_param_array_and_indices_match_supplied_dict():
+    """Test that param_array and indices dicts match the supplied dictionary after instantiation."""
+    # Test with a simple dictionary
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Check that values_array contains all values from values_dict in the correct order
+    assert len(params.values_array) == len(values_dict)
+    for i, (key, value) in enumerate(values_dict.items()):
+        assert params.indices_dict[key] == i
+        assert params.keys_by_index[i] == key
+        assert params.values_array[i] == value
+
+    # Test with defaults and overrides
     defaults = {"a": 1.0, "b": 2.0}
     values = {"b": 3.0, "c": 4.0}
+    params = SystemValues(values, precision, defaults)
+
+    # Expected combined dictionary
+    expected = {"a": 1.0, "b": 3.0, "c": 4.0}
+
+    # Check that values_array contains all values from the combined dictionary
+    assert len(params.values_array) == len(expected)
+    for key, value in expected.items():
+        index = params.indices_dict[key]
+        assert params.values_array[index] == value
+        assert params.values_dict[key] == value
+        assert params.keys_by_index[index] == key
+
+def test_get_index_of_key():
+    """Test that getting the index of an individual key works."""
+    values_dict = {"foo": 1.0, "bar": 2.0, "baz": 3.0}
     precision = np.float32
-    params = SystemValues(values, defaults, precision)
-    assert params.values_array.dtype == precision
-    # Should be in order: a, b, c
-    assert np.allclose(params.values_array, [1.0, 3.0, 4.0])
+    params = SystemValues(values_dict, precision)
 
-def test_systemvalues_param_indices_order():
-    defaults = {"x": 10, "y": 20}
-    params = SystemValues({}, defaults, np.float64)
-    keys = list(params.values_dict.keys())
-    for k in keys:
-        assert params.values_array[params.indices_dict[k]] == params.values_dict[k]
+    # Test getting index of each key
+    for i, key in enumerate(values_dict.keys()):
+        assert params.get_index_of_key(key) == i
 
-def test_get_param_index_single_and_list():
-    defaults = {"foo": 1, "bar": 2}
-    params = SystemValues({}, defaults, np.float32)
-    idx_foo = params.get_param_index("foo")
-    idx_bar = params.get_param_index("bar")
-    assert params.values_array[idx_foo] == 1
-    assert params.values_array[idx_bar] == 2
-    idxs = params.get_param_index(["foo", "bar"])
-    assert idxs == [idx_foo, idx_bar]
+    # Test KeyError for non-existent key
+    with pytest.raises(KeyError, match="not found in this SystemValues object"):
+        params.get_index_of_key("nonexistent")
 
-def test_get_param_index_keyerror():
-    defaults = {"a": 1}
-    params = SystemValues({}, defaults, np.float32)
-    with pytest.raises(KeyError, match="'b' not found in this SystemValues object"):
-        params.get_param_index("b")
-    with pytest.raises(KeyError, match="Parameter key\\(s\\) \\['b', 'c'\\] not found in this SystemValues object"):
-        params.get_param_index(["a", "b", "c"])
+    # Test TypeError for non-string key
+    with pytest.raises(TypeError, match="parameter_key must be a string"):
+        params.get_index_of_key(123)
 
-def test_get_param_index_typeerror():
-    defaults = {"a": 1}
-    params = SystemValues({}, defaults, np.float32)
+def test_get_indices():
+    """Test that get_indices works as expected for each input type mentioned in the method."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0, "e": 5.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Test with a single string
+    indices = params.get_indices("a")
+    assert np.array_equal(indices, np.asarray([0], dtype=np.int16))
+
+
+    # Test with a list of strings
+    indices = params.get_indices(["a", "c", "e"])
+    assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int16))
+
+    # Test with a single integer
+    indices = params.get_indices(1)
+    assert np.array_equal(indices, np.asarray([1], dtype=np.int16))
+
+    # Test with a list of integers
+    indices = params.get_indices([0, 2, 4])
+    assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int16))
+
+    # Test with a slice
+    indices = params.get_indices(slice(1, 4))
+    assert np.array_equal(indices, np.asarray([1, 2, 3], dtype=np.int16))
+
+    # Test with a numpy array
+    indices = params.get_indices(np.asarray([0, 2, 4]))
+    assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int16))
+
+    # Test error cases
+    with pytest.raises(KeyError, match="not found in this SystemValues object"):
+        params.get_indices("nonexistent")
+
+    with pytest.raises(TypeError, match="you can provide a list of strings or a list of integers"):
+        params.get_indices(["a", 1])
+
+    with pytest.raises(TypeError, match="you can provide strings that match the labels"):
+        params.get_indices(1.5)
+
+def test_get_values_edge_cases():
+    """Test edge cases and error handling for get_values method."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Test with out-of-bounds index
+    with pytest.raises(IndexError):
+        params.get_values(10)
+
+    # Test with invalid type
     with pytest.raises(TypeError):
-        params.get_param_index(123)
+        params.get_values(1.5)
 
-def test_print_param_indices_output(capsys):
-    defaults = {"alpha": 1, "beta": 2}
-    params = SystemValues({}, defaults, np.float32)
-    params.print_param_indices()
-    captured = capsys.readouterr()
-    for k in defaults:
-        assert f"{k}:" in captured.out
+    # Test with complex object
+    with pytest.raises(TypeError):
+        params.get_values(object())
 
-def test_systemvalues_get_value():
-    defaults = {"a": 1.0, "b": 2.0}
-    params = SystemValues({}, defaults, np.float32)
+    # Test with None
+    with pytest.raises(TypeError):
+        params.get_values(None)
 
-    # Test getting a single value
-    assert params.get_value("a") == 1.0
-    assert params.get_value("b") == 2.0
+def test_set_values_edge_cases():
+    """Test edge cases and error handling for set_values method."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
 
-    # Test getting multiple values
-    values = params.get_value(["a", "b"])
-    assert values == [1.0, 2.0]
+    # Test with out-of-bounds index
+    with pytest.raises(IndexError):
+        params.set_values(10, 100.0)
 
-    # Test error on non-existent parameter
-    with pytest.raises(KeyError, match="not found in this SystemValues object"):
-        params.get_value("c")
+    # Test with invalid type
+    with pytest.raises(TypeError):
+        params.set_values(1.5, 100.0)
 
-    # Test error on non-existent parameters in a list
-    with pytest.raises(KeyError, match="not found in this SystemValues object"):
-        params.get_value(["a", "c"])
+    # Test with complex object
+    with pytest.raises(TypeError):
+        params.set_values(object(), 100.0)
 
-def test_systemvalues_set_parameters():
-    defaults = {"a": 1.0, "b": 2.0}
-    params = SystemValues({}, defaults, np.float32)
+    # Test with None
+    with pytest.raises(TypeError):
+        params.set_values(None, 100.0)
 
-    # Test updating a parameter
-    params.set_values_dict({"a": 10.0})
+    # MOre keys than values
+    with pytest.raises(ValueError):
+        params.set_values([1, 2], 100.0)
 
-    # Check that both values_dict and values_array are updated
+    # More values than keys
+    with pytest.raises(ValueError):
+        params.set_values("a", [100.0, 200.0])
+
+    # Test with non-numeric value
+    with pytest.raises(TypeError):
+        params.set_values("a", ["not a number"])
+
+def test_get_values_and_set_values():
+    """Test that get_values and set_values work for all key types."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0, "e": 5.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Test get_values with a string key
+    values = params.get_values("a")
+    assert np.array_equal(values, np.asarray(1.0, dtype=precision))
+
+    # Test get_values with a list of string keys
+    values = params.get_values(["a", "c", "e"])
+    assert np.array_equal(values, np.asarray([1.0, 3.0, 5.0], dtype=precision))
+
+    # Test get_values with an integer key
+    values = params.get_values(1)
+    assert np.array_equal(values, np.asarray(2.0, dtype=precision))
+
+    # Test get_values with a list of integer keys
+    values = params.get_values([0, 2, 4])
+    assert np.array_equal(values, np.asarray([1.0, 3.0, 5.0], dtype=precision))
+
+    # Test get_values with a slice
+    values = params.get_values(slice(1, 4))
+    assert np.array_equal(values, np.asarray([2.0, 3.0, 4.0], dtype=precision))
+
+    # Test set_values with a string key
+    params.set_values("a", 10.0)
     assert params.values_dict["a"] == 10.0
-    a_index = params.get_param_index("a")
-    assert params.values_array[a_index] == 10.0
+    assert params.values_array[0] == 10.0
 
-    # Test updating multiple parameters
-    params.set_values_dict({"a": 15.0, "b": 20.0})
-    assert params.values_dict["a"] == 15.0
+    # Test set_values with a list of string keys
+    params.set_values(["b", "c"], [20.0, 30.0])
     assert params.values_dict["b"] == 20.0
-    a_index = params.get_param_index("a")
-    b_index = params.get_param_index("b")
-    assert params.values_array[a_index] == 15.0
-    assert params.values_array[b_index] == 20.0
+    assert params.values_dict["c"] == 30.0
+    assert params.values_array[1] == 20.0
+    assert params.values_array[2] == 30.0
 
-    # Test error on non-existent parameter
-    with pytest.raises(KeyError):
-        params.set_values_dict({"c": 30.0})
+    # Test set_values with an integer key
+    params.set_values(3, 40.0)
+    assert params.values_dict["d"] == 40.0
+    assert params.values_array[3] == 40.0
 
-def test_update_param_array_and_indices():
-    defaults = {"a": 1.0, "b": 2.0}
-    params = SystemValues({}, defaults, np.float32)
+    # Test set_values with a list of integer keys
+    params.set_values([0, 4], [100.0, 500.0])
+    assert params.values_dict["a"] == 100.0
+    assert params.values_dict["e"] == 500.0
+    assert params.values_array[0] == 100.0
+    assert params.values_array[4] == 500.0
 
-    # Modify the dictionary directly
-    params.values_dict["c"] = 3.0
 
-    # Update the values_array and indices_dict
-    params.update_param_array_and_indices()
+def test_update_from_dict():
+    """Test that update_from_dict works when given a single-item or multi-item dict."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
 
-    # Check that values_array and indices_dict are updated correctly
-    assert "c" in params.indices_dict
-    c_index = params.get_param_index("c")
-    assert params.values_array[c_index] == 3.0
+    # Test with a single-item dict
+    params.update_from_dict({"a": 10.0})
+    assert params.values_dict["a"] == 10.0
+    assert params.values_array[0] == 10.0
+    assert params.values_dict["b"] == 2.0
+    assert params.values_dict["c"] == 3.0
 
-    # Check that the existing values are still correct
-    a_index = params.get_param_index("a")
-    b_index = params.get_param_index("b")
-    assert params.values_array[a_index] == 1.0
-    assert params.values_array[b_index] == 2.0
-
-def test_kwargs_override():
-    defaults = {"a": 1.0, "b": 2.0}
-    values = {"b": 3.0}
-    params = SystemValues(values, defaults, np.float32, a=10.0, c=4.0)
-
-    # Check that kwargs override both defaults and values_dict
-    assert params.values_dict["a"] == 10.0  # Overridden by kwargs
-    assert params.values_dict["b"] == 3.0   # From values_dict
-    assert params.values_dict["c"] == 4.0   # Added by kwargs
-
-def test_list_of_strings_as_values_dict():
-    defaults = {"a": 1.0, "b": 2.0}
-    values = ["c", "d"]  # List of strings
-    params = SystemValues(values, defaults, np.float32)
-
-    # Check that all keys from defaults and values are present
-    assert "a" in params.values_dict
-    assert "b" in params.values_dict
-    assert "c" in params.values_dict
-    assert "d" in params.values_dict
-
-    # Check values
-    assert params.values_dict["a"] == 1.0  # From defaults
-    assert params.values_dict["b"] == 2.0  # From defaults
-    assert params.values_dict["c"] == 0.0  # From list of strings, default value 0.0
-    assert params.values_dict["d"] == 0.0  # From list of strings, default value 0.0
-
-def test_systemvalues_getitem():
-    defaults = {"a": 1.0, "b": 2.0, "c": 3.0}
-    params = SystemValues({}, defaults, np.float32)
-
-    # Test dictionary-like access
-    assert params["a"] == 1.0
-    assert params["b"] == 2.0
-    assert params["c"] == 3.0
-
-    # Test array-like access
-    a_index = params.get_param_index("a")
-    b_index = params.get_param_index("b")
-    c_index = params.get_param_index("c")
-
-    assert params[a_index] == 1.0
-    assert params[b_index] == 2.0
-    assert params[c_index] == 3.0
+    # Test with a multi-item dict
+    params.update_from_dict({"b": 20.0, "c": 30.0})
+    assert params.values_dict["a"] == 10.0
+    assert params.values_dict["b"] == 20.0
+    assert params.values_dict["c"] == 30.0
+    assert params.values_array[0] == 10.0
+    assert params.values_array[1] == 20.0
+    assert params.values_array[2] == 30.0
 
     # Test error on non-existent key
     with pytest.raises(KeyError, match="not found in this SystemValues object"):
-        _ = params["d"]
+        params.update_from_dict({"d": 40.0})
 
-    # Test error on out-of-bounds index
-    with pytest.raises(IndexError, match="out of bounds"):
-        _ = params[len(params.values_array)]
 
-    # Test error on invalid key type
-    with pytest.raises(TypeError, match="key must be a string, integer, or slice"):
-        _ = params[1.5]
+def test_indexing_as_array_or_dict():
+    """Test that we can get and set by indexing the object as either an array or a dict."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0, "e": 5.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
 
-def test_systemvalues_setitem():
-    defaults = {"a": 1.0, "b": 2.0, "c": 3.0}
-    params = SystemValues({}, defaults, np.float32)
+    # Test getting values by string key (dict-like)
+    values_a = params["a"]
+    assert np.array_equal(values_a, np.asarray(1.0, dtype=precision))
 
-    # Test dictionary-like update
+    values_c = params["c"]
+    assert np.array_equal(values_c, np.asarray(3.0, dtype=precision))
+
+    # Test getting values by integer index (array-like)
+    values_0 = params[0]
+    assert np.array_equal(values_0, np.asarray(1.0, dtype=precision))
+
+    values_2 = params[2]
+    assert np.array_equal(values_2, np.asarray(3.0, dtype=precision))
+
+    # Test getting values by slice
+    values = params[1:4]
+    assert np.array_equal(values, np.asarray([2.0, 3.0, 4.0], dtype=precision))
+
+    # Test setting values by string key (dict-like)
     params["a"] = 10.0
     assert params.values_dict["a"] == 10.0
-    a_index = params.get_param_index("a")
-    assert params.values_array[a_index] == 10.0
+    assert params.values_array[0] == 10.0
 
-    # Test array-like update
-    b_index = params.get_param_index("b")
-    params[b_index] = 20.0
-    assert params.values_dict["b"] == 20.0
-    assert params.values_array[b_index] == 20.0
-
-    # Test error on non-existent key
-    with pytest.raises(KeyError, match="not found in this SystemValues object"):
-        params["d"] = 40.0
-
-    # Test error on out-of-bounds index
-    with pytest.raises(IndexError, match="out of bounds"):
-        params[len(params.values_array)] = 50.0
-
-    # Test error on invalid key type
-    with pytest.raises(TypeError, match="key must be a string, integer, or slice"):
-        params[1.5] = 60.0
-
-def test_systemvalues_getitem_slice():
-    defaults = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0, "e": 5.0}
-    params = SystemValues({}, defaults, np.float32)
-
-    # Test slice access
-    slice_values = params[1:4]
-    assert isinstance(slice_values, np.ndarray)
-    assert len(slice_values) == 3
-    assert np.allclose(slice_values, [2.0, 3.0, 4.0])
-
-    # Test slice with step
-    slice_values = params[0:5:2]
-    assert isinstance(slice_values, np.ndarray)
-    assert len(slice_values) == 3
-    assert np.allclose(slice_values, [1.0, 3.0, 5.0])
-
-    # Test slice with negative indices
-    slice_values = params[-3:]
-    assert isinstance(slice_values, np.ndarray)
-    assert len(slice_values) == 3
-    assert np.allclose(slice_values, [3.0, 4.0, 5.0])
-
-def test_systemvalues_setitem_slice():
-    defaults = {"a": 1.0, "b": 2.0, "c": 3.0, "d": 4.0, "e": 5.0}
-    params = SystemValues({}, defaults, np.float32)
-
-    # Test setting a slice with a scalar value
-    params[1:4] = 10.0
-    assert np.allclose(params.values_array[1:4], [10.0, 10.0, 10.0])
-    assert params.values_dict["b"] == 10.0
-    assert params.values_dict["c"] == 10.0
-    assert params.values_dict["d"] == 10.0
-
-    # Reset for next test
-    params = SystemValues({}, defaults, np.float32)
-
-    # Test setting a slice with a sequence value
-    params[1:4] = [20.0, 30.0, 40.0]
-    assert np.allclose(params.values_array[1:4], [20.0, 30.0, 40.0])
-    assert params.values_dict["b"] == 20.0
+    # Test setting values by integer index (array-like)
+    params[2] = 30.0
     assert params.values_dict["c"] == 30.0
+    assert params.values_array[2] == 30.0
+
+    # Test setting values by slice
+    params[3:5] = [40.0, 50.0]
+    assert params.values_dict["d"] == 40.0
+    assert params.values_dict["e"] == 50.0
+    assert params.values_array[3] == 40.0
+    assert params.values_array[4] == 50.0
+
+    # Test error cases
+    with pytest.raises(KeyError, match="not found in this SystemValues object"):
+        params["nonexistent"] = 100.0
+
+    with pytest.raises(IndexError, match="out of bounds"):
+        params[10] = 100.0
+
+
+def test_init_with_invalid_precision():
+    """Test initialization with invalid precision types."""
+    values_dict = {"a": 1.0, "b": 2.0}
+
+    # Test with unsupported precision type
+    with pytest.raises(TypeError):
+        SystemValues(values_dict, str)
+
+
+def test_set_values_with_mismatched_lengths():
+    """Test set_values with mismatched lengths of keys and values."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Test with more keys than values
+    with pytest.raises(ValueError):
+        params.set_values(["a", "b", "c"], [10.0, 20.0])
+
+    # Test with more values than keys
+    with pytest.raises(ValueError):
+        params.set_values(["a", "b"], [10.0, 20.0, 30.0])
+
+
+def test_set_values_with_non_list_values():
+    """Test set_values with non-list values for multiple keys."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Test with non-list value for multiple keys
+    with pytest.raises(ValueError):
+        params.set_values(["a", "b"], 10.0)
+
+
+def test_update_from_dict_with_empty_dict():
+    """Test update_from_dict with empty dictionary."""
+    values_dict = {"a": 1.0, "b": 2.0, "c": 3.0}
+    precision = np.float32
+    params = SystemValues(values_dict, precision)
+
+    # Test with empty dictionary
+    params.update_from_dict({})
+    # Should not change anything
+    assert params.values_dict == values_dict
+    assert np.array_equal(params.values_array, np.asarray([1.0, 2.0, 3.0], dtype=np.float32))
+
+
+def test_init_with_conflicting_keys():
+    """Test initialization with conflicting keys in defaults, values_dict, and kwargs."""
+    defaults = {"a": 1.0, "b": 2.0, "c": 3.0}
+    values_dict = {"b": 20.0, "c": 30.0, "d": 40.0}
+    precision = np.float32
+
+    # Test with conflicting keys in defaults and values_dict
+    params = SystemValues(values_dict, precision, defaults)
+    assert params.values_dict["a"] == 1.0
+    assert params.values_dict["b"] == 20.0  # values_dict overrides defaults
+    assert params.values_dict["c"] == 30.0  # values_dict overrides defaults
     assert params.values_dict["d"] == 40.0
 
-    # Reset for next test
-    params = SystemValues({}, defaults, np.float32)
+    # Test with conflicting keys in defaults, values_dict, and kwargs
+    params = SystemValues(values_dict, precision, defaults, a=10.0, c=300.0)
+    assert params.values_dict["a"] == 10.0  # kwargs override defaults and values_dict
+    assert params.values_dict["b"] == 20.0  # values_dict overrides defaults
+    assert params.values_dict["c"] == 300.0  # kwargs override defaults and values_dict
+    assert params.values_dict["d"] == 40.0
 
-    # Test setting a slice with step
-    params[0:5:2] = [10.0, 30.0, 50.0]
-    assert np.allclose(params.values_array[0:5:2], [10.0, 30.0, 50.0])
-    assert params.values_dict["a"] == 10.0
-    assert params.values_dict["c"] == 30.0
-    assert params.values_dict["e"] == 50.0
 
-    # Reset for next test
-    params = SystemValues({}, defaults, np.float32)
+def test_with_large_dictionary():
+    """Test with a very large dictionary."""
+    # Create a large dictionary with 1000 items
+    large_dict = {f"param_{i}": float(i) for i in range(1000)}
+    precision = np.float32
 
-    # Test setting a slice with a scalar value and step
-    params[0:5:2] = 100.0
-    assert np.allclose(params.values_array[0:5:2], [100.0, 100.0, 100.0])
-    assert params.values_dict["a"] == 100.0
-    assert params.values_dict["c"] == 100.0
-    assert params.values_dict["e"] == 100.0
+    # Test initialization with large dictionary
+    params = SystemValues(large_dict, precision)
+    assert len(params.values_array) == 1000
+    assert len(params.values_dict) == 1000
+    assert len(params.indices_dict) == 1000
+    assert len(params.keys_by_index) == 1000
+
+    # Test get_values with large dictionary
+    values = params.get_values([f"param_{i}" for i in range(0, 1000, 100)])
+    assert len(values) == 10
+    assert values[0] == 0.0
+    assert values[9] == 900.0
+
+    # Test update_from_dict with large update
+    update_dict = {f"param_{i}": float(i * 2) for i in range(500, 1000)}
+    params.update_from_dict(update_dict)
+    assert params.values_dict["param_500"] == 1000.0
+    assert params.values_dict["param_999"] == 1998.0

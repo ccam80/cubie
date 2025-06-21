@@ -14,312 +14,81 @@ if __name__ == "__main__":
 import numpy as np
 from numba import float32, float64, int32, int16, literally
 from numba import cuda, from_dtype
-from CuMC._utils import _convert_to_indices
+from warnings import warn
 
 
-# noinspection PyRedundantParentheses
-class genericODEIntegrator():
-    """ Contains generic implementation of an ODE integrator, including allocation and the inner loop.
-     Allocation might """
+class genericODEIntegratorLoop():
+    """ A parent class for ODE integrator loops. It comprises a factory function for building the inner integrator loop,
+     a function to calculate shared memory requirements, and a function to rebuild when the system changes.
+
+     Specifically, this kernel needs to be rebuilt when there are changes to:
+
+     Lower-level:
+     - The system/problem (number of states, observables, parameters, drivers)
+
+     This-level:
+     - Solver parameters such as step size, output size.
+     - The desired outputs are changed (e.g. save signals, running mean, running max).
+
+     Higher-level:
+     - The saved states and observables (indices of states and observables to save).
+     - xblocksize for the integrator kernel (as this sets the grid dimensions)."""
+
     def __init__(self,
-                 precision,
+                 system,
+                 xblocksize=128,
                  saved_states=None,
-                 saved_observables=None):
-
-        self.precision = precision
-        self.saved_states = saved_states
-        self.saved_observables = saved_observables
-
-    #TODO: force rebuild if system or saved states change
-
-    def get_shared_memory_requirements(self, system):
-        """Overload this function with the number of bytes of shared memory required for a single run of the integrator"""
-        num_states = system.num_states
-        num_obs = system.num_observables
-        num_drivers = system.num_drivers
-        total_numbers = 2*num_states + num_obs + num_drivers
-        return total_numbers*self.precision().itemsize
-
-    def solve_single(self,
-                     system):
-        sharedbytes = self.get_shared_memory_requirements(self,system)
-
-        output_samples = int(duration / save_step)
-        warmup_samples = int(warmup / save_step)
-        pass
-
-    def solve_batch(self):
-        pass
+                 saved_observables=None,
+                 dtmin=0.01,
+                 dtmax=0.1,
+                 save_every=0.1,
+                 summarise_every=1.0,
+                 output_functions=None):
 
 
-    def build_kernel(self,
-                    system,
-                    internal_step_size,
-                    output_step_size,
-                    saved_states=None,
-                    saved_observables=None,
-                    xblocksize=128,
-                    warmup_time=0.0):
+        if output_functions is None:
+            output_functions = ['save_state']
 
-        shared_bytes = self.get_shared_memory_requirements(self,system)
-        numba_precision = from_dtype(self.precision)
-        system.build() #TODO: Check where the system is built - do we need to rebuild here?
+        # Keep parameters not derived from "system" class as a dict, so that a user can rebuild without having to
+        # pass all parameters again.
+        self.settings = {'dtmin': dtmin,
+                         'dtmax': dtmax,
+                         'save_every': save_every,
+                         'summarise_every': summarise_every,
+                         'output_functions': output_functions,
+                         'saved_states': saved_states,
+                         'saved_observables': saved_observables}
 
-        #Convert indices from user-provided form to a CUDA-friendly array
-        if saved_states is not None:
-            saved_states = _convert_to_indices(saved_states, system.states)
+        self.xblocksize = xblocksize
+        self.shared_memory_required = self.get_shared_memory_required(system)
 
-
-
-        if saved_observables is not None:
-            saved_observables = _convert_to_indices(saved_states, system.states)
-
-        self.build_loop(system,
-                        internal_step_size,
-                        output_step_size,
-                        saved_states=saved_states,
-                        saved_observables=saved_observables)
-
-        intfunc = self.integratorLoop
-
-
-        @cuda.jit((numba_precision[:],
-                   numba_precision[:],
-                   numba_precision[:,:],
-                   numba_precision[:,:],
-                   numba_precision[:,:])
-                  )
-        def integration_kernel(inits,
-                            params,
-                            forcing_vector,
-                            output,
-                            observables,
-                            nruns=1,
-                            ):
-            """Master integration kernel - calls integratorLoop and dxdt device functions.
-            Accepts all sets of inits, params, and runs one in each thread.
-
-            TODO: Currently saves forcing vector as a constant array. Consider moving this to a device function, which takes
-            time and thread index as arguments, returning a forcing value.
-            """
-            tx = int16(cuda.threadIdx.x)
-            block_index = int32(cuda.blockIdx.x)
-            run_index = int32(xblocksize * block_index + tx)
-
-            if run_index >= nruns:
-                return None
-
-            # Allocate shared memory for this thread
-            c_forcing_vector = cuda.const.array_like(forcing_vector)
-            shared_memory = cuda.shared.array(0,
-                                              dtype=precision)
-
-            #Get this thread's portions of shared memory, init values, parameters, outputs.
-            tx_shared_memory = shared_memory[tx*shared_bytes:(tx+1)*shared_bytes]
-            rx_inits = inits[run_index,:]
-            rx_params = params[run_index,:]
-            rx_output = output[run_index,:,:] #TODO: Check slice order learnings from last CUDA-fest
-            rx_observables = observables[run_index,:,:]
-
-            intfunc(
-                rx_inits,
-                rx_params,
-                c_forcing_vector,
-                tx_shared_memory,
-                rx_output,
-                rx_observables,
-                output_samples,
-                warmup_samples
-            )
-
-            return None
-
-
-
-
-# @cuda.jit(
-#     # (threeCM_precision[:],
-#     #           threeCM_precision[:],
-#     #           threeCM_precision[:],
-#     #           threeCM_precision,
-#     #           threeCM_precision,
-#     #           int32,
-#     #           )#, keep it lazy for now - pre-compiling caused issues with literals in previous iteration of code
-#              device=True,
-#              inline=True)
-# # TODO: Reorder arguments once list finalised
-# def single_integrator(dxdt_func,
-#                       inits,                     # pass as local array, thread-specific
-#                       parameters,                # pass as local array from batch-organising function. thread-specific
-#                       forcing_vec,               # Forcing vector (repeating) for non-autonomous SystemModels
-#                       duration,                  # pass as device constant?
-#                       step_size,                 # pass as device constant?
-#                       output_fs,                 # pass as device constant?
-#                       saved_state_indices,       # Pass as constant device array
-#                       saved_observable_indices,  # pass as constant device array
-#                       output_array,              # Reference to device array view
-#                       observables_array,         # Reference to device array view
-#                       integrator=euler_run,      # Device function
-#                       save_every = 1,
-#                       warmup_time=0.0):
-#     """
-#
-
-#     """
-#     nsavedstates = len(saved_state_indices)
-#     nsavedobs = len(saved_observable_indices)
-#     nstates = len(inits)
-#
-#     output_samples = int32(round((duration * output_fs)))
-#     warmup_samples = int32(warmup_time * output_fs)
-#     save_every
-#
-#
-#     #Experiment with local vs shared here - reducing local can reduce register dependence,
-#     # (I think), shared is fast but limited. allocation may require globalisation (to allow literalisation)
-#     # of dimensions
-#
-#     dstates_temp = cuda.local.array(
-#         shape=(nstates),
-#         dtype=precision)
-
-
-#
-# @cuda.jit(opt=True, lineinfo=True)  # Lazy compilation allows for literalisation of shared mem params.
-# def single_integrator_kernel(xblocksize,
-#                              system,
-#                              output,
-#                              observables,
-#                              parameters,
-#                              inits,
-#                              step_size,
-#                              duration,
-#                              output_fs,
-#                              filter_coefficients,
-#                              RNG,
-#                              noise_sigmas,
-#                              integrator=euler_run,
-#                              warmup_time = 0):
-#     # All variables prefixed by memory location - l_ local, c_ constant, d_ device, s_ shared.
-#     l_tx = int16(cuda.threadIdx.x)
-#     l_block_index = int32(cuda.blockIdx.x)
-#     l_run_index = int32(xblocksize * l_block_index + l_tx)
-#
-#     # Don't try and do a run that hasn't been requested.
-#     if l_run_index >= 1:
-#         return None
-#
-#     l_step_size = precision(step_size)
-#     l_save_every = int32(round(1 / (output_fs * l_step_size)))
-#     l_output_samples = int32(round((duration / l_step_size) / l_ds_rate))  # samples per output value
-#     l_warmup_samples = int32(warmup_time * output_fs)
-#     l_t = precision(0.0)
-#
-#     #literalise globals used to allocate shared memory
-#     #TODO: Test in which scenarios this is required
-#     litzero = literally(zero)
-#     litstates = literally(nstates)
-#     litparamsslength = literally(nparams)
-#
-#    
-#
-
-#     obs_start = xblocksize * 2 * nstates
-
-#
-#     c_params = cuda.const.array_like(parameters)
-#     c_filtercoefficients = cuda.const.array_like(filter_coefficients)
-#
-#     # Initialise w starting states
-#     for i in range(nstates):
-#         s_state_temp[l_tx * nstates + i] = inits[i]
-#         s_saved_state[l_tx * nstates + i] = precision(0.0)
-#         s_obs_temp[l_tx * nobs + i] = precision(0.0)
-#         s_obs_saved[l_tx * nobs + i] = precision(0.0)
-#
-#     dxdt_func = None
-#     forcing_vec = None
-#     output_samples = None
-#     filtercoeffs =
-#
-#     #Run the integrator
-#     integrator(dxdt_func,
-#                inits,
-#                c_params,
-#                forcing_vec,
-#                step_size,
-#                output_samples,
-#                c_filtercoefficients,
-#                l_dstates_temp,
-#                s_state_temp,
-#                saved_state_indices,
-#                saved_states_temp,
-#                output_array,
-#                saved_observable_indices,
-#                obs_temp,
-#                saved_obs_temp,
-#                observables_array,
-#                precision=precision,
-#                save_every=save_every,
-#                warmup_samples=warmup_samples
-
+        self.build(system,
+                   saved_states,
+                   saved_observables,
+                   )
 
     def build_loop(self,
-                  system,
-                  internal_step_size,
-                  output_step_size,
-                  saved_states=None,
-                  saved_observables=None):
+                  system):
         """Implementation notes:
-        -
-        - To reduce memory requirements, saved states and observables should be
-        passed as function-scope variables (considered global by the device function),
-        so that they're "baked in" to the loop. This might cause issues with repeated
-        compilations when the saved states change, but I think that will happen outside
-        of the time-intensive algorithm, a once-per-run change that won't add significant
-        overhead to the whole process.
 
-        - How far can I push the hard-coding and globalisation of constants?
-            - can I hard-code the whole forcing vector? It's pre-calculated... Fine if forcing is
-            same between threads, but not if it's different for each thread. Perhaps that's acceptable, and we accomodate
-            variable forcing by modifying the system such that it's a state.
-
-        - The memory needs are still high - an inner-loop temp and output array to keep current and running sums,
-        and a bulk output array to write to in the outer loop. Each algorithm function should allocate its own temporary arrays,
-        only taking input and output arrays. HOWEVER this does not allow for access to dynamically allocated shared memory.
-        UNLESS we give information about thread indices etc. so that the function can find the correct slice of shared memory.
-        Should we just pass it a pointer to allocated shared memory, and let it pick it's own slice, or should we pass it a slice
-        address, so that it can ignore whether it's shared or local? Total shared memory allocation must be done by the kernel,
-        we can only pass a reference to this function.
-
-        - Will the storage arrays differ between algorithms? I think an algorithm should work on a dxdt function, and produce
-        output arrays for states and observables only. A Euler integrator will just need one temp dxdt array. An RK4
-        algorithm, depending on whether it's one-step-per-thread or all operations in one thread, will have different
-        memory requirements.
-
-        - Some user control over storage of temp values should be available, as this offers a performance boost for
-        some system sizes.
-
-        -The device function MUST accept varying initial conditions and parameters.
-
-
-        Consider adaptive-step-size requirements - keeping an unspecified number of time steps, modifying the step size if
-        an output sample is requested at that time step. Do we need to allow for full output, or only downsampled/regular?
-
-        When is this compiled? Do we compile the solver once for each run, or in a full monte-carlo simulation, once per monte-carlo?
-        What changes?
-            - Changes in step size require changes in downsampling if filter is used
-            - Changes in selection of saved states and obeservables require reallocation
-            - Changes in system (reallocation of storage arrays)
-            - Changes in sampling freq (simulated or saving) but not duration. this might allow the compiler
-            to optimise e.g. save_every=1
+        TODO: Consider adaptive-step-size requirements - keeping an unspecified number of time steps, modifying the step size if
+            an output sample is requested at that time step. Do we need to allow for full output, or only downsampled/regular?
             """
+        # NOTE: All of this preamble must be in the same function as the loop definition, to get the values into the
+        # global scope from the loop definition's perspective. As such, it will be repeated in different integrator
+        # loop subclasses. This is a necessary evil.
 
         #Parameters to size the arrays in the integrator loop
         nstates = system.num_states
         nobs = system.num_observables
         npar = system.num_parameters
         ndrivers = system.num_drivers
+
+        #Update the loop's memory requirement if the system has changed
+        self.shared_memory_required = self.get_shared_memory_required(system)
+
+        saved_states = self.settings['saved_states']
+        saved_observables = self.settings['saved_observables']
 
         if saved_states is None:
             saved_states = np.arange(nstates, dtype=np.int16)
@@ -330,7 +99,34 @@ class genericODEIntegrator():
         n_saved_observables = len(saved_observables)
 
         precision = system.precision
-        save_every = int32(round(output_step_size / internal_step_size))
+
+        # This will be implementation specific - variable-step algorithms will need to handle it differently.
+        save_every_samples = int32(round(self.settings['save_every'] / self.settings['dtmin']))
+        summarise_every_samples = int32(round(self.settings['summarise_every'] / self.settings['save_every']))
+
+        #samples < 1 won't make much sense.
+        if self.summarise_every_samples <= 1:
+            raise ValueError("summarise_every must be greater than save_every, as it sets the number of saved samples between summaries,"
+                             "which must be >1")
+        if self.settings['save_every'] > self.settings['dtmin']:
+            raise ValueError("save_every must be less than dtmin, as it is the number of loop-steps between saves, which must be >1. ")
+
+        # Update and log the actual save and summary intervals, which will differ from what was ordered if they are not
+        # a multiple of the loop step size.
+        new_save_every = save_every_samples * self.settings['dtmin']
+        new_summarise_every = summarise_every_samples
+        if new_save_every != self.settings['save_every']:
+            self.settings['save_every'] = new_save_every
+            warn("save_every was set to {new_save_every}s, because it is not a multiple of dtmin ({self.settings['dtmin']}s)."
+                 "save_every can only save a value after an integer number of steps in a fixed-step integrator")
+        if new_summarise_every != self.settings['summarise_every']:
+            self.settings['summarise_every'] = new_summarise_every
+            warn("summarise_every was set to {new_summarise_every}s, because it is not a multiple of save_every ({self.settings['save_every']}s)."
+                 "summarise_every can only save a value after an integer number of steps in a fixed-step integrator")
+
+        save_state, update_running_summaries, save_summary = system.build_output_functions(self.settings)
+
+        #Pick up here - add temporary summary array (can be length 0) then we can save summaries and outputs in this loop
 
         dxdt_func = system.dxdtfunc
 
@@ -348,17 +144,14 @@ class genericODEIntegrator():
                      inline=True)
         def euler_loop(inits,
                       parameters,
-                      forcing_vec, # Device array (floats) - constant memory if all-threads, local if per-thread
+                      forcing_vec,
                       shared_memory,
                       state_output,
                       observables_output,
                       output_length,
                       warmup_samples=0):
             """
-            Note to self: This is an attempt to isolate the integrator algorithm from
-            the surrounding solver support, with a view to make it easier to implement
-            other algorithms. Inputs to this function should be problem-independent, and
-            cover as much of the possible algorithms as possible. This might not work.
+
 
             CUDA memory management notes: This function does not create any new device
                 arrays. Placement of arrays into memory locations should be handled
@@ -452,7 +245,7 @@ class genericODEIntegrator():
             for i in range(warmup_samples + output_length):
 
                 # Euler loop
-                for j in range(save_every):
+                for j in range(save_every_samples):
                     for k in range(ndrivers):
                         drivers[k] = forcing_vec[(i*save_every + j) % driver_length,k]
 
@@ -471,13 +264,19 @@ class genericODEIntegrator():
                 #Start saving only after warmup period (to get past transient behaviour)
                 if i > (warmup_samples - 1):
 
-                    for n in range(n_saved_states):
-                        state_output[i-warmup_samples, n] = state[saved_states[n]]
+                    save_and_update(outputs, observables)
                     for n in range(n_saved_observables):
                         observables_output[i-warmup_samples, n] = observables[saved_observables[n]]
 
         self.integratorLoop = euler_loop
 
+    def get_shared_memory_required(self, system):
+        """Overload this function with the number of bytes of shared memory required for a single run of the integrator"""
+        num_states = system.num_states
+        num_obs = system.num_observables
+        num_drivers = system.num_drivers
+        total_items = 2*num_states + num_obs + num_drivers
+        return total_items * system.precision().itemsize
 
 if __name__ == "__main__":
     from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel

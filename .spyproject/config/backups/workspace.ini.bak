@@ -4,7 +4,7 @@ save_data_on_exit = True
 save_history = True
 save_non_project_files = False
 project_type = 'empty-project-type'
-recent_files = ['..\\..\\Users\\cca79\\.spyder-py3\\temp.py', '_utils.py', '\\\\file\\Usersc$\\cca79\\Home\\My Documents\\Work\\PhD\\phd-files\\Particle Filter\\ref\\cuda_reference\\euler.py', '\\\\file\\Usersc$\\cca79\\Home\\My Documents\\Work\\PhD\\phd-files\\Particle Filter\\ref\\cuda_reference\\genericSolver.py']
+recent_files = ['\\\\file\\Usersc$\\cca79\\Home\\My Documents\\Work\\PhD\\phd-files\\Particle Filter\\ref\\cuda_reference\\euler.py']
 
 [main]
 version = 0.2.0

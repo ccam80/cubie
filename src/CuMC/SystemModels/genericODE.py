@@ -59,6 +59,7 @@ class genericODE:
         self.num_parameters = self.parameters.n
         self.num_observables = self.observables.n
         self.num_drivers = num_drivers
+
     def build(self):
         """Compile the dxdt system as a CUDA device function."""
         # Hoist fixed parameters to global namespace
@@ -156,7 +157,7 @@ class genericODE:
 
 
 
-    def get_parameter(self, key):
+    def get_parameters(self, keys):
         """Get a parameter value.
 
         Args:
@@ -165,18 +166,18 @@ class genericODE:
         Returns:
             The parameter value(s)
         """
-        return self.parameters[key]
+        return self.parameters[keys]
 
-    def set_parameter(self, key, value):
+    def set_parameters(self, keys, values):
         """Set a parameter value.
 
         Args:
             key (str, list(str), int, slice): The parameter key(s) to set
             value: The value to set
         """
-        self.parameters[key] = self.precision(value)
+        self.parameters[keys] = values
 
-    def get_initial_value(self, key):
+    def get_initial_values(self, keys):
         """Get an initial value.
 
         Args:
@@ -185,16 +186,16 @@ class genericODE:
         Returns:
             The initial value(s)
         """
-        return self.init_values[key]
+        return self.init_values[keys]
 
-    def set_initial_value(self, key, value):
+    def set_initial_values(self, keys, values):
         """Set an initial value.
 
         Args:
             key (str): The initial value key to set
             value: The value to set
         """
-        self.init_values[key] = self.precision(value)
+        self.init_values[keys] = (values)
 
 
 #******************************* TEST CODE ******************************** #
