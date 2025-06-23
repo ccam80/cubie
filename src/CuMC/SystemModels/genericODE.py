@@ -12,7 +12,7 @@ from numba import cuda, from_dtype
 from CuMC.SystemModels.SystemValues import SystemValues
 
 import numpy as np
-from cupy import asarray
+# from cupy import asarray
 
 
 

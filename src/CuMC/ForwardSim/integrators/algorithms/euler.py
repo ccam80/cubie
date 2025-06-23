@@ -47,26 +47,22 @@ class genericODEIntegratorLoop():
                  output_functions=None):
 
 
-        if output_functions is None:
-            output_functions = ['save_state']
-
         # Keep parameters not derived from "system" class as a dict, so that a user can rebuild without having to
         # pass all parameters again.
         self.settings = {'dtmin': dtmin,
                          'dtmax': dtmax,
                          'save_every': save_every,
                          'summarise_every': summarise_every,
-                         'output_functions': output_functions,
                          'saved_states': saved_states,
-                         'saved_observables': saved_observables}
+                         'saved_observables': saved_observables,
+                         'output_functions': output_functions,
+                         'numpeaks': 0
+                         }
 
         self.xblocksize = xblocksize
         self.shared_memory_required = self.get_shared_memory_required(system)
-
-        self.build(system,
-                   saved_states,
-                   saved_observables,
-                   )
+        self.integratorLoop = None
+        self.build_loop(system)
 
     def build_loop(self,
                   system):
@@ -85,58 +81,70 @@ class genericODEIntegratorLoop():
         npar = system.num_parameters
         ndrivers = system.num_drivers
 
-        #Update the loop's memory requirement if the system has changed
-
-        funcreturn = build_output_functions(self.settings)
-        save_summary_func = funcreturn.save_summary_metrics_func
-        update_summary_func = funcreturn.update_summary_metrics_func
-        save_state_func = funcreturn.save_state_func
-        summary_memory_required = funcreturn.summary_memory_required
-
-        self.shared_memory_required = self.get_shared_memory_required(system) + summary_memory_required
-
         saved_states = self.settings['saved_states']
         saved_observables = self.settings['saved_observables']
 
+
+
+        #If no saved states specified, assume all states are saved.
         if saved_states is None:
             saved_states = np.arange(nstates, dtype=np.int16)
-        if saved_observables is None:
-            saved_observables = np.arange(nobs, dtype=np.int16)
-
         n_saved_states = len(saved_states)
+
+        # On the other hand, if no observables are specified, assume no observables are saved.
+        if saved_observables is None:
+            saved_observables = []
         n_saved_observables = len(saved_observables)
+
+
+        if self.settings['output_functions'] is None:
+            self.settings['output_functions'] = ['state']
+            if n_saved_observables > 0:
+                self.settings['output_functions'].append('observables')
+
+        #Generate output device functions based on requested information
+        funcreturn = build_output_functions(self.settings['output_functions'],
+                                            saved_states,
+                                            saved_observables,
+                                            self.settings['numpeaks'])
+        save_summary_func = funcreturn.save_summary_metrics_func
+        update_summary_func = funcreturn.update_summary_metrics_func
+        save_state_func = funcreturn.save_state_func
+        shared_summary_memory_required = funcreturn.shared_memory_requirements
+        summary_output_length = funcreturn.summary_output_length
+
+        total_summary_shared_memory = shared_summary_memory_required * (n_saved_states + n_saved_observables)
+        self.dynamic_sharedmem = self.get_shared_memory_required(system) + total_summary_shared_memory
 
         precision = system.precision
 
         # This will be implementation specific - variable-step algorithms will need to handle it differently.
-        save_every_samples = int32(round(self.settings['save_every'] / self.settings['dtmin']))
+        internal_step_size = self.settings['dtmin']
+        save_every_samples = int32(round(self.settings['save_every'] / internal_step_size))
         summarise_every_samples = int32(round(self.settings['summarise_every'] / self.settings['save_every']))
+
 
         #samples < 1 won't make much sense.
         if summarise_every_samples <= 1:
             raise ValueError("summarise_every must be greater than save_every, as it sets the number of saved samples between summaries,"
                              "which must be >1")
-        if self.settings['save_every'] > self.settings['dtmin']:
-            raise ValueError("save_every must be less than dtmin, as it is the number of loop-steps between saves, which must be >1. ")
+        if self.settings['save_every'] <= internal_step_size :
+            raise ValueError("save_every must be a longer period than dtmin, as it is the number of loop-steps between saves, which must be >1. ")
 
-        # Update and log the actual save and summary intervals, which will differ from what was ordered if they are not
+        # Update the actual save and summary intervals, which will differ from what was ordered if they are not
         # a multiple of the loop step size.
-        new_save_every = save_every_samples * self.settings['dtmin']
+        new_save_every = save_every_samples * internal_step_size
         new_summarise_every = summarise_every_samples
 
         if new_save_every != self.settings['save_every']:
             self.settings['save_every'] = new_save_every
-            warn("save_every was set to {new_save_every}s, because it is not a multiple of dtmin ({self.settings['dtmin']}s)."
+            warn("save_every was set to {new_save_every}s, because it is not a multiple of dtmin ({internal_step_size}s)."
                  "save_every can only save a value after an integer number of steps in a fixed-step integrator")
         if new_summarise_every != self.settings['summarise_every']:
             self.settings['summarise_every'] = new_summarise_every
             warn("summarise_every was set to {new_summarise_every}s, because it is not a multiple of save_every ({self.settings['save_every']}s)."
                  "summarise_every can only save a value after an integer number of steps in a fixed-step integrator")
 
-
-
-
-        #Pick up here - add temporary summary array (can be length 0) then we can save summaries and outputs in this loop
 
         dxdt_func = system.dxdtfunc
 
@@ -145,6 +153,8 @@ class genericODEIntegratorLoop():
                       precision[:],
                       precision[:,:],
                       precision[:],
+                      precision[:,:],
+                      precision[:,:],
                       precision[:,:],
                       precision[:,:],
                       int32,
@@ -158,6 +168,8 @@ class genericODEIntegratorLoop():
                       shared_memory,
                       state_output,
                       observables_output,
+                      state_summaries_output,
+                      observables_summaries_output,
                       output_length,
                       warmup_samples=0):
             """
@@ -165,19 +177,25 @@ class genericODEIntegratorLoop():
             """
 
             #Allocate state and dxdt a slice of the shared memory slice passed to this thread
-            state = shared_memory[:running_index]
             running_index = int16(nstates)
+            state = shared_memory[:running_index]
             dxdt = shared_memory[running_index:running_index + nstates]
             running_index += nstates
             observables = shared_memory[running_index:running_index + nobs]
             running_index += nobs
             drivers = shared_memory[running_index: running_index + ndrivers]
             running_index += ndrivers
-            state_summaries = shared_memory[running_index:running_index + n_saved_states]
-            running_index += n_saved_states
-            observables_summaries = shared_memory[running_index: running_index + n_saved_observables]
+
+            if summary_output_length > 0:
+                state_summaries = shared_memory[running_index:running_index + n_saved_states]
+                running_index += n_saved_states
+                observables_summaries = shared_memory[running_index: running_index + n_saved_observables]
+            else:
+                state_summaries = shared_memory[running_index:]
+                observables_summaries = shared_memory[running_index:]
 
             driver_length = forcing_vec.shape[0]
+
             #Initialise/Assign values to allocated memory
             for i in range(nstates):
                 state[:] = inits[i]
@@ -218,6 +236,7 @@ class genericODEIntegratorLoop():
                     if i % summarise_every_samples == 0:
                         save_summary_func(state_summaries, observables_summaries,
                                                   state_summaries_output, observables_summaries_output, i)
+
         self.integratorLoop = euler_loop
 
     def get_shared_memory_required(self, system):
@@ -226,7 +245,7 @@ class genericODEIntegratorLoop():
         num_obs = system.num_observables
         num_drivers = system.num_drivers
         total_items = 2*num_states + num_obs + num_drivers
-        return total_items * system.precision().itemsize
+        return total_items * np.ceil(system.precision.bitwidth / 8)
 
 if __name__ == "__main__":
     from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
@@ -237,16 +256,15 @@ if __name__ == "__main__":
 
     internal_step = 0.001
     save_step = 0.01
-    duration = 0.1
+    summarise_step = 0.1
+    duration = 2
     warmup = 0.1
 
     output_samples= int(duration / save_step)
     warmup_samples = int(warmup/save_step)
 
-    integrator = genericODEIntegrator(precision=precision)
-    integrator.build_loop(sys,
-                          internal_step,
-                          save_step)
+    integrator = genericODEIntegratorLoop(sys)
+    integrator.build_loop(sys)
     intfunc = integrator.integratorLoop
 
     @cuda.jit()
@@ -254,7 +272,9 @@ if __name__ == "__main__":
                          params,
                          forcing_vector,
                          output,
-                         observables):
+                         observables,
+                         summary_outputs,
+                         summary_observables):
 
         c_forcing_vector = cuda.const.array_like(forcing_vector)
 
@@ -267,12 +287,17 @@ if __name__ == "__main__":
             shared_memory,
             output,
             observables,
+            summary_outputs,
+            summary_observables,
             output_samples,
             warmup_samples
         )
 
     output = cuda.pinned_array((output_samples,sys.num_states), dtype=precision)
     observables = cuda.pinned_array((output_samples,sys.num_observables), dtype=precision)
+    summary_outputs = cuda.pinned_array((output_samples * np.floor(save_step / internal_step), sys.num_states), dtype=precision)
+    summary_observables = cuda.pinned_array((output_samples, sys.num_observables), dtype=precision)
+
     forcing_vector = cuda.pinned_array((output_samples + warmup_samples, sys.num_drivers), dtype=precision)
 
 
