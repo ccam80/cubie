@@ -151,6 +151,7 @@ def test_input_output():
 def local_maxima(signal: np.ndarray) -> np.ndarray:
     return np.flatnonzero((signal[1:-1] > signal[:-2]) & (signal[1:-1] > signal[2:])) + 1
 
+
 def test_shared_mem_requests_and_summaries():
     """Test that the shared memory requirements reported by build_output_functions are sufficient."""
     precision = np.float32

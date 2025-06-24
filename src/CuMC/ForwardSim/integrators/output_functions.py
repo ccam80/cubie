@@ -147,77 +147,6 @@ def build_output_functions(outputs_list,
                 output_observables_slice[m] = current_observables[saved_observables_local[m]]
 
     @cuda.jit(device=True, inline=True)
-    def update_summary_metrics_individual_array(current_array,
-                                              temp_array,
-                                              selected_indices,
-                                              nitems,
-                                              current_step):
-        """Update requested metrics for a single array of values, e.g. states or observables."""
-        temp_array_index = 0
-
-        for k in range(nitems):
-            if summarise_mean:
-                running_mean(current_array[selected_indices[k]], temp_array, temp_array_index)
-                temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
-            if summarise_peaks:
-                running_peaks(current_array[selected_indices[k]], temp_array, temp_array_index,
-                              current_step, numpeaks)
-                temp_array_index += 3 + numpeaks
-            if summarise_max:
-                running_max(current_array[selected_indices[k]], temp_array, temp_array_index)
-                temp_array_index += 1
-            if summarise_rms:
-                running_rms(current_array[selected_indices[k]], temp_array, temp_array_index, current_step)
-                temp_array_index += 1
-            if temp_array_index > len(temp_array):
-                print("here's your error: update_summary_metrics")
-            # set_trace()
-
-    @cuda.jit(device=True, inline=True)
-    def save_summary_metrics_individual_array(temp_summaries,
-                                              output_summaries,
-                                              nitems,
-                                              summarise_every):
-        output_index = 0
-        temp_index = 0
-
-        for i in range(nitems):
-            # TODO: twiddle the internal layout of temporary array - in this form we cycle first through
-            #  summary types, then states, memory arrangement should replicate this.
-            #  Consider making a sub-function to handle the cases, to reduce code duplication.
-
-            if summarise_mean:
-                output_summaries[output_index] = temp_summaries[temp_index] / summarise_every
-                temp_summaries[temp_index] = 0.0
-                output_index += 1
-                temp_index += 1
-
-            if summarise_peaks:
-                for p in range(numpeaks):
-                    output_summaries[output_index + p] = temp_summaries[temp_index + 3 + p]
-                    temp_summaries[temp_index + 3 + p] = 0.0
-                temp_summaries[temp_index + 2] = 0.0  # Reset peak counter
-                output_index += numpeaks
-                temp_index += 3 + numpeaks
-
-            if summarise_max:
-                output_summaries[output_index] = temp_summaries[temp_index]
-                temp_summaries[temp_index] = 0.0
-                output_index += 1
-                temp_index += 1
-
-            if summarise_rms:
-                output_summaries[output_index] = temp_summaries[temp_index] / summarise_every
-                output_summaries[output_index] = sqrt(output_summaries[output_index])
-                temp_summaries[temp_index] = 0.0
-                output_index += 1
-                temp_index += 1
-            if temp_index > len(temp_summaries):
-                print("here's your error: save_summary_metrics")
-            if output_index > len(output_summaries):
-                print("here's your error: save_summary_metrics output index")
-
-    @cuda.jit(device=True, inline=True)
     def update_summary_metrics_func(current_state,
                                     current_observables,
                                     temp_state_summaries,
@@ -227,21 +156,41 @@ def build_output_functions(outputs_list,
         # TODO: twiddle the internal layout of temporary array - in this form we cycle first through
         #  summary types, then states, memory arrangement should replicate this.
         if summarise:
-            update_summary_metrics_individual_array(current_state,
-                                                    temp_state_summaries,
-                                                    saved_states_local,
-                                                    nstates,
-                                                    current_step)
+
+            temp_array_index = 0
+
+            for k in range(nstates):
+                if summarise_mean:
+                    running_mean(current_state[saved_states_local[k]], temp_state_summaries, temp_array_index)
+                    temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
+                if summarise_peaks:
+                    running_peaks(current_state[saved_states_local[k]], temp_state_summaries, temp_array_index,
+                                  current_step, numpeaks)
+                    temp_array_index += 3 + numpeaks
+                if summarise_max:
+                    running_max(current_state[saved_states_local[k]], temp_state_summaries, temp_array_index)
+                    temp_array_index += 1
+                if summarise_rms:
+                    running_rms(current_state[saved_states_local[k]], temp_state_summaries, temp_array_index, current_step)
+                    temp_array_index += 1
 
             if save_observables:
-                update_summary_metrics_individual_array(current_observables,
-                                                        temp_observable_summaries,
-                                                        saved_observables_local,
-                                                        nobs,
-                                                        current_step)
+                temp_array_index = 0
 
-
-
+                for k in range(nobs):
+                    if summarise_mean:
+                        running_mean(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index)
+                        temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
+                    if summarise_peaks:
+                        running_peaks(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index,
+                                      current_step, numpeaks)
+                        temp_array_index += 3 + numpeaks
+                    if summarise_max:
+                        running_max(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index)
+                        temp_array_index += 1
+                    if summarise_rms:
+                        running_rms(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index, current_step)
+                        temp_array_index += 1
 
     @cuda.jit(device=True, inline=True)
     def save_summary_metrics_func(temp_state_summaries,
@@ -251,16 +200,75 @@ def build_output_functions(outputs_list,
                                 summarise_every):
         """Update the summary metrics based on the current state and observables."""
         if summarise:
-            save_summary_metrics_individual_array(temp_state_summaries,
-                                                  output_state_summaries_slice,
-                                                  nstates,
-                                                  summarise_every)
-            if save_observables:
-                save_summary_metrics_individual_array(temp_observable_summaries,
-                                                      output_observable_summaries_slice,
-                                                      nobs,
-                                                      summarise_every)
+            output_index = 0
+            temp_index = 0
 
+            for i in range(nstates):
+                # TODO: twiddle the internal layout of temporary array - in this form we cycle first through
+                #  summary types, then states, memory arrangement should replicate this.
+                #  Consider making a sub-function to handle the cases, to reduce code duplication.
+
+                if summarise_mean:
+                    output_state_summaries_slice[output_index] = temp_state_summaries[temp_index] / summarise_every
+                    temp_state_summaries[temp_index] = 0.0
+                    output_index += 1
+                    temp_index += 1
+
+                if summarise_peaks:
+                    for p in range(numpeaks):
+                        output_state_summaries_slice[output_index + p] = temp_state_summaries[temp_index + 3 + p]
+                        temp_state_summaries[temp_index + 3 + p] = 0.0
+                    temp_state_summaries[temp_index + 2] = 0.0  # Reset peak counter
+                    output_index += numpeaks
+                    temp_index += 3 + numpeaks
+
+                if summarise_max:
+                    output_state_summaries_slice[output_index] = temp_state_summaries[temp_index]
+                    temp_state_summaries[temp_index] = 0.0
+                    output_index += 1
+                    temp_index += 1
+
+                if summarise_rms:
+                    output_state_summaries_slice[output_index] = temp_state_summaries[temp_index] / summarise_every
+                    output_state_summaries_slice[output_index] = sqrt(output_state_summaries_slice[output_index])
+                    temp_state_summaries[temp_index] = 0.0
+                    output_index += 1
+                    temp_index += 1
+            if save_observables:
+                output_index = 0
+                temp_index = 0
+
+                for i in range(nobs):
+                    # TODO: twiddle the internal layout of temporary array - in this form we cycle first through
+                    #  summary types, then states, memory arrangement should replicate this.
+                    #  Consider making a sub-function to handle the cases, to reduce code duplication.
+
+                    if summarise_mean:
+                        output_observable_summaries_slice[output_index] = temp_observable_summaries[temp_index] / summarise_every
+                        temp_observable_summaries[temp_index] = 0.0
+                        output_index += 1
+                        temp_index += 1
+
+                    if summarise_peaks:
+                        for p in range(numpeaks):
+                            output_observable_summaries_slice[output_index + p] = temp_observable_summaries[temp_index + 3 + p]
+                            temp_observable_summaries[temp_index + 3 + p] = 0.0
+                        temp_observable_summaries[temp_index + 2] = 0.0  # Reset peak counter
+                        output_index += numpeaks
+                        temp_index += 3 + numpeaks
+
+                    if summarise_max:
+                        output_observable_summaries_slice[output_index] = temp_observable_summaries[temp_index]
+                        temp_observable_summaries[temp_index] = 0.0
+                        output_index += 1
+                        temp_index += 1
+
+                    if summarise_rms:
+                        output_observable_summaries_slice[output_index] = temp_observable_summaries[temp_index] / summarise_every
+                        output_observable_summaries_slice[output_index] = sqrt(output_observable_summaries_slice[output_index])
+                        temp_observable_summaries[temp_index] = 0.0
+                        output_index += 1
+                        temp_index += 1
 
     # Return the functions and the shared memory requirements
     funcreturn = OutputFunctions()
