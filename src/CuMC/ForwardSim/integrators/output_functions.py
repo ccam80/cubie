@@ -1,7 +1,7 @@
 if __name__ == "__main__":
     import os
     os.environ["NUMBA_ENABLE_CUDASIM"] = "0"
-    os.environ["NUMBA_CUDA_DEBUGINFO"] = "1"
+    os.environ["NUMBA_CUDA_DEBUGINFO"] = "0"
     os.environ["NUMBA_OPT"] = "0"
 
 from numba import cuda, float64, int32, from_dtype, float32
@@ -155,6 +155,10 @@ def build_output_functions(outputs_list,
         """Update the summary metrics based on the current state and observables."""
         # TODO: twiddle the internal layout of temporary array - in this form we cycle first through
         #  summary types, then states, memory arrangement should replicate this.
+
+        #Efficiency note: this function (and the below) contain duplicated code for each array type. Using a common
+        # function to handle the cases would be more efficient, but numba does not seem to recognise a change in the
+        # compile-time constants nstates/nobs
         if summarise:
 
             temp_array_index = 0
@@ -199,6 +203,9 @@ def build_output_functions(outputs_list,
                                 output_observable_summaries_slice,
                                 summarise_every):
         """Update the summary metrics based on the current state and observables."""
+        # Efficiency note: this function (and the below) contain duplicated code for each array type. Using a common
+        # function to handle the cases would be more efficient, but numba does not seem to recognise a change in the
+        # compile-time constants nstates/nobs. This is probably expected behaviour for numba
         if summarise:
             output_index = 0
             temp_index = 0
@@ -224,7 +231,7 @@ def build_output_functions(outputs_list,
 
                 if summarise_max:
                     output_state_summaries_slice[output_index] = temp_state_summaries[temp_index]
-                    temp_state_summaries[temp_index] = 0.0
+                    temp_state_summaries[temp_index] = -1.0e30 # A very negative number, to allow us to capture max values greater than this
                     output_index += 1
                     temp_index += 1
 
@@ -259,7 +266,7 @@ def build_output_functions(outputs_list,
 
                     if summarise_max:
                         output_observable_summaries_slice[output_index] = temp_observable_summaries[temp_index]
-                        temp_observable_summaries[temp_index] = 0.0
+                        temp_observable_summaries[temp_index] = -1.0e30 # A very negative number, to allow us to capture max values greater than this
                         output_index += 1
                         temp_index += 1
 
