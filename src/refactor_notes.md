@@ -6,12 +6,10 @@ fixed/free parameters.
 
 Having initial values inside the system seems like a big fudge. Why would they be in there? Perhaps they could be in there as defaults only?
 
-Move back to cupy arrays for mem managment help
+Move back to cupy arrays for mem managment help - wait until current cuda version is supported to avoid a massive fartaround with reinstalling.
 
 x = cuda.threadIdx.x
 bx = cuda.blockIdx.x
 if x == 0 and bx == 0:
     from pdb import set_trace;
     set_trace()
-
-The integrator loops should be built with optional output device functions - for example, we might want to save only a mean, mean error compared to a reference, peak time, etc etc and we shouldn't save the whole dataset for processing if we only want to see features. This looks like a separate file in solvers, integrator_outputs.py.

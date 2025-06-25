@@ -54,9 +54,9 @@ class ThreeChamberModel(genericODE):
                  num_drivers = 1, #Number of external "forcing" variables
                  **kwargs):
         super().__init__(initial_values=initial_values,
-                        parameters=parameters, #parameters that can change during simulation
-                        constants=constants, #Parameters that are not expected to change during simulation
-                        observables=observables, #Auxiliary variables you might want to track during simulation
+                        parameters=parameters,
+                        constants=constants,
+                        observables=observables,
                         default_initial_values=default_initial_values,
                         default_parameters=default_parameters,
                         default_constants=default_constants,
@@ -67,7 +67,7 @@ class ThreeChamberModel(genericODE):
     def build(self):
         # Hoist fixed parameters to global namespace
         global global_constants
-        global_constants = self.constants
+        global_constants = self.constants.values_array
 
         @cuda.jit((self.precision[:],
                    self.precision[:],
@@ -151,7 +151,7 @@ class ThreeChamberModel(genericODE):
             dV_v = Q_c - Q_i
 
             # Package values up into output arrays, overwriting for speed.
-            # TODO: Optimisation target. some of these values will go unused, can reduce memory operations by only saving a requested subset.
+            # Optimise: some of these values will go unused, can reduce memory operations by only saving a requested subset.
             observables[0] = P_a
             observables[1] = P_v
             observables[2] = P_h

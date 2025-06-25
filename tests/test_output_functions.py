@@ -127,7 +127,7 @@ def test_input_output():
     saved_states = [0, 1]  # Save both states
     saved_observables = [0]  # Save the one observable
 
-    output_funcs = build_output_functions(outputs_list, saved_states, saved_observables, numpeaks=3)
+    output_funcs = build_output_functions(outputs_list, saved_states, saved_observables, n_peaks=3)
     save_state = output_funcs.save_state_func
     update_summary_metrics = output_funcs.update_summary_metrics_func
     save_summary_metrics = output_funcs.save_summary_metrics_func
@@ -165,7 +165,8 @@ def test_input_output():
                 current_state,
                 current_observable,
                 state_output[i],
-                observable_output[i]
+                observable_output[i],
+                i
             )
 
             update_summary_metrics(
@@ -314,7 +315,12 @@ TEST_CONFIGS = [
     (100, 100, ["state", "observables", "mean"], None, np.float32, 10000, 1000,
      "Very large state and observables, mean only, 32b"),
     (100, 100, ["state", "observables", "peaks"], 20, np.float32, 10000, 1000,
-     "Very large state and observables, many peaks, 32b")
+     "Very large state and observables, many peaks, 32b"),
+
+    (2, 1, ["state", "observables", "time"], None, np.float32, 100, 50,
+     "State, observables and time, 32b"),
+    (3, 2, ["state", "observables", "time", "mean"], None, np.float64, 100, 50,
+     "State, observables, time and mean, 64b"),
 ]
 
 @pytest.mark.parametrize(
@@ -348,7 +354,7 @@ def test_shared_mem(num_states, num_observables, outputs_list, n_peaks, precisio
         expected_observables_out[:, j] = state_input[:, j % num_states] + 1
 
     # Build output functions
-    output_funcs = build_output_functions(outputs_list, saved_states, saved_observables, numpeaks=n_peaks)
+    output_funcs = build_output_functions(outputs_list, saved_states, saved_observables, n_peaks=n_peaks)
 
     # Get shared memory requirements
     shared_mem_required_per_summarised_state = output_funcs.temp_memory_requirements
@@ -359,7 +365,8 @@ def test_shared_mem(num_states, num_observables, outputs_list, n_peaks, precisio
 
 
     # Create output arrays
-    state_output = np.zeros((num_samples, num_states), dtype=precision)
+    has_time = 1 if "time" in outputs_list else 0
+    state_output = np.zeros((num_samples, num_states + has_time), dtype=precision)
     observable_output = np.zeros((num_samples, num_observables), dtype=precision)
 
     # Create arrays for summary metrics
@@ -436,7 +443,8 @@ def test_shared_mem(num_states, num_observables, outputs_list, n_peaks, precisio
                 current_state,
                 current_observable,
                 state_output[i],
-                observable_output[i]
+                observable_output[i],
+                i
             )
 
 
@@ -485,12 +493,21 @@ def test_shared_mem(num_states, num_observables, outputs_list, n_peaks, precisio
     del update_summary_metrics
     del save_summary_metrics
     # Assert that state values were saved correctly
-    assert_allclose(state_input, state_output, atol=1e-07, rtol=1e-07,
-                    err_msg="State values were not saved correctly")
+
 
     # Assert that observable values were saved correctly
     assert_allclose(expected_observables_out, observable_output, atol=1e-07, rtol=1e-07,
                     err_msg= "Observable values were not saved correctly")
+
+    if "time" in outputs_list:
+        expected_time = np.arange(num_samples, dtype=precision)
+        assert_allclose(state_output[:, -1], expected_time, atol=1e-07, rtol=1e-07,
+                        err_msg="Time values were not saved correctly")
+        assert_allclose(state_output[:,:-1], state_input, atol=1e-07, rtol=1e-07,
+                        err_msg="State values were not saved correctly")
+    else:
+        assert_allclose(state_input, state_output, atol=1e-07, rtol=1e-07,
+                        err_msg="State values were not saved correctly")
 
     # Assert that summary metrics were calculated correctly
     if any(summary in outputs_list for summary in ["mean", "max", "rms", "peaks"]):

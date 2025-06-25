@@ -28,11 +28,14 @@ class OutputFunctions:
     shared_memory_requirements: int = 0,
     summary_output_length: int = 0
 
+#feature: max absolute
+#feature: running std deviation
 
 @dataclass
 class Flags:
     save_state: bool = False
     save_observables: bool = False
+    save_time: bool = False
     summarise_mean: bool = False          # extend with more toggles as needed
     summarise_max: bool = False
     summarise_peaks: bool = False
@@ -43,6 +46,7 @@ class Flags:
 _TOKENS_TO_COMPILE_FLAGS = {
     "state":   "save_state",
     "observables": "save_observables",
+    "time":    "save_time",
     "peaks":  "summarise_peaks",
     "mean":   "summarise_mean",
     "rms": "summarise_rms",
@@ -57,6 +61,7 @@ class _TempMemoryRequirements(dict):
         super().__init__({
             "state": 0,
             "observables": 0,
+            "time": 0,
             "mean": 1,
             "peaks": 3 + num_peaks,   # prev + prev_prev + peak_counter
             "rms": 1,
@@ -71,6 +76,7 @@ class _OutputMemoryRequirements(dict):
         super().__init__({
             "state": 0,
             "observables": 0,
+            "time": 0,
             "mean": 1,
             "peaks": num_peaks,
             "rms": 1,
@@ -92,7 +98,7 @@ def parse_flags(tokens: list[str]) -> "Flags":
 def build_output_functions(outputs_list,
                           saved_states, # Ensure this has been set to the full range (handle None case before it gets  here)
                           saved_observables,
-                          numpeaks=None):
+                          n_peaks=None):
     """Compile three functions: Save state, update summary metrics,and save summaries.
 
     Save state is called once per "save_every" loop steps, at the output frequency of the integrator.
@@ -105,8 +111,7 @@ def build_output_functions(outputs_list,
     Save summary metrics is called once per "summarise_every" loop steps, usually at a much higher frequency
     than the time-domain integrator output. This saves the running summary in the temp/working array to an output array.
     """
-    # Possibly unnecessary: Assign function-local variables to ensure they appear in the compiled function's global scope
-    # and so "baked into" the compiled function.
+
     if outputs_list is None:
         flags = Flags()
         flags.save_state = True
@@ -115,6 +120,7 @@ def build_output_functions(outputs_list,
 
     save_state = flags.save_state
     save_observables = flags.save_observables
+    save_time = flags.save_time
     summarise = flags.summarise
     summarise_mean = flags.summarise_mean
     summarise_max = flags.summarise_max
@@ -126,17 +132,18 @@ def build_output_functions(outputs_list,
 
     nstates = len(saved_states)
     nobs = len(saved_observables)
-    numpeaks = numpeaks if numpeaks is not None else 0
+    n_peaks = n_peaks if n_peaks is not None else 0
 
     #Return memory per-state so that the number can be used to allocate separate arrays for each of state, observables.
-    temporary_requirements = sum([_TempMemoryRequirements(numpeaks)[output_type] for output_type in outputs_list])
-    output_requirements = sum([_OutputMemoryRequirements(numpeaks)[output_type] for output_type in outputs_list])
+    temporary_requirements = sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
+    output_requirements = sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
 
     @cuda.jit(device=True, inline=True)
     def save_state_func(current_state,
                         current_observables,
                         output_states_slice,
-                        output_observables_slice):
+                        output_observables_slice,
+                        current_step):
         """Save the current state at the specified index."""
         if save_state:
             for k in range(nstates):
@@ -145,6 +152,10 @@ def build_output_functions(outputs_list,
         if save_observables:
             for m in range(nobs):
                 output_observables_slice[m] = current_observables[saved_observables_local[m]]
+
+        if save_time:
+            # Append time at the end of the state output
+            output_states_slice[nstates] = current_step
 
     @cuda.jit(device=True, inline=True)
     def update_summary_metrics_func(current_state,
@@ -169,8 +180,8 @@ def build_output_functions(outputs_list,
                     temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
                 if summarise_peaks:
                     running_peaks(current_state[saved_states_local[k]], temp_state_summaries, temp_array_index,
-                                  current_step, numpeaks)
-                    temp_array_index += 3 + numpeaks
+                                  current_step, n_peaks)
+                    temp_array_index += 3 + n_peaks
                 if summarise_max:
                     running_max(current_state[saved_states_local[k]], temp_state_summaries, temp_array_index)
                     temp_array_index += 1
@@ -187,8 +198,8 @@ def build_output_functions(outputs_list,
                         temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
                     if summarise_peaks:
                         running_peaks(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index,
-                                      current_step, numpeaks)
-                        temp_array_index += 3 + numpeaks
+                                      current_step, n_peaks)
+                        temp_array_index += 3 + n_peaks
                     if summarise_max:
                         running_max(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index)
                         temp_array_index += 1
@@ -222,12 +233,12 @@ def build_output_functions(outputs_list,
                     temp_index += 1
 
                 if summarise_peaks:
-                    for p in range(numpeaks):
+                    for p in range(n_peaks):
                         output_state_summaries_slice[output_index + p] = temp_state_summaries[temp_index + 3 + p]
                         temp_state_summaries[temp_index + 3 + p] = 0.0
                     temp_state_summaries[temp_index + 2] = 0.0  # Reset peak counter
-                    output_index += numpeaks
-                    temp_index += 3 + numpeaks
+                    output_index += n_peaks
+                    temp_index += 3 + n_peaks
 
                 if summarise_max:
                     output_state_summaries_slice[output_index] = temp_state_summaries[temp_index]
@@ -257,12 +268,12 @@ def build_output_functions(outputs_list,
                         temp_index += 1
 
                     if summarise_peaks:
-                        for p in range(numpeaks):
+                        for p in range(n_peaks):
                             output_observable_summaries_slice[output_index + p] = temp_observable_summaries[temp_index + 3 + p]
                             temp_observable_summaries[temp_index + 3 + p] = 0.0
                         temp_observable_summaries[temp_index + 2] = 0.0  # Reset peak counter
-                        output_index += numpeaks
-                        temp_index += 3 + numpeaks
+                        output_index += n_peaks
+                        temp_index += 3 + n_peaks
 
                     if summarise_max:
                         output_observable_summaries_slice[output_index] = temp_observable_summaries[temp_index]
