@@ -1,9 +1,7 @@
 import numpy as np
 
-def test_DummyModel():
-    # placeholder for testing compile and return with real tests for threeCM module
-    assert True
 
+#TODO: sort these tests into a better structure, with separate tests for each situation. Paramaterise.
 def test_genericODE_getters_setters():
     """Test the getter and setter methods for parameters and initial values in genericODE."""
     from CuMC.SystemModels.genericODE import genericODE

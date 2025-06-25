@@ -163,7 +163,8 @@ class GenericIntegratorAlgorithm:
             for i in range(output_length):
                 for j in range(output_shape[1]):
                     state_output[i, j] = inits[j]
-                    observables_output[i, j] = inits[j]
+                for j in range(observables_output.shape[1]):
+                    observables_output[i, j] = inits[j%len(inits)]
 
 
 
@@ -174,6 +175,8 @@ class GenericIntegratorAlgorithm:
         Calculate the number of items in shared memory required for the loop.
         The euler loop, for example, requires two arrays of size n_states for the state and dxdt,
         one for the current observables, and one for the drivers.
+
+        Dummy returns the number of states as a placeholder.
         """
         # Euler example:
         # n_states = self.loop_parameters['n_states']
@@ -182,7 +185,7 @@ class GenericIntegratorAlgorithm:
         #
         #
         # return n_states*2 + n_obs + n_drivers
-        return 0
+        return self.loop_parameters['n_states']
 
     def rebuild(self, **kwargs):
         """
@@ -199,7 +202,7 @@ class GenericIntegratorAlgorithm:
                 if self.functions[key] != value:
                     self.functions[key] = value
             else:
-                warn(f"Keyerror: the parameter {key} was not found in the ODE algorithms dictionary"
+                warn(f"The parameter {key} was not found in the ODE algorithms dictionary"
                      "of parameters")
 
         # Rebuild the loop function

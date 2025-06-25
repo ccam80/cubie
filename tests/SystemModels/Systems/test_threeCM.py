@@ -5,6 +5,7 @@ from numba import from_dtype
 
 from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
 
+#todo: add a fixture for testing models. Add model-specifict fixture here, and the kernel in conftest.py
 def test_dxdt_function_compiles():
     """Test that the dxdt function compiles using CUDA."""
     # Create a ThreeChamberModel instance with float32 precision

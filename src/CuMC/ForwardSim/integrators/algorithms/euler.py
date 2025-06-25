@@ -188,13 +188,14 @@ class Euler(GenericIntegratorAlgorithm):
         summarise_every_samples = int32(round(dt_summarise / dt_save))
 
         # summarise every < 1 won't make much sense.
+        if dt_save < dt_min:
+            raise ValueError(
+                "dt_save must be a longer period than dtmin, as it sets the number of loop-steps between saves, which must be >=1. ")
         if summarise_every_samples <= 1:
             raise ValueError(
                 "dt_summarise must be greater than dt_save, as it sets the number of saved samples between summaries,"
                 "which must be >1")
-        if dt_save < dt_min:
-            raise ValueError(
-                "dt_save must be a longer period than dtmin, as it sets the number of loop-steps between saves, which must be >=1. ")
+
 
         # Update the actual save and summary intervals, which will differ from what was ordered if they are not
         # a multiple of the loop step size.
@@ -204,14 +205,14 @@ class Euler(GenericIntegratorAlgorithm):
             self.loop_parameters['dt_save'] = new_dt_save
             warn(
                 f"dt_save was set to {new_dt_save}s, because it is not a multiple of dtmin ({dt_min}s)."
-                f"dt_save can only save a value after an integer number of steps in a fixed-step integrator")
+                f"dt_save can only save a value after an integer number of steps in a fixed-step integrator", UserWarning)
 
         new_dt_summarise = summarise_every_samples * dt_save
         if new_dt_summarise != dt_summarise:
             self.loop_parameters['dt_summarise'] = new_dt_summarise
             warn(
-                f"dt_summarise was set to {new_dt_summarise / dt_save}s, because it is not a multiple of dt_save ({dt_save}s)."
-                f"dt_summarise can only save a value after an integer number of steps in a fixed-step integrator")
+                f"dt_summarise was set to {new_dt_summarise}s, because it is not a multiple of dt_save ({dt_save}s)."
+                f"dt_summarise can only save a value after an integer number of steps in a fixed-step integrator", UserWarning)
 
         return save_every_samples, summarise_every_samples, dt_min
 

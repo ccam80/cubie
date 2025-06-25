@@ -21,7 +21,7 @@ from CuMC.ForwardSim.integrators.algorithms import Euler
 _INTEGRATION_ALGORITHMS = {"euler": Euler}
 
 
-class ODEIntegratorLoop():
+class ODEIntegratorLoop:
     """ Creates and builds a device function for a CUDA ODE integration. Interprets user-space compile_settings in terms of
     times, system parameters, and desired outputs, and translates them into CUDA-space parameters for configuring and
     compiling the per-thread device function. Does not handle the dividing of batch runs into threads; this is handled
@@ -74,7 +74,7 @@ class ODEIntegratorLoop():
                                  }
 
         self.xblocksize = xblocksize
-        self.integrator_kernel = None
+        self.integrator_algorithm = None
         self.summary_shared_memory = 0
         self.dynamic_sharedmem = 0
         self.algorithm = algorithm
@@ -153,29 +153,29 @@ class ODEIntegratorLoop():
 
         dxdt_func = system.dxdtfunc
 
-        self.integrator_kernel = self.build_integrator_kernel(precision,
-                                                              dxdt_func,
-                                                              n_states,
-                                                              n_obs,
-                                                              n_par,
-                                                              n_drivers,
-                                                              self.compile_settings['dtmin'],
-                                                              self.compile_settings['dtmax'],
-                                                              self.compile_settings['dt_save'],
-                                                              self.compile_settings['dt_summarise'],
-                                                              self.compile_settings['atol'],
-                                                              self.compile_settings['rtol'],
-                                                              save_state,
-                                                              update_summaries,
-                                                              save_summaries,
-                                                              n_saved_states,
-                                                              n_saved_observables,
-                                                              summary_temp_memory)
+        self.integrator_algorithm = self.build_integrator_algorithm(precision,
+                                                                      dxdt_func,
+                                                                      n_states,
+                                                                      n_obs,
+                                                                      n_par,
+                                                                      n_drivers,
+                                                                      self.compile_settings['dtmin'],
+                                                                      self.compile_settings['dtmax'],
+                                                                      self.compile_settings['dt_save'],
+                                                                      self.compile_settings['dt_summarise'],
+                                                                      self.compile_settings['atol'],
+                                                                      self.compile_settings['rtol'],
+                                                                      save_state,
+                                                                      update_summaries,
+                                                                      save_summaries,
+                                                                      n_saved_states,
+                                                                      n_saved_observables,
+                                                                      summary_temp_memory)
 
         self.update_dynamic_shared_memory(system)
 
 
-    def build_integrator_kernel(self,
+    def build_integrator_algorithm(self,
                                 precision,
                                 dxdt_func,
                                 n_states,
@@ -219,10 +219,14 @@ class ODEIntegratorLoop():
     def update_dynamic_shared_memory(self, system):
         """Overload this function with the number of bytes of shared memory required for a single run of the integrator"""
         datasize = np.ceil(system.precision.bitwidth / 8)
-        loop_items = self.integrator_kernel.algo_shared_memory_items
+        loop_items = self.integrator_algorithm.calculate_shared_memory()
         summary_items = self.summary_shared_memory
-        #fixme: get these memory items through "getters"
         self.dynamic_sharedmem = int(np.ceil((loop_items + summary_items) * datasize))
+
+        return self.dynamic_sharedmem
+
+    def get_dynamic_shared_memory_per_thread(self):
+        """Returns the number of bytes of shared memory required for a single thread."""
         return self.dynamic_sharedmem
 
 if __name__ == "__main__":
@@ -254,7 +258,7 @@ if __name__ == "__main__":
                                  output_functions=["state","observables", "max"])
 
     integrator.build(sys)
-    intfunc = integrator.integrator_kernel.loop_function
+    intfunc = integrator.integrator_algorithm.loop_function
 
     @cuda.jit()
     def loop_test_kernel(inits,

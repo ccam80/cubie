@@ -1,3 +1,4 @@
-# Add shared fixtures for e.g. cuda kernels & device functions
-import warnings
-from numba.core.errors import NumbaPerformanceWarning
+import pytest
+from CuMC.SystemModels.Systems.decays import Decays
+
+#Bring in test kernels for systems, integrator loops, integrators. Create these as fixtures, and also expected results generators.
