@@ -1,7 +1,7 @@
 from warnings import warn
 from numba import cuda, int32
 from numba.parfors.parfor import dummy_return_in_loop_body
-
+from CuMC._utils import _update_dicts_from_kwargs
 
 class GenericIntegratorAlgorithm:
     """
@@ -194,16 +194,8 @@ class GenericIntegratorAlgorithm:
         Checks internal dictionaries, and if parameters have changed, rebuilds the loop.
         """
         # Check if any of the kwargs keys are in loop_parameters
-        for key, value in kwargs.items():
-            if key in self.loop_parameters:
-                if self.loop_parameters[key] != value:
-                    self.loop_parameters[key] = value
-            elif key in self.functions:
-                if self.functions[key] != value:
-                    self.functions[key] = value
-            else:
-                warn(f"The parameter {key} was not found in the ODE algorithms dictionary"
-                     "of parameters")
+
+        _update_dicts_from_kwargs([self.loop_parameters, self.functions], **kwargs)
 
         # Rebuild the loop function
         self.build()

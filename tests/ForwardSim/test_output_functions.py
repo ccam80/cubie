@@ -223,6 +223,7 @@ def test_input_output():
 
 def local_maxima(signal: np.ndarray) -> np.ndarray:
     return np.flatnonzero((signal[1:-1] > signal[:-2]) & (signal[1:-1] > signal[2:])) + 1
+
 TEST_CONFIGS = [
     # Basic state and observables tests with different precisions
     (2, 1, ["state", "observables"], None, np.float32, 100, 50, "State and observables, 32b, small and short"),

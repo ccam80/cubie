@@ -5,12 +5,12 @@ from numba import from_dtype
 
 from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
 
-#todo: add a fixture for testing models. Add model-specifict fixture here, and the kernel in conftest.py
-def test_dxdt_function_compiles():
+@pytest.fixture(scope="module")
+def build_tester_kernel(precision, system):
     """Test that the dxdt function compiles using CUDA."""
-    # Create a ThreeChamberModel instance with float32 precision
+
     precision = np.float32
-    sys = ThreeChamberModel(precision=precision)
+    sys = system(precision=precision)
     sys.build()
 
     # Get the dxdt function
@@ -24,7 +24,7 @@ def test_dxdt_function_compiles():
 
     # Define a CUDA kernel to test the dxdt function
     @cuda.jit()
-    def test_kernel(outarray, d_inits, parameters, driver):
+    def test_kernel(outarray, input, parameters, driver):
         l_dxdt = cuda.local.array(shape=(nstates), dtype=numba_precision)
         l_states = cuda.local.array(shape=(nstates), dtype=numba_precision)
         l_parameters = cuda.local.array(shape=(npar), dtype=numba_precision)
@@ -35,7 +35,7 @@ def test_dxdt_function_compiles():
         for i in range(npar):
             l_parameters[i] = parameters[i]
         for i in range(nstates):
-            l_states[i] = d_inits[i]
+            l_states[i] = input[i]
 
         # Set driver value
         l_driver[0] = driver[0]
@@ -48,79 +48,53 @@ def test_dxdt_function_compiles():
         for i in range(nstates):
             outarray[i] = l_dxdt[i]
 
+    return test_kernel
+
+@pytest.fixture(scope="module")
+def get_dxdt_output(precision, system, input, parameters, driver, build_tester_kernel):
+    """Run the dxdt function and return the output."""
     # Prepare data for the kernel
-    outtest = np.zeros(sys.num_states, dtype=precision)
-    out = cuda.to_device(outtest)
-    params = cuda.to_device(sys.parameters.values_array)
-    inits = cuda.to_device(sys.init_values.values_array)
-    driver = cuda.to_device([precision(1.0)])
-
-    # Run the kernel
-    test_kernel[1, 1](out, inits, params, driver)
-    cuda.synchronize()
-
-    # If we get here without errors, the function compiled successfully
-    assert True
-
-def test_dxdt_returns_zero_with_zero_inputs():
-    """Test that the dxdt function returns zeros when given zero inputs."""
-    # Create a ThreeChamberModel instance with float32 precision
-    precision = np.float32
-    sys = ThreeChamberModel(precision=precision)
-    sys.build()
-
-    # Get the dxdt function
-    dxdtfunc = sys.dxdtfunc
-    numba_precision = from_dtype(precision)
-
-    # Get dimensions
-    nstates = sys.num_states
-    npar = sys.num_parameters
-    nobs = sys.num_observables
-
-    # Define a CUDA kernel to test the dxdt function with zero inputs
-    @cuda.jit()
-    def test_kernel_zeros(outarray):
-        l_dxdt = cuda.local.array(shape=(nstates), dtype=numba_precision)
-        l_states = cuda.local.array(shape=(nstates), dtype=numba_precision)
-        l_parameters = cuda.local.array(shape=(npar), dtype=numba_precision)
-        l_observables = cuda.local.array(shape=(nobs), dtype=numba_precision)
-        l_driver = cuda.local.array(shape=(1), dtype=numba_precision)
-
-        # Set all inputs to zero
-        for i in range(npar):
-            l_parameters[i] = precision(0.0)
-        for i in range(nstates):
-            l_states[i] = precision(0.0)
-
-        l_driver[0] = precision(0.0)
-        l_dxdt[:] = precision(0.0)
-
-        # Call the dxdt function
-        dxdtfunc(l_states, l_parameters, l_driver, l_observables, l_dxdt)
-
-        # Copy results back to output array
-        for i in range(nstates):
-            outarray[i] = l_dxdt[i]
-
-    # Prepare data for the kernel
-    outtest = np.zeros(sys.num_states, dtype=precision)
+    n_states = system.num_states
+    outtest = np.zeros(n_states, dtype=precision)
     out = cuda.to_device(outtest)
 
     # Run the kernel
-    test_kernel_zeros[1, 1](out)
+    build_tester_kernel[1, 1](out, input, parameters, driver)
     cuda.synchronize()
 
     # Copy results back to host
     out.copy_to_host(outtest)
 
-    # Check that all outputs are zero or NaN
-    # When parameters are zero, some calculations might result in NaN
-    # We'll check each element individually
-    for i in range(len(outtest)):
-        assert np.isclose(outtest[i], 0.0) or np.isnan(outtest[i])
+    return outtest
 
-def test_dxdt_returns_correct_values():
+@pytest.fixture(scope="module")
+def correct_answer(input):
+
+
+def test_threecm_dxdt_compiles(build_tester_kernel):
+    """Test that the dxdt function compiles using CUDA."""
+    # Prepare dummy input data
+    precision = np.float32
+
+    # Run the kernel to test compilation
+    build_tester_kernel[1, 1](cuda.to_device(np.zeros(n_states, dtype=precision)),
+                              cuda.to_device(input),
+                              cuda.to_device(parameters),
+                              cuda.to_device(driver))
+
+
+def test_dxdt_returns_zero_with_zero_inputs():
+    """Test that the dxdt function returns zeros when given zero inputs."""
+    # Create a ThreeChamberModel instance with float32 precision
+
+def test_dxdt_returns_correct_values(get_dxdt_output):
+    """Test that the dxdt function returns correct values for specific inputs."""
+    # Get the output from the fixture
+    outtest = get_dxdt_output
+
+    # Check that outputs are not all zero (since we're using non-zero inputs)
+    assert not np.allclose(outtest, np.zeros_like(outtest))
+):
     """Test that the dxdt function returns correct values for specific inputs."""
     # Create a ThreeChamberModel instance with float32 precision
     precision = np.float32

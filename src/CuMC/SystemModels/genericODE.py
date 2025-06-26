@@ -12,11 +12,15 @@ from numba import cuda, from_dtype
 from CuMC.SystemModels.SystemValues import SystemValues
 
 import numpy as np
+
 # from cupy import asarray
 
 
-
-
+#TODO: Rethink this default values idea - the possible values should definitely be defined in this file, but how?
+# default_initial_values = {'x0': 1.0}
+# default_parameters = {'p0': 2.0}
+# default_constants = {'c0': 0.0}
+# default_observables = {'o0'}
 
 
 class genericODE:
@@ -54,105 +58,92 @@ class genericODE:
         self.observables = SystemValues(observables, precision)
         self.constants = SystemValues(constants, precision, default_constants)
         self.precision = from_dtype(precision)
+        self.dxdtfunc = None
 
         self.num_states = self.init_values.n
         self.num_parameters = self.parameters.n
         self.num_observables = self.observables.n
         self.num_drivers = num_drivers
+        self.num_constants = self.constants.n
+
+        self.needs_compilation = True  #Set to false when system is updated, so that an out-of-date system isn't used
 
     def build(self):
         """Compile the dxdt system as a CUDA device function."""
         # Hoist fixed parameters to global namespace
-        global global_constants
-        global_constants = self.constants
+        if not self.needs_compilation:
+            return self.dxdtfunc
+        else:
+            # get loop-length parameters as local variables so they are treated as compile-time constants - the compiler
+            # can't handle any references to self.
+            global constants
+            constants = self.constants.values_array # this isn't being treated as known at compile time.
+            n_params = self.num_parameters
+            n_states = self.num_states
+            n_obs = self.num_observables
+            n_constants = self.num_constants
+            n_drivers = self.num_drivers
+            precision = self.precision
 
-        #TODO: overwrite with a simpler example model.
-        @cuda.jit(
-            (self.precision[:],
-                   self.precision[:],
-                   self.precision[:],
-                   self.precision[:],
-                   self.precision[:]),
-                  device=True,
-                  inline=True)
-        def your_model_name_dxdt(state,
+            @cuda.jit(
+                (self.precision[:],
+                       self.precision[:],
+                       self.precision[:],
+                       self.precision[:],
+                       self.precision[:]),
+                         device=True,
+                        inline=True)
+            def dummy_model_dxdt(state,
                                  parameters,
-                                 driver,
+                                 drivers,
                                  observables,
                                  dxdt
-                                 ):
-            """
-            State (CUDA device array - local or shared for speed):
-                The state of the system at time (t-1), used to calculate the diffentials.
+                                     ):
+                """
+                State (CUDA device array - local or shared for speed):
+                    The state of the system at time (t-1), used to calculate the diffentials.
 
-            Parameters (CUDA device array - local or shared for speed):
-                An array of parameters that can change during the simulation (i.e. between runs).
-                Store these locally or in shared memory, as each thread will need it's own set.
+                Parameters (CUDA device array - local or shared for speed):
+                    An array of parameters that can change during the simulation (i.e. between runs).
+                    Store these locally or in shared memory, as each thread will need it's own set.
 
-            Driver/forcing (CUDA device array - local or shared for speed):
-                A numeric value or array of any external forcing terms applied to the system.
+                Driver/forcing (CUDA device array - local or shared for speed):
+                    A numeric value or array of any external forcing terms applied to the system.
 
-            dxdt (CUDA device array - local or shared for speed):
-                The output array to be written to in-place
+                dxdt (CUDA device array - local or shared for speed):
+                    The output array to be written to in-place
 
-            Observables (CUDA device array - local or shared for speed):
-                An output array to store any auxiliary variables you might want to track during simulation.
+                Observables (CUDA device array - local or shared for speed):
+                    An output array to store any auxiliary variables you might want to track during simulation.
 
-            returns:
-                None, modifications are made to the dxdt and observables arrays in-place to avoid allocating
+                returns:
+                    None, modifications are made to the dxdt and observables arrays in-place to avoid allocating
 
-           """
+               """
 
-            #Extract parameters from the parameters array
-            # Note: There is some balance to be struck here between flexibility and performance. In most kernels, many
-            # parameters will be fixed, so we can hoist them to the global namespace for speed. However, it would be 
-            # too onerous to modify the code in this function manually for every different combination of fixed/free parameters.
-            # For now, we assume that all parameters are mutable and passed in the parameters array.
-            E_h = parameters[0]
-            E_a = parameters[1]
-            E_v = parameters[2]
-            R_i = parameters[3]
-            R_o = parameters[4]
-            R_c = parameters[5]
-            SBV = parameters[6]
+                # the dummy model just overwrites the dxdt and observables arrays with the values in
+                # state + parameters/constants+drivers.
+                for i in range(n_states):
+                    if n_params > 0:
+                        dxdt[i] = state[i] + parameters[i % n_params]
+                    else:
+                        dxdt[i] = state[i]
+                for i in range(n_obs):
+                    if n_constants > 0:
+                        constant = constants[i % n_constants]
+                    else:
+                        constant = precision(0.0)
+                    if n_drivers > 0:
+                        driver = drivers[i % n_drivers]
+                    else:
+                        driver = precision(0.0)
 
-            V_h = state[0]
-            V_a = state[1]
-            V_v = state[2]
+                    observables[i] = constant + driver
 
-            # Calculate pressures
-            P_a = E_a * V_a
-            P_v = E_v * V_v
-            P_h = E_h * V_h * driver
+            self.dxdtfunc = dummy_model_dxdt
 
-            # Calculate flows
-            Q_i = ((P_v - P_h) / R_i) if (P_v > P_h) else 0
-            Q_o = ((P_h - P_a) / R_o) if (P_h > P_a) else 0
-            Q_c = (P_a - P_v) / R_c  # Fixed the division operator
-
-            # Calculate gradient
-            dV_h = Q_i - Q_o;
-            dV_a = Q_o - Q_c;
-            dV_v = Q_c - Q_i;
-
-            # Package values up into output arrays, overwriting for speed.
-            # TODO: Optimisation target. some of these values will go unused, can reduce memory operations by only saving a requested subset.
-            observables[0] = P_a
-            observables[1] = P_v
-            observables[2] = P_h
-            observables[3] = Q_i
-            observables[4] = Q_o
-            observables[5] = Q_c
-
-            dxdt[0] = dV_h
-            dxdt[1] = dV_a
-            dxdt[2] = dV_v
-
-
-        self.dxdtfunc = your_model_name_dxdt
-
-        #Clean up globals
-        del global_constants
+            self.needs_compilation = False
+            # del constants
 
 
 
@@ -198,38 +189,3 @@ class genericODE:
         self.init_values[keys] = (values)
 
 
-#******************************* TEST CODE ******************************** #
-# if __name__ == '__main__':
-
-
-    # sys = diffeq_system()
-    # dxdt = sys.dxdtfunc
-
-    # @cuda.jit()
-    # def testkernel(out):
-    #     # precision = np.float32
-    #     # numba_precision = float32
-    #     l_dxdt = cuda.local.array(shape=NUM_STATES, dtype=numba_precision)
-    #     l_states = cuda.local.array(shape=NUM_STATES, dtype=numba_precision)
-    #     l_constants = cuda.local.array(shape=NUM_CONSTANTS, dtype=numba_precision)
-    #     l_states[:] = precision(1.0)
-    #     l_constants[:] = precision(1.0)
-
-    #     t = precision(1.0)
-    #     dxdt(l_dxdt,
-    #         l_states,
-    #         l_constants,
-    #         t)
-
-    #     out = l_dxdt
-
-
-    #     NUM_STATES = 5
-    #     NUM_CONSTANTS = 14
-    #     outtest = np.zeros(NUM_STATES, dtype=np.float4)
-    #     out = cuda.to_device(outtest)
-    #     print("Testing to see if your dxdt function compiles using CUDA...")
-    #     testkernel[1,1](out)
-    #     cuda.synchronize()
-    #     out.copy_to_host(outtest)
-    #     print(outtest)

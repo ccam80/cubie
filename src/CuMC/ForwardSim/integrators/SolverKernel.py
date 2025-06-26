@@ -219,7 +219,7 @@ class SolverKernel():
                 warmup_samples
                 )
 
-            return None
+            return Nonee
 
         self.kernel = integration_kernel
 

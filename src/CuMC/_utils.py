@@ -9,9 +9,49 @@ from numba import float64, int32, from_dtype, float32
 from time import time
 import numpy as np
 from functools import wraps
+from warnings import warn
 from numba.cuda.random import xoroshiro128p_normal_float64,xoroshiro128p_normal_float32, xoroshiro128p_dtype
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
+def _update_dicts_from_kwargs(dicts: list | dict, **kwargs):
+    """Helper function to update specific keys in the parameter d of classes which contain compiled objects -
+    this function scans through the dicts to find any keys that match kwargs, and updates the values if they're
+    different. The function returns True if any of the dicts were modified, to set a "needs rebuild" flag in the class
+    if the d is used for compilation.
+
+    Raises a UserWarning if any of the keys in kwargs were not found in the dicts. This doesn't error/stop code.
+
+    Args:
+        dicts (list[d): A list of dictionaries to update.
+        **kwargs: Key-value pairs to update in the dictionaries.
+    Returns:
+        was_modified (bool): a flag that indicates if any d items were updated
+
+    """
+    if isinstance(dicts, dict):
+        dicts = [dicts]
+
+    dicts_modified = False
+
+    for key, value in kwargs.items():
+        kwarg_found = False
+        for d in dicts:
+            if key in d:
+                if kwarg_found:
+                    warn(f"The parameter {key} was found in multiple dictionaries, and was updated in both.",
+                         UserWarning)
+                else:
+                    kwarg_found = True
+
+                if d[key] != value:
+                    d[key] = value
+                    dicts_modified=True
+
+        if kwarg_found is False:
+            warn(f"The parameter {key} was not found in the ODE algorithms dictionary"
+                 "of parameters", UserWarning)
+
+    return dicts_modified
 
 def timing(f, nruns=3):
     @wraps(f)

@@ -1,31 +1,59 @@
-import numpy as np
+import pytest
+from tests.SystemModels.SystemTester import SystemTester
+from CuMC.SystemModels.genericODE import genericODE
 
+testsets=[
+        # instantiate_settings is a tuple of (precision, state_names, parameter_names, observable_names, constants, num_drivers)
+        # input_data is a tuple of (state, parameters, drivers)
 
-#TODO: sort these tests into a better structure, with separate tests for each situation. Paramaterise.
-def test_genericODE_getters_setters():
-    """Test the getter and setter methods for parameters and initial values in genericODE."""
-    from CuMC.SystemModels.genericODE import genericODE
+        ((np.float32, ["x0"], ["p"], ["o"], {}, 1),
+         (np.asarray([1.0], dtype=np.float32), np.asarray([2.0], dtype=np.float32), np.asarray([3.0], dtype=np.float32)),
+         "Single state, param, observable, no constants, 1 driver"),
+        ((np.float64, ["x1", "x2"], ["p1", "p2"], ["o1"], {'c1': 2.0}, 2),
+         (np.asarray([1.0, 0.0], dtype=np.float64), np.asarray([0.5, 5.5], dtype=np.float64), np.asarray([4.2, 1.8], dtype=np.float64)),
+         "Two states, two params, one observable, one constant, 2 drivers")
+    ]
 
-    # Create a genericODE instance with some initial values and parameters
-    initial_values = {"V_h": 1.0, "V_a": 2.0, "V_v": 3.0}
-    parameters = {"E_h": 4.0, "E_a": 5.0, "E_v": 6.0, "R_i": 7.0, "R_o": 8.0, "R_c": 9.0, "SBV": 10.0}
-    precision = np.float32
-    ode = genericODE(initial_values=initial_values, parameters=parameters, precision=precision)
+@pytest.mark.parametrize("instantiate_settings, input_data, test_name",
+                         testsets,
+                         ids=[testset[2] for testset in testsets])
+class TestGenericODE(SystemTester):
+    """Example subclass using genericODE as the system under test."""
 
-    # Test get_parameter
-    assert ode.get_parameters("E_h") == 4.0
-    assert ode.get_parameters("E_a") == 5.0
-    assert np.array_equal(ode.get_parameters(["E_v", "R_i"]), np.asarray([6.0, 7.0], dtype=precision))
+    @pytest.fixture(scope="class", autouse=True)
+    def system_class(self):
+        return genericODE
 
-    # Test set_parameter
-    ode.set_parameters("E_h", 11.0)
-    assert ode.get_parameters("E_h") == 11.0
+    def correct_answer(self, instantiate_settings, input_data):
+        """Override to produce custom expected output."""
+        precision, s, pars, obs, cdict, n_drv = instantiate_settings
+        state, params, drivers = input_data
 
-    # Test get_initial_value
-    assert ode.get_initial_values("V_h") == 1.0
-    assert ode.get_initial_values("V_a") == 2.0
-    assert np.array_equal(ode.get_initial_values(["V_v", "V_h"]), np.asarray([3.0, 1.0], dtype=precision))
+        n_states = len(s)
+        n_obs = len(obs)
+        n_params = len(pars)
+        n_constants = len(cdict)
+        n_drivers = n_drv
 
-    # Test set_initial_value
-    ode.set_initial_values("V_h", 12.0)
-    assert ode.get_initial_values("V_h") == 12.0
+        state_output = np.zeros(n_states, dtype=precision)
+        observables = np.zeros(n_obs, dtype=precision)
+
+        for i in range(n_states):
+            if n_params > 0:
+                param = pars[i % n_params]
+            else:
+                param = precision(0.0)
+            state_output[i] = state[i] + params[i % n_params]
+        for i in range(n_obs):
+            if n_drivers > 0:
+                driver = drivers[i % n_drivers]
+            else:
+                driver = precision(0.0)
+            if n_constants > 0:
+                constant_keys = list(cdict.keys())
+                constant = self.system_instance.constants[i % n_constants]
+            else:
+                constant = precision(0.0)
+            observables[i] = driver + constant
+
+        return state_output, observables

@@ -13,3 +13,19 @@ bx = cuda.blockIdx.x
 if x == 0 and bx == 0:
     from pdb import set_trace;
     set_trace()
+
+ # def change_values(self, **kwargs):
+    # Keep this as a reference for how to test if a system rebuild is required
+    #     old_vals = self.system_conditions.copy()
+    #     _update_dicts_from_kwargs([self.system_conditions], **kwargs)
+    #
+    #     #trigger a rebuild if the shape of any array has changed, or if constants have changed, as these require rebuild
+    #     for array in self.system_conditions:
+    #         if isinstance(self.system_conditions[array], np.ndarray):
+    #             if self.system_conditions[array].shape != old_vals[array].shape:
+    #                 self.is_built = False
+    #
+    #     if self.system_conditions['num_drivers'] != old_vals['num_drivers']:
+    #         self.is_built = False
+    #     if self.system_conditions['constants'] != old_vals['constants']:
+    #         self.is_built = False
