@@ -6,14 +6,12 @@ Created on Wed May 28 10:36:56 2025
 """
 
 
-import numba as nb
-from numba import cuda, from_dtype
+from numba import cuda, from_dtype, float32, float64
 
 from CuMC.SystemModels.SystemValues import SystemValues
 
 import numpy as np
 
-# from cupy import asarray
 
 
 #TODO: Rethink this default values idea - the possible values should definitely be defined in this file, but how?
@@ -23,11 +21,20 @@ import numpy as np
 # default_observables = {'o0'}
 
 
-class genericODE:
+class GenericODE:
+    """
+    Template class for a system of ODEs. This class is designed to be subclassed for specific systems, so that the
+    "shared machinery" used to interface with CUDA can be reused. When subclassing, you should overload the build() and
+    correct_answer_python() (if you want to implement testing) methods to provide the specific ODE system you want to
+    simulate.
+
+    If you do implement a correct_answer_python() method, then you can subclass the SystemTester class in
+    tests/SystemModels/SystemTester.py and overload system_class with your ODE class name. The generate_system_tests
+    function (see test_threeCM.py for an example) can then generate a set of floating-point and missing-input tests
+    to see if your system behaves as expected.
+    """
 
 
-    """
-    """
     def __init__(self,
                  initial_values=None,
                  parameters=None, #parameters that can change during simulation
@@ -36,6 +43,7 @@ class genericODE:
                  default_initial_values=None,
                  default_parameters=None,
                  default_constants=None,
+                 default_observable_names=None,
                  precision=np.float64,
                  num_drivers=1,
                  **kwargs):
@@ -53,11 +61,19 @@ class genericODE:
             **kwargs: Additional arguments
         """
 
+
         self.init_values = SystemValues(initial_values, precision, default_initial_values)
         self.parameters = SystemValues(parameters, precision, default_parameters)
-        self.observables = SystemValues(observables, precision)
+        self.observables = SystemValues(observables, precision, default_observable_names)
         self.constants = SystemValues(constants, precision, default_constants)
-        self.precision = from_dtype(precision)
+
+        if precision in [np.float64, np.float32]:
+            self.precision = from_dtype(precision)
+        elif precision in [float32, float64]:
+            self.precision = precision
+        else:
+            raise ValueError("Precision must be a numpy or numba dtype (float32/float64).")
+
         self.dxdtfunc = None
 
         self.num_states = self.init_values.n
@@ -77,7 +93,7 @@ class genericODE:
             # get loop-length parameters as local variables so they are treated as compile-time constants - the compiler
             # can't handle any references to self.
             global constants
-            constants = self.constants.values_array # this isn't being treated as known at compile time.
+            constants = self.constants.values_array
             n_params = self.num_parameters
             n_states = self.num_states
             n_obs = self.num_observables
@@ -145,7 +161,39 @@ class genericODE:
             self.needs_compilation = False
             # del constants
 
+    def correct_answer_python(self, states, parameters, drivers):
+        """This function is used in testing. Overload this with a simpler, Python version of the dxdt function.
+        This will be run in a python test to compare the output of your CUDA function with this known, correct answer."""
+        numpy_precision = np.float64 if self.precision==float64 else np.float32
+        dxdt = np.zeros(self.num_states, dtype=numpy_precision)
+        observables = np.zeros(self.num_observables, dtype=numpy_precision)
 
+        n_parameters = self.num_parameters
+        n_drivers = self.num_drivers
+        n_constants = self.num_constants
+        n_states = self.num_states
+        n_observables = self.num_observables
+
+        if n_parameters <= 0:
+            parameters = np.zeros(n_states, dtype=numpy_precision)
+            n_parameters = n_states
+
+        if n_drivers <= 0:
+            drivers = np.zeros(n_observables, dtype=numpy_precision)
+            n_drivers = n_observables
+
+        if n_constants <= 0:
+            constants = np.zeros(n_observables, dtype=numpy_precision)
+            n_constants = n_observables
+        else:
+            constants= self.constants.values_array
+
+        for i, state in enumerate(states):
+            dxdt[i] = state + parameters[i % n_parameters]
+        for i in range(len(observables)):
+            observables[i] = drivers[i % n_drivers] + constants[i%n_constants]
+
+        return dxdt, observables
 
 
     def get_parameters(self, keys):
@@ -187,5 +235,3 @@ class genericODE:
             value: The value to set
         """
         self.init_values[keys] = (values)
-
-

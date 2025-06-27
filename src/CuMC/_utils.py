@@ -13,7 +13,7 @@ from warnings import warn
 from numba.cuda.random import xoroshiro128p_normal_float64,xoroshiro128p_normal_float32, xoroshiro128p_dtype
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
-def _update_dicts_from_kwargs(dicts: list | dict, **kwargs):
+def update_dicts_from_kwargs(dicts: list | dict, **kwargs):
     """Helper function to update specific keys in the parameter d of classes which contain compiled objects -
     this function scans through the dicts to find any keys that match kwargs, and updates the values if they're
     different. The function returns True if any of the dicts were modified, to set a "needs rebuild" flag in the class

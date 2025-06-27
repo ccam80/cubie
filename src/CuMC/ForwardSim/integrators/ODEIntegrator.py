@@ -171,6 +171,7 @@ class ODEIntegratorLoop:
                                                                       n_saved_states,
                                                                       n_saved_observables,
                                                                       summary_temp_memory)
+        self.integrator_algorithm.build()
 
         self.update_dynamic_shared_memory(system)
 

@@ -10,41 +10,84 @@ from CuMC.SystemModels.Systems.threeCM import GenericODE
 
 from CuMC.ForwardSim.integrators.algorithms.euler import Euler
 
-def CPU_euler_loop(dxdt_func,
-                   inits,
-                   params,
-                   driver_vec,
-                   dt,
-                   output_dt,
-                   warmup,
-                   duration,
-                   saved_observables,
-                   saved_states):
-    """A simple CPU implementation of the Euler loop for testing."""
-    t = 0.0
-    save_every = int(round(output_dt / dt))
-    n_saved_states = len(saved_states)
-    n_saved_observables = len(saved_observables)
-    total_samples = int((duration + warmup) / output_dt)
-    state_output = np.zeros((n_saved_states,int(duration / output_dt)), dtype=inits.dtype)
-    observables_output = np.zeros((n_saved_observables,int(duration / output_dt)), dtype=inits.dtype)
-    state_output[:, 0] = inits
-    state = inits
+#Required system settings
+# system_settings = (precision, state_names, parameter_names, observable_names, constants, num_drivers)
 
-    for i in range(total_samples):
+#Required loop compile settings
+# compile_settings = {precision,
+    #                  dxdt_func,
+    #                  n_states,
+    #                  n_obs,
+    #                  n_par,
+    #                  n_drivers,
+    #                  dt_min,
+    #                  dt_max,
+    #                  dt_save,
+    #                  dt_summarise,
+    #                  atol,
+    #                  rtol,
+    #                  save_state_func,
+    #                  update_summary_func,
+    #                  save_summary_func,
+    #                  n_saved_states,
+    #                  n_saved_observables,
+    #                  summary_temp_memory}
+class TestEuler(LoopAlgorithmTester):
+    """Testing class for the Euler algorithm. Checks the instantiation, compilation, and input/output for a range
+    of cases, including incomplete inputs and random floats of different scales."""
 
-        for j in range(save_every):
-            driver = driver_vec[(i*save_every + j) % len(driver_vec)]
-            t += dt
-            dx = dxdt_func(state, params, drivers)
-            state += dx[0] * dt
-            if i == 0 and j == 0:
-                observables_output[:,0] = dx[1]
+    @pytest.fixture(scope="class", autouse=True)
+    def system_instance(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings):
+        self.system_instance = system_class(*system_settings)
 
-        state_output[saved_states, i+1] = dx[0]
-        observables_output[saved_observables, i+1] = dx[1]
+    @pytest.fixture(scope="class")
+    def integrator_algorithm(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings):
+        return Euler
 
-    return state_output, observables_output
+    def build_output_functions(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings):
+
+    def expected_shared_memory(self):
+        """Calculate the expected shared memory size for the Euler algorithm."""
+        n_states = self.system_instance.num_states
+        n_obs = self.system_instance.num_observables
+        n_drivers = self.system_instance.num_drivers
+        return n_states + n_states + n_obs + n_drivers
+
+    def CPU_euler_loop(dxdt_func,
+                       inits,
+                       params,
+                       driver_vec,
+                       dt,
+                       output_dt,
+                       warmup,
+                       duration,
+                       saved_observables,
+                       saved_states):
+        """A simple CPU implementation of the Euler loop for testing."""
+        t = 0.0
+        save_every = int(round(output_dt / dt))
+        n_saved_states = len(saved_states)
+        n_saved_observables = len(saved_observables)
+        total_samples = int((duration + warmup) / output_dt)
+        state_output = np.zeros((n_saved_states,int(duration / output_dt)), dtype=inits.dtype)
+        observables_output = np.zeros((n_saved_observables,int(duration / output_dt)), dtype=inits.dtype)
+        state_output[:, 0] = inits
+        state = inits
+
+        for i in range(total_samples):
+
+            for j in range(save_every):
+                drivers = driver_vec[(i*save_every + j) % len(driver_vec)]
+                t += dt
+                dx = dxdt_func(state, params, drivers)
+                state += dx[0] * dt
+                if i == 0 and j == 0:
+                    observables_output[:,0] = dx[1]
+
+            state_output[saved_states, i+1] = dx[0]
+            observables_output[saved_observables, i+1] = dx[1]
+
+        return state_output, observables_output
 
 
 

@@ -1,7 +1,7 @@
-from warnings import warn
+# from warnings import warn
 from numba import cuda, int32
-from numba.parfors.parfor import dummy_return_in_loop_body
-from CuMC._utils import _update_dicts_from_kwargs
+# from numba.parfors.parfor import dummy_return_in_loop_body
+from CuMC._utils import update_dicts_from_kwargs
 
 class GenericIntegratorAlgorithm:
     """
@@ -65,8 +65,7 @@ class GenericIntegratorAlgorithm:
                         'save_summary_func': save_summary_func,
                         }
         self.algo_shared_memory_items = self.calculate_shared_memory()
-        self.build()
-
+        self.needs_rebuild = True  # Set to False when the loop is built, so that an out-of-date loop isn't used
 
     def build(self):
 
@@ -195,7 +194,7 @@ class GenericIntegratorAlgorithm:
         """
         # Check if any of the kwargs keys are in loop_parameters
 
-        _update_dicts_from_kwargs([self.loop_parameters, self.functions], **kwargs)
+        update_dicts_from_kwargs([self.loop_parameters, self.functions], **kwargs)
 
         # Rebuild the loop function
         self.build()

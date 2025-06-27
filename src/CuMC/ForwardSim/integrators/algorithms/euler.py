@@ -199,7 +199,6 @@ class Euler(GenericIntegratorAlgorithm):
 
         # Update the actual save and summary intervals, which will differ from what was ordered if they are not
         # a multiple of the loop step size.
-        # TODO: Figure this out for variable-step algorithms, or make a fixed-step only function.
         new_dt_save = save_every_samples * dt_min
         if new_dt_save != dt_save:
             self.loop_parameters['dt_save'] = new_dt_save

@@ -1,8 +1,8 @@
-port pytest
+import pytest
 import numpy as np
 from copy import deepcopy
 # from CuMC.SystemModels.SystemValues import SystemValues
-from _utils import _update_dicts_from_kwargs
+from CuMC._utils import update_dicts_from_kwargs
 
 _DICT_UPDATE_TESTS = [
     ({"c": 3}, True, None, "update single item" ),
@@ -22,11 +22,11 @@ _DICT_UPDATE_TESTS = [
 def test_dict_update_single():
     """Test that a single key-value pair can be updated in a dictionary."""
     d = {'a': 1, 'b': 2}
-    _update_dicts_from_kwargs(d, a=3)
+    update_dicts_from_kwargs(d, a=3)
     assert d['a'] == 3, "Single key update failed"
 
     with pytest.warns(UserWarning):
-        _update_dicts_from_kwargs(d, c=5, b=4)
+        update_dicts_from_kwargs(d, c=5, b=4)
         assert d['b'] == 4, "Single key update failed after bogus key attempted"
 @pytest.mark.parametrize("kwargs, expected_modified, expected_warning, test_name",
                          _DICT_UPDATE_TESTS,
@@ -47,9 +47,9 @@ def test_dict_updates_all(kwargs, expected_modified, expected_warning, test_name
 
     if expected_warning:
         with pytest.warns(UserWarning, match=expected_warning):
-            result = _update_dicts_from_kwargs(dicts, **kwargs)
+            result = update_dicts_from_kwargs(dicts, **kwargs)
     else:
-        result = _update_dicts_from_kwargs(dicts, **kwargs)
+        result = update_dicts_from_kwargs(dicts, **kwargs)
 
     assert result == expected_modified, f"Expected modified={expected_modified}, got {result}"
 

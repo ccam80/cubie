@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from numba import cuda
+from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
 class SystemTester:
@@ -74,6 +74,7 @@ class SystemTester:
         assert isinstance(self.system_instance, system_class), \
             "System did not instantiate as expected."
 
+
     def test_compilation(self, system_class, instantiate_settings, input_data, test_name):
         """Checks if the system builds or compiles."""
         precision, s_list, p_list, o_list, const_dict, n_drivers = instantiate_settings
@@ -92,13 +93,14 @@ class SystemTester:
         observables = np.zeros(self.system_instance.num_observables, dtype=precision)
 
         self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
-        expected_dx, expected_obs = self.correct_answer(instantiate_settings, input_data)
-        assert_allclose(dx, expected_dx, err_msg="dx mismatch")
-        assert_allclose(observables, expected_obs, err_msg="observables mismatch")
+        expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
+        if precision == np.float32:
+            rtol = 1e-5 #float32 will underperform in fixed-precision land, and on big systems this error will stack
+        else:
+            rtol = 1e-12
 
-    def correct_answer(self, instantiate_settings, input_data):
-        """By default returns zeros; subclasses can override."""
-        n_states = self.system_instance.num_states
-        n_obs = self.system_instance.num_observables
-        return np.zeros(n_states), np.zeros(n_obs)
+        assert_allclose(dx, expected_dx, rtol=rtol, err_msg="dx mismatch")
+        assert_allclose(observables, expected_obs, rtol=rtol, err_msg="observables mismatch")
+
+
 

@@ -54,17 +54,19 @@ class SystemValues:
         self.indices_dict = None
         self.keys_by_index = None
 
-        # Instantiate parameters dictionary
-        # Handle case where values_dict is a list of strings
+        self.values_dict = {}
+
+        # Assign zero values in the case that all we have is a list of keys
         if isinstance(values_dict, (list, tuple)) and all(isinstance(item, str) for item in values_dict):
             values_dict = {k: 0.0 for k in values_dict}
-        self.values_dict = {}
+        if isinstance(defaults, (list, tuple)) and all(isinstance(item, str) for item in defaults):
+            defaults = {k: 0.0 for k in defaults}
 
         if defaults==None:
             defaults = {}
-        # Set detailed values, then overwrite with values provided in dict, then any single-parameter
-        # keyword arguments.
 
+        # Set default values, then overwrite with values provided in values dict, then any single-parameter
+        # keyword arguments.
         combined_updates = {**defaults, **values_dict, **kwargs}
 
         # Note: If the same value occurs in the dict and

@@ -10,11 +10,9 @@ if __name__ == "__main__":
     os.environ["NUMBA_CUDA_DEBUGINFO"] = "0"
     os.environ["NUMBA_OPT"] = "1"
 
-import numba as nb
-from numba import cuda, from_dtype
-from numba import float64, float32
+from numba import cuda, float32, float64
 
-from CuMC.SystemModels.genericODE import genericODE
+from CuMC.SystemModels.Systems.GenericODE import GenericODE
 
 import numpy as np
 
@@ -31,27 +29,28 @@ default_initial_values = {'V_h': 1.0,
                           'V_a': 1.0,
                           'V_v': 1.0}
 
-default_observables =['P_a','P_v','P_h','Q_i','Q_o','Q_c']   # Flow in circulation
+default_observable_names =['P_a','P_v','P_h','Q_i','Q_o','Q_c']   # Flow in circulation
 
 default_constants = {}
 
 
 
 
-class ThreeChamberModel(genericODE):
+class ThreeChamberModel(GenericODE):
     """ Three chamber model as laid out in [Pironet's thesis reference].
 
     """
     def __init__(self,
                  initial_values = None,
                  parameters = None,
-                 observables = default_observables,
                  constants = None,
+                 observables=None,
                  precision=np.float64,
                  default_initial_values = default_initial_values,
                  default_parameters = default_parameters,
                  default_constants = default_constants,
-                 num_drivers = 1, #Number of external "forcing" variables
+                 default_observable_names = default_observable_names,
+                 num_drivers = 1, # Error: This probably shouldn't be an instantiation parameter, but rather a property of the system.
                  **kwargs):
         super().__init__(initial_values=initial_values,
                         parameters=parameters,
@@ -60,6 +59,7 @@ class ThreeChamberModel(genericODE):
                         default_initial_values=default_initial_values,
                         default_parameters=default_parameters,
                         default_constants=default_constants,
+                        default_observable_names = default_observable_names,
                         precision=precision,
                         num_drivers=num_drivers)
 
@@ -165,3 +165,32 @@ class ThreeChamberModel(genericODE):
 
 
         self.dxdtfunc = three_chamber_model_dV
+
+    def correct_answer_python(self, states, parameters, drivers):
+        """ More-direct port of Nic Davey's MATLAB implementation.         """
+        numpy_precision = np.float64 if self.precision == float64 else np.float32
+
+        E_h, E_a, E_v, R_i, R_o, R_c, _ = parameters
+        V_h, V_a, V_v = states
+        driver = drivers[0]
+
+        P_v = E_v * V_v
+        P_h = E_h * V_h * driver
+        P_a = E_a * V_a
+
+        if P_v > P_h:
+            Q_i = (P_v - P_h) / R_i
+        else:
+            Q_i = 0
+
+        if P_h > P_a:
+            Q_o = (P_h - P_a) / R_o
+        else:
+            Q_o = 0
+
+        Q_c = (P_a - P_v) / R_c
+
+        dxdt = np.asarray([Q_i-Q_o, Q_o-Q_c, Q_c-Q_i], dtype=numpy_precision)
+        observables = np.asarray([P_a, P_v, P_h, Q_i, Q_o, Q_c], dtype=numpy_precision)
+
+        return dxdt, observables

@@ -170,6 +170,7 @@ def build_output_functions(outputs_list,
         #Efficiency note: this function (and the below) contain duplicated code for each array type. Using a common
         # function to handle the cases would be more efficient, but numba does not seem to recognise a change in the
         # compile-time constants nstates/nobs
+
         if summarise:
 
             temp_array_index = 0
