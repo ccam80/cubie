@@ -159,11 +159,11 @@ class Euler(GenericIntegratorAlgorithm):
                         summary_sample = (i + 1) // summarise_every_samples - 1
                         save_summary_func(state_summaries, observables_summaries,
                                           state_summaries_output[:, summary_sample],
-                                          observables_summaries_output[:, summary_sample], i)
+                                          observables_summaries_output[:, summary_sample], summarise_every_samples)
 
         return euler_loop
 
-    def calculate_shared_memory(self):
+    def _calculate_loop_internal_shared_memory(self):
         """
         Calculate the number of items in shared memory required for the loop - don't include summaries, they are handled
         outside the loop as they are common to all algorithms. This is just the number of items stored in shared memory

@@ -7,14 +7,15 @@ Created on Tue May 27 17:45:03 2025
 
 if __name__ == "__main__":
     import os
+
     os.environ["NUMBA_ENABLE_CUDASIM"] = "1"
     os.environ["NUMBA_CUDA_DEBUGINFO"] = "1"
     os.environ["NUMBA_OPT"] = "0"
 
 import numpy as np
-from numba import float32, float64, int32, int16, literally
+# from numba import float32, float64, int32, int16, literally
 from numba import cuda, from_dtype
-from warnings import warn
+# from warnings import warn
 from CuMC.ForwardSim.integrators.output_functions import build_output_functions
 from CuMC.ForwardSim.integrators.algorithms import Euler
 
@@ -52,14 +53,13 @@ class ODEIntegratorLoop:
                  saved_observables=None,
                  dtmin=0.01,
                  dtmax=0.1,
-                 atol = 1e-6,
-                 rtol = 1e-6,
+                 atol=1e-6,
+                 rtol=1e-6,
                  dt_save=0.1,
                  dt_summarise=1.0,
                  output_functions=None):
 
-
-        # Keep parameters that specifically set the compile state of the loop functions in  a dict, so that a user can 
+        # Keep parameters that specifically set the compile state of the loop functions in  a dict, so that a user can
         # rebuild without having to pass all parameters again.
         self.compile_settings = {'dtmin': dtmin,
                                  'dtmax': dtmax,
@@ -117,8 +117,6 @@ class ODEIntegratorLoop:
 
         return save_state, update_summaries, save_summaries, summary_sharedmem, summary_outputmem
 
-
-
     def _clarify_None_output_functions(self, n_saved_observables):
         """Clarify the output functions to be used in the loop, if None is specified, set to default values."""
         # TODO: add empty list check
@@ -140,87 +138,86 @@ class ODEIntegratorLoop:
         precision = system.precision
 
         #Parameters to size the arrays in the integrator loop
-        n_states = system.num_states # total number of states (complete, for inner loop)
+        n_states = system.num_states  # total number of states (complete, for inner loop)
         n_obs = system.num_observables
         n_par = system.num_parameters
         n_drivers = system.num_drivers
 
         saved_states, saved_observables, n_saved_states, n_saved_observables = self._get_saved_values(n_states)
         self._clarify_None_output_functions(n_saved_observables)
-        save_state, update_summaries, save_summaries, summary_temp_memory, summary_output_memory = self.build_outputs(saved_states, saved_observables)
-        self.summary_shared_memory = summary_temp_memory * (n_saved_states + n_saved_observables) #Total memory required for summaries, in items.
+        save_state, update_summaries, save_summaries, summary_temp_memory, summary_output_memory = self.build_outputs(
+            saved_states, saved_observables)
+        self.summary_shared_memory = summary_temp_memory * (
+                    n_saved_states + n_saved_observables)  #Total memory required for summaries, in items.
         self.summary_output_memory = summary_output_memory
 
         dxdt_func = system.dxdtfunc
 
         self.integrator_algorithm = self.build_integrator_algorithm(precision,
-                                                                      dxdt_func,
-                                                                      n_states,
-                                                                      n_obs,
-                                                                      n_par,
-                                                                      n_drivers,
-                                                                      self.compile_settings['dtmin'],
-                                                                      self.compile_settings['dtmax'],
-                                                                      self.compile_settings['dt_save'],
-                                                                      self.compile_settings['dt_summarise'],
-                                                                      self.compile_settings['atol'],
-                                                                      self.compile_settings['rtol'],
-                                                                      save_state,
-                                                                      update_summaries,
-                                                                      save_summaries,
-                                                                      n_saved_states,
-                                                                      n_saved_observables,
-                                                                      summary_temp_memory)
+                                                                    dxdt_func,
+                                                                    n_states,
+                                                                    n_obs,
+                                                                    n_par,
+                                                                    n_drivers,
+                                                                    self.compile_settings['dtmin'],
+                                                                    self.compile_settings['dtmax'],
+                                                                    self.compile_settings['dt_save'],
+                                                                    self.compile_settings['dt_summarise'],
+                                                                    self.compile_settings['atol'],
+                                                                    self.compile_settings['rtol'],
+                                                                    save_state,
+                                                                    update_summaries,
+                                                                    save_summaries,
+                                                                    n_saved_states,
+                                                                    n_saved_observables,
+                                                                    summary_temp_memory)
         self.integrator_algorithm.build()
 
         self.update_dynamic_shared_memory(system)
 
-
     def build_integrator_algorithm(self,
-                                precision,
-                                dxdt_func,
-                                n_states,
-                                n_obs,
-                                n_par,
-                                n_drivers,
-                                dt_min,
-                                dt_max,
-                                dt_save,
-                                dt_summarise,
-                                atol,
-                                rtol,
-                                save_state_func,
-                                update_summary_func,
-                                save_summary_func,
-                                n_saved_states,
-                                n_saved_observables,
-                                summary_temp_memory):
+                                   precision,
+                                   dxdt_func,
+                                   n_states,
+                                   n_obs,
+                                   n_par,
+                                   n_drivers,
+                                   dt_min,
+                                   dt_max,
+                                   dt_save,
+                                   dt_summarise,
+                                   atol,
+                                   rtol,
+                                   save_state_func,
+                                   update_summary_func,
+                                   save_summary_func,
+                                   n_saved_states,
+                                   n_saved_observables,
+                                   summary_temp_memory):
         """Build the inner loop kernel for the integrator."""
         return _INTEGRATION_ALGORITHMS[self.algorithm](precision,
-                                                        dxdt_func,
-                                                        n_states,
-                                                        n_obs,
-                                                        n_par,
-                                                        n_drivers,
-                                                        dt_min,
-                                                        dt_max,
-                                                        dt_save,
-                                                        dt_summarise,
-                                                        atol,
-                                                        rtol,
-                                                        save_state_func,
-                                                        update_summary_func,
-                                                        save_summary_func,
-                                                        n_saved_states,
-                                                        n_saved_observables,
-                                                        summary_temp_memory)
-
-
+                                                       dxdt_func,
+                                                       n_states,
+                                                       n_obs,
+                                                       n_par,
+                                                       n_drivers,
+                                                       dt_min,
+                                                       dt_max,
+                                                       dt_save,
+                                                       dt_summarise,
+                                                       atol,
+                                                       rtol,
+                                                       save_state_func,
+                                                       update_summary_func,
+                                                       save_summary_func,
+                                                       n_saved_states,
+                                                       n_saved_observables,
+                                                       summary_temp_memory)
 
     def update_dynamic_shared_memory(self, system):
         """Overload this function with the number of bytes of shared memory required for a single run of the integrator"""
         datasize = np.ceil(system.precision.bitwidth / 8)
-        loop_items = self.integrator_algorithm.calculate_shared_memory()
+        loop_items = self.integrator_algorithm._calculate_loop_internal_shared_memory()
         summary_items = self.summary_shared_memory
         self.dynamic_sharedmem = int(np.ceil((loop_items + summary_items) * datasize))
 
@@ -230,8 +227,10 @@ class ODEIntegratorLoop:
         """Returns the number of bytes of shared memory required for a single thread."""
         return self.dynamic_sharedmem
 
+
 if __name__ == "__main__":
     from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
+
     precision = np.float32
     numba_precision = from_dtype(precision)
     sys = ThreeChamberModel(precision=precision)
@@ -243,23 +242,24 @@ if __name__ == "__main__":
     duration = 0.1
     warmup = 0
 
-    output_samples= int(duration / save_step)
-    warmup_samples = int(warmup/save_step)
+    output_samples = int(duration / save_step)
+    warmup_samples = int(warmup / save_step)
 
-    saved_states = None # Default to all states
-    saved_observables = [0,1,2,3,4,5]
+    saved_states = None  # Default to all states
+    saved_observables = [0, 1, 2, 3, 4, 5]
 
     integrator = ODEIntegratorLoop(sys,
-                                 saved_states=saved_states,
-                                 saved_observables=saved_observables,
-                                 dtmin=internal_step,
-                                 dtmax=internal_step,
-                                 dt_save=save_step,
-                                 dt_summarise=summarise_step,
-                                 output_functions=["state","observables", "max"])
+                                   saved_states=saved_states,
+                                   saved_observables=saved_observables,
+                                   dtmin=internal_step,
+                                   dtmax=internal_step,
+                                   dt_save=save_step,
+                                   dt_summarise=summarise_step,
+                                   output_functions=["state", "observables", "max"])
 
     integrator.build(sys)
     intfunc = integrator.integrator_algorithm.loop_function
+
 
     @cuda.jit()
     def loop_test_kernel(inits,
@@ -269,7 +269,6 @@ if __name__ == "__main__":
                          observables,
                          summary_outputs,
                          summary_observables):
-
         c_forcing_vector = cuda.const.array_like(forcing_vector)
 
         shared_memory = cuda.shared.array(0, dtype=numba_precision)
@@ -287,10 +286,11 @@ if __name__ == "__main__":
             warmup_samples
         )
 
-    output = cuda.pinned_array((output_samples,sys.num_states), dtype=precision).T
-    observables = cuda.pinned_array((output_samples,sys.num_observables), dtype=precision).T
 
-    summary_samples = int(np.ceil(output_samples * save_step/summarise_step))
+    output = cuda.pinned_array((output_samples, sys.num_states), dtype=precision).T
+    observables = cuda.pinned_array((output_samples, sys.num_observables), dtype=precision).T
+
+    summary_samples = int(np.ceil(output_samples * save_step / summarise_step))
     num_state_summaries = integrator.summary_output_memory * sys.num_states
     num_observable_summaries = integrator.summary_output_memory * len(saved_observables)
 
@@ -299,10 +299,10 @@ if __name__ == "__main__":
 
     forcing_vector = cuda.pinned_array((output_samples + warmup_samples, sys.num_drivers), dtype=precision)
 
-    output[:,:] = precision(0.0)
-    observables[:,:] = precision(0.0)
-    forcing_vector[:,:] = precision(0.0)
-    forcing_vector[0::25,:] = precision(1.0)
+    output[:, :] = precision(0.0)
+    observables[:, :] = precision(0.0)
+    forcing_vector[:, :] = precision(0.0)
+    forcing_vector[0::25, :] = precision(1.0)
 
     d_forcing = cuda.to_device(forcing_vector)
     d_inits = cuda.to_device(sys.init_values.values_array)
@@ -312,17 +312,16 @@ if __name__ == "__main__":
     d_summary_state = cuda.to_device(summary_outputs)
     d_summary_observables = cuda.to_device(summary_observables)
 
-
     # global sharedmem
-    sharedmem=integrator.dynamic_sharedmem
+    sharedmem = integrator.dynamic_sharedmem
     loop_test_kernel[1, 1, 0, sharedmem](d_inits,
-                          d_params,
-                          d_forcing,
-                          d_output,
-                          d_observables,
-                          d_summary_state,
-                          d_summary_observables
-                          )
+                                         d_params,
+                                         d_forcing,
+                                         d_output,
+                                         d_observables,
+                                         d_summary_state,
+                                         d_summary_observables
+                                         )
 
     cuda.synchronize()
     output = d_output.copy_to_host()

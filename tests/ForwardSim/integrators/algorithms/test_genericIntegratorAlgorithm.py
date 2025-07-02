@@ -272,7 +272,7 @@ def test_calculate_shared_memory(precision, n_states, n_obs, n_par, n_drivers, d
     )
     
     # Call calculate_shared_memory method
-    shared_memory = algorithm.calculate_shared_memory()
+    shared_memory = algorithm._calculate_loop_internal_shared_memory()
     
     # Check that the result is as expected: n_states
     assert shared_memory == n_states

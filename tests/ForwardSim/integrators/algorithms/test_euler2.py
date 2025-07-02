@@ -353,7 +353,7 @@ def test_calculate_shared_memory(precision, n_states, n_obs, n_drivers, test_nam
     )
 
     # Call calculate_shared_memory method
-    shared_memory = algorithm.calculate_shared_memory()
+    shared_memory = algorithm._calculate_loop_internal_shared_memory()
 
     # Check that the result is as expected: n_states + n_states (for dxdt) + n_obs + n_drivers
     expected = n_states + n_states + n_obs + n_drivers
@@ -489,7 +489,7 @@ def test_rebuild(initial_params, new_params, should_warn, test_name):
     )
 
     # Calculate initial shared memory
-    initial_shared_memory = algorithm.calculate_shared_memory()
+    initial_shared_memory = algorithm._calculate_loop_internal_shared_memory()
 
     # Call rebuild method with new parameters
     if should_warn:
@@ -504,7 +504,7 @@ def test_rebuild(initial_params, new_params, should_warn, test_name):
             assert algorithm.loop_parameters[key] == value, f"Parameter {key} was not updated correctly"
 
     # Calculate new shared memory
-    new_shared_memory = algorithm.calculate_shared_memory()
+    new_shared_memory = algorithm._calculate_loop_internal_shared_memory()
 
     # Check if shared memory changed when relevant parameters changed
     if any(param in new_params for param in ['n_states', 'n_obs', 'n_drivers']):

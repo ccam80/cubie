@@ -1,152 +1,190 @@
+#
+# import os
+# os.environ["NUMBA_ENABLE_CUDASIM"] = "1"
+# os.environ["NUMBA_CUDA_DEBUGINFO"] = "1"
+# os.environ["NUMBA_OPT"] = "0"
+
 import pytest
 import numpy as np
-from numba import cuda
+from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
-
-class LoopAlgorithmTester:
-    """Class to test common functionality of integrator algorithms. Subclass this to add your algorithm as self.algorithm,
-    and overload the "correct_answer" fixture to provide the expected output for a given input."""
-
-    @pytest.fixture(scope="class")
-    def algorithm_class(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings):
-        """Override this fixture in subclasses to provide the algorithm class to test. """
-        return None
-
-    @pytest.fixture(scope="class")
-    def system_instance(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings):
-        """Override this fixture in subclasses to provide the system class to use for testing. Instantiate and build it
-        in this step, we're not testing the system itself. """
-        return None
+from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import GenericIntegratorAlgorithm
 
 
-    @pytest.fixture(scope="class")
-    def integration_settings(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings):
-        """Override this fixture in subclasses to provide integration settings."""
-        return {
-            'dt_min': 0.001,
-            'dt_max': 0.01,
-            'dt_save': 0.01,
-            'dt_summarise': 0.1,
-            'atol': 1e-6,
-            'rtol': 1e-3,
-            'saved_states': None,  # Default to all states
-            'saved_observables': None,  # Default to no observables
-            'output_functions': ["state"]
-        }
+class TestLoopAlgorithm:
+    """Base class for testing loop algorithms with different systems and configurations. Doesn't use the
+    attribute or "self" system, but is set up as a class for easy inheritance and parameterization of tests.
 
-    def instantiate_system(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings):
-        """Instantiate the system to be used for testing."""
-        self.system_instance = system_class(precision=precision)
-        self.system_instance.build()
-        return self.system_instance
+    All parameters are set using fixtures in tests/conftest.py (general for all testers) and
+    tests/integrators/algorithms/conftest.py (for things like inputs, that will change with larger arrays of runs in
+    higher-level modules, which can be overridden by parametrizing (for example) precision_override,
+    loop_compile_settings_overrides, inputs_override, etc. - check the fixtures in conftests.py for a full list and their
+    contents"""
 
-    def instantiate_algorithm(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings):
-        """Instantiate the algorithm to be tested."""
-        self.algorithm_instance = algorithm_class(
-            precision=system.precision,
+    @pytest.fixture(scope="module")
+    def algorithm_class(self):
+        """OVERRIDE THIS FIXTURE in subclasses to provide the algorithm class to test. """
+        return GenericIntegratorAlgorithm
+
+    @pytest.fixture(scope='function')
+    def expected_answer(self, loop_compile_settings, run_settings, inputs, precision):
+        """OVERRIDE THIS FIXTURE with a python version of what your integrator loop should return - a scipy integrator
+        or homebrew CPU loop should be able to provide an answer that matches the output of a given loop to within
+        floating-point precision."""
+        save_state = "state" in loop_compile_settings['output_functions']
+        save_observables = "observables" in loop_compile_settings['output_functions']
+        n_states_total = inputs['initial_values'].shape[0]
+        n_samples = int(run_settings['duration'] / loop_compile_settings['dt_save'])
+
+        if save_state:
+            saved_states = np.asarray(loop_compile_settings['saved_states'])
+            n_saved_states = len(saved_states)
+            expected_state_output = np.zeros((n_saved_states, n_samples), dtype=precision)
+            expected_state_output[:, :] = inputs['initial_values'][saved_states][:, np.newaxis]
+        else:
+            expected_state_output = np.zeros((0, n_samples), dtype=precision)
+
+        if save_observables:
+
+            saved_observables = np.asarray(loop_compile_settings['saved_observables'])
+            n_saved_observables = len(saved_observables)
+            expected_observables = np.zeros((n_saved_observables, n_samples), dtype=precision)
+            expected_observables[:, :] = inputs['initial_values'][
+                (saved_observables % n_states_total), np.newaxis]
+        else:
+            expected_observables = np.zeros((0, n_samples), dtype=precision)
+
+        return expected_state_output, expected_observables
+
+
+    @pytest.fixture(scope='function')
+    def loop_under_test(self, request, precision, algorithm_class, output_functions, system, loop_compile_settings):
+        """
+        Returns an instance of the loop class specified in algorithm_class.
+
+        Usage example:
+        @pytest.mark.parametrize("system", ["ThreeChamber"], indirect=True)
+        def test_loop_function(system, loop_under_test):
+            ...
+        """
+        # Get the output functions from the output_functions fixture
+        save_state = output_functions.save_state_func
+        update_summaries = output_functions.update_summary_metrics_func
+        save_summaries = output_functions.save_summary_metrics_func
+        summary_temp_memory = output_functions.temp_memory_requirements
+
+        algorithm_instance = algorithm_class(
+            precision=from_dtype(precision),
             dxdt_func=system.dxdtfunc,
             n_states=system.num_states,
             n_obs=system.num_observables,
             n_par=system.num_parameters,
             n_drivers=system.num_drivers,
-            dt_min=integration_settings['dt_min'],
-            dt_max=integration_settings['dt_max'],
-            dt_save=integration_settings['dt_save'],
-            dt_summarise=integration_settings['dt_summarise'],
-            atol=integration_settings['atol'],
-            rtol=integration_settings['rtol'],
-            save_state_func=None,  # These will be set by the ODEIntegratorLoop
-            update_summary_func=None,
-            save_summary_func=None,
-            n_saved_states=system.num_states if integration_settings['saved_states'] is None else len(
-                integration_settings['saved_states']),
-            n_saved_observables=0 if integration_settings['saved_observables'] is None else len(
-                integration_settings['saved_observables']),
-            summary_temp_memory=1  # Default value, will be overridden by ODEIntegratorLoop
+            dt_min=loop_compile_settings['dt_min'],
+            dt_max=loop_compile_settings['dt_max'],
+            dt_save=loop_compile_settings['dt_save'],
+            dt_summarise=loop_compile_settings['dt_summarise'],
+            atol=loop_compile_settings['atol'],
+            rtol=loop_compile_settings['rtol'],
+            save_state_func=save_state,  # These will be set by the ODEIntegratorLoop
+            update_summary_func=update_summaries,
+            save_summary_func=save_summaries,
+            n_saved_states=len(loop_compile_settings['saved_states']),
+            n_saved_observables=len(loop_compile_settings['saved_observables']),
+            summary_temp_memory=summary_temp_memory,
         )
-        return self.algorithm_instance
 
-    def instantiate_integrator(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings):
-        """Instantiate the ODEIntegratorLoop with the algorithm and system."""
-        from CuMC.ForwardSim.integrators.ODEIntegrator import ODEIntegratorLoop
+        return algorithm_instance
 
-        self.integrator_instance = ODEIntegratorLoop(
-            system=system,
-            algorithm=algorithm_class.__name__.lower(),
-            saved_states=integration_settings['saved_states'],
-            saved_observables=integration_settings['saved_observables'],
-            dtmin=integration_settings['dt_min'],
-            dtmax=integration_settings['dt_max'],
-            atol=integration_settings['atol'],
-            rtol=integration_settings['rtol'],
-            dt_save=integration_settings['dt_save'],
-            dt_summarise=integration_settings['dt_summarise'],
-            output_functions=integration_settings['output_functions']
-        )
-        return self.integrator_instance
+    @pytest.fixture(scope='function')
+    def built_loop_function(self, loop_under_test):
+        """Returns only the build loop function of the loop under test"""
+        loop_under_test.build()
+        return loop_under_test.loop_function
 
-    def test_instantiation(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings, test_name):
-        """Test that the algorithm instantiates correctly."""
-        system = self.instantiate_system(system_class)
-        algorithm = self.instantiate_algorithm(algorithm_class, system, integration_settings)
+    @pytest.mark.parametrize("loop_compile_settings_overrides",
+                             [{'dt_min': 0.01, 'dt_max': 0.1},
+                              {'atol': 1e-5, 'rtol': 1e-4},
+                              {"saved_states": [0, 1],
+                               "saved_observables": [1, 2],
+                               'output_functions': ["state", "observables"]},
+                              {'dt_min': 0.002,
+                               'dt_max': 0.02,
+                               'dt_save': 0.02,
+                               'dt_summarise': 0.2,
+                               'atol': 1.0e-7,
+                               'rtol': 1.0e-5,
+                               'saved_states': [0, 1, 2],
+                               'saved_observables': [0, 3],
+                               'output_functions': ["state", "peaks"],
+                               'n_peaks': 2}
+                              ],
+                             ids=['change_dts', 'change_tols', 'change_output_sizes', 'change_all'],
+                             indirect=True)
+    def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides,
+                                                       loop_under_test, expected_summary_temp_memory):
+        for key, value in loop_compile_settings_overrides.items():
+            if key == "saved_states":
+                assert loop_under_test.loop_parameters['n_saved_states'] == len(value), \
+                    f"saved_states does not match expected value {len(value)}"
+            elif key == "saved_observables":
+                assert loop_under_test.loop_parameters['n_saved_observables'] == len(value), \
+                    f"saved_states does not match expected value {len(value)}"
+            elif key == "output_functions" or key == "n_peaks":
+                assert loop_under_test.loop_parameters['summary_temp_memory'] == expected_summary_temp_memory, \
+                    f"Summary temp memory requirement doesn't match expected - the loop_compile_settings change doesn't get through."
+            else:
+                assert key in loop_under_test.loop_parameters, f"{key} not found in loop parameters"
+                assert loop_under_test.loop_parameters[key] == value, f"{key} does not match expected value {value}"
 
-        assert isinstance(algorithm, algorithm_class), "Algorithm did not instantiate as expected."
-        assert algorithm.loop_parameters[
-                   'n_states'] == system.num_states, "Algorithm has misinterpreted the number of states."
-        assert algorithm.loop_parameters[
-                   'n_obs'] == system.num_observables, "Algorithm has misinterpreted the number of observables."
-        assert algorithm.loop_parameters[
-                   'n_par'] == system.num_parameters, "Algorithm has misinterpreted the number of parameters."
-        assert algorithm.loop_parameters[
-                   'n_drivers'] == system.num_drivers, "Algorithm has misinterpreted the number of drivers."
+    @pytest.mark.parametrize("loop_compile_settings_overrides",
+                             [{'dt_min': 0.01, 'dt_max': 0.1},
+                              {'atol': 1e-5, 'rtol': 1e-4},
+                              {"saved_states": [0, 1],
+                               "saved_observables": [1, 2],
+                               'output_functions': ["state", "observables"]},
+                              {'dt_min': 0.002,
+                               'dt_max': 0.02,
+                               'dt_save': 0.02,
+                               'dt_summarise': 0.2,
+                               'atol': 1.0e-7,
+                               'rtol': 1.0e-5,
+                               'saved_states': [0, 1, 2],
+                               'saved_observables': [0, 3],
+                               'output_functions': ["state", "peaks"],
+                               'n_peaks': 2}
+                              ],
+                             ids=['change_dts', 'change_tols', 'change_output_sizes', 'change_all'],
+                             indirect=True)
+    def test_loop_function_builds(self, built_loop_function):
+        """
+        Test that the loop function builds without errors.
+        """
+        assert callable(built_loop_function), "Loop function was not built successfully."
 
-    def test_loop_function_creation(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings, test_name):
-        """Test that the algorithm creates a loop function."""
-        system = self.instantiate_system(system_class)
-        algorithm = self.instantiate_algorithm(algorithm_class, system, integration_settings)
+    #Don't call it test_kernel, as that is a reserved name in pytest
+    @pytest.fixture(scope='function')
+    def loop_test_kernel(self, precision, run_settings, loop_compile_settings, built_loop_function):
+        loop_func = built_loop_function
 
-        # Build the loop function
-        algorithm.build()
+        output_samples = int(run_settings['duration'] / loop_compile_settings['dt_save'])
+        warmup_samples = int(run_settings['warmup'] / loop_compile_settings['dt_save'])
+        numba_precision = from_dtype(precision)
 
-        assert algorithm.loop_function is not None, "Loop function was not created."
-
-    def test_shared_memory_calculation(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings, test_name):
-        """Test that the algorithm calculates shared memory requirements correctly."""
-        system = self.instantiate_system(system_class)
-        algorithm = self.instantiate_algorithm(algorithm_class, system, integration_settings)
-
-        # Calculate shared memory
-        shared_memory = algorithm.calculate_shared_memory()
-
-        # For Euler, shared memory should be 2*n_states + n_obs + n_drivers
-        expected_shared_memory = 2 * system.num_states + system.num_observables + system.num_drivers
-        assert shared_memory == expected_shared_memory, f"Expected {expected_shared_memory} shared memory items, got {shared_memory}"
-
-    def test_integration_with_system(self, system_class, integrator_algorithm, system_settings, compile_settings, run_settings, test_name):
-        """Test that the algorithm integrates the system correctly."""
-        system = self.instantiate_system(system_class)
-        integrator = self.instantiate_integrator(system, algorithm_class, integration_settings)
-
-        # Set up test parameters
-        duration = 0.1
-        warmup = 0.0
-        dt_save = integration_settings['dt_save']
-
-        output_samples = int(duration / dt_save)
-        warmup_samples = int(warmup / dt_save)
-
-        # Create test kernel
         @cuda.jit()
-        def test_kernel(inits, params, forcing_vector, output, observables, summary_outputs, summary_observables):
-            # Use constant memory for forcing vector
+        def test_kernel(inits,
+                        params,
+                        forcing_vector,
+                        output,
+                        observables,
+                        summary_outputs,
+                        summary_observables):
             c_forcing_vector = cuda.const.array_like(forcing_vector)
 
-            # Allocate shared memory
-            shared_memory = cuda.shared.array(0, dtype=system.precision)
+            shared_memory = cuda.shared.array(0, dtype=numba_precision)
 
-            # Call the integrator loop function
-            integrator.integrator_algorithm.loop_function(
+            loop_func(
                 inits,
                 params,
                 c_forcing_vector,
@@ -159,56 +197,119 @@ class LoopAlgorithmTester:
                 warmup_samples
             )
 
-        # Allocate memory for inputs and outputs
-        output = np.zeros((system.num_states, output_samples), dtype=system.precision)
-        observables = np.zeros((system.num_observables, output_samples), dtype=system.precision)
-        summary_outputs = np.zeros((1, 1), dtype=system.precision)  # Placeholder
-        summary_observables = np.zeros((1, 1), dtype=system.precision)  # Placeholder
+        return test_kernel
 
-        # Create forcing vector (all zeros for simplicity)
-        forcing_vector = np.zeros((output_samples + warmup_samples, system.num_drivers), dtype=system.precision)
 
-        # Copy to device
-        d_inits = cuda.to_device(system.init_values.values_array)
-        d_params = cuda.to_device(system.parameters.values_array)
+    @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, run_settings_override",
+                             [({'output_functions': ["state", "observables"], 'saved_states': [0, 1, 2]}, {}, {}),
+                              ({'output_functions': ["state", "observables", "mean"],
+                                'saved_states': [0, 1],
+                                'saved_observables': [0, 1, 2]},
+                               {},
+                               {}),
+                              ({}, {'initial_values': np.array([1.0, 2.0, 3.0])}, {}),
+                              ({}, {}, {'duration': 5.0, 'warmup': 2.0})],
+                             ids=['state_and_observables_empty_obs_list', 'state_observables_and_mean',
+                                  'custom_initial_values', 'custom_run_settings'],
+                             indirect=True)
+    def test_loop(self, loop_test_kernel, run_settings, loop_compile_settings, inputs, precision, output_functions,
+                  loop_under_test, expected_answer):
+        output_samples = int(run_settings['duration'] / loop_compile_settings['dt_save'])
+
+        #TODO: Bring this logic into the ode integrator class, as it is a trap set by the divorcing of the output functions
+        # from the output memory allocation.
+
+        save_state = "state" in loop_compile_settings['output_functions']
+        save_observables = "observables" in loop_compile_settings['output_functions']
+        saved_states = np.asarray(loop_compile_settings['saved_states']) if save_state else np.asarray([])
+        saved_observables = np.asarray(loop_compile_settings['saved_observables']) if save_observables else np.asarray([])
+        n_saved_states = len(saved_states)
+        n_saved_observables = len(saved_observables)
+
+        output = cuda.pinned_array((n_saved_states, output_samples), dtype=precision)
+        observables = np.zeros((n_saved_observables, output_samples), dtype=precision)
+
+        summary_samples = int(
+            np.ceil(output_samples * loop_compile_settings['dt_save'] / loop_compile_settings['dt_summarise']))
+        num_state_summaries = output_functions.summary_output_length * n_saved_states
+        num_observable_summaries = output_functions.summary_output_length * n_saved_observables
+
+        summary_outputs = np.zeros((num_state_summaries, summary_samples), dtype=precision)
+        summary_observables = np.zeros((num_observable_summaries, summary_samples), dtype=precision)
+        forcing_vector = np.zeros(inputs['forcing_vectors'].shape, dtype=precision)
+
+        inits = np.zeros(inputs['initial_values'].shape, dtype=precision)
+        parameters = np.zeros(inputs['parameters'].shape, dtype=precision)
+        forcing_vector[:, :] = inputs['forcing_vectors'][:, :]
+        inits[:] = inputs['initial_values'][:]
+        parameters[:] = inputs['parameters'][:]
+
+        output[:, :] = precision(0.0)
+        observables[:, :] = precision(0.0)
+        summary_outputs[:, :] = precision(0.0)
+        summary_observables[:, :] = precision(0.0)
+
         d_forcing = cuda.to_device(forcing_vector)
+        d_inits = cuda.to_device(inits)
+        d_params = cuda.to_device(parameters[:])
         d_output = cuda.to_device(output)
         d_observables = cuda.to_device(observables)
-        d_summary_outputs = cuda.to_device(summary_outputs)
+        d_summary_state = cuda.to_device(summary_outputs)
         d_summary_observables = cuda.to_device(summary_observables)
 
-        # Get shared memory requirements
-        shared_mem = integrator.dynamic_sharedmem
+        # global sharedmem
+        sharedmem = loop_under_test._calculate_loop_internal_shared_memory() + \
+                    loop_under_test.loop_parameters['summary_temp_memory'] * (n_saved_states + n_saved_observables)
 
-        # Run the kernel
-        test_kernel[1, 1, 0, shared_mem](
-            d_inits,
-            d_params,
-            d_forcing,
-            d_output,
-            d_observables,
-            d_summary_outputs,
-            d_summary_observables
-        )
+        loop_test_kernel[1, 1, 0, sharedmem](d_inits,
+                                             d_params,
+                                             d_forcing,
+                                             d_output,
+                                             d_observables,
+                                             d_summary_state,
+                                             d_summary_observables,
+                                             )
 
-        # Copy results back to host
         cuda.synchronize()
-        result_output = d_output.copy_to_host()
-        result_observables = d_observables.copy_to_host()
+        output = d_output.copy_to_host()
+        obs = d_observables.copy_to_host()
+        summary_states = d_summary_state.copy_to_host()
+        summary_observables = d_summary_observables.copy_to_host()
 
-        # Get expected results
-        expected_output, expected_observables = self.correct_answer(system, integration_settings, duration, dt_save)
+        assert_allclose(expected_answer[0], output, err_msg="Output does not match expected.")
+        assert_allclose(expected_answer[1], obs, err_msg="Observables do not match expected.")
+        # assert_allclose(expected_answer[0], summary_states, err_msg="Summary states do not match expected.")
+        # assert_allclose(expected_answer[0], summary_observables, err_msg="Summary observables do not match expected.")
 
-        # Compare results
-        assert_allclose(result_output, expected_output, rtol=1e-3, atol=1e-6, err_msg="Output mismatch")
-        assert_allclose(result_observables, expected_observables, rtol=1e-3, atol=1e-6, err_msg="Observables mismatch")
 
-    def correct_answer(self, system, integration_settings, duration, dt_save):
-        """Override this method in subclasses to provide the expected output for a given input.
 
-        By default, returns zeros for all outputs.
+    @pytest.fixture(scope='function')
+    def expected_summary_temp_memory(self, loop_compile_settings):
         """
-        output_samples = int(duration / dt_save)
-        output = np.zeros((system.num_states, output_samples), dtype=system.precision)
-        observables = np.zeros((system.num_observables, output_samples), dtype=system.precision)
-        return output, observables
+        Calculate the expected temporary memory usage for the loop function.
+
+        Usage example:
+        @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
+        def test_expected_temp_memory(expected_temp_memory):
+            ...
+        """
+        from CuMC.ForwardSim.integrators.output_functions import _TempMemoryRequirements
+        n_peaks = loop_compile_settings['n_peaks']
+        outputs_list = loop_compile_settings['output_functions']
+        return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
+
+
+    @pytest.fixture(scope='function')
+    def expected_summary_output_memory(self, loop_compile_settings):
+        """
+        Calculate the expected temporary memory usage for the loop function.
+
+        Usage example:
+        @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
+        def test_expected_temp_memory(expected_temp_memory):
+            ...
+        """
+        from CuMC.ForwardSim.integrators.output_functions import _OutputMemoryRequirements
+        n_peaks = loop_compile_settings['n_peaks']
+        outputs_list = loop_compile_settings['output_functions']
+        return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])

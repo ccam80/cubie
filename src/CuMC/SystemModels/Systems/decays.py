@@ -36,26 +36,15 @@ class Decays(GenericODE):
                  precision=np.float64,
                  **kwargs):
         #let the user specify if we need a unified template for testing - so it looks the same as a real system.
-        if "instantiation" in kwargs:
-            instantiation = kwargs["instantiation"]
-            if instantiation == "unified":
-                initial_values=kwargs["initial_values"]
-                parameters=kwargs["parameters"]
-                constants=kwargs["constants"]
-                observables= kwargs["observables"]
-                n_drivers=kwargs["num_drivers"]
-        elif "coefficients" in kwargs:
 
-            coefficients = kwargs["coefficients"]
+        coefficients = kwargs["coefficients"]
 
-            nterms = len(coefficients)
-            observables = [f'x{i}' for i in range(nterms)]
-            initial_values = {f'x{i}': 1.0 for i in range(nterms)}
-            parameters = {f'p{i}': coefficients[i] for i in range(nterms)}
-            constants = {f'c{i}': i for i in range(nterms)}
-            n_drivers = 1 #use time as the driver
-        else:
-            raise ValueError("No coefficients or unified instantiation arguments provided for Decays system.")
+        nterms = len(coefficients)
+        observables = [f'x{i}' for i in range(nterms)]
+        initial_values = {f'x{i}': 1.0 for i in range(nterms)}
+        parameters = {f'p{i}': coefficients[i] for i in range(nterms)}
+        constants = {f'c{i}': i for i in range(nterms)}
+        n_drivers = 1 #use time as the driver
 
         super().__init__(initial_values=initial_values,
                         parameters=parameters,

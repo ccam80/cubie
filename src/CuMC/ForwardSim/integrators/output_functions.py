@@ -8,7 +8,7 @@ from numba import cuda, float64, int32, from_dtype, float32
 from math import sqrt
 from dataclasses import dataclass
 from numpy import asarray
-from pdb import set_trace
+from pdb import set_trace as bp
 
 """Functions for saving values inside an integrator kernel, whether
 they are states or summary metrics.
@@ -99,7 +99,24 @@ def build_output_functions(outputs_list,
                           saved_states, # Ensure this has been set to the full range (handle None case before it gets  here)
                           saved_observables,
                           n_peaks=None):
-    """Compile three functions: Save state, update summary metrics,and save summaries.
+    """Compile three functions: Save state, update summary metrics,and save summaries. Calculate memory requirements
+    for temporary and output arrays.
+
+    Arguments:
+    outputs_list: list of strings, each string is a type of output to save, e.g. "state", "observables", "time", "peaks", "mean", "max", "rms"
+    saved_states: list of state indices to save, e.g. [0, 1, 2] for the first three states
+    saved_observables: list of observable indices to save, e.g. [0, 1, 2] for the first three observables
+    n_peaks: int, number of peaks to track, if applicable. If None, defaults to 0.
+
+
+    Returns:
+        An "OutputFunctions" dataclass with five attributes:
+        - save_state_func: a CUDA device function to save the current state and observables
+        - update_summary_metrics_func: a CUDA device function to update the running summary metrics each inner loop
+        - save_summary_metrics_func: a CUDA device function to save the summary metrics to the output arrays
+        - temp_memory_requirements: an integer representing the total temporary memory requirements for the output functions
+        - summary_output_length: an integer representing the total output length for the summary metrics
+
 
     Save state is called once per "save_every" loop steps, at the output frequency of the integrator.
     It saves the requested state values from the temp/working arrays to the output arrays.
@@ -110,6 +127,9 @@ def build_output_functions(outputs_list,
 
     Save summary metrics is called once per "summarise_every" loop steps, usually at a much higher frequency
     than the time-domain integrator output. This saves the running summary in the temp/working array to an output array.
+
+    outputs_list can be None, in which case it defaults to saving state only.
+
     """
 
     if outputs_list is None:
@@ -120,7 +140,7 @@ def build_output_functions(outputs_list,
 
     save_state = flags.save_state
     save_observables = flags.save_observables
-    save_time = flags.save_time
+    save_time = flags.save_time #TODO: convert to real time at some point? Or will this be handled by the integrator
     summarise = flags.summarise
     summarise_mean = flags.summarise_mean
     summarise_max = flags.summarise_max
@@ -144,7 +164,17 @@ def build_output_functions(outputs_list,
                         output_states_slice,
                         output_observables_slice,
                         current_step):
-        """Save the current state at the specified index."""
+        """Save the current state at the specified index.
+        Arguments:
+            current_state: current state array, containing the values of the states
+            current_observables: current observables array, containing the values of the observables
+            output_states_slice: current slice of output array for states, to be updated
+            output_observables_slice: current slice of output array for observables, to be updated
+            current_step: current step number, used for saving time if required
+
+        Returns:
+            None, modifies the output_states_slice and output_observables_slice in-place.
+        """
         if save_state:
             for k in range(nstates):
                 output_states_slice[k] = current_state[saved_states_local[k]]
@@ -163,7 +193,19 @@ def build_output_functions(outputs_list,
                                     temp_state_summaries,
                                     temp_observable_summaries,
                                     current_step):
-        """Update the summary metrics based on the current state and observables."""
+        """Update the summary metrics based on the current state and observables.
+
+        Arguments:
+            current_state: current state array, containing the values of the states
+            current_observables: current observables array, containing the values of the observables
+            temp_state_summaries: temporary array for state summaries and working values, to be updated
+            temp_observable_summaries: temporary array for observable summaries and working values, to be updated
+            current_step: current step number, used for calculating peak values or other time-dependent summaries
+
+        Returns:
+            None, modifies the temp_state_summaries and temp_observable_summaries in-place.
+
+            """
         # TODO: twiddle the internal layout of temporary array - in this form we cycle first through
         #  summary types, then states, memory arrangement should replicate this.
 
@@ -214,10 +256,22 @@ def build_output_functions(outputs_list,
                                 output_state_summaries_slice,
                                 output_observable_summaries_slice,
                                 summarise_every):
-        """Update the summary metrics based on the current state and observables."""
-        # Efficiency note: this function (and the below) contain duplicated code for each array type. Using a common
-        # function to handle the cases would be more efficient, but numba does not seem to recognise a change in the
-        # compile-time constants nstates/nobs. This is probably expected behaviour for numba
+        """Update the summary metrics based on the current state and observables.
+        Arguments:
+            temp_state_summaries: temporary array for state summaries, updated by update_summary_metrics_func
+            temp_observable_summaries: temporary array for observable summaries, updated by update_summary_metrics_func
+            output_state_summaries_slice: current slice of output array for state summaries, to be updated
+            output_observable_summaries_slice: current slice of output array for observable summaries, to be updated
+            summarise_every: number of steps to average over for the summaries
+
+        Returns:
+            None, modifies the output_state_summaries_slice and output_observable_summaries_slice in-place.
+
+        Efficiency note: this function (and the below) contain duplicated code for each array type. Using a common
+        function to handle the cases would be more efficient, but numba does not seem to recognise a change in the
+        compile-time constants nstates/nobs for the same function. This is probably expected behaviour for numba,
+        it seems reasonable.
+        """
         if summarise:
             output_index = 0
             temp_index = 0
