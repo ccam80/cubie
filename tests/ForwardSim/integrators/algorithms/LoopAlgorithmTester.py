@@ -10,6 +10,7 @@ from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
 from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import GenericIntegratorAlgorithm
+from conftest import calculate_expected_summaries
 
 
 class TestLoopAlgorithm:
@@ -208,9 +209,11 @@ class TestLoopAlgorithm:
                                {},
                                {}),
                               ({}, {'initial_values': np.array([1.0, 2.0, 3.0])}, {}),
-                              ({}, {}, {'duration': 5.0, 'warmup': 2.0})],
+                              ({}, {}, {'duration': 5.0, 'warmup': 2.0}),
+                             ({'output_functions': ["state", "observables", "mean", "max", "rms", "peaks"],
+                               'n_peaks':3, 'saved_states': [0, 1, 2]}, {}, {})],
                              ids=['state_and_observables_empty_obs_list', 'state_observables_and_mean',
-                                  'custom_initial_values', 'custom_run_settings'],
+                                  'custom_initial_values', 'custom_run_settings', "all_summaries"],
                              indirect=True)
     def test_loop(self, loop_test_kernel, run_settings, loop_compile_settings, inputs, precision, output_functions,
                   loop_under_test, expected_answer):
@@ -219,10 +222,10 @@ class TestLoopAlgorithm:
         #TODO: Bring this logic into the ode integrator class, as it is a trap set by the divorcing of the output functions
         # from the output memory allocation.
 
-        save_state = "state" in loop_compile_settings['output_functions']
-        save_observables = "observables" in loop_compile_settings['output_functions']
-        saved_states = np.asarray(loop_compile_settings['saved_states']) if save_state else np.asarray([])
-        saved_observables = np.asarray(loop_compile_settings['saved_observables']) if save_observables else np.asarray([])
+        save_state_bool = "state" in loop_compile_settings['output_functions']
+        save_observables_bool = "observables" in loop_compile_settings['output_functions']
+        saved_states = np.asarray(loop_compile_settings['saved_states']) if save_state_bool else np.asarray([])
+        saved_observables = np.asarray(loop_compile_settings['saved_observables']) if save_observables_bool else np.asarray([])
         n_saved_states = len(saved_states)
         n_saved_observables = len(saved_observables)
 
@@ -276,10 +279,15 @@ class TestLoopAlgorithm:
         summary_states = d_summary_state.copy_to_host()
         summary_observables = d_summary_observables.copy_to_host()
 
+        expected_state_summaries, expected_obs_summaries = calculate_expected_summaries(*expected_answer,
+                                                                                        loop_compile_settings,
+                                                                                        output_functions,
+                                                                                        precision)
+
         assert_allclose(expected_answer[0], output, err_msg="Output does not match expected.")
         assert_allclose(expected_answer[1], obs, err_msg="Observables do not match expected.")
-        # assert_allclose(expected_answer[0], summary_states, err_msg="Summary states do not match expected.")
-        # assert_allclose(expected_answer[0], summary_observables, err_msg="Summary observables do not match expected.")
+        assert_allclose(expected_state_summaries, summary_states, err_msg="Summary states do not match expected.")
+        assert_allclose(expected_obs_summaries, summary_observables, err_msg="Summary observables do not match expected.")
 
 
 

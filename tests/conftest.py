@@ -172,15 +172,23 @@ def calculate_expected_summaries(state_input, observables_input,
     - expected_state_summaries: 2D array of shape (n_saved_states * summary_size_per_state, n_samples)
     - expected_obs_summaries: 2D array of shape (n_saved_observables * summary_size_per_state, n_samples)
         """
-    num_samples = state_input.shape[0]
+    num_samples = state_input.shape[1]
+
+    # #Check for a list of saved state/obs but that recording not requested
+    # save_state_bool = "state" in loop_compile_settings['output_functions']
+    # save_observables_bool = "observables" in loop_compile_settings['output_functions']
+    # saved_states = np.asarray(loop_compile_settings['saved_states']) if save_state_bool else np.asarray([])
+    # saved_observables = np.asarray(loop_compile_settings['saved_observables']) if save_observables_bool else np.asarray([])
+    #
+    # n_saved_states = len(saved_states)
+    # n_saved_observables = len(saved_observables)
+
     summarise_every = int(loop_compile_settings['dt_summarise'] / loop_compile_settings['dt_save'])
     summary_samples = int(num_samples / summarise_every)
     summary_size_per_state = output_functions.summary_output_length
-    n_saved_states = len(loop_compile_settings['saved_states'])
-    n_saved_observables = len(loop_compile_settings['saved_observables'])
 
-    state_summaries_height = summary_size_per_state * (len(loop_compile_settings['saved_states']))
-    obs_summaries_height = summary_size_per_state * (loop_compile_settings['saved_observables'])
+    state_summaries_height = summary_size_per_state * state_input.shape[0]
+    obs_summaries_height = summary_size_per_state * observables_input.shape[0]
 
     expected_state_summaries = np.zeros((state_summaries_height, summary_samples), dtype=precision)
     expected_obs_summaries = np.zeros((obs_summaries_height, summary_samples), dtype=precision)
@@ -220,8 +228,8 @@ def calculate_single_summary_array(input_array,
     types_order = ["mean", "peaks", "max", "rms"]
     sorted_outputs = sorted(output_functions_list,
                             key=lambda x: types_order.index(x) if x in types_order else len(types_order))
-    summary_samples = input_array.shape[1]
-    n_items - input_array.shape[0]
+    summary_samples = int(input_array.shape[1] / summarise_every)
+    n_items = input_array.shape[0]
 
     # Manual cycling through possible summaries to match the approach used when building the device functions
     for j in range(n_items):
@@ -251,5 +259,8 @@ def calculate_single_summary_array(input_array,
 
                 if output_type == 'rms':
                     rms = np.sqrt(np.mean(input_array[j, start_index: end_index] ** 2, axis=0))
-                    output_array[i, j * summary_size_per_state + summary_index] = rms
+                    output_array[j * summary_size_per_state + summary_index, i] = rms
                     summary_index += 1
+
+def local_maxima(signal: np.ndarray) -> np.ndarray:
+    return np.flatnonzero((signal[1:-1] > signal[:-2]) & (signal[1:-1] > signal[2:])) + 1

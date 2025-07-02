@@ -4,91 +4,91 @@ from numpy.testing import assert_allclose
 from numba import cuda, from_dtype
 from CuMC.ForwardSim.integrators.output_functions import build_output_functions
 
-# def test_output_functions(output_functions, expected_summary_temp_memory, expected_summary_output_memory):
-#     #TODO: move this to output functions test?
-#     save_state = output_functions.save_state_func
-#     update_summaries = output_functions.update_summary_metrics_func
-#     save_summaries = output_functions.save_summary_metrics_func
-#     temp_memory = output_functions.temp_memory_requirements
-#     output_memory = output_functions.summary_output_length
-#
-#     # Now use these functions in your test
-#     assert callable(save_state)
-#     assert callable(update_summaries)
-#     assert callable(save_summaries)
-#     assert temp_memory == expected_summary_temp_memory
-#     assert output_memory == expected_summary_output_memory
-# #
-# TODO: update this module to use the fixtures properly.
-# fixturisation from integrator, which was overriden with compile settings in that test module.
-# @pytest.fixture(scope='function')
-# def output_functions_config(compile_settings, output_functions_overrides):
-#     """Provide a default dictionary of output unctions, overrideable by parameterising "output_functions_overrides"."""
-#     output_dict = {'outputs_list': compile_settings['output_functions'],
-#                    'saved_states': compile_settings['saved_states'],
-#                    'saved_observables': compile_settings['saved_observables'],
-#                    'n_peaks': compile_settings['n_peaks']
-#                    }
-#     output_dict.update(output_functions_overrides)
-#     return output_dict
-#
-#
-# @pytest.fixture(scope='function')
-# def output_functions_overrides(request):
-#     """Override configuration for output functions."""
-#     return request.param if hasattr(request, 'param') else {}
-#
-#
-# @pytest.fixture(scope='function')
-# def output_functions(output_functions_config):
-#     # Merge the default config with any overrides
-#
-#     outputfunctions = build_output_functions(
-#         output_functions_config['outputs_list'],
-#         output_functions_config['saved_states'],
-#         output_functions_config['saved_observables'],
-#         output_functions_config['n_peaks']
-#     )
-#
-#     return outputfunctions
+@pytest.mark.parametrize("output_functions_overrides",
+                         [{'outputs_list': ["state", "observables"], 'n_peaks': 3, 'saved_states':[0,1,2]},
+                          {'outputs_list': ["state", "observables", "mean"], 'n_peaks': 3}],
+                         indirect=True)
+def test_output_functions_build(output_functions, expected_summary_temp_memory, expected_summary_output_memory):
+    #TODO: move this to output functions test?
+    save_state = output_functions.save_state_func
+    update_summaries = output_functions.update_summary_metrics_func
+    save_summaries = output_functions.save_summary_metrics_func
+    temp_memory = output_functions.temp_memory_requirements
+    output_memory = output_functions.summary_output_length
 
-# @pytest.fixture(scope='function')
-# def expected_summary_temp_memory(output_functions_config):
-#     """
-#     Calculate the expected temporary memory usage for the loop function.
+    # Now use these functions in your test
+    assert callable(save_state)
+    assert callable(update_summaries)
+    assert callable(save_summaries)
+    assert temp_memory == expected_summary_temp_memory
+    assert output_memory == expected_summary_output_memory
 #
-#     Usage example:
-#     @pytest.mark.parametrize("compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
-#     def test_expected_temp_memory(expected_temp_memory):
-#         ...
-#     """
-#     from CuMC.ForwardSim.integrators.output_functions import _TempMemoryRequirements
-#     n_peaks = output_functions_config['n_peaks']
-#     outputs_list = output_functions_config['outputs_list']
-#     return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
-#
-# @pytest.fixture(scope='function')
-# def expected_summary_output_memory(output_functions_config):
-#     """
-#     Calculate the expected temporary memory usage for the loop function.
-#
-#     Usage example:
-#     @pytest.mark.parametrize("compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
-#     def test_expected_temp_memory(expected_temp_memory):
-#         ...
-#     """
-#     from CuMC.ForwardSim.integrators.output_functions import _OutputMemoryRequirements
-#     n_peaks = output_functions_config['n_peaks']
-#     outputs_list = output_functions_config['outputs_list']
-#     return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
-#
-# @pytest.mark.parametrize("output_functions_overrides",
-#                          [{'outputs_list': ["state", "observables"], 'n_states': [0, 1, 2]},
-#                           {'outputs_list': ["state", "observables", "mean"], 'n_states': [0, 1, 2]}],
-#                          indirect=True)
+@pytest.fixture(scope='function')
+def output_functions_config(loop_compile_settings, output_functions_overrides):
+    """Provide a default dictionary of output functions, with values drawn from the loop_compile_settings defaults.
+    Overrideable by parameterising "output_functions_overrides"."""
+    output_dict = {'outputs_list': loop_compile_settings['output_functions'],
+                   'saved_states': loop_compile_settings['saved_states'],
+                   'saved_observables': loop_compile_settings['saved_observables'],
+                   'n_peaks': loop_compile_settings['n_peaks']
+                   }
+    output_dict.update(output_functions_overrides)
+    return output_dict
 
 
+@pytest.fixture(scope='function')
+def output_functions_overrides(request):
+    """Override configuration for output functions."""
+    return request.param if hasattr(request, 'param') else {}
 
+
+@pytest.fixture(scope='function')
+def output_functions(output_functions_config):
+    # Merge the default config with any overrides
+
+    outputfunctions = build_output_functions(
+        output_functions_config['outputs_list'],
+        output_functions_config['saved_states'],
+        output_functions_config['saved_observables'],
+        output_functions_config['n_peaks']
+    )
+
+    return outputfunctions
+
+@pytest.fixture(scope='function')
+def expected_summary_temp_memory(output_functions_config):
+    """
+    Calculate the expected temporary memory usage for the loop function.
+
+    Usage example:
+    @pytest.mark.parametrize("compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
+    def test_expected_temp_memory(expected_temp_memory):
+        ...
+    """
+    from CuMC.ForwardSim.integrators.output_functions import _TempMemoryRequirements
+    n_peaks = output_functions_config['n_peaks']
+    outputs_list = output_functions_config['outputs_list']
+    return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
+#
+@pytest.fixture(scope='function')
+def expected_summary_output_memory(output_functions_config):
+    """
+    Calculate the expected temporary memory usage for the loop function.
+
+    Usage example:
+    @pytest.mark.parametrize("compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
+    def test_expected_temp_memory(expected_temp_memory):
+        ...
+    """
+    from CuMC.ForwardSim.integrators.output_functions import _OutputMemoryRequirements
+    n_peaks = output_functions_config['n_peaks']
+    outputs_list = output_functions_config['outputs_list']
+    return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
+
+@pytest.mark.parametrize("output_functions_overrides",
+                         [{'outputs_list': ["state", "observables"], 'n_states': [0, 1, 2]},
+                          {'outputs_list': ["state", "observables", "mean"], 'n_states': [0, 1, 2]}],
+                         indirect=True)
 
 def test_input_output():
     """Test that output functions correctly save state and observable values."""
