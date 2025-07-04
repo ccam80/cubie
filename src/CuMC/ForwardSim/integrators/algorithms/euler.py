@@ -21,6 +21,7 @@ class Euler(GenericIntegratorAlgorithm):
                  dt_summarise,
                  atol,
                  rtol,
+                 save_time,
                  save_state_func,
                  update_summary_func,
                  save_summary_func,
@@ -40,12 +41,14 @@ class Euler(GenericIntegratorAlgorithm):
                          dt_summarise,
                          atol,
                          rtol,
+                         save_time,
                          save_state_func,
                          update_summary_func,
                          save_summary_func,
                          n_saved_states,
                          n_saved_observables,
                          summary_temp_memory)
+
 
     def build_loop(self,
                    precision,
@@ -60,6 +63,7 @@ class Euler(GenericIntegratorAlgorithm):
                    dt_summarise,
                    atol,
                    rtol,
+                   save_time,
                    save_state_func,
                    update_summary_func,
                    save_summary_func,
@@ -69,7 +73,11 @@ class Euler(GenericIntegratorAlgorithm):
                    ):
 
         internal_step_size = dt_min
-        save_every_samples, summarise_every_samples, internal_step_size = self._time_to_samples()
+        save_every_samples, summarise_every_samples, internal_step_size = self._time_to_fixed_steps()
+        if save_time:
+            state_array_size = n_states + 1
+        else:
+            state_array_size = n_states
 
         @cuda.jit((precision[:],
                    precision[:],
@@ -99,17 +107,16 @@ class Euler(GenericIntegratorAlgorithm):
             """
 
             # Allocate shared memory slices
-            # Optimise: use one or two running indices to reduce registers required if the compiler doesn't get it -
-            # it should probably get it.
-            dxdt_start_index = n_states
+
+            dxdt_start_index = state_array_size
             observables_start_index = n_states + dxdt_start_index
             drivers_start_index = observables_start_index + n_obs
             state_summaries_start_index = drivers_start_index + n_drivers
             observable_summaries_start_index = state_summaries_start_index + n_saved_states * summary_temp_memory
             end_index = observable_summaries_start_index + n_saved_observables * summary_temp_memory
 
-            state = shared_memory[:n_states]
-            dxdt = shared_memory[n_states:observables_start_index]
+            state = shared_memory[:dxdt_start_index]
+            dxdt = shared_memory[dxdt_start_index:observables_start_index]
             observables = shared_memory[observables_start_index:drivers_start_index]
             drivers = shared_memory[drivers_start_index: state_summaries_start_index]
             state_summaries = shared_memory[
@@ -121,11 +128,16 @@ class Euler(GenericIntegratorAlgorithm):
             # Initialise/Assign values to allocated memory
             shared_memory[:end_index] = precision(0.0)  # initialise all shared memory before adding values
             for i in range(n_states):
-                state[:] = inits[i]
+                state[i] = inits[i]
 
             # Optimise: Consider memory location of these parameters; it will probably differ based on system size.
-            l_parameters = cuda.local.array((n_par),
-                                            dtype=precision)
+            # HACK: This is a workaround for a zero-parameter system, which allocates a one-element array that we
+            #  then don't use. There has to be a more elegant way to handle this.
+            if n_par > 0:
+                l_parameters = cuda.local.array((n_par),
+                                                dtype=precision)
+            else:
+                l_parameters = cuda.local.array((1), dtype=precision)
 
             for i in range(n_par):
                 l_parameters[i] = parameters[i]
@@ -151,12 +163,13 @@ class Euler(GenericIntegratorAlgorithm):
 
                 # Start saving only after warmup period (to get past transient behaviour)
                 if i > (warmup_samples - 1):
-                    save_state_func(state, observables, state_output[:, i], observables_output[:, i],
-                                    i - warmup_samples)
-                    update_summary_func(state, observables, state_summaries, observables_summaries, i - warmup_samples)
+                    output_sample = i - warmup_samples
+                    save_state_func(state, observables, state_output[:, output_sample], observables_output[:, output_sample],
+                                    output_sample)
+                    update_summary_func(state, observables, state_summaries, observables_summaries, output_sample)
 
                     if (i + 1) % summarise_every_samples == 0:
-                        summary_sample = (i + 1) // summarise_every_samples - 1
+                        summary_sample = (output_sample + 1) // summarise_every_samples - 1
                         save_summary_func(state_summaries, observables_summaries,
                                           state_summaries_output[:, summary_sample],
                                           observables_summaries_output[:, summary_sample], summarise_every_samples)
@@ -175,43 +188,4 @@ class Euler(GenericIntegratorAlgorithm):
         n_drivers = self.loop_parameters['n_drivers']
 
         return n_states + n_states + n_obs + n_drivers
-
-    def _time_to_samples(self):
-        """Fixed-step helper function: Convert the time-based compile_settings to sample-based compile_settings, which are used by
-        fixed-step loop functions. Sanity-check values and warn the user if they don't work."""
-
-        dt_min = self.loop_parameters['dt_min']
-        dt_save = self.loop_parameters['dt_save']
-        dt_summarise = self.loop_parameters['dt_summarise']
-
-        save_every_samples = int32(round(dt_save / dt_min))
-        summarise_every_samples = int32(round(dt_summarise / dt_save))
-
-        # summarise every < 1 won't make much sense.
-        if dt_save < dt_min:
-            raise ValueError(
-                "dt_save must be a longer period than dtmin, as it sets the number of loop-steps between saves, which must be >=1. ")
-        if summarise_every_samples <= 1:
-            raise ValueError(
-                "dt_summarise must be greater than dt_save, as it sets the number of saved samples between summaries,"
-                "which must be >1")
-
-
-        # Update the actual save and summary intervals, which will differ from what was ordered if they are not
-        # a multiple of the loop step size.
-        new_dt_save = save_every_samples * dt_min
-        if new_dt_save != dt_save:
-            self.loop_parameters['dt_save'] = new_dt_save
-            warn(
-                f"dt_save was set to {new_dt_save}s, because it is not a multiple of dtmin ({dt_min}s)."
-                f"dt_save can only save a value after an integer number of steps in a fixed-step integrator", UserWarning)
-
-        new_dt_summarise = summarise_every_samples * dt_save
-        if new_dt_summarise != dt_summarise:
-            self.loop_parameters['dt_summarise'] = new_dt_summarise
-            warn(
-                f"dt_summarise was set to {new_dt_summarise}s, because it is not a multiple of dt_save ({dt_save}s)."
-                f"dt_summarise can only save a value after an integer number of steps in a fixed-step integrator", UserWarning)
-
-        return save_every_samples, summarise_every_samples, dt_min
 

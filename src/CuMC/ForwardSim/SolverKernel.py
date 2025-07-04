@@ -32,7 +32,25 @@ class SolverKernel():
         self.numba_precision = from_dtype(precision)
 
     #TODO: force rebuild if system or saved states change
+    def _get_saved_values(self, n_states):
+        """Sanitise empty lists and None values - statse default to all, observables default to none."""
 
+        #TODO: add a routine to handle saved_state or saved_observables being given as strings - figure out at which level this should
+        # happen and whether it can just call one of them fancy systemvalues functions.
+        saved_states = self.compile_settings['saved_states']
+        saved_observables = self.compile_settings['saved_observables']
+
+        # If no saved states specified, assume all states are saved.
+        if saved_states is None:
+            saved_states = np.arange(n_states, dtype=np.int16)
+        n_saved_states = len(saved_states)
+
+        # On the other hand, if no observables are specified, assume no observables are saved.
+        if saved_observables is None:
+            saved_observables = []
+        n_saved_observables = len(saved_observables)
+
+        return saved_states, saved_observables, n_saved_states, n_saved_observables
 
     def build_all(self,
                 system,

@@ -5,25 +5,18 @@ from numpy.testing import assert_allclose
 from tests.SystemModels._utils import generate_system_tests
 from CuMC.SystemModels.Systems.decays import Decays
 
-from tests.SystemModels._utils import mixed_scale_float_array, random_float_array, random_system_values
+from tests._utils import generate_test_array
+# from tests.SystemModels._utils import random_system_values
 
 
 # One-off modifications of _utils for this unique system:
 
-def random_system_values(coeffs, precision=np.float64, randscale=1e6, axis=0):
+def random_system_values(coeffs, precision=np.float64, randscale=1e6):
     n = len(coeffs)
-    if isinstance(randscale, float):
-        randscale = (randscale,)
-    if len(randscale) == 1:
-        inits = random_float_array(n, precision, randscale[0])
-        params = random_float_array(n, precision, randscale[0])
-        drivers = random_float_array(1, precision, randscale[0])
-    elif len(randscale) == 2:
-        inits = mixed_scale_float_array(n, precision, log10_scale=randscale, axis=0)
-        params = mixed_scale_float_array(n, precision, log10_scale=randscale, axis=0)
-        drivers = mixed_scale_float_array(1, precision, log10_scale=randscale, axis=0)
-    else:
-        raise ValueError(f"randscale must be a single float or a tuple of two floats, got {randscale}.")
+
+    inits = generate_test_array(precision, n, style='random', scale=randscale)
+    params = generate_test_array(precision, n, style='random', scale=randscale)
+    drivers = generate_test_array(precision, 1, style='random', scale=randscale)
 
     return inits, params, drivers
 

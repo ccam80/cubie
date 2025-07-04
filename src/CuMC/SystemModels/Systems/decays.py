@@ -74,23 +74,24 @@ class Decays(GenericODE):
                  dxdt
                  ):
             """
-               dx[i] =
+               dx[i] = state[i] / (i+1)
                observables[i] = state[i] * parameters[i]
             """
             for i in range(n_terms):
-                dxdt[i] = state[i] / (i+1)
+                dxdt[i] = -state[i] / (i+1)
                 observables[i] = dxdt[i] * parameters[i] + global_constants[i] + driver[0]
-
 
         self.dxdtfunc = dxdt
 
     def correct_answer_python(self, states, parameters, drivers):
         """ Python testing function - do it in python and compare results."""
-        numpy_precision = np.float64 if self.precision == float64 else np.float32
+        # numpy_precision = np.float64 if self.precision == float64 else np.float32
 
         indices = np.arange(len(states))
+        observables = np.zeros(self.observables.n)
+        dxdt = -states / (indices + 1)
 
-        dxdt = states / (indices + 1)
-        observables = dxdt * parameters + indices + drivers[0]
+        for i in range(self.observables.n):
+            observables[i] = dxdt[i%len(states)] * parameters[i%len(parameters)] + i + drivers[0]
 
         return dxdt, observables

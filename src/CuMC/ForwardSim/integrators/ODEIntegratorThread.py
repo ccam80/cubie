@@ -18,21 +18,30 @@ from numba import cuda, from_dtype
 # from warnings import warn
 from CuMC.ForwardSim.integrators.output_functions import build_output_functions
 from CuMC.ForwardSim.integrators.algorithms import Euler
-
+from numpy.typing import ArrayLike, NDArray
 _INTEGRATION_ALGORITHMS = {"euler": Euler}
 
 
 class ODEIntegratorLoop:
-    """ Creates and builds a device function for a CUDA ODE integration. Interprets user-space compile_settings in terms of
-    times, system parameters, and desired outputs, and translates them into CUDA-space parameters for configuring and
+    """ Creates and builds a device function for a CUDA ODE integration. Interprets user-space compile_settings in terms
+    of times, system parameters, and desired outputs, and translates them into CUDA-space parameters for configuring and
     compiling the per-thread device function. Does not handle the dividing of batch runs into threads; this is handled
     by the next layer up, the Solver class.
 
-    Accepts a string which specifies the algorithm to use. Additional algorithms can be added by adding an object that
-    builds the loop function given a set of common paramters, and also returns how much shared memory is needed inside
-    the loop given the number of states/observables in the system.
+    Accepts a string which specifies which algorithm to use. Additional algorithms can be added by adding an object that
+    builds the loop function given a set of common parameters (subclassed from GenericIntegratorAlgorithm, see euler.py
+    for an example). The loop algorithm must implement a build_loop() factory method that returns a device function
+    which executes the whole integrator loop from start to finish, using the device functions from output_functions for
+    output. The subclass must also have a _calculate_loop_internal_shared_memory() method which returns the number of
+    items of shared memory required for a given system (not bytes, but slots of the size of whatever precision we use).
 
-     Specifically, this kernel needs to be rebuilt when there are changes to:
+    This class is not typically exposed to the user directly. The user-facing API is the Solver class, which handles
+    the batching up of runs and management of input/output memory. This class contains core functionality for running
+    a single thread of an integrator for a given (individual) set of initial values, parameters, and drivers. It is
+    separate from the genericIntegratorAlgorithm class so that we can insert any algorithm we choose without duplicating
+    the surrounding code.
+
+    The device function in this class needs to be rebuilt when there are changes to:
 
      Lower-level:
      - The system/problem (number of states, observables, parameters, drivers)
@@ -49,10 +58,10 @@ class ODEIntegratorLoop:
                  system,
                  algorithm='euler',
                  xblocksize=128,
-                 saved_states=None,
-                 saved_observables=None,
-                 dtmin=0.01,
-                 dtmax=0.1,
+                 saved_states: NDArray[np.int_]=None,
+                 saved_observables: NDArray[np.int_]=None,
+                 dt_min=0.01,
+                 dt_max=0.1,
                  atol=1e-6,
                  rtol=1e-6,
                  dt_save=0.1,
@@ -61,46 +70,29 @@ class ODEIntegratorLoop:
 
         # Keep parameters that specifically set the compile state of the loop functions in  a dict, so that a user can
         # rebuild without having to pass all parameters again.
-        self.compile_settings = {'dtmin': dtmin,
-                                 'dtmax': dtmax,
-                                 'atol': atol,
-                                 'rtol': rtol,
-                                 'dt_save': dt_save,
-                                 'dt_summarise': dt_summarise,
-                                 'saved_states': saved_states,
-                                 'saved_observables': saved_observables,
-                                 'output_functions': output_functions,
-                                 'n_peaks': 0
-                                 }
+        self.algo_compile_settings = {'dt_min': dt_min,
+                                      'dt_max': dt_max,
+                                     'atol': atol,
+                                     'rtol': rtol,
+                                     'dt_save': dt_save,
+                                     'dt_summarise': dt_summarise,
+                                     'saved_states': saved_states,
+                                     'saved_observables': saved_observables,
+                                     'output_functions': output_functions,
+                                     'n_peaks': 0
+                                        }
 
-        self.xblocksize = xblocksize
+        self.thread_compile_settings = {'xblocksize': xblocksize,
+                                        'algorithm': algorithm,
+                                        'shared_memory_per_thread':0}
+
+        self.built_algorithm_function = None
         self.integrator_algorithm = None
-        self.summary_shared_memory = 0
-        self.dynamic_sharedmem = 0
-        self.algorithm = algorithm
+        self.shared_memory_per_thread = 0
         self.build(system)
-        #TODO: add a routine to handle saved_state or saved_observables being given as strings - figure out at which level this should
-        # happen and whether it can just call one of them fancy systemvalues functions.
 
-    def _get_saved_values(self, n_states):
-        """Sanitise empty lists and None values - statse default to all, observables default to none."""
 
-        #TODO: Use systemvalues' get_indices to make this simpler and convert to a list of int16s at this level every time.
 
-        saved_states = self.compile_settings['saved_states']
-        saved_observables = self.compile_settings['saved_observables']
-
-        # If no saved states specified, assume all states are saved.
-        if saved_states is None:
-            saved_states = np.arange(n_states, dtype=np.int16)
-        n_saved_states = len(saved_states)
-
-        # On the other hand, if no observables are specified, assume no observables are saved.
-        if saved_observables is None:
-            saved_observables = []
-        n_saved_observables = len(saved_observables)
-
-        return saved_states, saved_observables, n_saved_states, n_saved_observables
 
     def build_outputs(self, saved_states, saved_observables):
 
@@ -114,8 +106,9 @@ class ODEIntegratorLoop:
         save_state = outputfunctions.save_state_func
         summary_sharedmem = outputfunctions.temp_memory_requirements
         summary_outputmem = outputfunctions.summary_output_length
+        save_time = outputfunctions.save_time  # Get the save_time flag
 
-        return save_state, update_summaries, save_summaries, summary_sharedmem, summary_outputmem
+        return save_state, update_summaries, save_summaries, summary_sharedmem, summary_outputmem, save_time
 
     def _clarify_None_output_functions(self, n_saved_observables):
         """Clarify the output functions to be used in the loop, if None is specified, set to default values."""
@@ -130,7 +123,7 @@ class ODEIntegratorLoop:
         """Implementation notes:
 
         - Future work: When creating a flexible-step integrator, we will have to allocate some compromise length of output
-        function, as using dtmin will over-allocate, and dtmax will under-allocate. This is only relevant if dt_save is not set.
+        function, as using dt_min will over-allocate, and dt_max will under-allocate. This is only relevant if dt_save is not set.
         """
         #NOTE: All of this preamble must be in the same function as the loop definition, to get the values into the
         #global scope from the loop definition's perspective. As such, it will be repeated in different integrator
@@ -145,7 +138,7 @@ class ODEIntegratorLoop:
 
         saved_states, saved_observables, n_saved_states, n_saved_observables = self._get_saved_values(n_states)
         self._clarify_None_output_functions(n_saved_observables)
-        save_state, update_summaries, save_summaries, summary_temp_memory, summary_output_memory = self.build_outputs(
+        save_state, update_summaries, save_summaries, summary_temp_memory, summary_output_memory, save_time = self.build_outputs(
             saved_states, saved_observables)
         self.summary_shared_memory = summary_temp_memory * (
                     n_saved_states + n_saved_observables)  #Total memory required for summaries, in items.
@@ -159,8 +152,8 @@ class ODEIntegratorLoop:
                                                                     n_obs,
                                                                     n_par,
                                                                     n_drivers,
-                                                                    self.compile_settings['dtmin'],
-                                                                    self.compile_settings['dtmax'],
+                                                                    self.compile_settings['dt_min'],
+                                                                    self.compile_settings['dt_max'],
                                                                     self.compile_settings['dt_save'],
                                                                     self.compile_settings['dt_summarise'],
                                                                     self.compile_settings['atol'],
@@ -170,7 +163,8 @@ class ODEIntegratorLoop:
                                                                     save_summaries,
                                                                     n_saved_states,
                                                                     n_saved_observables,
-                                                                    summary_temp_memory)
+                                                                    summary_temp_memory,
+                                                                    save_time)  # Pass save_time flag
         self.integrator_algorithm.build()
 
         self.update_dynamic_shared_memory(system)
@@ -188,12 +182,13 @@ class ODEIntegratorLoop:
                                    dt_summarise,
                                    atol,
                                    rtol,
+                                   save_time,
                                    save_state_func,
                                    update_summary_func,
                                    save_summary_func,
                                    n_saved_states,
                                    n_saved_observables,
-                                   summary_temp_memory):
+                                   summary_temp_memory):  # Add save_time parameter
         """Build the inner loop kernel for the integrator."""
         return _INTEGRATION_ALGORITHMS[self.algorithm](precision,
                                                        dxdt_func,
@@ -207,12 +202,14 @@ class ODEIntegratorLoop:
                                                        dt_summarise,
                                                        atol,
                                                        rtol,
+                                                       save_time,
                                                        save_state_func,
                                                        update_summary_func,
                                                        save_summary_func,
                                                        n_saved_states,
                                                        n_saved_observables,
-                                                       summary_temp_memory)
+                                                       summary_temp_memory,
+                                                       save_time)  # Pass save_time flag
 
     def update_dynamic_shared_memory(self, system):
         """Overload this function with the number of bytes of shared memory required for a single run of the integrator"""
@@ -248,14 +245,9 @@ if __name__ == "__main__":
     saved_states = None  # Default to all states
     saved_observables = [0, 1, 2, 3, 4, 5]
 
-    integrator = ODEIntegratorLoop(sys,
-                                   saved_states=saved_states,
-                                   saved_observables=saved_observables,
-                                   dtmin=internal_step,
-                                   dtmax=internal_step,
-                                   dt_save=save_step,
-                                   dt_summarise=summarise_step,
-                                   output_functions=["state", "observables", "max"])
+    integrator = ODEIntegratorLoop(sys, saved_states=saved_states, saved_observables=saved_observables,
+                                   dt_min=internal_step, dt_max=internal_step, dt_save=save_step,
+                                   dt_summarise=summarise_step, output_functions=["state", "observables", "max"])
 
     integrator.build(sys)
     intfunc = integrator.integrator_algorithm.loop_function

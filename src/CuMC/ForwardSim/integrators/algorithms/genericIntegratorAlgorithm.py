@@ -1,9 +1,9 @@
-# from warnings import warn
+from warnings import warn
 from numba import cuda, int32
-# from numba.parfors.parfor import dummy_return_in_loop_body
+from CuMC.ForwardSim.integrators._utils import check_requested_timing_possible, convert_times_to_fixed_steps
+
 from CuMC._utils import update_dicts_from_kwargs
 
-# from pdb import set_trace as bp
 
 class GenericIntegratorAlgorithm:
     """
@@ -36,6 +36,7 @@ class GenericIntegratorAlgorithm:
                  dt_summarise,
                  atol,
                  rtol,
+                 save_time,
                  save_state_func,
                  update_summary_func,
                  save_summary_func,
@@ -56,6 +57,7 @@ class GenericIntegratorAlgorithm:
                                 'dt_summarise': dt_summarise,
                                 'atol': atol,
                                 'rtol': rtol,
+                                'save_time': save_time,
                                 'n_saved_states': n_saved_states,
                                 'n_saved_observables': n_saved_observables,
                                 'summary_temp_memory': summary_temp_memory}
@@ -83,6 +85,7 @@ class GenericIntegratorAlgorithm:
         rtol = self.loop_parameters['rtol']
         dt_summarise = self.loop_parameters['dt_summarise']
         save_state_func = self.functions['save_state_func']
+        save_time = self.loop_parameters['save_time']
         update_summary_func = self.functions['update_summary_func']
         save_summary_func = self.functions['save_summary_func']
         n_saved_states = self.loop_parameters['n_saved_states']
@@ -101,6 +104,7 @@ class GenericIntegratorAlgorithm:
                                         dt_summarise,
                                         atol,
                                         rtol,
+                                        save_time,
                                         save_state_func,
                                         update_summary_func,
                                         save_summary_func,
@@ -122,6 +126,7 @@ class GenericIntegratorAlgorithm:
                    dt_summarise,
                    atol,
                    rtol,
+                   save_time,
                    save_state_func,
                    update_summary_func,
                    save_summary_func,
@@ -134,6 +139,7 @@ class GenericIntegratorAlgorithm:
 
         temp_state_summary_shape = (n_saved_states * summary_temp_memory,)
         temp_observables_summary_shape = (n_saved_observables * summary_temp_memory,)
+
         if summary_temp_memory == 0:
             summaries_output = False
         else:
@@ -149,8 +155,13 @@ class GenericIntegratorAlgorithm:
         else:
             save_states = True
 
+        if save_time:
+            state_array_size = n_states + 1  # +1 for time
+        else:
+            state_array_size = n_states
 
         #Common template for all integrator loops - difficult to modify without changing all.
+        # noinspection PyTypeChecker
         @cuda.jit((precision[:],
                    precision[:],
                    precision[:, :],
@@ -178,13 +189,15 @@ class GenericIntegratorAlgorithm:
             Just a placeholder/template for an algorithm's loop function. This one just fills the output with the
             initial values.
             """
-            l_state = cuda.local.array(shape=n_states, dtype=precision)
+            l_state = cuda.local.array(shape=state_array_size, dtype=precision)
             l_obs = cuda.local.array(shape=n_obs, dtype=precision)
             l_obs[:] = precision(0.0)
 
             #HACK: if we have no saved states or observables, numba will error for creating empty local arrays.
             # Not an issue for shared memory, but sometimes we might not have enough shared memory for these.
-            # This creation of an unused size-1 array feels like a hack, but avoids the error.
+            # This creation of an unused size-1 array feels like a hack, but avoids the error. Better to not create
+            # the arrays at all, but we eould have to modify the summary functions to handle different combinations
+            # of arrays and Nonetypes or similar.
             if summaries_output and save_states:
                 l_temp_summaries = cuda.local.array(shape=temp_state_summary_shape, dtype=precision)
             else:
@@ -219,7 +232,7 @@ class GenericIntegratorAlgorithm:
         The euler loop, for example, requires two arrays of size n_states for the state and dxdt,
         one for the current observables, and one for the drivers.
 
-        Dummy returns the number of states as a placeholder.
+        Dummy loop uses 0 shared memory.
         """
         # Euler example:
         # n_states = self.loop_parameters['n_states']
@@ -228,7 +241,7 @@ class GenericIntegratorAlgorithm:
         #
         #
         # return n_states*2 + n_obs + n_drivers
-        return self.loop_parameters['n_states']
+        return 0
 
     def rebuild(self, **kwargs):
         """
@@ -242,4 +255,50 @@ class GenericIntegratorAlgorithm:
 
         # Rebuild the loop function
         self.build()
+
+    def _time_to_fixed_steps(self):
+        """Fixed-step helper function: Convert the time-based compile_settings to sample-based compile_settings,
+        which are used by fixed-step loop functions. Sanity-check values and warn the user if they don't work.
+
+        Returns:
+            save_every_samples (int): The number of internal loop steps between saves.
+            summarise_every_samples (int): The number of output samples between summary metric calculations.
+            step_size (float): The internal time step size used in the loop (dt_min, by default).
+
+        Raises:
+            ValueError: If the user tries to save more often than they step, or summarise more often than they save.
+            UserWarning: If the output rate or summary rate aren't an integer divisor of the internal loop frequency,
+                update these values to be the actual time interval caused by stepping an integer number of steps. Warn
+                the user that results aren't what they asked for.
+        """
+
+        dt_min = self.loop_parameters['dt_min']
+        dt_max = self.loop_parameters['dt_max']
+        dt_save = self.loop_parameters['dt_save']
+        dt_summarise = self.loop_parameters['dt_summarise']
+
+        check_requested_timing_possible(dt_min, dt_max, dt_save, dt_summarise)
+
+        # Update the actual save and summary intervals, which will differ from what was ordered if they are not
+        # a multiple of the loop step size.
+        save_every_samples, summarise_every_samples, actual_dt_save, actual_dt_summarise = convert_times_to_fixed_steps(
+            dt_min, dt_save, dt_summarise)
+
+        # Update parameters if they differ from requested values and warn the user
+        if actual_dt_save != dt_save:
+            self.loop_parameters['dt_save'] = actual_dt_save
+            warn(
+                f"dt_save was set to {actual_dt_save}s, because it is not a multiple of dt_min ({dt_min}s). "
+                f"dt_save can only save a value after an integer number of steps in a fixed-step integrator",
+                UserWarning)
+
+        if actual_dt_summarise != dt_summarise:
+            self.loop_parameters['dt_summarise'] = actual_dt_summarise
+            warn(
+                f"dt_summarise was set to {actual_dt_summarise}s, because it is not a multiple of dt_save ({actual_dt_save}s). "
+                f"dt_summarise can only save a value after an integer number of steps in a fixed-step integrator",
+                UserWarning)
+
+        return save_every_samples, summarise_every_samples, dt_min
+
 

@@ -1,5 +1,6 @@
 if __name__ == "__main__":
     import os
+
     os.environ["NUMBA_ENABLE_CUDASIM"] = "0"
     os.environ["NUMBA_CUDA_DEBUGINFO"] = "0"
     os.environ["NUMBA_OPT"] = "0"
@@ -8,25 +9,33 @@ from numba import cuda, float64, int32, from_dtype, float32
 from math import sqrt
 from dataclasses import dataclass
 from numpy import asarray
+from numpy.typing import ArrayLike
+from typing import Sequence
 from pdb import set_trace as bp
 
 """Functions for saving values inside an integrator kernel, whether
-they are states or summary metrics.
+they are states or summary metrics. These are separated from the 
+integrator kernels to allow selection of different summary measures
+or optional saving of states/observables at a CUDA level without interfering
+with the mechanics of the integrator algorithms.
 
-All functions should have the same signature and arguments, so that
-they're easy to interchange without causing compilation headaches.
-
-Each function will be called once for each state/output, rather than working
-with arrays, because at the time of writing numba did not support the particular
-slice assignment wanted in the integrator kernels.
+Each function works on an individual slice of the output memory, assigned
+by the outer loop. All functions modify outputs in-place. Selected options
+and the resultant memory arrangements inside the arrays are pieced together
+in a fairly ugly sequential way, with the aim of occupying as little device
+or shared memory as possible by avoiding unused slots for unrequested outputs.
 """
+
+
 @dataclass
 class OutputFunctions:
     save_state_func: cuda.jit(device=True, inline=True) = None
     update_summary_metrics_func: cuda.jit(device=True, inline=True) = None
     save_summary_metrics_func: cuda.jit(device=True, inline=True) = None
-    shared_memory_requirements: int = 0,
+    temp_memory_requirements: int = 0,
     summary_output_length: int = 0
+    save_time: bool = False  # Flag to indicate if time is being saved, requires extra array slot
+
 
 #feature: max absolute
 #feature: running std deviation
@@ -36,34 +45,35 @@ class Flags:
     save_state: bool = False
     save_observables: bool = False
     save_time: bool = False
-    summarise_mean: bool = False          # extend with more toggles as needed
+    summarise_mean: bool = False  # extend with more toggles as needed
     summarise_max: bool = False
     summarise_peaks: bool = False
-    summarise_rms: bool= False
-    summarise: bool = False               # True if any of the summarise_* flags are set
+    summarise_rms: bool = False
+    summarise: bool = False  # True if any of the summarise_* flags are set
 
 
 _TOKENS_TO_COMPILE_FLAGS = {
-    "state":   "save_state",
+    "state": "save_state",
     "observables": "save_observables",
-    "time":    "save_time",
-    "peaks":  "summarise_peaks",
-    "mean":   "summarise_mean",
+    "time": "save_time",
+    "peaks": "summarise_peaks",
+    "mean": "summarise_mean",
     "rms": "summarise_rms",
-    "max":    "summarise_max",
+    "max": "summarise_max",
 }
 
 
 class _TempMemoryRequirements(dict):
     """ A way to incorporate the number of peaks or other multiple-summary metrics into a memory requirements
     dictionary. Essentially a dictionary with a small set of variable keys."""
+
     def __init__(self, num_peaks: int):
         super().__init__({
             "state": 0,
             "observables": 0,
             "time": 0,
             "mean": 1,
-            "peaks": 3 + num_peaks,   # prev + prev_prev + peak_counter
+            "peaks": 3 + num_peaks,  # prev + prev_prev + peak_counter
             "rms": 1,
             "max": 1,
         })
@@ -72,6 +82,7 @@ class _TempMemoryRequirements(dict):
 class _OutputMemoryRequirements(dict):
     """ A way to incorporate the number of peaks or other multiple-summary metrics into a memory requirements
     dictionary. Essentially a dictionary with a small set of variable keys."""
+
     def __init__(self, num_peaks: int):
         super().__init__({
             "state": 0,
@@ -82,6 +93,7 @@ class _OutputMemoryRequirements(dict):
             "rms": 1,
             "max": 1,
         })
+
 
 def parse_flags(tokens: list[str]) -> "Flags":
     f = Flags()
@@ -95,10 +107,11 @@ def parse_flags(tokens: list[str]) -> "Flags":
         f.summarise = True
     return f
 
-def build_output_functions(outputs_list,
-                          saved_states, # Ensure this has been set to the full range (handle None case before it gets  here)
-                          saved_observables,
-                          n_peaks=None):
+
+def build_output_functions(outputs_list: list[str],
+                           saved_states: Sequence[int] | ArrayLike,
+                           saved_observables: Sequence[int] | ArrayLike,
+                           n_peaks: int = None):
     """Compile three functions: Save state, update summary metrics,and save summaries. Calculate memory requirements
     for temporary and output arrays.
 
@@ -140,7 +153,7 @@ def build_output_functions(outputs_list,
 
     save_state = flags.save_state
     save_observables = flags.save_observables
-    save_time = flags.save_time #TODO: convert to real time at some point? Or will this be handled by the integrator
+    save_time = flags.save_time
     summarise = flags.summarise
     summarise_mean = flags.summarise_mean
     summarise_max = flags.summarise_max
@@ -206,15 +219,11 @@ def build_output_functions(outputs_list,
             None, modifies the temp_state_summaries and temp_observable_summaries in-place.
 
             """
-        # TODO: twiddle the internal layout of temporary array - in this form we cycle first through
-        #  summary types, then states, memory arrangement should replicate this.
-
         #Efficiency note: this function (and the below) contain duplicated code for each array type. Using a common
         # function to handle the cases would be more efficient, but numba does not seem to recognise a change in the
         # compile-time constants nstates/nobs
 
         if summarise:
-
             temp_array_index = 0
 
             for k in range(nstates):
@@ -229,7 +238,8 @@ def build_output_functions(outputs_list,
                     running_max(current_state[saved_states_local[k]], temp_state_summaries, temp_array_index)
                     temp_array_index += 1
                 if summarise_rms:
-                    running_rms(current_state[saved_states_local[k]], temp_state_summaries, temp_array_index, current_step)
+                    running_rms(current_state[saved_states_local[k]], temp_state_summaries, temp_array_index,
+                                current_step)
                     temp_array_index += 1
 
             if save_observables:
@@ -237,25 +247,29 @@ def build_output_functions(outputs_list,
 
                 for k in range(nobs):
                     if summarise_mean:
-                        running_mean(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index)
+                        running_mean(current_observables[saved_observables_local[k]], temp_observable_summaries,
+                                     temp_array_index)
                         temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
                     if summarise_peaks:
-                        running_peaks(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index,
+                        running_peaks(current_observables[saved_observables_local[k]], temp_observable_summaries,
+                                      temp_array_index,
                                       current_step, n_peaks)
                         temp_array_index += 3 + n_peaks
                     if summarise_max:
-                        running_max(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index)
+                        running_max(current_observables[saved_observables_local[k]], temp_observable_summaries,
+                                    temp_array_index)
                         temp_array_index += 1
                     if summarise_rms:
-                        running_rms(current_observables[saved_observables_local[k]], temp_observable_summaries, temp_array_index, current_step)
+                        running_rms(current_observables[saved_observables_local[k]], temp_observable_summaries,
+                                    temp_array_index, current_step)
                         temp_array_index += 1
 
     @cuda.jit(device=True, inline=True)
     def save_summary_metrics_func(temp_state_summaries,
-                                temp_observable_summaries,
-                                output_state_summaries_slice,
-                                output_observable_summaries_slice,
-                                summarise_every):
+                                  temp_observable_summaries,
+                                  output_state_summaries_slice,
+                                  output_observable_summaries_slice,
+                                  summarise_every):
         """Update the summary metrics based on the current state and observables.
         Arguments:
             temp_state_summaries: temporary array for state summaries, updated by update_summary_metrics_func
@@ -277,10 +291,6 @@ def build_output_functions(outputs_list,
             temp_index = 0
 
             for i in range(nstates):
-                # TODO: twiddle the internal layout of temporary array - in this form we cycle first through
-                #  summary types, then states, memory arrangement should replicate this.
-                #  Consider making a sub-function to handle the cases, to reduce code duplication.
-
                 if summarise_mean:
                     output_state_summaries_slice[output_index] = temp_state_summaries[temp_index] / summarise_every
                     temp_state_summaries[temp_index] = 0.0
@@ -297,13 +307,13 @@ def build_output_functions(outputs_list,
 
                 if summarise_max:
                     output_state_summaries_slice[output_index] = temp_state_summaries[temp_index]
-                    temp_state_summaries[temp_index] = -1.0e30 # A very negative number, to allow us to capture max values greater than this
+                    temp_state_summaries[
+                        temp_index] = -1.0e30  # A very negative number, to allow us to capture max values greater than this
                     output_index += 1
                     temp_index += 1
 
                 if summarise_rms:
-                    output_state_summaries_slice[output_index] = temp_state_summaries[temp_index] / summarise_every
-                    output_state_summaries_slice[output_index] = sqrt(output_state_summaries_slice[output_index])
+                    output_state_summaries_slice[output_index] = sqrt(temp_state_summaries[temp_index]/summarise_every)
                     temp_state_summaries[temp_index] = 0.0
                     output_index += 1
                     temp_index += 1
@@ -312,19 +322,18 @@ def build_output_functions(outputs_list,
                 temp_index = 0
 
                 for i in range(nobs):
-                    # TODO: twiddle the internal layout of temporary array - in this form we cycle first through
-                    #  summary types, then states, memory arrangement should replicate this.
-                    #  Consider making a sub-function to handle the cases, to reduce code duplication.
 
                     if summarise_mean:
-                        output_observable_summaries_slice[output_index] = temp_observable_summaries[temp_index] / summarise_every
+                        output_observable_summaries_slice[output_index] = temp_observable_summaries[
+                                                                              temp_index] / summarise_every
                         temp_observable_summaries[temp_index] = 0.0
                         output_index += 1
                         temp_index += 1
 
                     if summarise_peaks:
                         for p in range(n_peaks):
-                            output_observable_summaries_slice[output_index + p] = temp_observable_summaries[temp_index + 3 + p]
+                            output_observable_summaries_slice[output_index + p] = temp_observable_summaries[
+                                temp_index + 3 + p]
                             temp_observable_summaries[temp_index + 3 + p] = 0.0
                         temp_observable_summaries[temp_index + 2] = 0.0  # Reset peak counter
                         output_index += n_peaks
@@ -332,13 +341,13 @@ def build_output_functions(outputs_list,
 
                     if summarise_max:
                         output_observable_summaries_slice[output_index] = temp_observable_summaries[temp_index]
-                        temp_observable_summaries[temp_index] = -1.0e30 # A very negative number, to allow us to capture max values greater than this
+                        temp_observable_summaries[
+                            temp_index] = -1.0e30  # A very negative number, to allow us to capture max values greater than this
                         output_index += 1
                         temp_index += 1
 
                     if summarise_rms:
-                        output_observable_summaries_slice[output_index] = temp_observable_summaries[temp_index] / summarise_every
-                        output_observable_summaries_slice[output_index] = sqrt(output_observable_summaries_slice[output_index])
+                        output_observable_summaries_slice[output_index] = sqrt(temp_observable_summaries[temp_index] / summarise_every)
                         temp_observable_summaries[temp_index] = 0.0
                         output_index += 1
                         temp_index += 1
@@ -350,17 +359,19 @@ def build_output_functions(outputs_list,
     funcreturn.save_summary_metrics_func = save_summary_metrics_func
     funcreturn.temp_memory_requirements = temporary_requirements
     funcreturn.summary_output_length = output_requirements
+    funcreturn.save_time = save_time  # Add the save_time flag to the returned object
 
     return funcreturn
 
 
 @cuda.jit(device=True, inline=True)
 def running_mean(value,
-                temp_array,
-                temp_array_start_index,
-                ):
+                 temp_array,
+                 temp_array_start_index,
+                 ):
     """Update running mean - 1 temp memory slot required per state"""
     temp_array[temp_array_start_index] += value
+
 
 @cuda.jit(device=True, inline=True)
 def running_max(value,
@@ -370,6 +381,7 @@ def running_max(value,
     """Update the maximum value in the temporary array."""
     if value > temp_array[temp_array_start_index]:
         temp_array[temp_array_start_index] = value
+
 
 @cuda.jit(device=True, inline=True)
 def running_peaks(value,
@@ -389,14 +401,15 @@ def running_peaks(value,
     #only check if we have enough points and we haven't already maxed out the counter, and that we're not working with
     # a 0.0 value (at the start of the run, for example). This assumes no natural 0.0 values, which seems realistic
     # for many systems. A more robust implementation would check if we're within 3 samples of summarise_every, probably.
-    if (current_index > 2) and (peak_counter < npeaks) and (prev_prev != 0.0):
+    if (current_index >= 2) and (peak_counter < npeaks) and (prev_prev != 0.0):
         if prev > value and prev_prev < prev:
             #Bingo
             temp_array[temp_array_start_index + 3 + peak_counter] = float(current_index - 1)
             temp_array[temp_array_start_index + 2] = float(int(temp_array[temp_array_start_index + 2]) + 1)
 
-    temp_array[temp_array_start_index+0] = value  # Update previous value
+    temp_array[temp_array_start_index + 0] = value  # Update previous value
     temp_array[temp_array_start_index + 1] = prev  # Update previous previous value
+
 
 @cuda.jit(device=True, inline=True)
 def running_rms(value,
@@ -405,10 +418,14 @@ def running_rms(value,
                 current_step):
     """Update the RMS value in the temporary array.
     Per-state temporary array requirements:
-    [sum_of_squares]
+    [running_meansquare]
     total requirement: 1 slots per state
-    Divide by total number of steps**2 at the end to get RMS."""
-
+    We keep a running square, and mean/square root when saving.
+    this accumulates some numerical error in the case of widely varying input scales, and tests have been
+    relaxed to rtol=1e-3 for float32, 1e-9 for float64 to accomodate.
+    """
     sum_of_squares = temp_array[temp_array_start_index]
-    sum_of_squares += value * value
+    if current_step == 0:
+        sum_of_squares = 0.0
+    sum_of_squares += (value * value)
     temp_array[temp_array_start_index] = sum_of_squares

@@ -1,7 +1,7 @@
 import numpy as np
 from numba import float32, float64
 from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
-
+from tests._utils import generate_test_array
 
 def get_sizes_from_model(SystemClass):
     """Given a model with default labels for states etc, return the sizes of each array
@@ -15,55 +15,6 @@ def get_sizes_from_model(SystemClass):
     precision = np.float32
     sys, precision = instantiate_or_use_instance(SystemClass, precision)
     return sys.num_states, sys.num_parameters, sys.num_observables, sys.num_constants, sys.num_drivers
-
-
-def random_float_array(shape, precision=np.float64, scale=1e6):
-    """Generate a random float array of given shape and dtype, drawn from a normal distribution with a std dev of the
-    argument "scale". Normal was chosen here to slightly increase the magnitude-spread of values.
-
-    Args:
-        shape (tuple[int] | int): The shape of the array to generate.
-        precision (np.dtype): The desired data type of the array.
-        scale (float): The standard deviation of the normal distribution from which to draw values.
-    Returns:
-        random_array (np.ndarray): A numpy array of the specified shape and dtype, filled with random values.
-
-    """
-    rng = np.random.default_rng()
-    return rng.normal(scale=scale, size=shape).astype(precision)
-
-
-def mixed_scale_float_array(shape, precision=np.float64, log10_scale=(-6, 6), axis=0):
-    """ Generates a float array where each element is drawn from a normal distribution. The std dev of the distribution
-    is 1*10^k, with drawn from a uniform distribution between log10_scale[0] and log10_scale[1]. The resulting array
-    can be used to test the system with a wide dynamic range of values, straining the numerical stability of the system.
-
-    Args:
-        shape (tuple[int] | int): The shape of the array to generate.
-        precision (np.dtype): The desired data type of the array. default: np.float64.
-        log10_scale (tuple[float]): A tuple of (min_exponent, max_exponent) two floats, the lower and upper bounds of
-            the log10 scale for the standard deviation. default: (-6, 6).
-        axis (int): all values along this axis will be drawn from a distribution of the same scale - in the context of
-            an ODE system, this means that each state will contain values at the same scale, so set it to the index
-            that corresponds to the state/parameter/value. default: 0
-
-    Returns:
-        random_array (np.ndarray): A numpy array of the specified shape and dtype, filled with random values drawn from
-            normal distributions with varying scales.
-
-    """
-    rng = np.random.default_rng()
-    if isinstance(shape, int):
-        shape = (shape,)
-    if axis > len(shape):
-        raise ValueError(f"Axis {axis} is out of bounds for shape {shape}.")
-    scale_exponents = rng.uniform(log10_scale[0], log10_scale[1], size=shape[axis])
-    scale_values = 10.0 ** scale_exponents
-    random_array = np.empty(shape, dtype=precision)
-    for i in range(shape[axis]):
-        random_array[i] = rng.normal(scale=scale_values[i], size=shape[:axis] + shape[axis + 1:]).astype(precision)
-    return random_array
-
 
 def get_observables_list(SystemClass):
     """Get the list of observable names from a system class.
@@ -104,22 +55,15 @@ def random_system_values(SystemClass, precision=np.float64, randscale=1e6, axis=
     array_sizes = (n_states, n_params, n_constants)
     sysarrays_to_make = (sys.init_values, sys.parameters, sys.constants)
     dicts = []
-    if isinstance(randscale, float):
-        randscale = (randscale,)
+
 
     for i, sysarray in enumerate(sysarrays_to_make):
-        if len(randscale) == 1:
-            randvals = random_float_array(array_sizes[i], precision, randscale[0])
-        elif len(randscale) == 2:
-            randvals = mixed_scale_float_array(array_sizes[i], precision, log10_scale=randscale, axis=0)
-        else:
-            raise ValueError(f"randscale must be a single float or a tuple of two floats, got {randscale}.")
-
+        randvals = generate_test_array(precision, array_sizes[i], style='random', scale=randscale)
         keys = [sysarray.keys_by_index[i] for i in range(array_sizes[i])]
         dicts.append(dict(zip(keys, randvals)))
 
     state, parameters, constants = dicts
-    drivers = random_float_array(n_drivers, precision)
+    drivers = generate_test_array(precision, n_drivers, style='random', scale=randscale)
     return state, parameters, drivers, constants
 
 
