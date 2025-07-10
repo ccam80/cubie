@@ -45,10 +45,10 @@ class LoopAlgorithmTester:
         save_state = output_functions.save_state_func
         update_summaries = output_functions.update_summary_metrics_func
         save_summaries = output_functions.save_summary_metrics_func
-        summary_temp_memory = output_functions.temp_memory_requirements
+        summary_temp_memory = output_functions.memory_per_summarised_variable['temporary']
         save_time = output_functions.save_time
 
-        dxdt_function = system.get_device_function()
+        dxdt_function = system.device_function
 
         algorithm_instance = algorithm_class(
                 precision=from_dtype(precision),
@@ -77,23 +77,23 @@ class LoopAlgorithmTester:
     @pytest.fixture(scope='function')
     def built_loop_function(self, loop_under_test):
         """Returns only the build loop function of the loop under test"""
-        return loop_under_test.get_device_function()
+        return loop_under_test.device_function
 
     def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides,
                                                        loop_under_test, expected_summary_temp_memory):
         for key, value in loop_compile_settings_overrides.items():
             if key == "saved_states":
-                assert loop_under_test.loop_parameters['n_saved_states'] == len(value), \
+                assert loop_under_test.compile_settings['n_saved_states'] == len(value), \
                     f"saved_states does not match expected value {len(value)}"
             elif key == "saved_observables":
-                assert loop_under_test.loop_parameters['n_saved_observables'] == len(value), \
+                assert loop_under_test.compile_settings['n_saved_observables'] == len(value), \
                     f"saved_states does not match expected value {len(value)}"
             elif key == "output_functions" or key == "n_peaks":
-                assert loop_under_test.loop_parameters['summary_temp_memory'] == expected_summary_temp_memory, \
+                assert loop_under_test.compile_settings['summary_temp_memory'] == expected_summary_temp_memory, \
                     f"Summary temp memory requirement doesn't match expected - the loop_compile_settings change doesn't get through."
             else:
-                assert key in loop_under_test.loop_parameters, f"{key} not found in loop parameters"
-                assert loop_under_test.loop_parameters[key] == value, f"{key} does not match expected value {value}"
+                assert key in loop_under_test.compile_settings, f"{key} not found in loop parameters"
+                assert loop_under_test.compile_settings[key] == value, f"{key} does not match expected value {value}"
 
     def test_loop_function_builds(self, built_loop_function):
         """
@@ -186,8 +186,10 @@ class LoopAlgorithmTester:
 
         summary_samples = int(
                 np.ceil(output_samples * loop_compile_settings['dt_save'] / loop_compile_settings['dt_summarise']))
-        num_state_summaries = output_functions.summary_output_length * n_saved_states
-        num_observable_summaries = output_functions.summary_output_length * n_saved_observables
+        summary_output_memory = output_functions.memory_per_summarised_variable['output']
+
+        num_state_summaries = summary_output_memory * n_saved_states
+        num_observable_summaries = summary_output_memory * n_saved_observables
 
         summary_outputs = np.zeros((num_state_summaries, summary_samples), dtype=precision)
         summary_observables = np.zeros((num_observable_summaries, summary_samples), dtype=precision)
@@ -213,8 +215,8 @@ class LoopAlgorithmTester:
         d_summary_observables = cuda.to_device(summary_observables)
 
         # Shared memory requirements:
-        loop_memory = loop_under_test.get_loop_internal_shared_memory()
-        summary_memory = loop_under_test.loop_parameters['summary_temp_memory'] * (n_saved_states + n_saved_observables)
+        loop_memory = loop_under_test.get_cached_output('loop_shared_memory')
+        summary_memory = loop_under_test.compile_settings['summary_temp_memory'] * (n_saved_states + n_saved_observables)
         floatsize = precision().itemsize
 
         dynamic_sharedmem = floatsize * (summary_memory + loop_memory)
@@ -301,8 +303,8 @@ class LoopAlgorithmTester:
         expected_save_steps, expected_summarise_steps, expected_dt_save, expected_dt_summarise = convert_times_to_fixed_steps(
             dt_min, dt_save, dt_summarise)
 
-        assert loop_under_test.loop_parameters['dt_save'] == expected_dt_save, "dt_save was not updated correctly"
-        assert loop_under_test.loop_parameters[
+        assert loop_under_test.compile_settings['dt_save'] == expected_dt_save, "dt_save was not updated correctly"
+        assert loop_under_test.compile_settings[
                    'dt_summarise'] == expected_dt_summarise, "dt_summarise was not updated correctly"
         assert actual_save_steps == expected_save_steps, "save_every_samples was not calculated correctly"
         assert actual_summarise_steps == expected_summarise_steps, "summarise_every_samples was not calculated correctly"

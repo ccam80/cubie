@@ -9,7 +9,8 @@ class Euler(GenericIntegratorAlgorithm):
     It is suitable for systems where the dynamics are not too stiff and where high accuracy is not required.
     """
 
-    def __init__(self,precision,
+    def __init__(self,
+                 precision,
                  dxdt_func,
                  n_states,
                  n_obs,
@@ -28,7 +29,8 @@ class Euler(GenericIntegratorAlgorithm):
                  n_saved_states,
                  n_saved_observables,
                  summary_temp_memory,
-                 **kwargs):
+                 **kwargs
+                 ):
         super().__init__(precision,
                          dxdt_func,
                          n_states,
@@ -187,9 +189,9 @@ class Euler(GenericIntegratorAlgorithm):
         for state, dxdt, observables, drivers, which will change between algorithms.
         """
 
-        n_states = self.loop_parameters['n_states']
-        n_obs = self.loop_parameters['n_obs']
-        n_drivers = self.loop_parameters['n_drivers']
+        n_states = self.compile_settings['n_states']
+        n_obs = self.compile_settings['n_obs']
+        n_drivers = self.compile_settings['n_drivers']
 
         return n_states + n_states + n_obs + n_drivers
 

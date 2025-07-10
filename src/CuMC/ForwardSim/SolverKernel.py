@@ -12,9 +12,10 @@ if __name__ == "__main__":
     os.environ["NUMBA_OPT"] = "0"
 
 import numpy as np
-from numba import float32, float64, int32, int16, literally
+from numba import int32, int16
 from numba import cuda, from_dtype
-
+from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
+from CuMC.CUDAFactory import CUDAFactory
 
 class SolverKernel():
     """Class which builds and holds the integrating kernel and interfaces with lower-level modules: loop
@@ -30,12 +31,19 @@ class SolverKernel():
     """
 
     def __init__(self,
-                 precision,
                  system,
-
-                 method='euler',
-
-                 profileFlags=False):
+                 algorithm: str = 'euler',
+                 dt_min: float = 0.01,
+                 dt_max: float = 0.1,
+                 dt_save: float = 0.1,
+                 dt_summarise: float = 1.0,
+                 atol: float = 1e-6,
+                 rtol: float = 1e-6,
+                 saved_states: NDArray[np.int_] = None,
+                 saved_observables: NDArray[np.int_] = None,
+                 output_types: list[str] = None,
+                 n_peaks: int = 0,
+                 profileCUDA: bool = False):
 
         self.kernel = None
         self.precision = precision
