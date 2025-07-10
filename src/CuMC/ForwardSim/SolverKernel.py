@@ -17,19 +17,37 @@ from numba import cuda, from_dtype
 
 
 class SolverKernel():
-    """Class which builds and uses the outer kernel for solving ODEs. This kernel handles interfacing with the
-    whole-batch (if used) parameter sets and input/output arrays, assigning one run to an ODEIntegrator device function
-    for each run, and copying the results back to host.
+    """Class which builds and holds the integrating kernel and interfaces with lower-level modules: loop
+    algorithms, ODE systems, and output functions
+    The kernel function accepts single or batched sets of inputs, and distributes those amongst the threads on the
+    GPU. It runs the loop device function on a given slice of it's allocated memory, and serves as the distributor
+    of work amongst the individual runs of the integrators.
+    This class is one level down from the user, managing sanitised inputs and handling the machinery of batching and
+    running integrators. It does not handle:
+     - Integration logic/algorithms - these are handled in SingleIntegratorRun, and below
+     - Input sanitisation / batch construction - this is handled in the solver api.
+     - System equations - these are handled in the system model classes.
+    """
 
-    methods batch_solve and single_solve are the main entry points for running the solver, depending on whether
-    you want to do a single run or a batch (no surprises there)."""
     def __init__(self,
                  precision,
+                 system,
+
+                 method='euler',
+
                  profileFlags=False):
 
         self.kernel = None
         self.precision = precision
         self.numba_precision = from_dtype(precision)
+
+    def _clarify_None_output_functions(self, n_saved_observables):
+        """Clarify the output functions to be used in the loop, if None is specified, set to default values."""
+        # TODO: add empty list check
+        if self.compile_settings['output_functions'] is None:
+            self.compile_settings['output_functions'] = ['state']
+            if n_saved_observables > 0:
+                self.compile_settings['output_functions'].append('observables')
 
     #TODO: force rebuild if system or saved states change
     def _get_saved_values(self, n_states):

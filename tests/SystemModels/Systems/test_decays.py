@@ -30,7 +30,7 @@ def create_random_test_set(coeffs, precision=np.float64, randscale=1e6):
             f"Random test set with {len(params)} coefficients of scale {randscale} of type {precision}")
 
 
-def generate_decays_tests(param_lengths=[1, 10, 100], log10_scalerange=(-6, 6), tests_per_category=3):
+def generate_decays_tests(param_lengths=[1, 10, 100], log10_scalerange=(-6, 6), tests_per_category=1):
     test_cases = []
     coeffses = [list(range(n)) for n in param_lengths]
     samescales = np.arange(log10_scalerange[0], log10_scalerange[1] + 1, tests_per_category)
@@ -75,14 +75,13 @@ class TestDecays(SystemTester):
         """Checks if the system builds or compiles."""
         precision, coefficients = instantiate_settings
         self.instantiate_system(system_class, coefficients, precision)
-        self.build_system()
-        assert self.system_instance.dxdtfunc is not None, "dxdt function missing after build."
+        dxdt_function = self.build_system()
+        assert dxdt_function is not None, "dxdt function missing after build."
 
     def test_correct_output(self, system_class, instantiate_settings, input_data, test_name):
         """Checks if the output matches expected values."""
         precision, coefficients = instantiate_settings
         self.instantiate_system(system_class, coefficients, precision)
-        self.build_system()
         self.build_test_kernel()
 
         dx = np.zeros(self.system_instance.num_states, dtype=precision)
@@ -96,6 +95,45 @@ class TestDecays(SystemTester):
             rtol = 1e-12
         assert_allclose(dx, expected_dx, rtol=rtol, err_msg="dx mismatch")
         assert_allclose(observables, expected_obs, rtol=rtol, err_msg="observables mismatch")
+
+    def test_constants_edit(self, system_class, instantiate_settings, input_data, test_name):
+        """ Checks if constant edits are successfully compiled into the system. """
+        precision, coefficients = instantiate_settings
+
+        self.instantiate_system(system_class, coefficients, precision)
+        self.build_test_kernel()
+
+        if self.system_instance.num_constants == 0:
+            pytest.skip("No constants to edit in this system.")
+
+        dx = np.zeros(self.system_instance.num_states, dtype=precision)
+        observables = np.zeros(self.system_instance.num_observables, dtype=precision)
+
+        self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
+
+        if precision == np.float32:
+            rtol = 1e-5  # float32 will underperform in fixed-precision land, and on big systems this error will stack
+        else:
+            rtol = 1e-12
+
+        expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
+
+        assert_allclose(dx, expected_dx, rtol=rtol, err_msg="initial dx mismatch")
+        assert_allclose(observables, expected_obs, rtol=rtol, err_msg="initial observables mismatch")
+
+        for key, value in self.system_instance.compile_settings['constants'].values_dict.items():
+            self.system_instance.set_constants({key: value * 10.0})
+
+        expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
+        with pytest.raises(AssertionError):
+            assert_allclose(observables, expected_dx, rtol=rtol, err_msg="pre-rebuild mismatch - expected")
+
+        self.build_test_kernel()
+        expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
+        self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
+
+        assert_allclose(dx, expected_dx, rtol=rtol, err_msg="post-edit dx mismatch")
+        assert_allclose(observables, expected_obs, rtol=rtol, err_msg="post-edit observables mismatch")
 
 
 

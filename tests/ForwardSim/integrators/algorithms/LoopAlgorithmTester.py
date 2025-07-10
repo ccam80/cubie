@@ -31,7 +31,8 @@ class LoopAlgorithmTester:
         pass
 
     @pytest.fixture(scope='function')
-    def loop_under_test(self, request, precision, algorithm_class, output_functions, system, loop_compile_settings):
+    def loop_under_test(self, request, precision, algorithm_class: type, output_functions, system,
+                        loop_compile_settings):
         """
         Returns an instance of the loop class specified in algorithm_class.
 
@@ -47,35 +48,36 @@ class LoopAlgorithmTester:
         summary_temp_memory = output_functions.temp_memory_requirements
         save_time = output_functions.save_time
 
+        dxdt_function = system.get_device_function()
+
         algorithm_instance = algorithm_class(
-            precision=from_dtype(precision),
-            dxdt_func=system.dxdtfunc,
-            n_states=system.num_states,
-            n_obs=system.num_observables,
-            n_par=system.num_parameters,
-            n_drivers=system.num_drivers,
-            dt_min=loop_compile_settings['dt_min'],
-            dt_max=loop_compile_settings['dt_max'],
-            dt_save=loop_compile_settings['dt_save'],
-            dt_summarise=loop_compile_settings['dt_summarise'],
-            atol=loop_compile_settings['atol'],
-            rtol=loop_compile_settings['rtol'],
-            save_time=save_time,
-            save_state_func=save_state,  # These will be set by the ODEIntegratorLoop
-            update_summary_func=update_summaries,
-            save_summary_func=save_summaries,
-            n_saved_states=len(loop_compile_settings['saved_states']),
-            n_saved_observables=len(loop_compile_settings['saved_observables']),
-            summary_temp_memory=summary_temp_memory,
-        )
+                precision=from_dtype(precision),
+                dxdt_func=dxdt_function,
+                n_states=system.num_states,
+                n_obs=system.num_observables,
+                n_par=system.num_parameters,
+                n_drivers=system.num_drivers,
+                dt_min=loop_compile_settings['dt_min'],
+                dt_max=loop_compile_settings['dt_max'],
+                dt_save=loop_compile_settings['dt_save'],
+                dt_summarise=loop_compile_settings['dt_summarise'],
+                atol=loop_compile_settings['atol'],
+                rtol=loop_compile_settings['rtol'],
+                save_time=save_time,
+                save_state_func=save_state,
+                update_summary_func=update_summaries,
+                save_summary_func=save_summaries,
+                n_saved_states=len(loop_compile_settings['saved_states']),
+                n_saved_observables=len(loop_compile_settings['saved_observables']),
+                summary_temp_memory=summary_temp_memory,
+                )
 
         return algorithm_instance
 
     @pytest.fixture(scope='function')
     def built_loop_function(self, loop_under_test):
         """Returns only the build loop function of the loop under test"""
-        loop_under_test.build()
-        return loop_under_test.loop_function
+        return loop_under_test.get_device_function()
 
     def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides,
                                                        loop_under_test, expected_summary_temp_memory):
@@ -121,17 +123,17 @@ class LoopAlgorithmTester:
             shared_memory = cuda.shared.array(0, dtype=numba_precision)
 
             loop_func(
-                inits,
-                params,
-                c_forcing_vector,
-                shared_memory,
-                output,
-                observables,
-                summary_outputs,
-                summary_observables,
-                output_samples,
-                warmup_samples
-            )
+                    inits,
+                    params,
+                    c_forcing_vector,
+                    shared_memory,
+                    output,
+                    observables,
+                    summary_outputs,
+                    summary_observables,
+                    output_samples,
+                    warmup_samples
+                    )
 
         return test_kernel
 
@@ -145,7 +147,7 @@ class LoopAlgorithmTester:
         def test_expected_temp_memory(expected_temp_memory):
             ...
         """
-        from CuMC.ForwardSim.integrators.output_functions import _TempMemoryRequirements
+        from OutputFunctions.output_functions import _TempMemoryRequirements
         n_peaks = loop_compile_settings['n_peaks']
         outputs_list = loop_compile_settings['output_functions']
         return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
@@ -160,7 +162,7 @@ class LoopAlgorithmTester:
         def test_expected_temp_memory(expected_temp_memory):
             ...
         """
-        from CuMC.ForwardSim.integrators.output_functions import _OutputMemoryRequirements
+        from OutputFunctions.output_functions import _OutputMemoryRequirements
         n_peaks = loop_compile_settings['n_peaks']
         outputs_list = loop_compile_settings['output_functions']
         return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
@@ -175,7 +177,7 @@ class LoopAlgorithmTester:
         save_observables_bool = "observables" in loop_compile_settings['output_functions']
         saved_states = np.asarray(loop_compile_settings['saved_states']) if save_state_bool else np.asarray([])
         saved_observables = np.asarray(
-            loop_compile_settings['saved_observables']) if save_observables_bool else np.asarray([])
+                loop_compile_settings['saved_observables']) if save_observables_bool else np.asarray([])
         n_saved_states = len(saved_states)
         n_saved_observables = len(saved_observables)
 
@@ -183,7 +185,7 @@ class LoopAlgorithmTester:
         observables = np.zeros((n_saved_observables, output_samples), dtype=precision)
 
         summary_samples = int(
-            np.ceil(output_samples * loop_compile_settings['dt_save'] / loop_compile_settings['dt_summarise']))
+                np.ceil(output_samples * loop_compile_settings['dt_save'] / loop_compile_settings['dt_summarise']))
         num_state_summaries = output_functions.summary_output_length * n_saved_states
         num_observable_summaries = output_functions.summary_output_length * n_saved_observables
 
@@ -211,7 +213,7 @@ class LoopAlgorithmTester:
         d_summary_observables = cuda.to_device(summary_observables)
 
         # Shared memory requirements:
-        loop_memory = loop_under_test._calculate_loop_internal_shared_memory()
+        loop_memory = loop_under_test.get_loop_internal_shared_memory()
         summary_memory = loop_under_test.loop_parameters['summary_temp_memory'] * (n_saved_states + n_saved_observables)
         floatsize = precision().itemsize
 
@@ -263,11 +265,9 @@ class LoopAlgorithmTester:
     def test_loop_shared_memory_calc(self, loop_under_test, expected_loop_shared_memory):
         """Test the calculate_shared_memory method of Euler."""
 
-        shared_memory = loop_under_test._calculate_loop_internal_shared_memory()
+        shared_memory = loop_under_test.get_loop_internal_shared_memory()
         assert shared_memory == expected_loop_shared_memory, f"Expected {expected_loop_shared_memory} shared memory items, got {shared_memory}"
 
-    #Improvement: This method runs for every system for every subclass, which isn't required. We could either
-    # run it only for the systems that use it, or
     @pytest.mark.parametrize(
         "loop_compile_settings_overrides, expected_warnings, test_name",
         [({}, None, "Default settings"),
@@ -277,10 +277,13 @@ class LoopAlgorithmTester:
          ({"dt_min": 0.003}, (UserWarning, "dt_save was set to"), "save_inexact")],
         ids=lambda x: x if isinstance(x, str) else "",
         indirect=["loop_compile_settings_overrides"])
-    def test_time_to_fixed_steps(self, loop_under_test, loop_compile_settings, expected_warnings, test_name):
+    def test_time_to_fixed_steps(self, loop_under_test, loop_compile_settings, expected_warnings, system_override, test_name):
         """Test the _time_to_samples method of Euler. Individual component functions are tested in test_utils, we
         just need to check that the user is notified of changes to save/summarise intervals
         """
+        if system_override is not None:
+            pytest.skip("Only running this test once, for default system")
+
         if expected_warnings is not None:
             with pytest.warns(expected_warnings[0]) as warnings:
                 actual_save_steps, actual_summarise_steps, step_size = loop_under_test._time_to_fixed_steps()

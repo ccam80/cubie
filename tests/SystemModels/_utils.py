@@ -53,7 +53,7 @@ def random_system_values(SystemClass, precision=np.float64, randscale=1e6, axis=
     sys, precision = instantiate_or_use_instance(SystemClass, precision)
     n_states, n_params, n_obs, n_constants, n_drivers = get_sizes_from_model(sys)
     array_sizes = (n_states, n_params, n_constants)
-    sysarrays_to_make = (sys.init_values, sys.parameters, sys.constants)
+    sysarrays_to_make = (sys.init_values, sys.parameters, sys.compile_settings['constants'])
     dicts = []
 
 

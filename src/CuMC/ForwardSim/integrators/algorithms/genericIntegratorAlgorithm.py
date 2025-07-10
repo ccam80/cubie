@@ -8,19 +8,39 @@ from CuMC._utils import update_dicts_from_kwargs
 class GenericIntegratorAlgorithm:
     """
     Base class for integrator algorithms.
-    This class is not intended to be instantiated directly, but rather to be subclassed by specific integrator algorithms.
+    This class is not intended to be instantiated directly except for by some basic tests, but rather to be
+    subclassed by specific integrator algorithms.
 
-    Every integrator algorithm should have the following methods:
-    - rebuild(**kwargs) - build the loop again with any modified parameters given in kwargs
-    - build() - build the loop with the current parameters
+    Every integrator algorithm subclass should override the following methods:
+    - _calculate_loop_internal_shared_memory() - a method that calculates the number of items in shared memory
+    required to run the loop internals - when designing the loop function, the developer may choose where to place the
+    various working arrays. Shared memory is faster but is limited in size, so it's a trade-off.
+    - build_loop() - a factory method that builds a CUDA device function that implements the loop. This function may
+    call any other functions, and the subclass may define additional helper methods. There is allowance to pass extra
+    parameters using kwargs - check kwargs for your specific parameters.
 
     And the following attributes:
-    - algo_shared_memory_items - the number of items (not memory, the number is used for indices before being converted to bytes)
-    - loop_function - the compiled loop CUDA device function.
+    - loop_function - the compiled CUDA device function implementing the start-to-finish integration loop.
+    This function must have the signature:
+        loop(inits: 1d CUDA.deviceArray,
+             parameters: 1d CUDA.deviceArray,
+             forcing_vec: nd CUDA.deviceArray, where 'n' is the system's number of drivers,
+             shared_memory: A pointer to the thread's slice of dynamic shared memory
+             state_output: 2d CUDA.deviceArray, where the first dimension is the number of saved states and the
+              second is the number of output samples,
+             observables_output: 2d CUDA.deviceArray, where the first dimension is the number of saved
+              observables and the second is the number of output samples
+             state_summaries_output: 2d CUDA.deviceArray, where the first dimension is the number of saved
+              state summaries and the second is the number of summary samples,
+             observables_summaries_output: 2d CUDA.deviceArray, where the first dimension is the number of saved
+              observable summaries and the second is the number of summary samples,
+             output_length: int,
+             warmup_samples:int = 0)
 
-    Other helper methods can be added as needed, but this specifies the interface with higher level code.
-
-    Subclasses should build on init.
+    The build_loop() has the system's dxdt function, the save_state function, the update_summary function, and the
+    save_summary function as arguments. These remain in the local scope of the loop function, and so are compiled
+    into the loop. The loop should call the save_state and update_summary function on each "save" step,
+    and the save_summary function on each "summarise" step.
     """
 
     def __init__(self,
@@ -42,35 +62,38 @@ class GenericIntegratorAlgorithm:
                  save_summary_func,
                  n_saved_states,
                  n_saved_observables,
-                 summary_temp_memory):
+                 summary_temp_memory,
+                 ):
 
-        self.loop_function = None
-
-        self.loop_parameters = {'precision': precision,
-                                'n_states': n_states,
-                                'n_obs': n_obs,
-                                'n_par': n_par,
-                                'n_drivers': n_drivers,
-                                'dt_min': dt_min,
-                                'dt_max': dt_max,
-                                'dt_save': dt_save,
-                                'dt_summarise': dt_summarise,
-                                'atol': atol,
-                                'rtol': rtol,
-                                'save_time': save_time,
-                                'n_saved_states': n_saved_states,
+        self.loop_parameters = {'precision':           precision,
+                                'n_states':            n_states,
+                                'n_obs':               n_obs,
+                                'n_par':               n_par,
+                                'n_drivers':           n_drivers,
+                                'dt_min':              dt_min,
+                                'dt_max':              dt_max,
+                                'dt_save':             dt_save,
+                                'dt_summarise':        dt_summarise,
+                                'atol':                atol,
+                                'rtol':                rtol,
+                                'save_time':           save_time,
+                                'n_saved_states':      n_saved_states,
                                 'n_saved_observables': n_saved_observables,
-                                'summary_temp_memory': summary_temp_memory}
+                                'summary_temp_memory': summary_temp_memory
+                                }
 
-        self.functions = {'dxdt_func': dxdt_func,
-                          'save_state_func': save_state_func,
+        self.functions = {'dxdt_func':           dxdt_func,
+                          'save_state_func':     save_state_func,
                           'update_summary_func': update_summary_func,
-                          'save_summary_func': save_summary_func,
+                          'save_summary_func':   save_summary_func,
                           }
-        self.algo_shared_memory_items = self._calculate_loop_internal_shared_memory()
-        self.needs_rebuild = True  # Set to False when the loop is built, so that an out-of-date loop isn't used
+
+        self.integrator_loop = None
+        self.is_current = False
 
     def build(self):
+        """This wraps an algorithm's build_loop() method, unpacking the parameters and functions and passing them as
+        arguments so that they are all in the local scope of the loop function."""
 
         precision = self.loop_parameters['precision']
         dxdt_func = self.functions['dxdt_func']
@@ -92,26 +115,40 @@ class GenericIntegratorAlgorithm:
         n_saved_observables = self.loop_parameters['n_saved_observables']
         summary_temp_memory = self.loop_parameters['summary_temp_memory']
 
-        self.loop_function = self.build_loop(precision,
-                                        dxdt_func,
-                                        n_states,
-                                        n_obs,
-                                        n_par,
-                                        n_drivers,
-                                        dt_min,
-                                        dt_max,
-                                        dt_save,
-                                        dt_summarise,
-                                        atol,
-                                        rtol,
-                                        save_time,
-                                        save_state_func,
-                                        update_summary_func,
-                                        save_summary_func,
-                                        n_saved_states,
-                                        n_saved_observables,
-                                        summary_temp_memory)
+        self.integrator_loop = self.build_loop(precision,
+                                              dxdt_func,
+                                              n_states,
+                                              n_obs,
+                                              n_par,
+                                              n_drivers,
+                                              dt_min,
+                                              dt_max,
+                                              dt_save,
+                                              dt_summarise,
+                                              atol,
+                                              rtol,
+                                              save_time,
+                                              save_state_func,
+                                              update_summary_func,
+                                              save_summary_func,
+                                              n_saved_states,
+                                              n_saved_observables,
+                                              summary_temp_memory,
+                                              )
+        self.is_current = True
+        return self.integrator_loop
 
+    def get_device_function(self):
+        """Get the compiled integrator loop function.
+
+        If the function is not current, rebuild it.
+
+        Returns:
+            The compiled integrator loop function
+        """
+        if not self.is_current:
+            self.build()
+        return self.integrator_loop
 
     def build_loop(self,
                    precision,
@@ -132,9 +169,9 @@ class GenericIntegratorAlgorithm:
                    save_summary_func,
                    n_saved_states,
                    n_saved_observables,
-                   summary_temp_memory
+                   summary_temp_memory,
                    ):
-        # Manipulate user-space time parameters into loop internal parameters here if you need to
+        # Manipulate user-space time parameters into loop internal parameters here if you need to for your algorithm
         summarise_every_samples = int(dt_summarise / dt_save)
 
         temp_state_summary_shape = (n_saved_states * summary_temp_memory,)
@@ -156,7 +193,7 @@ class GenericIntegratorAlgorithm:
             save_states = True
 
         if save_time:
-            state_array_size = n_states + 1  # +1 for time
+            state_array_size = n_states + 1  # + 1 for time
         else:
             state_array_size = n_states
 
@@ -174,7 +211,8 @@ class GenericIntegratorAlgorithm:
                    int32,
                    ),
                   device=True,
-                  inline=True)
+                  inline=True,
+                  )
         def dummy_loop(inits,
                        parameters,
                        forcing_vec,
@@ -184,7 +222,8 @@ class GenericIntegratorAlgorithm:
                        state_summaries_output,
                        observables_summaries_output,
                        output_length,
-                       warmup_samples=0):
+                       warmup_samples=0,
+                       ):
             """
             Just a placeholder/template for an algorithm's loop function. This one just fills the output with the
             initial values.
@@ -195,7 +234,7 @@ class GenericIntegratorAlgorithm:
 
             #HACK: if we have no saved states or observables, numba will error for creating empty local arrays.
             # Not an issue for shared memory, but sometimes we might not have enough shared memory for these.
-            # This creation of an unused size-1 array feels like a hack, but avoids the error. Better to not create
+            # this creation of an unused size-1 array feels hacky, but avoids the error. Better to not create
             # the arrays at all, but we eould have to modify the summary functions to handle different combinations
             # of arrays and Nonetypes or similar.
             if summaries_output and save_states:
@@ -217,16 +256,43 @@ class GenericIntegratorAlgorithm:
                 if summaries_output:
                     update_summary_func(l_state, l_obs, l_temp_summaries, l_temp_observables, i)
 
-                    if (i+1) % summarise_every_samples == 0:
+                    if (i + 1) % summarise_every_samples == 0:
                         summary_sample = (i + 1) // summarise_every_samples - 1
                         save_summary_func(l_temp_summaries, l_temp_observables,
                                           state_summaries_output[:, summary_sample],
                                           observables_summaries_output[:, summary_sample],
-                                          summarise_every_samples)
+                                          summarise_every_samples,
+                                          )
 
         return dummy_loop
 
-    def _calculate_loop_internal_shared_memory(self):
+    def update_parameters(self, **kwargs):
+        """
+        Update the loop parameters with the given kwargs.
+        This will make any previously built loop invalid/not current.
+        """
+        for key in kwargs:
+            if key not in self.loop_parameters:
+                warn(f"Key '{key}' is not a valid loop parameter for this integrator algorithm.", UserWarning)
+            else:
+                if self.loop_parameters[key] != kwargs[key]:
+                    self.is_current = False
+                    self.loop_parameters[key] = kwargs[key]
+
+    def update_functions(self, **kwargs):
+        """
+        Update the loop with new device functions for dxdt or outputs.
+        This will make any previously built loop invalid/not current.
+        """
+        for key in kwargs:
+            if key not in self.functions:
+                warn(f"Key '{key}' is not a valid function for this integrator algorithm.", UserWarning)
+            else:
+                if self.functions[key] != kwargs[key]:
+                    self.is_current = False
+                    self.functions[key] = kwargs[key]
+
+    def get_loop_internal_shared_memory(self):
         """
         Calculate the number of items in shared memory required for the loop.
         The euler loop, for example, requires two arrays of size n_states for the state and dxdt,
@@ -242,19 +308,6 @@ class GenericIntegratorAlgorithm:
         #
         # return n_states*2 + n_obs + n_drivers
         return 0
-
-    def rebuild(self, **kwargs):
-        """
-        Rebuild the loop with any modified parameters given in kwargs.
-
-        Checks internal dictionaries, and if parameters have changed, rebuilds the loop.
-        """
-        # Check if any of the kwargs keys are in loop_parameters
-
-        update_dicts_from_kwargs([self.loop_parameters, self.functions], **kwargs)
-
-        # Rebuild the loop function
-        self.build()
 
     def _time_to_fixed_steps(self):
         """Fixed-step helper function: Convert the time-based compile_settings to sample-based compile_settings,
@@ -282,23 +335,24 @@ class GenericIntegratorAlgorithm:
         # Update the actual save and summary intervals, which will differ from what was ordered if they are not
         # a multiple of the loop step size.
         save_every_samples, summarise_every_samples, actual_dt_save, actual_dt_summarise = convert_times_to_fixed_steps(
-            dt_min, dt_save, dt_summarise)
+                dt_min, dt_save, dt_summarise,
+                )
 
         # Update parameters if they differ from requested values and warn the user
         if actual_dt_save != dt_save:
             self.loop_parameters['dt_save'] = actual_dt_save
             warn(
-                f"dt_save was set to {actual_dt_save}s, because it is not a multiple of dt_min ({dt_min}s). "
-                f"dt_save can only save a value after an integer number of steps in a fixed-step integrator",
-                UserWarning)
+                    f"dt_save was set to {actual_dt_save}s, because it is not a multiple of dt_min ({dt_min}s). "
+                    f"dt_save can only save a value after an integer number of steps in a fixed-step integrator",
+                    UserWarning,
+                    )
 
         if actual_dt_summarise != dt_summarise:
             self.loop_parameters['dt_summarise'] = actual_dt_summarise
             warn(
-                f"dt_summarise was set to {actual_dt_summarise}s, because it is not a multiple of dt_save ({actual_dt_save}s). "
-                f"dt_summarise can only save a value after an integer number of steps in a fixed-step integrator",
-                UserWarning)
+                    f"dt_summarise was set to {actual_dt_summarise}s, because it is not a multiple of dt_save ({actual_dt_save}s). "
+                    f"dt_summarise can only save a value after an integer number of steps in a fixed-step integrator",
+                    UserWarning,
+                    )
 
         return save_every_samples, summarise_every_samples, dt_min
-
-

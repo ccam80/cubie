@@ -4,84 +4,83 @@ Created on Wed May 28 10:36:56 2025
 
 @author: cca79
 """
-if __name__ == "__main__":
-    import os
-    os.environ["NUMBA_ENABLE_CUDASIM"] = "0"
-    os.environ["NUMBA_CUDA_DEBUGINFO"] = "0"
-    os.environ["NUMBA_OPT"] = "1"
-
-from numba import cuda, float32, float64
-
+from numba import cuda, float64
 from CuMC.SystemModels.Systems.GenericODE import GenericODE
-
 import numpy as np
 
-
-default_parameters = {'E_h': 0.52,
-                     'E_a': 0.0133,
-                     'E_v': 0.0624,
-                     'R_i': 0.012,
-                     'R_o': 1.0,
-                     'R_c': 1/114,
-                     'V_s3': 2.0}
+default_parameters = {'E_h':  0.52,
+                      'E_a':  0.0133,
+                      'E_v':  0.0624,
+                      'R_i':  0.012,
+                      'R_o':  1.0,
+                      'R_c':  1 / 114,
+                      'V_s3': 2.0
+                      }
 
 default_initial_values = {'V_h': 1.0,
                           'V_a': 1.0,
-                          'V_v': 1.0}
+                          'V_v': 1.0
+                          }
 
-default_observable_names =['P_a','P_v','P_h','Q_i','Q_o','Q_c']   # Flow in circulation
+default_observable_names = ['P_a', 'P_v', 'P_h', 'Q_i', 'Q_o', 'Q_c']  # Flow in circulation
 
 default_constants = {}
 
 
-
-
+# noinspection PyPep8Naming
 class ThreeChamberModel(GenericODE):
     """ Three chamber model as laid out in [Pironet's thesis reference].
 
     """
+
     def __init__(self,
-                 initial_values = None,
-                 parameters = None,
-                 constants = None,
+                 initial_values=None,
+                 parameters=None,
+                 constants=None,
                  observables=None,
                  precision=np.float64,
-                 default_initial_values = default_initial_values,
-                 default_parameters = default_parameters,
-                 default_constants = default_constants,
-                 default_observable_names = default_observable_names,
-                 num_drivers = 1, # Error: This probably shouldn't be an instantiation parameter, but rather a property of the system.
-                 **kwargs):
+                 default_initial_values=default_initial_values,
+                 default_parameters=default_parameters,
+                 default_constants=default_constants,
+                 default_observable_names=default_observable_names,
+                 num_drivers=1,
+                 # Error: This probably shouldn't be an instantiation parameter, but rather a property of the system.
+                 **kwargs,
+                 ):
         super().__init__(initial_values=initial_values,
-                        parameters=parameters,
-                        constants=constants,
-                        observables=observables,
-                        default_initial_values=default_initial_values,
-                        default_parameters=default_parameters,
-                        default_constants=default_constants,
-                        default_observable_names = default_observable_names,
-                        precision=precision,
-                        num_drivers=num_drivers)
-
+                         parameters=parameters,
+                         constants=constants,
+                         observables=observables,
+                         default_initial_values=default_initial_values,
+                         default_parameters=default_parameters,
+                         default_constants=default_constants,
+                         default_observable_names=default_observable_names,
+                         precision=precision,
+                         num_drivers=num_drivers,
+                         )
 
     def build(self):
         # Hoist fixed parameters to global namespace
         global global_constants
-        global_constants = self.constants.values_array
+        global_constants = self.compile_settings['constants'].values_array
+
+        #Optimise: Check whether this is being compiled-in or passed as a numpy array
 
         @cuda.jit((self.precision[:],
                    self.precision[:],
                    self.precision[:],
                    self.precision[:],
-                   self.precision[:]),
+                   self.precision[:]
+                   ),
                   device=True,
-                  inline=True)
-        def three_chamber_model_dV(state,
-                                 parameters,
-                                 driver,
-                                 observables,
-                                 dxdt
-                                 ):
+                  inline=True,
+                  )
+        def three_chamber_model_dv(state,
+                                   parameters,
+                                   driver,
+                                   observables,
+                                   dxdt,
+                                   ):
             """
 
                 0: V_h: Volume in heart - dV_h/dt = Q_i - Q_o
@@ -151,7 +150,6 @@ class ThreeChamberModel(GenericODE):
             dV_v = Q_c - Q_i
 
             # Package values up into output arrays, overwriting for speed.
-            # Optimise: some of these values will go unused, can reduce memory operations by only saving a requested subset.
             observables[0] = P_a
             observables[1] = P_v
             observables[2] = P_h
@@ -163,8 +161,7 @@ class ThreeChamberModel(GenericODE):
             dxdt[1] = dV_a
             dxdt[2] = dV_v
 
-
-        self.dxdtfunc = three_chamber_model_dV
+        return three_chamber_model_dv
 
     def correct_answer_python(self, states, parameters, drivers):
         """ More-direct port of Nic Davey's MATLAB implementation.         """
@@ -190,7 +187,7 @@ class ThreeChamberModel(GenericODE):
 
         Q_c = (P_a - P_v) / R_c
 
-        dxdt = np.asarray([Q_i-Q_o, Q_o-Q_c, Q_c-Q_i], dtype=numpy_precision)
+        dxdt = np.asarray([Q_i - Q_o, Q_o - Q_c, Q_c - Q_i], dtype=numpy_precision)
         observables = np.asarray([P_a, P_v, P_h, Q_i, Q_o, Q_c], dtype=numpy_precision)
 
         return dxdt, observables

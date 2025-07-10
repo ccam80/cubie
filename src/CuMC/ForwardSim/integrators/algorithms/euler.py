@@ -74,6 +74,7 @@ class Euler(GenericIntegratorAlgorithm):
 
         internal_step_size = dt_min
         save_every_samples, summarise_every_samples, internal_step_size = self._time_to_fixed_steps()
+
         if save_time:
             state_array_size = n_states + 1
         else:
@@ -130,7 +131,10 @@ class Euler(GenericIntegratorAlgorithm):
             for i in range(n_states):
                 state[i] = inits[i]
 
-            # Optimise: Consider memory location of these parameters; it will probably differ based on system size.
+            # Feature: Consider offering user-togglable memory locations for these parameters; it will probably differ
+            #  based on system size. These toggles could allow for handling of the zero-parameter case more cleanly - if
+            #  size is zero, we relegate it to shared memory, where no one cares if we allocate a zero-length
+            #  slice
             # HACK: This is a workaround for a zero-parameter system, which allocates a one-element array that we
             #  then don't use. There has to be a more elegant way to handle this.
             if n_par > 0:
@@ -161,7 +165,7 @@ class Euler(GenericIntegratorAlgorithm):
                     for k in range(n_states):
                         state[k] += dxdt[k] * internal_step_size
 
-                # Start saving only after warmup period (to get past transient behaviour)
+                # Start saving after the requested settling time has passed.
                 if i > (warmup_samples - 1):
                     output_sample = i - warmup_samples
                     save_state_func(state, observables, state_output[:, output_sample], observables_output[:, output_sample],
@@ -176,7 +180,7 @@ class Euler(GenericIntegratorAlgorithm):
 
         return euler_loop
 
-    def _calculate_loop_internal_shared_memory(self):
+    def get_loop_internal_shared_memory(self):
         """
         Calculate the number of items in shared memory required for the loop - don't include summaries, they are handled
         outside the loop as they are common to all algorithms. This is just the number of items stored in shared memory

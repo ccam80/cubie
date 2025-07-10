@@ -5,13 +5,9 @@ Created on Wed May 28 10:36:56 2025
 @author: cca79
 """
 
-
-from numba import cuda, from_dtype, float32, float64
+from numba import cuda
 from CuMC.SystemModels.Systems.GenericODE import GenericODE
 import numpy as np
-
-
-
 
 
 class Decays(GenericODE):
@@ -32,9 +28,11 @@ class Decays(GenericODE):
 
     Really just exists for testing.
     """
+
     def __init__(self,
                  precision=np.float64,
-                 **kwargs):
+                 **kwargs,
+                 ):
         #let the user specify if we need a unified template for testing - so it looks the same as a real system.
 
         coefficients = kwargs["coefficients"]
@@ -44,54 +42,55 @@ class Decays(GenericODE):
         initial_values = {f'x{i}': 1.0 for i in range(nterms)}
         parameters = {f'p{i}': coefficients[i] for i in range(nterms)}
         constants = {f'c{i}': i for i in range(nterms)}
-        n_drivers = 1 #use time as the driver
+        n_drivers = 1  #use time as the driver
 
         super().__init__(initial_values=initial_values,
-                        parameters=parameters,
-                        constants=constants,
-                        observables=observables,
-                        precision=precision,
-                        num_drivers=n_drivers)
-
+                         parameters=parameters,
+                         constants=constants,
+                         observables=observables,
+                         precision=precision,
+                         num_drivers=n_drivers,
+                         )
 
     def build(self):
         # Hoist fixed parameters to global namespace
         global global_constants
-        global_constants = self.constants.values_array
+        global_constants = self.compile_settings['constants'].values_array
         n_terms = self.num_states
 
         @cuda.jit((self.precision[:],
                    self.precision[:],
                    self.precision[:],
                    self.precision[:],
-                   self.precision[:]),
+                   self.precision[:]
+                   ),
                   device=True,
-                  inline=True)
-        def dxdt(state,
-                 parameters,
-                 driver,
-                 observables,
-                 dxdt
-                 ):
+                  inline=True,
+                  )
+        def dxdtfunc(state,
+                     parameters,
+                     driver,
+                     observables,
+                     dxdt,
+                     ):
             """
                dx[i] = state[i] / (i+1)
-               observables[i] = state[i] * parameters[i]
+               observables[i] = state[i] * parameters[i] + constants[i] + driver[0]
             """
             for i in range(n_terms):
-                dxdt[i] = -state[i] / (i+1)
+                dxdt[i] = -state[i] / (i + 1)
                 observables[i] = dxdt[i] * parameters[i] + global_constants[i] + driver[0]
 
-        self.dxdtfunc = dxdt
+        return dxdtfunc
 
     def correct_answer_python(self, states, parameters, drivers):
         """ Python testing function - do it in python and compare results."""
-        # numpy_precision = np.float64 if self.precision == float64 else np.float32
 
         indices = np.arange(len(states))
         observables = np.zeros(self.observables.n)
         dxdt = -states / (indices + 1)
 
         for i in range(self.observables.n):
-            observables[i] = dxdt[i%len(states)] * parameters[i%len(parameters)] + i + drivers[0]
+            observables[i] = dxdt[i % len(states)] * parameters[i % len(parameters)] + drivers[0] + global_constants[i]
 
         return dxdt, observables

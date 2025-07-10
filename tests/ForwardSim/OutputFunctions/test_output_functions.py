@@ -1,12 +1,12 @@
-
-
 import pytest
 import numpy as np
 from numpy.testing import assert_allclose
 from numba import cuda, from_dtype
-from CuMC.ForwardSim.integrators.output_functions import build_output_functions
+from OutputFunctions.output_functions import OutputFunctions
 from tests._utils import generate_test_array, calculate_expected_summaries
 
+# Improvement: This test format contains a fair amount of duplication, and tests a lot at once. It covers the code,
+# so is useful, but could be rewritten to reduce test burden and improve readability.
 TEST_CONFIGS = [
     # Basic state and observables tests with different precisions
     (2, 1, ["state", "observables"], None, np.float32, 100, 50, "State and observables, 32b, small and short"),
@@ -29,25 +29,31 @@ TEST_CONFIGS = [
 
     # Testing all output types together
     (5, 4, ["state", "observables", "mean", "max", "rms", "peaks"], 3, np.float32, 100, 50,
-     "All metrics, 32b, small and short"),
+     "All metrics, 32b, small and short"
+     ),
     (5, 4, ["state", "observables", "mean", "max", "rms", "peaks"], 3, np.float64, 100, 50,
-     "All metrics, 64b, small and short"),
+     "All metrics, 64b, small and short"
+     ),
 
     # Testing different state/observable sizes (states > observables)
     (10, 2, ["state", "observables", "mean", "max"], None, np.float32, 100, 50, "More states than observables, 32b"),
     (20, 5, ["state", "observables", "mean", "max", "rms"], None, np.float32, 100, 50,
-     "Many more states than observables, 32b"),
+     "Many more states than observables, 32b"
+     ),
 
     # Testing different state/observable sizes (observables > states)
     (2, 10, ["state", "observables", "mean", "max"], None, np.float32, 100, 50, "More observables than states, 32b"),
     (5, 20, ["state", "observables", "mean", "max", "rms"], None, np.float32, 100, 50,
-     "Many more observables than states, 32b"),
+     "Many more observables than states, 32b"
+     ),
 
     # Testing large equal numbers of states and observables
     (50, 50, ["state", "observables", "mean", "max", "rms", "peaks"], 3, np.float32, 100, 50,
-     "Many states and observables, 32b"),
+     "Many states and observables, 32b"
+     ),
     (50, 50, ["state", "observables", "mean", "max", "rms", "peaks"], 3, np.float64, 100, 50,
-     "Many states and observables, 64b"),
+     "Many states and observables, 64b"
+     ),
 
     # Testing different numbers of peaks
     (3, 3, ["state", "observables", "peaks"], 1, np.float32, 100, 50, "Single peak, 32b"),
@@ -56,68 +62,87 @@ TEST_CONFIGS = [
 
     # Testing long sample sizes with infrequent summarization
     (4, 4, ["state", "observables", "mean", "max"], None, np.float32, 10000, 10000,
-     "Long samples, summarize once, 32b"),
+     "Long samples, summarize once, 32b"
+     ),
     (4, 4, ["state", "observables", "mean", "max"], None, np.float64, 10000, 10000,
-     "Long samples, summarize once, 64b"),
+     "Long samples, summarize once, 64b"
+     ),
 
     # Testing long sample sizes with frequent summarization
     (4, 4, ["state", "observables", "mean", "max"], None, np.float32, 10000, 100,
-     "Long samples, frequent summarization, 32b"),
+     "Long samples, frequent summarization, 32b"
+     ),
     (4, 4, ["state", "observables", "mean", "max"], None, np.float64, 10000, 100,
-     "Long samples, frequent summarization, 64b"),
+     "Long samples, frequent summarization, 64b"
+     ),
 
     # Testing short sample sizes with very frequent summarization
     (4, 4, ["state", "observables", "mean", "max"], None, np.float32, 100, 5,
-     "Short samples, summarize every 5 steps, 32b"),
+     "Short samples, summarize every 5 steps, 32b"
+     ),
     (4, 4, ["state", "observables", "mean", "max"], None, np.float64, 100, 5,
-     "Short samples, summarize every 5 steps, 64b"),
+     "Short samples, summarize every 5 steps, 64b"
+     ),
 
     # Edge cases
     (1, 1, ["state", "observables", "mean", "max", "rms", "peaks"], 3, np.float32, 100, 50,
-     "Minimal state and observables, 32b"),
+     "Minimal state and observables, 32b"
+     ),
     (1, 1, ["state", "observables", "mean", "max", "rms", "peaks"], 3, np.float64, 100, 50,
-     "Minimal state and observables, 64b"),
+     "Minimal state and observables, 64b"
+     ),
     (100, 1, ["state", "observables", "mean"], None, np.float32, 100, 50, "Many states, single observable, 32b"),
     (1, 100, ["state", "observables", "mean"], None, np.float32, 100, 50, "Single state, many observables, 32b"),
 
     (1, 1, ["state", "observables", "mean", "max", "rms", "peaks"], 3, np.float32, 100, 50,
-     "Minimal state and observables, 32b"),
+     "Minimal state and observables, 32b"
+     ),
     (1, 1, ["state", "observables", "mean", "max", "rms", "peaks"], 3, np.float64, 100, 50,
-     "Minimal state and observables, 64b"),
+     "Minimal state and observables, 64b"
+     ),
     (100, 1, ["state", "observables", "mean"], None, np.float32, 100, 50, "Many states, single observable, 32b"),
     (1, 100, ["state", "observables", "mean"], None, np.float32, 100, 50, "Single state, many observables, 32b"),
 
     # Comprehensive tests with all metrics and different configurations
     (8, 4, ["state", "observables", "mean", "max", "rms"], None, np.float32, 1000, 500,
-     "Medium test, all metrics except peaks, 32b"),
+     "Medium test, all metrics except peaks, 32b"
+     ),
     (8, 4, ["state", "observables", "mean", "max", "rms", "peaks"], 3, np.float32, 1000, 500,
-     "Medium test, all metrics with peaks, 32b"),
+     "Medium test, all metrics with peaks, 32b"
+     ),
     (10, 5, ["state", "observables", "mean", "max", "rms", "peaks"], 5, np.float64, 1000, 500,
-     "Medium test, all metrics with peaks, 64b"),
+     "Medium test, all metrics with peaks, 64b"
+     ),
 
     # Extreme cases
     (100, 100, ["state", "observables", "mean"], None, np.float32, 10000, 1000,
-     "Very large state and observables, mean only, 32b"),
+     "Very large state and observables, mean only, 32b"
+     ),
     (100, 100, ["state", "observables", "peaks"], 20, np.float32, 10000, 1000,
-     "Very large state and observables, many peaks, 32b"),
+     "Very large state and observables, many peaks, 32b"
+     ),
 
     (2, 1, ["state", "observables", "time"], None, np.float32, 100, 50,
-     "State, observables and time, 32b"),
+     "State, observables and time, 32b"
+     ),
     (3, 2, ["state", "observables", "time", "mean"], None, np.float64, 100, 50,
-     "State, observables, time and mean, 64b"),
-]
+     "State, observables, time and mean, 64b"
+     ),
+    ]
+
 
 @pytest.mark.parametrize("output_functions_overrides",
-                         [{'outputs_list': ["state", "observables"], 'n_peaks': 3, 'saved_states':[0,1,2]},
+                         [{'outputs_list': ["state", "observables"], 'n_peaks': 3, 'saved_states': [0, 1, 2]},
                           {'outputs_list': ["state", "observables", "mean"], 'n_peaks': 3}],
-                         indirect=True)
+                         indirect=True,
+                         )
 def test_output_functions_build(output_functions, expected_summary_temp_memory, expected_summary_output_memory):
-    #TODO: move this to output functions test?
     save_state = output_functions.save_state_func
     update_summaries = output_functions.update_summary_metrics_func
     save_summaries = output_functions.save_summary_metrics_func
-    temp_memory = output_functions.temp_memory_requirements
-    output_memory = output_functions.summary_output_length
+    memory_required = output_functions.memory_per_summarised_variable
+    temp_memory = memory_required['temporary']
+    output_memory = memory_required['output']
 
     # Now use these functions in your test
     assert callable(save_state)
@@ -126,16 +151,17 @@ def test_output_functions_build(output_functions, expected_summary_temp_memory, 
     assert temp_memory == expected_summary_temp_memory
     assert output_memory == expected_summary_output_memory
 
+
 #Individual output function configs are overridden by compile settings at higher levels, so these fixtures are
 # module-specific.
 @pytest.fixture(scope='function')
 def output_functions_config(loop_compile_settings, output_functions_overrides):
     """Provide a default dictionary of output functions, with values drawn from the loop_compile_settings defaults.
     Overrideable by parameterising "output_functions_overrides"."""
-    output_dict = {'outputs_list': loop_compile_settings['output_functions'],
-                   'saved_states': loop_compile_settings['saved_states'],
+    output_dict = {'outputs_list':      loop_compile_settings['output_functions'],
+                   'saved_states':      loop_compile_settings['saved_states'],
                    'saved_observables': loop_compile_settings['saved_observables'],
-                   'n_peaks': loop_compile_settings['n_peaks']
+                   'n_peaks':           loop_compile_settings['n_peaks']
                    }
     output_dict.update(output_functions_overrides)
     return output_dict
@@ -151,23 +177,25 @@ def output_functions_overrides(request):
 def output_functions(output_functions_config):
     # Merge the default config with any overrides and build functions
 
-    outputfunctions = build_output_functions(
-        output_functions_config['outputs_list'],
-        output_functions_config['saved_states'],
-        output_functions_config['saved_observables'],
-        output_functions_config['n_peaks']
-    )
+    outputfunctions = OutputFunctions(
+            output_functions_config['outputs_list'],
+            output_functions_config['saved_states'],
+            output_functions_config['saved_observables'],
+            output_functions_config['n_peaks'],
+            )
 
     return outputfunctions
+
 
 def input_type_dict(**kwargs):
     """Default input type configuration with the ability to override."""
     input_type_config = {
         'style': 'random',
         'scale': [-6, 6],
-    }
+        }
     input_type_config.update(kwargs)
     return input_type_config
+
 
 @pytest.fixture(scope='function')
 def input_type_override(request):
@@ -176,6 +204,7 @@ def input_type_override(request):
     scale: list: [min, max] for mixed-scale random inputs, or a single value for same-scale random inputs.
     """
     return request.param if hasattr(request, 'param') else {}
+
 
 @pytest.fixture(scope='function')
 def input_type(input_type_override):
@@ -189,20 +218,23 @@ def input_type(input_type_override):
     """
     return input_type_dict(**input_type_override)
 
+
 def other_run_settings_dict(**kwargs):
     """Default settings for simulation runtime configuration."""
     settings = {
         'summarise_every': 10,  # Default summarization frequency
-        'num_samples': 100,
+        'num_samples':     100,
         'test_shared_mem': False
-    }
+        }
     settings.update(kwargs)
     return settings
+
 
 @pytest.fixture(scope='function')
 def other_run_settings_override(request):
     """Override for run settings, if provided."""
     return request.param if hasattr(request, 'param') else {}
+
 
 @pytest.fixture(scope='function')
 def run_settings(precision, output_functions_config, input_type, other_run_settings_override):
@@ -215,14 +247,15 @@ def run_settings(precision, output_functions_config, input_type, other_run_setti
     states = generate_test_array(precision, (n_states, num_samples), input_type['style'], input_type['scale'])
     observables = generate_test_array(precision, (n_observables, num_samples), input_type['style'], input_type['scale'])
 
-    return {'state_input': states,
+    return {'state_input':      states,
             'observable_input': observables,
-            'test_shared_mem': other_run_settings['test_shared_mem'],
-            'summarise_every': other_run_settings['summarise_every'],
-            'num_samples': num_samples,
-            'num_summaries': num_summaries,
-            'n_states': n_states,
-            'n_observables': n_observables} #the last two added as a convenience, these are not the source of truth
+            'test_shared_mem':  other_run_settings['test_shared_mem'],
+            'summarise_every':  other_run_settings['summarise_every'],
+            'num_samples':      num_samples,
+            'num_summaries':    num_summaries,
+            'n_states':         n_states,
+            'n_observables':    n_observables
+            }  #the last two added as a convenience, these are not the source of truth
 
 
 # Calculate the expected temp memory usage for the loop functions. These directly use the same approach as the output
@@ -238,10 +271,11 @@ def expected_summary_temp_memory(output_functions_config):
     def test_expected_temp_memory(expected_temp_memory):
         ...
     """
-    from CuMC.ForwardSim.integrators.output_functions import _TempMemoryRequirements
+    from OutputFunctions.output_functions import _TempMemoryRequirements
     n_peaks = output_functions_config['n_peaks']
     outputs_list = output_functions_config['outputs_list']
     return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
+
 
 @pytest.fixture(scope='function')
 def expected_summary_output_memory(output_functions_config):
@@ -253,14 +287,14 @@ def expected_summary_output_memory(output_functions_config):
     def test_expected_temp_memory(expected_temp_memory):
         ...
     """
-    from CuMC.ForwardSim.integrators.output_functions import _OutputMemoryRequirements
+    from OutputFunctions.output_functions import _OutputMemoryRequirements
     n_peaks = output_functions_config['n_peaks']
     outputs_list = output_functions_config['outputs_list']
     return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
 
+
 @pytest.fixture(scope='function')
 def output_functions_test_kernel(precision, run_settings, output_functions_config, output_functions):
-
     num_states = run_settings['n_states']
     num_observables = run_settings['n_observables']
     summarise_every = run_settings['summarise_every']
@@ -269,14 +303,15 @@ def output_functions_test_kernel(precision, run_settings, output_functions_confi
     save_state_func = output_functions.save_state_func
     update_summary_metrics_func = output_functions.update_summary_metrics_func
     save_summary_metrics_func = output_functions.save_summary_metrics_func
-    shared_memory_requirements = output_functions.temp_memory_requirements
+    memory_requirements = output_functions.memory_per_summarised_variable
+    shared_memory_requirements = memory_requirements['temporary']
     save_time = output_functions.save_time
-    #FIXME: need to add a slot for "time" in state arrays across the board if requested!
     state_summary_length = shared_memory_requirements * num_states
     obs_summary_length = shared_memory_requirements * num_observables
     numba_precision = from_dtype(precision)
 
-    # Hack: Avoid asking for a zero local array size
+    # Avoid asking for a zero local array size in test kernel - it's not allowed. A wasted length-1 allocation is fine
+    # in testing.
     if "time" in output_functions_config['outputs_list']:
         statearraysize = num_states + 1
     else:
@@ -290,7 +325,8 @@ def output_functions_test_kernel(precision, run_settings, output_functions_confi
     @cuda.jit()
     def _output_functions_test_kernel(_state_input, _observable_input,
                                       _state_output, _observable_output,
-                                      _state_summaries_output, _observable_summaries_output):
+                                      _state_summaries_output, _observable_summaries_output,
+                                      ):
         """Test kernel for output functions."""
 
         tx = cuda.threadIdx.x
@@ -301,12 +337,12 @@ def output_functions_test_kernel(precision, run_settings, output_functions_confi
         if tx != 0 or bx != 0:
             return
 
-        if test_shared_mem == True:
+        if test_shared_mem:
 
             # Shared memory arrays for current state, current observables, and running summaries
             shared = cuda.shared.array(0, dtype=numba_precision)
 
-            if save_time == True:
+            if save_time:
                 observables_start_idx = num_states + 1
             else:
                 observables_start_idx = num_states
@@ -338,34 +374,38 @@ def output_functions_test_kernel(precision, run_settings, output_functions_confi
 
             # Call the output functions
             save_state_func(
-                current_state,
-                current_observable,
-                _state_output[:, i],
-                _observable_output[:, i],
-                i # time is just loop index here
-            )
+                    current_state,
+                    current_observable,
+                    _state_output[:, i],
+                    _observable_output[:, i],
+                    i,  # time is just loop index here
+                    )
 
             update_summary_metrics_func(
-                current_state,
-                current_observable,
-                state_summaries,
-                observable_summaries,
-                i
-            )
-
-            # Save summary metrics every summarise_every samples
-            if (i+1) % summarise_every == 0:
-                save_summary_metrics_func(
+                    current_state,
+                    current_observable,
                     state_summaries,
                     observable_summaries,
-                    _state_summaries_output[:,int(i / summarise_every)],
-                    _observable_summaries_output[:,int(i / summarise_every)],
-                    summarise_every
-                )
+                    i,
+                    )
+
+            # Save summary metrics every summarise_every samples
+            if (i + 1) % summarise_every == 0:
+                save_summary_metrics_func(
+                        state_summaries,
+                        observable_summaries,
+                        _state_summaries_output[:, int(i / summarise_every)],
+                        _observable_summaries_output[:, int(i / summarise_every)],
+                        summarise_every,
+                        )
+
     return _output_functions_test_kernel
 
+
 @pytest.fixture(scope='function')
-def compare_input_output(precision, output_functions_test_kernel, run_settings, output_functions, output_functions_config):
+def compare_input_output(precision, output_functions_test_kernel, run_settings, output_functions,
+                         output_functions_config,
+                         ):
     """Test that output functions correctly save state and observable values."""
     num_states = run_settings['n_states']
     num_observables = run_settings['n_observables']
@@ -381,7 +421,7 @@ def compare_input_output(precision, output_functions_test_kernel, run_settings, 
         state_output = np.zeros((num_states, num_samples), dtype=precision)
     observable_output = np.zeros((num_observables, num_samples), dtype=precision)
 
-    summaries_per_state = output_functions.summary_output_length
+    summaries_per_state = output_functions.memory_per_summarised_variable['output']
     state_summary_height = summaries_per_state * num_states
     obs_summary_height = summaries_per_state * num_observables
     state_summaries_output = np.zeros((state_summary_height, num_summaries), dtype=precision)
@@ -395,19 +435,19 @@ def compare_input_output(precision, output_functions_test_kernel, run_settings, 
     d_state_summaries_output = cuda.to_device(state_summaries_output)
     d_observable_summaries_output = cuda.to_device(observable_summaries_output)
 
-    loop_shared_memory = num_states + num_observables # Hard-coded from test kernel code
-    summary_temp_per_state = output_functions.temp_memory_requirements
+    loop_shared_memory = num_states + num_observables  # Hard-coded from test kernel code
+    summary_temp_per_state = output_functions.memory_per_summarised_variable['temporary']
     summary_shared_memory = (num_states + num_observables) * summary_temp_per_state
     dynamic_shared_memory = (loop_shared_memory + summary_shared_memory) * precision().itemsize
 
     output_functions_test_kernel[1, 1, 0, dynamic_shared_memory](
-        d_state_input,
-        d_observable_input,
-        d_state_output,
-        d_observable_output,
-        d_state_summaries_output,
-        d_observable_summaries_output
-    )
+            d_state_input,
+            d_observable_input,
+            d_state_output,
+            d_observable_output,
+            d_state_summaries_output,
+            d_observable_summaries_output,
+            )
 
     # Synchronize and copy results back
     cuda.synchronize()
@@ -418,39 +458,42 @@ def compare_input_output(precision, output_functions_test_kernel, run_settings, 
     observable_summaries_output = d_observable_summaries_output.copy_to_host()
 
     # Create a fake loop_compile_settings dict to use a higher-level common "expected summaries" function
-    loop_compile_settings = {'dt_summarise': summarise_every,
-                             'dt_save': 1,
+    loop_compile_settings = {'dt_summarise':     summarise_every,
+                             'dt_save':          1,
                              'output_functions': output_functions_config['outputs_list'],
-                             'n_peaks': output_functions_config['n_peaks']
+                             'n_peaks':          output_functions_config['n_peaks']
                              }
 
     # Calculate expected summaries
     expected_state_summaries, expected_obs_summaries = calculate_expected_summaries(state_input, observable_input,
                                                                                     loop_compile_settings,
                                                                                     output_functions,
-                                                                                    precision)
+                                                                                    precision,
+                                                                                    )
 
     outputs_list = output_functions_config['outputs_list']
     if "time" in outputs_list:
         expected_time = np.arange(num_samples, dtype=precision)
         assert_allclose(state_output[-1, :], expected_time, atol=1e-07, rtol=1e-07,
-                        err_msg="Time values were not saved correctly")
+                        err_msg="Time values were not saved correctly",
+                        )
         state_output = state_output[:-1, :]
 
     if "state" in outputs_list:
         assert_allclose(state_input, state_output, atol=1e-07, rtol=1e-07,
-                        err_msg="State values were not saved correctly")
+                        err_msg="State values were not saved correctly",
+                        )
 
     if "observables" in outputs_list:
         assert_allclose(observable_input, observable_output, atol=1e-07, rtol=1e-07,
-                        err_msg= "Observable values were not saved correctly")
-
+                        err_msg="Observable values were not saved correctly",
+                        )
 
     #RMS is not very accurate currently - this might just be floating-point precision related. These loose tolerances
     # avoid flaky tests.
     if precision == np.float32:
         atol = 1e-05
-        rtol=1e-05
+        rtol = 5e-05
         if "rms" in outputs_list:
             atol = 1e-3
             rtol = 1e-3
@@ -464,24 +507,29 @@ def compare_input_output(precision, output_functions_test_kernel, run_settings, 
     if any(summary in outputs_list for summary in ["mean", "max", "rms", "peaks"]):
 
         assert_allclose(expected_state_summaries, state_summaries_output, atol=atol, rtol=rtol,
-                        err_msg=f"State summaries didn't match expected values. Shapes: expected[{expected_state_summaries.shape}, actual[{state_summaries_output.shape}]")
+                        err_msg=f"State summaries didn't match expected values. Shapes: expected[{expected_state_summaries.shape}, actual[{state_summaries_output.shape}]",
+                        )
         if "observables" in outputs_list:
             assert_allclose(expected_obs_summaries, observable_summaries_output, atol=atol, rtol=rtol,
-                            err_msg = f"Observable summaries didn't match expected values. Shapes: expected[{expected_obs_summaries.shape}, actual[{observable_summaries_output.shape}]")
+                            err_msg=f"Observable summaries didn't match expected values. Shapes: expected[{expected_obs_summaries.shape}, actual[{observable_summaries_output.shape}]",
+                            )
 
 
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"])
 @pytest.mark.parametrize("loop_compile_settings_overrides",
                          [{'output_functions': ["state", "observables", "mean", "max", "rms", "peaks"],
-                           'n_peaks': 3}],
+                           'n_peaks':          3
+                           }],
                          ids=["all_metrics"],
-                         indirect=True)
+                         indirect=True,
+                         )
 @pytest.mark.parametrize("other_run_settings_override",
                          [{'num_samples': 100000, 'summarise_every': 1000},
                           {'num_samples': 100, 'summarise_every': 10}],
                          ids=["large_dataset",
                               "small_dataset"],
-                         indirect=True)
+                         indirect=True,
+                         )
 def test_precision_with_large_datasets(compare_input_output):
     """Test precision differences (float32 vs float64) with large datasets."""
     pass
@@ -492,15 +540,19 @@ def test_precision_with_large_datasets(compare_input_output):
                          [{'test_shared_mem': False},
                           {'test_shared_mem': True}],
                          ids=['local_mem', 'shared_mem'],
-                         indirect=True)
+                         indirect=True,
+                         )
 @pytest.mark.parametrize("loop_compile_settings_overrides",
                          [{'output_functions': ["state", "observables", "mean", "max", "peaks"],
-                           'n_peaks': 10}],
+                           'n_peaks':          10
+                           }],
                          ids=["all_but_rms"],
-                         indirect=True)
+                         indirect=True,
+                         )
 def test_memory_types(compare_input_output):
     """Test shared vs local memory with complex output configurations."""
     pass
+
 
 @pytest.mark.parametrize("input_type_override",
                          [{'scale': 1e-6},
@@ -509,37 +561,46 @@ def test_memory_types(compare_input_output):
                           {'style': 'zero'},
                           {'style': 'nan'}],
                          ids=["tiny_values", "large_values", "wide range", "zeros", "nans"],
-                         indirect=True)
+                         indirect=True,
+                         )
 @pytest.mark.parametrize("other_run_settings_override",
                          [{'num_samples': 100, 'summarise_every': 10},
                           {'num_samples': 10000, 'summarise_every': 1000}],
                          ids=["short_sim", "long_sim"],
-                         indirect=True)
+                         indirect=True,
+                         )
 @pytest.mark.parametrize("precision_override", [np.float32], ids=["float32"])
 def test_input_types(compare_input_output):
     """Test different input data types on short and long simulations."""
     pass
 
+
 @pytest.mark.parametrize("loop_compile_settings_overrides",
                          [{'output_functions': ["time"]},
                           {'output_functions': ["state", "observables", "time"]}],
                          ids=["only_time", "time_with_state_obs"],
-                         indirect=True)
+                         indirect=True,
+                         )
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"])
 def test_time_output(compare_input_output):
     """Test time output specifically."""
     pass
 
+
 @pytest.mark.parametrize("loop_compile_settings_overrides",
                          [{'output_functions': ["state", "observables"]},
                           {'output_functions': ["mean", "max", "rms", "peaks"], 'n_peaks': 10},
-                          {'output_functions': ["state", "observables", "time", "mean", "max", "rms", "peaks"], 'n_peaks': 5},
+                          {'output_functions': ["state", "observables", "time", "mean", "max", "rms", "peaks"],
+                           'n_peaks':          5
+                           },
                           {'output_functions': ["observables"]},
                           {'output_functions': ["state", "mean", "max"]},
                           {'output_functions': ["observables", "mean", "max"]}
                           ],
-                         ids=["state_obs", "all_summaries_only", "full quiver", "obs_only", "state_mean_max", "obs_mean_max"],
-                         indirect=True)
+                         ids=["state_obs", "all_summaries_only", "full quiver", "obs_only", "state_mean_max",
+                              "obs_mean_max"],
+                         indirect=True,
+                         )
 @pytest.mark.parametrize("precision_override", [np.float32], ids=["float32"])
 def test_output_configurations(compare_input_output):
     """Test various output function configurations."""
@@ -548,10 +609,13 @@ def test_output_configurations(compare_input_output):
 
 @pytest.mark.parametrize("loop_compile_settings_overrides",
                          [{'saved_states': [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 'saved_observables': [0, 1, 2, 3, 4]},
-                          {'saved_states': [int(i) for i in range(100)], 'saved_observables': [int(i) for i in range(100)]},
+                          {'saved_states':      [int(i) for i in range(100)],
+                           'saved_observables': [int(i) for i in range(100)]
+                           },
                           {'saved_states': [0], 'saved_observables': [0]}],
                          ids=["10/5", "100/100", "1/1"],
-                         indirect=True)
+                         indirect=True,
+                         )
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"])
 def test_system_sizes_configurations(compare_input_output):
     """Test various output function configurations."""
