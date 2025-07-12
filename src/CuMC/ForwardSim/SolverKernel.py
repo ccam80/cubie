@@ -51,7 +51,7 @@ class SolverKernel():
 
     def _clarify_None_output_functions(self, n_saved_observables):
         """Clarify the output functions to be used in the loop, if None is specified, set to default values."""
-        # TODO: add empty list check
+        # TODO [$6872f03a608f3f0008815e1e]: add empty list check
         if self.compile_settings['output_functions'] is None:
             self.compile_settings['output_functions'] = ['state']
             if n_saved_observables > 0:
@@ -218,7 +218,7 @@ class SolverKernel():
             """Master integration kernel - calls integratorLoop and dxdt device functions.
             Accepts all sets of inits, params, and runs one in each thread.
 
-            TODO: Currently saves forcing vector as a constant array. Consider moving this to a device function, which takes
+            TODO [$6872f03a608f3f0008815e1f]: Currently saves forcing vector as a constant array. Consider moving this to a device function, which takes
                 time and thread index as arguments, returning a forcing value.
             """
             tx = int16(cuda.threadIdx.x)
