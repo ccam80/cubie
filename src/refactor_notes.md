@@ -14,6 +14,10 @@ if x == 0 and bx == 0:
     from pdb import set_trace;
     set_trace()
 
+The CuNODE solvers stored the array in the order: [time, run_index, state], as this seemed to maximise cache hits and reduce 
+conflicts. Each thread should proceed roughly in lockstep (not assured!), should load it's slice of states into cache, and 
+write them without successive misses. 
+
  # def change_values(self, **kwargs):
     # Keep this as a reference for how to test if a system rebuild is required
     #     old_vals = self.system_conditions.copy()

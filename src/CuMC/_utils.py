@@ -13,6 +13,12 @@ from warnings import warn
 from numba.cuda.random import xoroshiro128p_normal_float64,xoroshiro128p_normal_float32, xoroshiro128p_dtype
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
+
+def pinned_zeros(self, shape, dtype):
+    """Returns a pinned array of zeros with the given shape and dtype."""
+    npary = np.zeros(shape, dtype=dtype)
+    return cuda.pinned_array_like(npary)
+
 def update_dicts_from_kwargs(dicts: list | dict, **kwargs):
     """Helper function to update specific keys in the parameter d of classes which contain compiled objects -
     this function scans through the dicts to find any keys that match kwargs, and updates the values if they're
@@ -53,17 +59,18 @@ def update_dicts_from_kwargs(dicts: list | dict, **kwargs):
 
     return dicts_modified
 
-def timing(f, nruns=3):
+def timing(f, nruns=100):
     @wraps(f)
     def wrap(*args, **kw):
         ts = np.zeros(nruns)
         te = np.zeros(nruns)
+        result = f(*args, **kw) #Burn the compilation run
         for  i in range(nruns):
             ts[i] = time()
             result = f(*args, **kw)
             te[i] = time()
         durations = te-ts
-        print('func:%r took: \n %2.6f sec avg \n %2.6f max \n %2.6f min \n over %d runs' % \
+        print('func:%r took: \n %2.6e sec avg \n %2.6e max \n %2.6e min \n over %d runs' % \
           (f.__name__, np.mean(durations), np.amax(durations), np.amin(durations), nruns))
         return result
     return wrap
