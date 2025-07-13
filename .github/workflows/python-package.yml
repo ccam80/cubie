@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11"] # <3.9 requires modifying typehints to use Union instead of | operator
 
     steps:
     - uses: actions/checkout@v4
@@ -40,11 +40,11 @@ jobs:
     - name: Test with pytest
       
       run: |
-        pytest -m cpu
+        pytest
 
 
   cuda:
-    runs-on: ubuntu-latest        # cheap CPU runner just to orchestrate
+    runs-on: ubuntu-latest      
     environment: stable
     steps:
       - uses: actions/checkout@v4
@@ -67,9 +67,10 @@ jobs:
               repo = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}.git"
               branch = os.environ.get("GITHUB_REF_NAME", "main")
               studio.run(f"git clone --depth 1 --branch {branch} {repo} src")
+              studio.run("cd src"
               studio.run("pip install -e .")
               studio.run("pytest pytest-cov numba numba-cuda\[cu12\] numpy")
-              code = studio.run("cd src && pytest -m gpu -q", capture_exit_code=True)
+              code = studio.run("pytest -q", capture_exit_code=True)
               sys.exit(code)
           finally:
               studio.stop(); studio.delete()
