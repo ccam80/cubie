@@ -44,8 +44,4 @@ jobs:
         pytest
 
 
-          PY
-        env:
-          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
-          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
-          LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
+  
