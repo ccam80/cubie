@@ -13,6 +13,7 @@ jobs:
   build:
     env:
         NUMBA_ENABLE_CUDASIM: "1"        # run Numba’s CPU simulator
+        NUMBA_CUDA_USE_NVIDIA_BINDING: "0"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -66,7 +67,8 @@ jobs:
               repo = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}.git"
               branch = os.environ.get("GITHUB_REF_NAME", "main")
               studio.run(f"git clone --depth 1 --branch {branch} {repo} src")
-              studio.run("pip install -e src[tests] pytest pytest-cov numba numba-cuda numpy")
+              studio.run("pip install -e .")
+              studio.run("pytest pytest-cov numba numba-cuda\[cu12\] numpy")
               code = studio.run("cd src && pytest -m gpu -q", capture_exit_code=True)
               sys.exit(code)
           finally:
