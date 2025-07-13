@@ -212,7 +212,7 @@ class SolverKernel(CUDAFactory):
             forcing_vector,
             stream=0,
             ):
-        # TODO: Check the ramifications of returning this function as the .device_function of the CUDA factory. It
+        # TODO [$6873084f7cdbf00008a72cfd]: Check the ramifications of returning this function as the .device_function of the CUDA factory. It
         #  contains a CUDA kernel, but this supporting method that handles the setup is also CUDA-side rather than
         #  user-side, so it may be appropriate to return the whole run function.
 
