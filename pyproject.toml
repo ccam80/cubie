@@ -40,8 +40,7 @@ testpaths = [
 ]
 
 markers = [
-    "gpu: Requires a GPU/CUDA drivers to run",
-    "cpu: Can run without a GPU  ",
+    "nocudasim: Will fail if run on the GPU simulator, only test on real GPY"
 ]
 
 addopts = [
