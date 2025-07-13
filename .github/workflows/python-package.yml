@@ -56,6 +56,7 @@ jobs:
 
           studio = Studio(
               name="scratch-studio",
+              teamspace="Vision-model",
               user=os.environ["LIGHTNING_USERNAME"]
           )
           studio.start(Machine.T4)          # ≈15 s spin-up
