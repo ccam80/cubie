@@ -248,6 +248,9 @@ class GenericIntegratorAlgorithm(CUDAFactory):
             l_obs = cuda.local.array(shape=n_obs, dtype=precision)
             l_obs[:] = precision(0.0)
 
+            for i in range(n_states):
+                l_state[i] = inits[i]
+
             #HACK: if we have no saved states or observables, numba will error for creating empty local arrays.
             # Not an issue for shared memory, but sometimes we might not have enough shared memory for these.
             # this creation of an unused size-1 array feels hacky, but avoids the error. Better to not create
