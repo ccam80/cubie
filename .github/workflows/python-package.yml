@@ -67,7 +67,7 @@ jobs:
               repo = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}.git"
               branch = os.environ.get("GITHUB_REF_NAME", "main")
               studio.run(f"git clone --depth 1 --branch {branch} {repo} src")
-              studio.run("cd src"
+              studio.run("cd src")
               studio.run("pip install -e .")
               studio.run("pytest pytest-cov numba numba-cuda\[cu12\] numpy")
               code = studio.run("pytest -q", capture_exit_code=True)
