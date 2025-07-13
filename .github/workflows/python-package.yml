@@ -3,7 +3,7 @@
 
 name: Python Tests
 on:
-  workflow-dispatch:
+  workflow_dispatch:
   # push:
   #   branches: [ "main" ]
   # pull_request:
