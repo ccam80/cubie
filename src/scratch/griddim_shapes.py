@@ -3,10 +3,10 @@ from CuMC._utils import timing
 import numpy as np
 
 @cuda.jit()
-def kerneltester(outarray, nruns):
+def kernelchecker(outarray, nruns):
     """
     A simple CUDA kernel that writes a value to the output array.
-    This is used to test if the CUDA environment is set up correctly.
+    This is used to check if the CUDA environment is set up correctly.
     """
     tx = cuda.threadIdx.x
     ty = cuda.threadIdx.y
@@ -39,7 +39,7 @@ def run(blockdim,
     runs = grids * blocks
     mappedarray = cuda.mapped_array((runs, 4), dtype=np.float32)
 
-    kerneltester[griddim, blockdim](mappedarray, runs)
+    kernelchecker[griddim, blockdim](mappedarray, runs)
     cuda.synchronize()
     print(blockdim, griddim)
     print(mappedarray)

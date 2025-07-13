@@ -3,7 +3,7 @@ from CuMC._utils import timing
 import numpy as np
 
 @cuda.jit()
-def kerneltester(outarray):
+def kernelchecker(outarray):
     """
     A simple CUDA kernel that writes a value to the output array.
     This is used to test if the CUDA environment is set up correctly.
@@ -21,7 +21,7 @@ devicearray = cuda.device_array((size,), dtype=np.float32)
 @timing
 def run_pinned():
     pinnedarray = cuda.pinned_array((size,), dtype=np.float32)
-    kerneltester[blocks_per_grid, threads_per_block](pinnedarray)
+    kernelchecker[blocks_per_grid, threads_per_block](pinnedarray)
     cuda.synchronize()
     # print(f"Pinned: {pinnedarray[10]}")
     return pinnedarray
@@ -31,7 +31,7 @@ def run_pinned():
 @timing
 def run_mapped():
     mappedarray = cuda.mapped_array((size,), dtype=np.float32)
-    kerneltester[blocks_per_grid, threads_per_block](mappedarray)
+    kernelchecker[blocks_per_grid, threads_per_block](mappedarray)
     cuda.synchronize()
     # print(f"Mapped: {mappedarray[10]}")
     del mappedarray
@@ -40,7 +40,7 @@ def run_mapped():
 @timing
 def run_device():
     devicearray = cuda.device_array((size,), dtype=np.float32)
-    kerneltester[blocks_per_grid, threads_per_block](devicearray)
+    kernelchecker[blocks_per_grid, threads_per_block](devicearray)
     cuda.synchronize()
     device_on_host = devicearray.copy_to_host()
     # print(f"device: {devicearray[10]}")

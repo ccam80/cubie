@@ -78,6 +78,7 @@ class TestDecays(SystemTester):
         dxdt_function = self.build_system()
         assert dxdt_function is not None, "dxdt function missing after build."
 
+    @pytest.mark.nocudasim
     def test_correct_output(self, system_class, instantiate_settings, input_data, test_name):
         """Checks if the output matches expected values."""
         precision, coefficients = instantiate_settings
@@ -96,6 +97,7 @@ class TestDecays(SystemTester):
         assert_allclose(dx, expected_dx, rtol=rtol, err_msg="dx mismatch")
         assert_allclose(observables, expected_obs, rtol=rtol, err_msg="observables mismatch")
 
+    @pytest.mark.nocudasim
     def test_constants_edit(self, system_class, instantiate_settings, input_data, test_name):
         """ Checks if constant edits are successfully compiled into the system. """
         precision, coefficients = instantiate_settings

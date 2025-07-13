@@ -38,11 +38,9 @@ minversion = "6.0"
 testpaths = [
     "tests"
 ]
-
 markers = [
-    "nocudasim: Will fail if run on the GPU simulator, only test on real GPY"
+    "nocudasim: Will fail if run on the GPU simulator, only test on real GPU"
 ]
-
 addopts = [
     "--import-mode=importlib",
     "-ra"
