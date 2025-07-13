@@ -49,7 +49,9 @@ class Euler(GenericIntegratorAlgorithm):
                          save_summary_func,
                          n_saved_states,
                          n_saved_observables,
-                         summary_temp_memory)
+                         summary_temp_memory,
+                         threads_per_loop=1
+                         )
 
 
     def build_loop(self,

@@ -62,6 +62,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                  n_saved_states,
                  n_saved_observables,
                  summary_temp_memory,
+                 threads_per_loop=1,
                  ):
         super().__init__()
         compile_settings = {'precision':           precision,
@@ -85,7 +86,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                             'save_summary_func':   save_summary_func,
                             }
         self.setup_compile_settings(compile_settings)
-
+        self._threads_per_loop = threads_per_loop
         self.integrator_loop = None
         self.is_current = False
 
@@ -138,6 +139,33 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                 'loop_shared_memory': self.get_loop_internal_shared_memory()
                 }
 
+    @property
+    def threads_per_loop(self):
+        """The number of threads to use per loop iteration. Multi-thread algorithms will require different memory
+        allocations."""
+        return self._threads_per_loop
+
+    @property
+    def dt_save(self):
+        """The time interval between saves, in seconds."""
+        return self.compile_settings['dt_save']
+
+    @property
+    def dt_summarise(self):
+        """The time interval between summary calculations, in seconds."""
+        return self.compile_settings['dt_summarise']
+
+    @property
+    def n_saved_states(self):
+        """The number of saved states."""
+        return self.compile_settings['n_saved_states']
+
+    @property
+    def n_saved_observables(self):
+        """The number of saved observables."""
+        return self.compile_settings['n_saved_observables']
+
+
     def build_loop(self,
                    precision,
                    dxdt_func,
@@ -181,7 +209,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
             save_states = True
 
         if save_time:
-            state_array_size = n_states + 1  # + 1 for time
+            state_array_size = n_states + 1
         else:
             state_array_size = n_states
 
@@ -269,13 +297,6 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
         Dummy loop uses 0 shared memory.
         """
-        # Euler example:
-        # n_states = self.loop_parameters['n_states']
-        # n_obs = self.loop_parameters['n_obs']
-        # n_drivers = self.loop_parameters['n_drivers']
-        #
-        #
-        # return n_states*2 + n_obs + n_drivers
         return 0
 
     def _time_to_fixed_steps(self):

@@ -4,6 +4,7 @@ Created on Tue May 27 17:45:03 2025
 
 @author: cca79
 """
+from IPython.testing.decorators import onlyif
 
 if __name__ == "__main__":
     import os
@@ -19,6 +20,7 @@ from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
 from CuMC._utils import pinned_zeros
 from CuMC.CUDAFactory import CUDAFactory
 from numpy.typing import NDArray
+from numba.np.numpy_support import as_dtype as to_np_dtype
 
 
 class SolverKernel(CUDAFactory):
@@ -36,8 +38,6 @@ class SolverKernel(CUDAFactory):
 
     def __init__(self,
                  system,
-                 precision: np.dtype = np.float32,  #Is this the point where we accept the numpy dtype, since we're
-                 # almost user-facing?
                  algorithm: str = 'euler',
                  dt_min: float = 0.01,
                  dt_max: float = 0.1,
@@ -54,17 +54,16 @@ class SolverKernel(CUDAFactory):
         super().__init__()
         self._profileCUDA = profileCUDA
         self.kernel = None
-        self.precision = precision
-        self.numba_precision = from_dtype(precision)
         self.sizes = system.get_sizes()
 
-        self.compile_settings = {'n_saved_states': len(saved_states),
-                                 'n_saved_observables': len(saved_observables),
-                                 'n_state_summaries': system.states.n_summaries,
-                                    'n_observables_summaries': system.observables.n_summaries,
-
+        self.compile_settings = {'n_saved_states':          len(saved_states),
+                                 'n_saved_observables':     len(saved_observables),
+                                 'n_state_summaries':       system.states.n_summaries,
+                                 'n_observables_summaries': system.observables.n_summaries,
                                  }
 
+        #TODO: Allocate compile settings in a sensible way - singleIntegratorRun should have all of it's own settings
+        # saved, and this module just passes them through.
 
         #All run settings might be more appropriate in the higher-level interface model?
         self.run_settings = self.initialize_run_settings()
@@ -83,57 +82,22 @@ class SolverKernel(CUDAFactory):
                                                     n_peaks=n_peaks,
                                                     )
 
-    def build(self,
-              system,
-              integrator_algorithm,
-              saved_states=None,
-              saved_observables=None,
-              xblocksize=128,
-              **integrator_kwargs,
-              ):
+    def check_array_shapes(self,
+                           device_arrays: dict):
+        """ Check shapes of arrays if user has provided them."""
 
-        self.xblocksize = xblocksize
-        if saved_states is not None:
-            self.saved_states = system.states.get_indices(saved_states)
-        else:
-            saved_states = self.saved_states
-
-        if saved_observables is not None:
-            self.saved_observables = system.observables.get_indices(saved_observables)
-        else:
-            saved_observables = self.saved_observables
-
-        system.build()
-        self.build_loop(system,
-                        integrator_kwargs["internal_step_size"],
-                        integrator_kwargs["output_step_size"],
-                        saved_states,
-                        saved_observables,
-                        )
-
-        self.build_kernel(system,
-                          self.integratorLoop,
-                          xblocksize,
-                          )
-
-    def get_shared_memory_requirements(self):
-        """Returns the number of bytes of shared memory required for the system."""
-        return self.integratorLoop.get_dynamic_shared_memory_per_thread()
 
     def allocate_device_arrays(self,
-                               output_length,
-                               summary_length,
-                               n_saved_states,
-                               n_saved_observables,
-                               n_state_summaries,
-                               n_observables_summaries,
-                               paramsets,
-                               initsets,
-                               forcing_vector=None,
+                               duration,
+                               params,
+                               inits,
+                               forcing_vector,
                                _dtype=np.float32,
                                ):
 
-        numruns = paramsets.shape[0] * initsets.shape[0]
+        numruns = params.shape[0] * inits.shape[0]
+
+        output_sizes = self.singleIntegrator.output_sizes(duration)
 
         #Optimise: CuNODE had arrays strided in [time, run, state] order, which we'll proceed with until there's time
         # or need to examine it. Each run will then load state into L1 cache, and the chunk of the 3d array will be
@@ -143,28 +107,24 @@ class SolverKernel(CUDAFactory):
         #Note: These arrays might be quite large, so pinning and mapping may prove to be performance-negative. Not sure
         # until this rears its head in later optimisation. It was faster on 4GB arrays in testing. For now,
         # we pin them to cut down on memory copies.
-        state_output = cuda.mapped_array((numruns,
-                                          output_length,
-                                          n_saved_states
-                                          ),
+
+        state_output_shape = (output_sizes['state'][0], numruns, output_sizes['state'][1])
+        state_output = cuda.mapped_array(state_output_shape,
                                          dtype=_dtype,
                                          )
-        observables_output = cuda.mapped_array((numruns,
-                                                output_length,
-                                                n_saved_observables
-                                                ),
+
+        observable_output_shape = (output_sizes['observables'][0], numruns, output_sizes['observables'][1])
+        observables_output = cuda.mapped_array(observable_output_shape,
                                                dtype=_dtype,
                                                )
-        state_summaries_output = cuda.mapped_array((numruns,
-                                                    summary_length,
-                                                    n_state_summaries
-                                                    ),
+
+        state_summary_shape = (output_sizes['state_summaries'][0], numruns, output_sizes['state_summaries'][1])
+        state_summaries_output = cuda.mapped_array(state_summary_shape,
                                                    dtype=_dtype,
                                                    )
-        observables_summaries_output = cuda.mapped_array((numruns,
-                                                          summary_length,
-                                                          n_observables_summaries
-                                                          ),
+
+        observable_summary_shape = (output_sizes['observables_summaries'][0], numruns, output_sizes['observables_summaries'][1])
+        observables_summaries_output = cuda.mapped_array(observable_summary_shape,
                                                          dtype=_dtype,
                                                          )
 
@@ -176,8 +136,8 @@ class SolverKernel(CUDAFactory):
         observables_summaries_output[:, :, :] = 0
 
         # For read-only arrays, the memory needs to be allocated regardless, just send them in to be device arrays.
-        params = cuda.device_array_like(paramsets)
-        inits = cuda.device_array_like(initsets)
+        params = cuda.device_array_like(params)
+        inits = cuda.device_array_like(inits)
 
         if forcing_vector is not None:
             forcing_vector = cuda.device_array_like(forcing_vector)
@@ -206,90 +166,61 @@ class SolverKernel(CUDAFactory):
 
         return host_arrays
 
+    def kernel(self):
+        self.device_function()
+
     def run(self,
-            param_sets,
-            inits_sets,
-            forcing_vector,
+            output_samples,
+            device_arrays, #Controversial: it feels wrong to get a higher-level module to call this class' allocation
+            # method. However, a higher-level module might reasonably want to reuse existing arrays, or override some
+            # other memory allocation idea.
+            numruns,
+            runs_per_block=32,
             stream=0,
+            warmup_samples=0
             ):
-        # TODO [$6873084f7cdbf00008a72cfd]: Check the ramifications of returning this function as the .device_function of the CUDA factory. It
-        #  contains a CUDA kernel, but this supporting method that handles the setup is also CUDA-side rather than
-        #  user-side, so it may be appropriate to return the whole run function.
-
-        output_length = self.run_settings['output_length']
-        warmup_samples = self.run_settings['warmup_samples']
-        summary_samples = self.run_settings['summary_length']
-        n_saved_states = self.compile_settings['n_saved_states']
-        n_saved_observables = self.compile_settings['n_saved_observables']
-        n_state_summaries = self.compile_settings['n_state_summaries']
-        n_observables_summaries = self.compile_settings['n_observables_summaries']
-        numruns = param_sets.shape[0] * inits_sets.shape[0]
-
-        device_arrays = self.allocate_device_arrays(output_length,
-                                                    summary_samples,
-                                                    n_saved_states,
-                                                    n_saved_observables,
-                                                    n_state_summaries,
-                                                    n_observables_summaries,
-                                                    param_sets,
-                                                    inits_sets,
-                                                    forcing_vector,
-                                                    _dtype=self.precision,
-                                                    )
-
-        d_state_output = device_arrays['state_output']
-        d_observables_output = device_arrays['observables_output']
-        d_state_summaries_output = device_arrays['state_summaries_output']
-        d_observables_summaries_output = device_arrays['observables_summaries_output']
-        d_params = device_arrays['params']
-        d_inits = device_arrays['inits']
-        d_forcing = device_arrays['forcing_vector']
 
         BLOCKSPERGRID = int(max(1, np.ceil(numruns / self.xblocksize)))
-        dynamic_sharedmem = self.get_shared_memory_requirements() * numruns
+        dynamic_sharedmem = self.shared_memory_bytes_per_run * numruns
 
         if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self._profileCUDA:
             cuda.profile_start()
 
-        self.kernel[BLOCKSPERGRID, self.xblocksize, stream, dynamic_sharedmem](d_inits,
-                                                                               d_params,
-                                                                               d_forcing,
-                                                                               d_state_output,
-                                                                               d_observables_output,
-                                                                               d_state_summaries_output,
-                                                                               d_observables_summaries_output,
-                                                                               self.output_samples,
-                                                                               warmup_samples=warmup_samples,
-                                                                               n_runs=numruns,
-                                                                               )
-
+        self.kernel[BLOCKSPERGRID, (self.xblocksize, runs_per_block), stream, dynamic_sharedmem](
+                device_arrays['inits'],
+                device_arrays['params'],
+                device_arrays['forcing_vector'],
+                device_arrays['state_output'],
+                device_arrays['observables_output'],
+                device_arrays['state_summaries_output'],
+                device_arrays['observables_summaries_output'],
+                output_samples,
+                warmup_samples=warmup_samples,
+                n_runs=numruns,
+                )
+        cuda.synchronize()
         if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self._profileCUDA:
             cuda.profile_stop()
 
-        observables = d_observables_output.copy_to_host()
-        output = d_state_output.copy_to_host()
-        state_summaries_output = d_state_summaries_output.copy_to_host()
-        observables_summaries_output = d_observables_summaries_output.copy_to_host()
+        outputarrays = self.fetch_output_arrays(device_arrays)
 
-        return output, observables, state_summaries_output, observables_summaries_output
+        return outputarrays
 
-    def build(self):
+    def build_kernel(self):
         """
 
         """
-        precision = self.numba_precision
-        threadsperloop = self.compile_settings['threadsperloop']
+        precision = self.precision
         loopfunction = self.singleIntegrator.device_function
-        shared_bytes_per_thread = self.get_shared_memory_requirements()
-        numba_precision = self.numba_precision
+        shared_elements_per_run = self.shared_memory_elements_per_run
 
-        @cuda.jit((numba_precision[:, :],
-                   numba_precision[:, :],
-                   numba_precision[:, :],
-                   numba_precision[:, :, :],
-                   numba_precision[:, :, :],
-                   numba_precision[:, :, :],
-                   numba_precision[:, :, :],
+        @cuda.jit((precision[:, :],
+                   precision[:, :],
+                   precision[:, :],
+                   precision[:, :, :],
+                   precision[:, :, :],
+                   precision[:, :, :],
+                   precision[:, :, :],
                    int32,
                    int32,
                    int32
@@ -313,11 +244,13 @@ class SolverKernel(CUDAFactory):
                 time and thread index as arguments, returning a forcing value.
             """
 
-            tx = int16(cuda.threadIdx.x)
+            tx = int16(cuda.threadIdx.x)  # Intra-loop index (always 0 for single-threaded loops)
+            ty = int16(cuda.threadIdx.y)  # per-run index
+            threads_per_loop = int16(cuda.blockDim.x)
 
             block_index = int32(cuda.blockIdx.x)
-            block_width = cuda.blockDim.x
-            run_index = int32(block_width * block_index + tx)
+            runs_per_block = cuda.blockDim.y
+            run_index = int32(runs_per_block * block_index + tx)
 
             if run_index >= n_runs:
                 return None
@@ -326,25 +259,16 @@ class SolverKernel(CUDAFactory):
             init_index = run_index % n_init_sets
             param_index = run_index // n_init_sets
 
-            # Allocate shared memory for this thread
-            c_forcing_vector = cuda.const.array_like(forcing_vector)
             shared_memory = cuda.shared.array(0,
                                               dtype=precision,
                                               )
 
-            # Get this thread's portions of shared memory, init values, parameters, outputs.
-            # tx_ indicates a thread-specific allocation, while rx_ indicates a run-specific allocation. These may be different
-            # if we implement a solver which uses multiple threads per run.
-            #TODO: Figure out allocation in multi-thread runs - each should operate out of a shared pointer,
-            # but shared_bytes_per_thread may need to be renamed or complemented by a shared_bytes_per_run to allow
-            # this.
-            # Working concept: We use a 2d block for a multi-thread run. This will require a thread-aware loop
-            # function, and a kernel built with a different blocksize config (I think). To keep it in a single kernel,
-            # we could use a compile-time constant toggle to set multi- or single-threaded run, and set second dim to
-            # 0 for single-threaded runs.
-            # Confirmed that we can request the y index of a 1d grid - it just returns zero.
-            tx_shared_memory = shared_memory[tx * shared_bytes_per_thread:(tx + 1) * shared_bytes_per_thread]
+            #Put forcing vector in constant memory as it will be broadcast-only
+            c_forcing_vector = cuda.const.array_like(forcing_vector)
 
+            #Run-indexed (rx) slices and allocations of shared and output memory. Allow the loop to handle distrubution
+            # amongst threads if it's multi-threaded using the x block index.
+            rx_shared_memory = shared_memory[ty * shared_elements_per_run:(ty + 1) * shared_elements_per_run]
             rx_inits = inits[init_index, :]
             rx_params = params[param_index, :]
             rx_state = state_output[:, run_index, :]
@@ -356,7 +280,7 @@ class SolverKernel(CUDAFactory):
                     rx_inits,
                     rx_params,
                     c_forcing_vector,
-                    tx_shared_memory,
+                    rx_shared_memory,
                     rx_state,
                     rx_observables,
                     rx_state_summaries,
@@ -365,12 +289,29 @@ class SolverKernel(CUDAFactory):
                     warmup_samples,
                     )
 
+            return None
+
         return integration_kernel
 
-    #This is essentially a static method except for the return to an attribute - consider moving loops into a function
-    # instead to remove the clutter. These would be defined per-algorithm in their own file, so we can potentially avoid
-    # subclassing and just have a single function for each algorithm.
+    @property
+    def shared_memory_bytes_per_run(self):
+        """Returns the number of bytes of shared memory required for each run."""
+        return self.singleIntegrator.shared_memory_bytes
 
+    @property
+    def shared_memory_elements_per_run(self):
+        """Returns the number of elements (values) in shared memory required for each run."""
+        return self.singleIntegrator.shared_memory_elements
+
+    @property
+    def precision(self):
+        """Returns the precision (numba data type) used by the solver kernel."""
+        return self.singleIntegrator.precision
+
+    @property
+    def xblocksize(self):
+        """Returns the number of threads in the x dimension of the block."""
+        return self.singleIntegrator.threads_per_loop
 #
 # if __name__ == "__main__":
 #     from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel

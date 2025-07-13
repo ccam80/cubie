@@ -187,6 +187,7 @@ class SingleIntegratorRun:
                         'save_summary_func':   self._output_functions.save_summary_metrics_func,
                         'summary_temp_memory': self._output_functions.memory_per_summarised_variable['temporary'],
                         }
+
         self._algorithm_params.update(lazy_updates)
         self._integrator_instance.update(**lazy_updates)  # Only update the function parameters
 
@@ -210,7 +211,8 @@ class SingleIntegratorRun:
     def get_dynamic_memory_required(self):
         """Returns the number of bytes of dynamic shared memory required for a single run of the integrator"""
         # Ensure everything is built
-        self.build()
+        if not self.cache_valid:
+            self.build()
 
         datasize = int(np.ceil(self._algorithm_params['precision'].bitwidth / 8))
 
@@ -223,3 +225,48 @@ class SingleIntegratorRun:
 
         dynamic_sharedmem = (loop_items + summary_items_total) * datasize
         return dynamic_sharedmem
+
+    @property
+    def shared_memory_bytes(self):
+        """Get the number of bytes of shared memory required for a single run of the integrator."""
+        return self.get_dynamic_memory_required()
+
+    @property
+    def shared_memory_elements(self):
+        """Get the number of elements (i.e. values) of shared memory required for a single run of the integrator."""
+        return self.get_dynamic_memory_required() // (self.precision.bitwidth // 8)
+
+    #Reach through this interface class to get lower level features:
+    @property
+    def precision(self):
+        "Numba-format floating-point datatype from the system model."
+        return self._system.get_precision()
+
+    @property
+    def threads_per_loop(self):
+        """Number of threads per loop iteration."""
+        return self._integrator_instance.threads_per_loop
+
+    def output_sizes(self, duration):
+        """Get the number of samples in the output arrays for a given simulation duration."""
+        if not self.cache_valid:
+            self.build()
+
+        summaries_per_var = self._output_functions.memory_per_summarised_variable['output']
+        n_saved_states = self._integrator_instance.n_saved_states
+        n_saved_observables = self._integrator_instance.n_saved_observables
+        n_state_summaries = summaries_per_var * n_saved_states
+        n_obs_summaries = summaries_per_var * n_saved_observables
+        n_output_samples = int(np.ceil(duration / self._integrator_instance.dt_save))
+        n_summaries_samples = int(np.ceil(duration / self._integrator_instance.dt_summarise))
+
+        state_output = (n_output_samples, n_saved_states + self._integrator_instance.save_time * 1)
+        observables_output = (n_output_samples, n_saved_observables)
+        state_summaries = (n_summaries_samples, n_state_summaries)
+        observables_summaries = (n_summaries_samples, n_obs_summaries)
+
+        return {'state':                state_output,
+                'observables':          observables_output,
+                'state_summaries':      state_summaries,
+                'observable_summaries': observables_summaries
+                }

@@ -12,15 +12,16 @@ def kerneltester(outarray, nruns):
     ty = cuda.threadIdx.y
     bx = cuda.blockIdx.x
     by = cuda.blockIdx.y
-    run_index = tx + ty * cuda.blockDim.x + bx * cuda.blockDim.x * cuda.gridDim.y + by * cuda.blockDim.y * cuda.gridDim.x
+    run_index = (tx + ty * cuda.blockDim.x + bx * cuda.blockDim.x * cuda.blockDim.y + by * cuda.blockDim.y *
+                 cuda.gridDim.x*cuda.blockDim.x)
 
     if run_index >= nruns:
         return None
 
-    outarray[run_index, 0] = float32(tx)
-    outarray[run_index, 1] = float32(ty)
-    outarray[run_index, 2] = float32(bx)
-    outarray[run_index, 3] = float32(by)
+    outarray[run_index, 3] = float32(tx)
+    outarray[run_index, 2] = float32(ty)
+    outarray[run_index, 1] = float32(bx)
+    outarray[run_index, 0] = float32(by)
 
 def run(blockdim,
         griddim):
@@ -45,7 +46,7 @@ def run(blockdim,
 
 run((2, 2), (2, 2))
 run((2, 1), (2, 1))
-
+run((1, 5), (2, 1))
 run((1, 1), (1, 1))
 run(2,2)
 run(1,1)

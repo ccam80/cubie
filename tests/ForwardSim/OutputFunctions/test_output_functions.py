@@ -271,7 +271,7 @@ def expected_summary_temp_memory(output_functions_config):
     def test_expected_temp_memory(expected_temp_memory):
         ...
     """
-    from OutputFunctions.output_functions import _TempMemoryRequirements
+    from CuMC.ForwardSim.OutputFunctions.output_functions import _TempMemoryRequirements
     n_peaks = output_functions_config['n_peaks']
     outputs_list = output_functions_config['outputs_list']
     return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
@@ -286,7 +286,7 @@ def expected_summary_output_memory(output_functions_config):
     def test_expected_temp_memory(expected_temp_memory):
         ...
     """
-    from OutputFunctions.output_functions import _OutputMemoryRequirements
+    from CuMC.ForwardSim.OutputFunctions.output_functions import _OutputMemoryRequirements
     n_peaks = output_functions_config['n_peaks']
     outputs_list = output_functions_config['outputs_list']
     return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
