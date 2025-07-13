@@ -1,0 +1,36 @@
+name: CUDA-enabled tests
+on:
+  workflow_dispatch:
+  
+jobs:
+  cuda:
+    runs-on: ubuntu-latest      
+    environment: stable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: pip install lightning-sdk
+      - name: Run tests inside free T4 studio
+        run: |
+          python - <<'PY'
+          import os, re, subprocess, sys, uuid
+          from lightning_sdk import Studio, Machine
+
+          studio = Studio(
+              name=f"test-studio-{uuid}",
+              teamspace="Vision-model",
+              user=os.environ["LIGHTNING_USERNAME"]
+          )
+          studio.start(Machine.T4)          # ≈15 s spin-up
+          try:
+              repo = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}.git"
+              branch = os.environ.get("GITHUB_REF_NAME", "main")
+              studio.run(f"git clone --depth 1 --branch {branch} {repo} src")
+              studio.run("cd src")
+              studio.run("pip install -e src")
+              studio.run("pip install pytest pytest-cov numba 'numba-cuda[cu12]' numpy==1.26.4")
+              code = studio.run("pytest -q", capture_exit_code=True)
+              sys.exit(code)
+          finally:
+              studio.stop(); studio.delete()
