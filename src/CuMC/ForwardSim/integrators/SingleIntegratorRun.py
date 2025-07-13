@@ -247,6 +247,16 @@ class SingleIntegratorRun:
         """Number of threads per loop iteration."""
         return self._integrator_instance.threads_per_loop
 
+    @property
+    def dt_save(self):
+        """Time between saving output samples."""
+        return self._integrator_instance.dt_save
+
+    @property
+    def dt_summarise(self):
+        """Time between summarising output samples."""
+        return self._integrator_instance.dt_summarise
+
     def output_sizes(self, duration):
         """Get the number of samples in the output arrays for a given simulation duration."""
         if not self.cache_valid:
@@ -260,13 +270,10 @@ class SingleIntegratorRun:
         n_output_samples = int(np.ceil(duration / self._integrator_instance.dt_save))
         n_summaries_samples = int(np.ceil(duration / self._integrator_instance.dt_summarise))
 
-        state_output = (n_output_samples, n_saved_states + self._integrator_instance.save_time * 1)
-        observables_output = (n_output_samples, n_saved_observables)
-        state_summaries = (n_summaries_samples, n_state_summaries)
-        observables_summaries = (n_summaries_samples, n_obs_summaries)
+        sizes = {'state':                (n_output_samples, n_saved_states + self._output_functions.save_time * 1),
+                 'observables':          (n_output_samples, n_saved_observables),
+                 'state_summaries':      (n_summaries_samples, n_state_summaries),
+                 'observable_summaries': (n_summaries_samples, n_obs_summaries),
+                 }
 
-        return {'state':                state_output,
-                'observables':          observables_output,
-                'state_summaries':      state_summaries,
-                'observable_summaries': observables_summaries
-                }
+        return sizes

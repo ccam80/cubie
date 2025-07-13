@@ -31,6 +31,7 @@ Issues = "https://github.com/https://github.com/ccam80/smc/issues"
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-cov",
 ]
 
 [tool.pytest.ini_options]
@@ -43,8 +44,49 @@ markers = [
 ]
 addopts = [
     "--import-mode=importlib",
-    "-ra"
+    "-ra",
+    "--cov=src/CuMC",
+    "--cov-report=html:htmlReport",
+    "--cov-report=term-missing"
 ]
 filterwarnings = [
     "ignore::numba.core.errors.NumbaPerformanceWarning",
 ]
+
+[tool.coverage.run]
+source = ["src/CuMC"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+    "*/PyCharm*",
+    "*/pycharm*",
+    "*/_jb_*",
+    "*/teamcity/*",
+    "*/conftest.py",
+]
+include = [
+    "src/CuMC/*",
+    "src/CuMC/**/*",
+]
+relative_files = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+ignore_errors = true
+show_missing = true
+
+[tool.coverage.html]
+directory = "htmlReport"
