@@ -3,9 +3,9 @@ from numpy import asarray
 from numpy.typing import ArrayLike
 from typing import Sequence, Dict, Any
 from CuMC.CUDAFactory import CUDAFactory
-from OutputFunctions.save_state import save_state_factory
-from OutputFunctions.save_summaries import save_summary_factory
-from OutputFunctions.update_summaries import update_summary_factory
+from CuMC.ForwardSim.OutputFunctions.save_state import save_state_factory
+from CuMC.ForwardSim.OutputFunctions.save_summaries import save_summary_factory
+from CuMC.ForwardSim.OutputFunctions.update_summaries import update_summary_factory
 
 #feature: max absolute
 #feature: running std deviation

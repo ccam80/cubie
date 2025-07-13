@@ -51,7 +51,7 @@ class SolverKernel(CUDAFactory):
                  n_peaks: int = 0,
                  profileCUDA: bool = False,
                  ):
-
+        super().__init__()
         self._profileCUDA = profileCUDA
         self.kernel = None
         self.precision = precision

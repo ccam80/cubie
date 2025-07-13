@@ -37,7 +37,13 @@ dev = [
 minversion = "6.0"
 testpaths = [
     "tests"
-    ]
+]
+
+markers = [
+    "gpu: Requires a GPU/CUDA drivers to run",
+    "cpu: Can run without a GPU  ",
+]
+
 addopts = [
     "--import-mode=importlib",
     "-ra"
@@ -45,4 +51,3 @@ addopts = [
 filterwarnings = [
     "ignore::numba.core.errors.NumbaPerformanceWarning",
 ]
-

@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from numpy.testing import assert_allclose
 from numba import cuda, from_dtype
-from OutputFunctions.output_functions import OutputFunctions
+from CuMC.ForwardSim.OutputFunctions.output_functions import OutputFunctions
 from tests._utils import generate_test_array, calculate_expected_summaries
 
 # Improvement: This test format contains a fair amount of duplication, and tests a lot at once. It covers the code,
@@ -276,7 +276,6 @@ def expected_summary_temp_memory(output_functions_config):
     outputs_list = output_functions_config['outputs_list']
     return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
 
-
 @pytest.fixture(scope='function')
 def expected_summary_output_memory(output_functions_config):
     """
@@ -401,7 +400,6 @@ def output_functions_test_kernel(precision, run_settings, output_functions_confi
 
     return _output_functions_test_kernel
 
-
 @pytest.fixture(scope='function')
 def compare_input_output(precision, output_functions_test_kernel, run_settings, output_functions,
                          output_functions_config,
@@ -515,6 +513,7 @@ def compare_input_output(precision, output_functions_test_kernel, run_settings, 
                             )
 
 
+@pytest.mark.gpu
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"])
 @pytest.mark.parametrize("loop_compile_settings_overrides",
                          [{'output_functions': ["state", "observables", "mean", "max", "rms", "peaks"],
