@@ -26,7 +26,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
+        python -m pip install flake8 pytest numba numpy cupy-12x numba-cuda
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: Lint with flake8
       run: |
@@ -41,6 +41,7 @@ jobs:
 
   cuda:
     runs-on: ubuntu-latest        # cheap CPU runner just to orchestrate
+    environment: stable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
