@@ -513,7 +513,6 @@ def compare_input_output(precision, output_functions_test_kernel, run_settings, 
                             )
 
 
-@pytest.mark.gpu
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"])
 @pytest.mark.parametrize("loop_compile_settings_overrides",
                          [{'output_functions': ["state", "observables", "mean", "max", "rms", "peaks"],

@@ -15,7 +15,6 @@ def timing_parameters(request):
 
     return timing_params
 
-@pytest.mark.cpu
 @pytest.mark.parametrize("timing_parameters, expected_error, expected_warning",
                          [
                              ({"dt_max": 0.0005}, (ValueError, "dt_max must be greater than or equal to dt_min"), None),
