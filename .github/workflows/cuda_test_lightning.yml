@@ -30,7 +30,7 @@ jobs:
               studio.run("cd src")
               studio.run("pip install -e src")
               studio.run("pip install pytest pytest-cov numba 'numba-cuda[cu12]' numpy==1.26.4") 
-              code = studio.run_with_exit_code(""pytest -vv -ra --junitxml=pytest-results.xml | tee pytest-output.log"")
+              code = studio.run_with_exit_code("pytest -vv -ra --junitxml=pytest-results.xml | tee pytest-output.log")
 
               studio.download("pytest-results.xml", "pytest-results.xml")
               studio.download("pytest-output.log",  "pytest-output.log")
