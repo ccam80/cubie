@@ -41,7 +41,7 @@ jobs:
     - name: Test with pytest
       
       run: |
-        pytest
+        pytest -m "not nocudasim"
 
 
   
