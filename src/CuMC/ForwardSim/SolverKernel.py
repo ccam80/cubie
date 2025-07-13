@@ -4,8 +4,6 @@ Created on Tue May 27 17:45:03 2025
 
 @author: cca79
 """
-from IPython.testing.decorators import onlyif
-
 if __name__ == "__main__":
     import os
 
