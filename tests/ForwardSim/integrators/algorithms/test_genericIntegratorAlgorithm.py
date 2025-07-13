@@ -43,6 +43,7 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
 
         return expected_state_output, expected_observables
 
+    @pytest.mark.nocudasim
     @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, run_settings_override",
                              [({'output_functions': ["state", "observables"], 'saved_states': [0, 1, 2]}, {}, {}),
                               ({'output_functions':  ["state", "observables", "mean"],
