@@ -3,7 +3,7 @@ import numpy as np
 from numba import from_dtype
 
 from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
-from CuMC.ForwardSim.OutputFunctions.output_functions import OutputFunctions
+from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
 
 
 @pytest.fixture(scope="function")

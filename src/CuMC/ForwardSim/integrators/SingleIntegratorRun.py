@@ -6,7 +6,7 @@ Created on Tue May 27 17:45:03 2025
 """
 
 import numpy as np
-from CuMC.ForwardSim.OutputFunctions.output_functions import OutputFunctions
+from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
 from CuMC.ForwardSim.integrators.algorithms import Euler
 from numpy.typing import NDArray
 
@@ -14,7 +14,7 @@ _INTEGRATION_ALGORITHMS = {"euler": Euler}
 
 
 class SingleIntegratorRun:
-    """ Coordinates the low-low-level CUDA machinery to create a device function that runs a single thread of an ODE
+    """ Coordinates the low-level CUDA machinery to create a device function that runs a single run of an ODE
     integration. Doesn't compile its own device function, but instead performs dependency injection to the integrator
     loop algorithm. Contains light-weight cache management to ensure that a change in one subfunction is communicated
     to the others, but does not inherit from CUDAFactory as it performs a different role than the others.
@@ -60,24 +60,25 @@ class SingleIntegratorRun:
 
         # Store the system (already a CUDAFactory)
         self._system = system
+        system_sizes = system.get_sizes()
 
-        # Store output function parameters for lazy initialization
-        self._output_params = {
-            'outputs_list':      output_types,
-            'saved_states':      saved_states,
-            'saved_observables': saved_observables,
-            'n_peaks':           n_peaks,
-            }
-        self._output_functions = None
+        # Initialize output functions with proper system dimensions
+        self._output_functions = OutputFunctions(
+            max_states=system_sizes['n_states'],
+            max_observables=system_sizes['max_observables'],
+            outputs_list=output_types,
+            saved_states=saved_states,
+            saved_observables=saved_observables,
+            n_peaks=n_peaks,
+        )
 
-        # Store algorithm parameters for lazy initialization
+        # Store algorithm parameters
         self.algorithm_key = algorithm.lower()
         self._algorithm_params = self._build_algorithm_params(
-                system, dt_min, dt_max, dt_save, dt_summarise, atol, rtol,
-                saved_states, saved_observables, output_types,
-                )
+            system, dt_min, dt_max, dt_save, dt_summarise, atol, rtol,
+            saved_states, saved_observables, output_types,
+        )
         self._integrator_instance = None
-
         self._compiled_loop = None
         self._loop_cache_valid = False
 
@@ -87,28 +88,24 @@ class SingleIntegratorRun:
         """Build parameters dict for algorithm initialization."""
         precision = system.get_precision()
         system_sizes = system.get_sizes()
+        config = self._output_functions.compile_settings
 
         return {
-            'precision':           precision,
-            'n_states':            system_sizes['n_states'],
-            'n_obs':               system_sizes['n_observables'],
-            'n_par':               system_sizes['n_parameters'],
-            'n_drivers':           system_sizes['n_drivers'],
-            'dt_min':              dt_min,
-            'dt_max':              dt_max,
-            'dt_save':             dt_save,
-            'dt_summarise':        dt_summarise,
-            'atol':                atol,
-            'rtol':                rtol,
-            'save_time':           "time" in output_types,
-            'n_saved_states':      len(saved_states) if saved_states is not None else 0,
-            'n_saved_observables': len(saved_observables) if saved_observables is not None else 0,
-            }
-
-    def _ensure_output_functions(self):
-        """Instantiate output_functions if not yet instantiated."""
-        if self._output_functions is None:
-            self._output_functions = OutputFunctions(**self._output_params)
+            'precision': precision,
+            'n_states': system_sizes['n_states'],
+            'n_obs': system_sizes['max_observables'],
+            'n_par': system_sizes['n_parameters'],
+            'n_drivers': system_sizes['n_drivers'],
+            'dt_min': dt_min,
+            'dt_max': dt_max,
+            'dt_save': dt_save,
+            'dt_summarise': dt_summarise,
+            'atol': atol,
+            'rtol': rtol,
+            'save_time': config.save_time,
+            'n_saved_states': config.n_saved_states,
+            'n_saved_observables': config.n_saved_observables,
+        }
 
     def _ensure_integrator_instance(self):
         """Instantiate loop algorithm object if not yet instantiated."""
@@ -117,17 +114,16 @@ class SingleIntegratorRun:
             self._ensure_output_functions()
 
             self._algorithm_params.update({
-                'dxdt_func':           self._system.device_function,
-                'save_state_func':     self._output_functions.save_state_func,
+                'dxdt_func': self._system.device_function,
+                'save_state_func': self._output_functions.save_state_func,
                 'update_summary_func': self._output_functions.update_summary_metrics_func,
-                'save_summary_func':   self._output_functions.save_summary_metrics_func,
+                'save_summary_func': self._output_functions.save_summary_metrics_func,
                 'summary_temp_memory': self._output_functions.memory_per_summarised_variable['temporary'],
-                },
-                    )
+            })
 
             self._integrator_instance = _INTEGRATION_ALGORITHMS[self.algorithm_key](
-                    **self._algorithm_params,
-                    )
+                **self._algorithm_params,
+            )
 
     def update_parameters(self, **kwargs):
         """
@@ -145,7 +141,8 @@ class SingleIntegratorRun:
         for key, value in kwargs.items():
             if key in self._system.compile_settings['constants'].values_dict:
                 system_updates[key] = value
-            elif key in self._output_params:
+            elif key in ['outputs_list', 'saved_states', 'saved_observables', 'n_peaks', 'max_states',
+                         'max_observables']: #TODO - run a check_hasattr or something here
                 output_updates[key] = value
             elif key in self._algorithm_params or key == 'algorithm':
                 if key == 'algorithm':
@@ -159,9 +156,8 @@ class SingleIntegratorRun:
             self._system.update_compile_settings(**system_updates)
 
         if output_updates:
-            self._output_params.update(output_updates)
-            if self._output_functions is not None:
-                self._output_functions.update(**output_updates)
+            #TODO: AI got rid of check if output functions exists - eithe add back or call ensure_output_functions
+            self._output_functions.update(**output_updates)
 
         if algorithm_updates:
             self._algorithm_params.update(algorithm_updates)
@@ -179,17 +175,20 @@ class SingleIntegratorRun:
 
     def build(self):
         """Build the complete integrator loop."""
-        # Ensure all components are built and current (calls _ensure_output_functions internally)
+        # Ensure all components are built and current
         self._ensure_integrator_instance()
-        lazy_updates = {'dxdt_func':           self._system.device_function,
-                        'save_state_func':     self._output_functions.save_state_func,
-                        'update_summary_func': self._output_functions.update_summary_metrics_func,
-                        'save_summary_func':   self._output_functions.save_summary_metrics_func,
-                        'summary_temp_memory': self._output_functions.memory_per_summarised_variable['temporary'],
-                        }
+
+        # Update with latest function references
+        lazy_updates = {
+            'dxdt_func': self._system.device_function,
+            'save_state_func': self._output_functions.save_state_func,
+            'update_summary_func': self._output_functions.update_summary_metrics_func,
+            'save_summary_func': self._output_functions.save_summary_metrics_func,
+            'summary_temp_memory': self._output_functions.memory_per_summarised_variable['temporary'],
+        }
 
         self._algorithm_params.update(lazy_updates)
-        self._integrator_instance.update(**lazy_updates)  # Only update the function parameters
+        self._integrator_instance.update(**lazy_updates)
 
         self._compiled_loop = self._integrator_instance.device_function
         self._loop_cache_valid = True
@@ -215,9 +214,10 @@ class SingleIntegratorRun:
             self.build()
 
         datasize = int(np.ceil(self._algorithm_params['precision'].bitwidth / 8))
+        #TODO: Just replace this whole bitch with a call to some output_functions thing
+        config = self._output_functions.compile_settings
 
-        n_summary_variables = (self._algorithm_params['n_saved_states'] +
-                               self._algorithm_params['n_saved_observables'])
+        n_summary_variables = config.n_saved_states + config.n_saved_observables
         summary_memory_per_variable = self._output_functions.memory_per_summarised_variable['temporary']
         summary_items_total = n_summary_variables * summary_memory_per_variable
 
@@ -236,7 +236,7 @@ class SingleIntegratorRun:
         """Get the number of elements (i.e. values) of shared memory required for a single run of the integrator."""
         return self.get_dynamic_memory_required() // (self.precision.bitwidth // 8)
 
-    #Reach through this interface class to get lower level features:
+    # Reach through this interface class to get lower level features:
     @property
     def precision(self):
         "Numba-format floating-point datatype from the system model."
@@ -262,18 +262,10 @@ class SingleIntegratorRun:
         if not self.cache_valid:
             self.build()
 
-        summaries_per_var = self._output_functions.memory_per_summarised_variable['output']
-        n_saved_states = self._integrator_instance.n_saved_states
-        n_saved_observables = self._integrator_instance.n_saved_observables
-        n_state_summaries = summaries_per_var * n_saved_states
-        n_obs_summaries = summaries_per_var * n_saved_observables
+        #TODO: Use logic in output_functions
+
+        config = self._output_functions.compile_settings
         n_output_samples = int(np.ceil(duration / self._integrator_instance.dt_save))
         n_summaries_samples = int(np.ceil(duration / self._integrator_instance.dt_summarise))
 
-        sizes = {'state':                (n_output_samples, n_saved_states + self._output_functions.save_time * 1),
-                 'observables':          (n_output_samples, n_saved_observables),
-                 'state_summaries':      (n_summaries_samples, n_state_summaries),
-                 'observable_summaries': (n_summaries_samples, n_obs_summaries),
-                 }
-
-        return sizes
+        return self._output_functions.get_output_sizes(n_output_samples, n_summaries_samples)

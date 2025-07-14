@@ -4,12 +4,6 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/solvers" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/src/CuMC/SystemModels" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/src/CuMC" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/src/CuMC/ForwardSim" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/src/CuMC/MonteCarlo" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/src/CuMC/Sampling" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/src/scratch" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/.idea" />
       <excludeFolder url="file://$MODULE_DIR$/.spyproject" />

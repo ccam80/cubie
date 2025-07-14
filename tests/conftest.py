@@ -2,7 +2,7 @@
 in tests/_utils.py"""
 import pytest
 import numpy as np
-from CuMC.ForwardSim.OutputFunctions.output_functions import OutputFunctions
+from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
 
 """Fixtures for instantiating lower-level components with default values that can be overriden through
 indirect parametrization of the "override" fixture."""
@@ -141,12 +141,10 @@ def system(request, system_override, precision):
 def output_functions(loop_compile_settings):
     # Merge the default config with any overrides
 
-    outputfunctions = OutputFunctions(
-            loop_compile_settings['output_functions'],
-            loop_compile_settings['saved_states'],
-            loop_compile_settings['saved_observables'],
-            loop_compile_settings['n_peaks'],
-            )
+    outputfunctions = OutputFunctions(n_states, n_parameters, loop_compile_settings['output_functions'],
+                                      loop_compile_settings['saved_states'], loop_compile_settings['saved_observables'],
+                                      loop_compile_settings['n_peaks']
+                                      )
     return outputfunctions
 
 

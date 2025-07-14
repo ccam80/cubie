@@ -147,7 +147,7 @@ class LoopAlgorithmTester:
         def test_expected_temp_memory(expected_temp_memory):
             ...
         """
-        from CuMC.ForwardSim.OutputFunctions.output_functions import _TempMemoryRequirements
+        from CuMC.ForwardSim.OutputHandling.output_functions import _TempMemoryRequirements
         n_peaks = loop_compile_settings['n_peaks']
         outputs_list = loop_compile_settings['output_functions']
         return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
@@ -162,7 +162,7 @@ class LoopAlgorithmTester:
         def test_expected_temp_memory(expected_temp_memory):
             ...
         """
-        from CuMC.ForwardSim.OutputFunctions.output_functions import _OutputMemoryRequirements
+        from CuMC.ForwardSim.OutputHandling.output_functions import _OutputMemoryRequirements
         n_peaks = loop_compile_settings['n_peaks']
         outputs_list = loop_compile_settings['output_functions']
         return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])

@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from numba import cuda
 from numpy.testing import assert_allclose
-from CuMC.CUDAFactory import CUDAFactory
 """ This module isn't really that idiomatic for pytest, but it does still test the systems. Test readability improves 
 as we go up the heirarchy."""
 

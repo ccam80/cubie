@@ -12,7 +12,7 @@ def calculate_expected_summaries(state_input, observables_input,
 
     Arguments:
     - state_input: 2D array of shape (n_states, n_samples) with the state data to summarise
-    - observables_input: 2D array of shape (n_observables, n_samples) with the observable data to summarise
+    - observables_input: 2D array of shape (max_observables, n_samples) with the observable data to summarise
     - loop_compile_settings: Dictionary with settings for the loop function, including dt_summarise, dt_save,
         output_functions, saved_states, saved_observables, n_peaks
     - output_functions: Output functions object with summary_output_length method

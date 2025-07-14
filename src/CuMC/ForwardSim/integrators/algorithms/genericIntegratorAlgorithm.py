@@ -189,24 +189,19 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                    ):
         # Manipulate user-space time parameters into loop internal parameters here if you need to for your algorithm
         summarise_every_samples = int(dt_summarise / dt_save)
+        #TODO: AI double-handling bollocks, all of this stuff appears to be done in the outputconfig module.
+        # CUDA-safe array dimensions (minimum size 1 to prevent zero-sized arrays)
+        cuda_safe_n_saved_states = max(1, n_saved_states)
+        cuda_safe_n_saved_observables = max(1, n_saved_observables)
+        cuda_safe_summary_temp_memory = max(1, summary_temp_memory)
 
-        temp_state_summary_shape = (n_saved_states * summary_temp_memory,)
-        temp_observables_summary_shape = (n_saved_observables * summary_temp_memory,)
+        temp_state_summary_shape = (cuda_safe_n_saved_states * cuda_safe_summary_temp_memory,)
+        temp_observables_summary_shape = (cuda_safe_n_saved_observables * cuda_safe_summary_temp_memory,)
 
-        if summary_temp_memory == 0:
-            summaries_output = False
-        else:
-            summaries_output = True
-
-        if n_saved_observables == 0:
-            save_observables = False
-        else:
-            save_observables = True
-
-        if n_saved_states == 0:
-            save_states = False
-        else:
-            save_states = True
+        # Logical flags for what to actually save (independent of array sizes)
+        summaries_output = summary_temp_memory > 0
+        save_observables = n_saved_observables > 0
+        save_states = n_saved_states > 0
 
         if save_time:
             state_array_size = n_states + 1
@@ -241,8 +236,8 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                        warmup_samples=0,
                        ):
             """
-            Just a placeholder/template for an algorithm's loop function. This one just fills the output with the
-            initial values.
+            Dummy integrator loop that doesn't integrate - it just fills the stae array and observables array with
+            the initial values, repeatedly.
             """
             l_state = cuda.local.array(shape=state_array_size, dtype=precision)
             l_obs = cuda.local.array(shape=n_obs, dtype=precision)
@@ -251,19 +246,8 @@ class GenericIntegratorAlgorithm(CUDAFactory):
             for i in range(n_states):
                 l_state[i] = inits[i]
 
-            #HACK: if we have no saved states or observables, numba will error for creating empty local arrays.
-            # Not an issue for shared memory, but sometimes we might not have enough shared memory for these.
-            # this creation of an unused size-1 array feels hacky, but avoids the error. Better to not create
-            # the arrays at all, but we eould have to modify the summary functions to handle different combinations
-            # of arrays and Nonetypes or similar.
-            if summaries_output and save_states:
-                l_temp_summaries = cuda.local.array(shape=temp_state_summary_shape, dtype=precision)
-            else:
-                l_temp_summaries = cuda.local.array(shape=1, dtype=precision)  # Dummy array to avoid errors
-            if summaries_output and save_observables:
-                l_temp_observables = cuda.local.array(shape=temp_observables_summary_shape, dtype=precision)
-            else:
-                l_temp_observables = cuda.local.array(shape=1, dtype=precision)
+            l_temp_summaries = cuda.local.array(shape=temp_state_summary_shape, dtype=precision)
+            l_temp_observables = cuda.local.array(shape=temp_observables_summary_shape, dtype=precision)
 
             for i in range(output_length):
                 for j in range(n_states):
@@ -272,6 +256,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                     l_obs[j] = inits[j % n_obs]
                 # bp()
                 save_state_func(l_state, l_obs, state_output[:, i], observables_output[:, i], i)
+
                 if summaries_output:
                     update_summary_func(l_state, l_obs, l_temp_summaries, l_temp_observables, i)
 

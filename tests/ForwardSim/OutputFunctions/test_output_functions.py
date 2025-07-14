@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from numpy.testing import assert_allclose
 from numba import cuda, from_dtype
-from CuMC.ForwardSim.OutputFunctions.output_functions import OutputFunctions
+from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
 from tests._utils import generate_test_array, calculate_expected_summaries
 
 # Improvement: This test format contains a fair amount of duplication, and tests a lot at once. It covers the code,
@@ -177,12 +177,10 @@ def output_functions_overrides(request):
 def output_functions(output_functions_config):
     # Merge the default config with any overrides and build functions
 
-    outputfunctions = OutputFunctions(
-            output_functions_config['outputs_list'],
-            output_functions_config['saved_states'],
-            output_functions_config['saved_observables'],
-            output_functions_config['n_peaks'],
-            )
+    outputfunctions = OutputFunctions(n_states, n_parameters, output_functions_config['outputs_list'],
+                                      output_functions_config['saved_states'],
+                                      output_functions_config['saved_observables'], output_functions_config['n_peaks']
+                                      )
 
     return outputfunctions
 
@@ -254,7 +252,7 @@ def run_settings(precision, output_functions_config, input_type, other_run_setti
             'num_samples':      num_samples,
             'num_summaries':    num_summaries,
             'n_states':         n_states,
-            'n_observables':    n_observables
+            'max_observables':    n_observables
             }  #the last two added as a convenience, these are not the source of truth
 
 
@@ -271,7 +269,7 @@ def expected_summary_temp_memory(output_functions_config):
     def test_expected_temp_memory(expected_temp_memory):
         ...
     """
-    from CuMC.ForwardSim.OutputFunctions.output_functions import _TempMemoryRequirements
+    from CuMC.ForwardSim.OutputHandling.output_functions import _TempMemoryRequirements
     n_peaks = output_functions_config['n_peaks']
     outputs_list = output_functions_config['outputs_list']
     return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
@@ -286,7 +284,7 @@ def expected_summary_output_memory(output_functions_config):
     def test_expected_temp_memory(expected_temp_memory):
         ...
     """
-    from CuMC.ForwardSim.OutputFunctions.output_functions import _OutputMemoryRequirements
+    from CuMC.ForwardSim.OutputHandling.output_functions import _OutputMemoryRequirements
     n_peaks = output_functions_config['n_peaks']
     outputs_list = output_functions_config['outputs_list']
     return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
@@ -295,7 +293,7 @@ def expected_summary_output_memory(output_functions_config):
 @pytest.fixture(scope='function')
 def output_functions_test_kernel(precision, run_settings, output_functions_config, output_functions):
     num_states = run_settings['n_states']
-    num_observables = run_settings['n_observables']
+    num_observables = run_settings['max_observables']
     summarise_every = run_settings['summarise_every']
     test_shared_mem = run_settings['test_shared_mem']
 
@@ -406,7 +404,7 @@ def compare_input_output(precision, output_functions_test_kernel, run_settings, 
                          ):
     """Test that output functions correctly save state and observable values."""
     num_states = run_settings['n_states']
-    num_observables = run_settings['n_observables']
+    num_observables = run_settings['max_observables']
     num_samples = run_settings['num_samples']
     num_summaries = run_settings['num_summaries']
     summarise_every = run_settings['summarise_every']

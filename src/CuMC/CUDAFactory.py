@@ -1,4 +1,5 @@
 from warnings import warn
+import attrs
 
 
 class CUDAFactory:
@@ -14,9 +15,8 @@ class CUDAFactory:
 
     Each subclass of this class should save compile-sensitive parameters using the setup_compile_settings method
     after calling super().__init__(), and update these using the `update_compile_settings` method.
-    setup_compile_settings overwrites any existing dictionary, and sets the set of allowed keys in the
-    compile_settings dictionary. self.update_compile_settings will update any values of existing keys, and warn the
-    user if they attempt to overwrite a non-existing key.
+    self.setup_compile_settings overwrites any existing config object, and sets the allowed attributes for updates.
+    self.update_compile_settings will update attributes of the config object..
 
     The cached elements of this class can take two forms:
         - The _device_function attribute contains the Numba dispatcher (the result of defining a function with the
@@ -33,7 +33,7 @@ class CUDAFactory:
     """
 
     def __init__(self):
-        self._compile_settings = {}
+        self._compile_settings = None
         self._cache_valid = True
         self._device_function = None
         self._cached_outputs = {}
@@ -44,15 +44,14 @@ class CUDAFactory:
 
     def setup_compile_settings(self, compile_settings):
         """
-        Set the compile settings for the factory. This function should be called to initialize the compile settings,
-        and will determine the set of allowed compile settings for the system. New keys can not be added using the
-        "update_compile_settings" method.
+        Set the compile settings for the factory. This function should be called to initialize the compile settings.
+        The compile_settings parameter should be an attrs class instance.
 
         This method overwrites the _compile_settings attribute wholesale rather than updating, so calling this on an
         existing instance will overwrite any previously set compile settings.
         """
-        if not isinstance(compile_settings, dict):
-            raise TypeError("Compile settings must be a dictionary.")
+        if not attrs.has(compile_settings):
+            raise TypeError("Compile settings must be an attrs class instance.")
         self._compile_settings = compile_settings
         self._invalidate_cache()
 
@@ -69,9 +68,22 @@ class CUDAFactory:
     @property
     def compile_settings(self):
         """
-        Returns the current compile settings dictionary.
-        This dictionary contains the compile settings that are used to build the CUDA device function.
+        Returns the current compile settings class instance. To avoid a mismatch between fetched parameters and built
+        functions, this getter will enforce a build if the cache is invalid. There is still a potential cache
+        mismatch when doing the following:
+
+        '''
+        device_function = self.device_function #calls build if settings updated
+        self.update_compile_settings(new_setting=value) #updates settings but does not rebuild
+        self.compile_settings.new_setting #fetches updated setting and builds new device functions
+
+        device_function(argument_derived_from_new_setting) #this will use the old device function, not the new one
+        '''
+        The lesson is: Always use CUDAFactory.device_function at the point of calling, otherwise you'll break the
+        cache logic.
         """
+        if not self._cache_valid:
+            self._build()
         return self._compile_settings
 
     def update_compile_settings(self, **kwargs):
@@ -79,17 +91,24 @@ class CUDAFactory:
         Update the compile settings with new values.
         This method should be called before building the system to ensure that the latest settings are used.
         """
-        updates = {}
-        for key, value in kwargs.items():
-            if key in self.compile_settings:
-                updates[key] = value
-            else:
-                warn(f"Entry {key} was not found in the compile settings dictionary for this object, and so was not "
-                     "updated.", UserWarning, stacklevel=2
-                     )
+        if self._compile_settings is None:
+            raise ValueError("Compile settings must be set up using self.setup_compile_settings before updating.")
 
-        self.compile_settings.update(updates)
-        self._invalidate_cache()
+        # Check if all kwargs are valid attributes of the config
+        valid_fields = {field.name for field in attrs.fields(self._compile_settings.__class__)}
+        invalid_keys = set(kwargs.keys()) - valid_fields
+
+        if invalid_keys:
+            for key in invalid_keys:
+                warn(f"Entry {key} was not found in the compile settings for this object, and so was not "
+                     "updated.", UserWarning, stacklevel=2)
+
+        # Filter out invalid keys and update attributes directly
+        valid_updates = {k: v for k, v in kwargs.items() if k in valid_fields}
+        if valid_updates:
+            for key, value in valid_updates.items():
+                setattr(self._compile_settings, key, value)
+            self._invalidate_cache()
 
     def _invalidate_cache(self):
         self._cache_valid = False

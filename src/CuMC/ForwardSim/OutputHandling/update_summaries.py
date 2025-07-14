@@ -1,5 +1,5 @@
 from numba import cuda
-from CuMC.ForwardSim.OutputFunctions.summary_calculations import running_max, running_mean, running_peaks, running_rms
+from CuMC.ForwardSim.OutputHandling.summary_calculations import running_max, running_mean, running_peaks, running_rms
 from numpy.typing import ArrayLike
 from typing import Sequence
 

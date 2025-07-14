@@ -187,7 +187,7 @@ class GenericODE(CUDAFactory):
     def get_sizes(self):
         return {'n_states':      self.num_states,
                 'n_parameters':  self.num_parameters,
-                'n_observables': self.num_observables,
+                'max_observables': self.num_observables,
                 'n_constants':   self.num_constants,
                 'n_drivers':     self.num_drivers,
                 }
