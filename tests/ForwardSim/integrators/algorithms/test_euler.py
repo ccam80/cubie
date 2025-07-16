@@ -65,8 +65,8 @@ class TestEuler(LoopAlgorithmTester):
         n_saved_observables = len(saved_observables)
         total_samples = int((duration + warmup) / output_dt)
 
-        state_output = np.zeros((n_saved_states + save_time * 1, output_length), dtype=inits.dtype)
-        observables_output = np.zeros((n_saved_observables, output_length), dtype=inits.dtype)
+        state_output = np.zeros((output_length, n_saved_states + save_time * 1), dtype=inits.dtype)
+        observables_output = np.zeros((output_length, n_saved_observables), dtype=inits.dtype)
         state = inits.copy()
 
         for i in range(total_samples):
@@ -76,10 +76,10 @@ class TestEuler(LoopAlgorithmTester):
                 dx, observables = system.correct_answer_python(state, params, drivers)
                 state += dx * dt
             if i > (warmup_samples - 1):
-                state_output[:, i - warmup_samples] = state[saved_states]
-                observables_output[:, i - warmup_samples] = observables[saved_observables]
+                state_output[i - warmup_samples, :] = state[saved_states]
+                observables_output[ i - warmup_samples,:] = observables[saved_observables]
                 if save_time:
-                    state_output[-1, i - warmup_samples] = i - warmup_samples
+                    state_output[i - warmup_samples, -1] = i - warmup_samples
 
         return state_output, observables_output
 

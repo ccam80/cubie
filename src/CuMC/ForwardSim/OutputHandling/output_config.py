@@ -5,6 +5,7 @@ Output configuration management system for flexible, user-controlled output sele
 import attrs
 from typing import List, Optional, Set, Tuple
 import numpy as np
+from CuMC.ForwardSim.OutputHandling._utils import process_outputs_list
 from numpy.typing import NDArray, ArrayLike
 
 import re
@@ -54,8 +55,8 @@ class OutputArraySizes:
 
     @classmethod
     def from_sizes(cls,
-                   summary_temp_per_var,
-                   summary_output_per_var,
+                   summary_temp_per_var: int,
+                   summary_output_per_var: int,
                    n_saved_states: int,
                    n_saved_observables: int,
                    n_summarised_states: int,
@@ -83,14 +84,6 @@ class OutputArraySizes:
                                                      ),
                    )
 
-
-def parse_string_with_value(text: str) -> Tuple[str, Optional[int]]:
-    """For a string of the form "text[int]", return ("text", int) or ("text",None) for a string without square
-    brackets."""
-    m = re.search(r'\[(\d+)]', text)
-    number = int(m.group(1)) if m else None
-    text = re.sub(r'\[\d+]', '', text).strip()
-    return text, number
 
 
 def indices_validator(array, max_index):
@@ -155,12 +148,14 @@ class OutputConfig:
                                           )
     n_peaks: int = attrs.field(default=0)
 
+
     def __attrs_post_init__(self):
         """Swap out None index arrays, check that all indices are within bounds, and check for a no-output request."""
         self._check_saved_indices()
         self._check_summarised_indices()
         self._validate_index_arrays()
-        self._check_for_empty_output()
+        self._check_for_no_outputs()
+        self._empty_indices_if_output_not_requested()
 
     def _validate_index_arrays(self):
         """Ensure that saved indices arrays are valid and in bounds. This is called post-init to allow None arrays to be
@@ -172,7 +167,7 @@ class OutputConfig:
         for i, array in enumerate(index_arrays):
             indices_validator(array, maxima[i])
 
-    def _check_for_empty_output(self):
+    def _check_for_no_outputs(self):
         """Check if any output is requested."""
         any_output = (self.save_state or self.save_observables or self.save_time or self.save_summaries)
         if not any_output:
@@ -200,6 +195,33 @@ class OutputConfig:
             self.summarised_observable_indices = self.saved_observable_indices
         else:
             self.summarised_observable_indices = np.asarray(self.summarised_observable_indices, dtype=np.int_)
+    def _empty_indices_if_output_not_requested(self):
+        """If the the user has requested some indices be saved/summarise, but the outputs list does not include the
+        requested type, then replace the indices with an empty array. For example, if saved_state_indices = [0, 1,
+        2], but output_types = ["observables"], set self.saved_state_indices= np.asarray([])."""
+        if not self.save_state:
+            self.saved_state_indices = np.asarray([], dtype=np.int_)
+        if not self.save_observables:
+            self.saved_observable_indices = np.asarray([], dtype=np.int_)
+        if not self.save_summaries:
+            self.summarised_state_indices = np.asarray([], dtype=np.int_)
+            self.summarised_observable_indices = np.asarray([], dtype=np.int_)
+    @property
+    def _memory_per_output_type(self):
+        return {"max":   {"temp": 1, "output": 1},
+                "min":   {"temp": 1, "output": 1},
+                "mean":  {"temp": 1, "output": 1},
+                "rms":   {"temp": 1, "output": 1},
+                "peaks": {"temp": 3 + self.n_peaks, "output": self.n_peaks},
+                }
+
+    @property
+    def summary_temp_memory_per_var(self) -> int:
+        return sum(self._memory_per_output_type[stype]["temp"] for stype in self.summary_types)
+
+    @property
+    def summary_output_memory_per_var(self) -> int:
+        return sum(self._memory_per_output_type[stype]["output"] for stype in self.summary_types)
 
     @property
     def save_summaries(self) -> bool:
@@ -240,51 +262,30 @@ class OutputConfig:
     def n_saved_states(self) -> int:
         """Number of states that will be saved (time-domain), which will the length of saved_state_indices as long as
         "save_state" is True."""
-        if not self.save_state:
-            return 0
-        return len(self.saved_state_indices) if self.saved_state_indices is not None else self.max_states
+        return len(self.saved_state_indices)
 
     @property
     def n_saved_observables(self) -> int:
         """Number of observables that will actually be saved."""
-        if not self.save_observables:
-            return 0
-        return len(self.saved_observable_indices) if self.saved_observable_indices is not None else self.max_observables
+        return len(self.saved_observable_indices)
 
     @property
     def n_summarised_states(self) -> int:
         """Number of states that will be summarised, which is the length of summarised_state_indices as long as
         "save_summaries" is active."""
-        if not self.save_summaries:
-            return 0
-        return len(self.summarised_state_indices) if self.summarised_state_indices is not None else self.max_states
+        return len(self.summarised_state_indices)
 
     @property
     def n_summarised_observables(self) -> int:
         """Number of observables that will actually be summarised."""
-        if not self.save_summaries:
-            return 0
-        return len(self.summarised_observable_indices,
-                   ) if self.summarised_observable_indices is not None else self.max_observables
+        return len(self.summarised_observable_indices)
 
     def get_array_sizes(self, CUDA_allocation_safe=False) -> OutputArraySizes:
         """Calculate the number of entries required in each array for the requested outputs. Optionally,
         pass CUDA_allocation_safe=True and the function will provide a minimum size of 1, avoiding zero-sized arrays"""
-        # Base memory requirements per summary type
-        memory_per_type = {
-            "max":   {"temp": 1, "output": 1},
-            "min":   {"temp": 1, "output": 1},
-            "mean":  {"temp": 1, "output": 1},
-            "rms":   {"temp": 1, "output": 1},
-            "peaks": {"temp": 3 + self.n_peaks, "output": self.n_peaks},
-            }
 
-        # Calculate total requirements
-        summary_temp_per_var = sum(memory_per_type[stype]["temp"] for stype in self.summary_types)
-        summary_output_per_var = sum(memory_per_type[stype]["output"] for stype in self.summary_types)
-
-        return OutputArraySizes.from_sizes(summary_temp_per_var,
-                                           summary_output_per_var,
+        return OutputArraySizes.from_sizes(self.summary_temp_memory_per_var,
+                                           self.summary_output_memory_per_var,
                                            n_saved_states=self.n_saved_states,
                                            n_saved_observables=self.n_saved_observables,
                                            n_summarised_states=self.n_summarised_states,
@@ -315,7 +316,6 @@ class OutputConfig:
                            saved_observables=None,
                            summarised_states=None,
                            summarised_observables=None,
-                           n_peaks: int = 0,
                            max_states: int = 0,
                            max_observables: int = 0,
                            ) -> "OutputConfig":
@@ -345,16 +345,12 @@ class OutputConfig:
             save_observables = False
 
         # Extract summary types
+        cleaned_output_types, n = process_outputs_list(output_types)
         summary_types = set()
-        for output_type in output_types:
-            (type_string, n) = parse_string_with_value(output_type)
-            if n is not None:
-                if type_string == "peaks":
-                    n_peaks = n
-                else:
-                    raise ValueError(f"Invalid output type with value: {output_type}")
-            if type_string in _ImplementedSummaries:
-                summary_types.add(type_string)
+        for output_type in cleaned_output_types:
+            if output_type in _ImplementedSummaries:
+                summary_types.add(output_type)
+
 
         return cls(
                 max_states=max_states,
@@ -367,25 +363,5 @@ class OutputConfig:
                 summarised_state_indices=summarised_states,
                 summarised_observable_indices=summarised_observables,
                 summary_types=summary_types,
-                n_peaks=n_peaks,
+                **n
                 )
-
-
-if __name__ == "__main__":
-    minimalconfig_test = OutputConfig(
-            max_states=10,
-            max_observables=5,
-            )
-    print(minimalconfig_test)
-    # Example usage
-    config = OutputConfig.from_loop_settings(
-            output_types=["state", "observables", "time", "max", "peaks[5]", "mean"],
-            saved_states=[0, 1, 2],
-            saved_observables=(0, 1),
-            summarised_states=[],
-            summarised_observables=None,
-            max_states=10,
-            max_observables=5,
-            )
-    print(config)
-    print(config.get_array_sizes())

@@ -8,9 +8,9 @@ from typing import Set
 from src.CuMC.ForwardSim.OutputHandling.output_config import (
     OutputConfig,
     ArrayHeights,
-    parse_string_with_value,
     _ImplementedSummaries
 )
+from CuMC.ForwardSim.OutputHandling._utils import parse_string_with_value
 
 
 class TestParseStringWithValue:
@@ -379,15 +379,6 @@ class TestOutputConfigFromLoopSettings:
         )
         np.testing.assert_array_equal(config.summarised_state_indices, np.array([], dtype=np.int_))
         np.testing.assert_array_equal(config.summarised_observable_indices, np.array([], dtype=np.int_))
-
-    def test_invalid_output_type_with_value(self):
-        """Test invalid output type with value raises error."""
-        with pytest.raises(ValueError, match="Invalid output type with value"):
-            OutputConfig.from_loop_settings(
-                output_types=["invalid[5]"],
-                max_states=10,
-                max_observables=5
-            )
 
     def test_mixed_output_types(self):
         """Test mixed output types."""

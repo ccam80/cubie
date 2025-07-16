@@ -2,6 +2,7 @@ from warnings import warn
 from numba import cuda, int32
 from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import GenericIntegratorAlgorithm
 
+
 class Euler(GenericIntegratorAlgorithm):
     """Euler integrator algorithm for fixed-step integration.
 
@@ -29,7 +30,7 @@ class Euler(GenericIntegratorAlgorithm):
                  n_saved_states,
                  n_saved_observables,
                  summary_temp_memory,
-                 **kwargs
+                 **kwargs,
                  ):
         super().__init__(precision,
                          dxdt_func,
@@ -50,9 +51,8 @@ class Euler(GenericIntegratorAlgorithm):
                          n_saved_states,
                          n_saved_observables,
                          summary_temp_memory,
-                         threads_per_loop=1
+                         threads_per_loop=1,
                          )
-
 
     def build_loop(self,
                    precision,
@@ -73,7 +73,7 @@ class Euler(GenericIntegratorAlgorithm):
                    save_summary_func,
                    n_saved_states,
                    n_saved_observables,
-                   summary_temp_memory
+                   summary_temp_memory,
                    ):
 
         internal_step_size = dt_min
@@ -96,7 +96,8 @@ class Euler(GenericIntegratorAlgorithm):
                    int32,
                    ),
                   device=True,
-                  inline=True)
+                  inline=True,
+                  )
         def euler_loop(inits,
                        parameters,
                        forcing_vec,
@@ -106,7 +107,8 @@ class Euler(GenericIntegratorAlgorithm):
                        state_summaries_output,
                        observables_summaries_output,
                        output_length,
-                       warmup_samples=0):
+                       warmup_samples=0,
+                       ):
             """
 
             """
@@ -143,7 +145,8 @@ class Euler(GenericIntegratorAlgorithm):
             #  then don't use. There has to be a more elegant way to handle this.
             if n_par > 0:
                 l_parameters = cuda.local.array((n_par),
-                                                dtype=precision)
+                                                dtype=precision,
+                                                )
             else:
                 l_parameters = cuda.local.array((1), dtype=precision)
 
@@ -163,7 +166,8 @@ class Euler(GenericIntegratorAlgorithm):
                               parameters,
                               drivers,
                               observables,
-                              dxdt)
+                              dxdt,
+                              )
 
                     # Forward-step state using euler
                     for k in range(n_states):
@@ -172,15 +176,19 @@ class Euler(GenericIntegratorAlgorithm):
                 # Start saving after the requested settling time has passed.
                 if i > (warmup_samples - 1):
                     output_sample = i - warmup_samples
-                    save_state_func(state, observables, state_output[:, output_sample], observables_output[:, output_sample],
-                                    output_sample)
+                    save_state_func(state, observables, state_output[output_sample, :], observables_output[
+                                                                                        output_sample, :],
+                                    output_sample,
+                                    )
                     update_summary_func(state, observables, state_summaries, observables_summaries, output_sample)
 
                     if (i + 1) % summarise_every_samples == 0:
                         summary_sample = (output_sample + 1) // summarise_every_samples - 1
                         save_summary_func(state_summaries, observables_summaries,
-                                          state_summaries_output[:, summary_sample],
-                                          observables_summaries_output[:, summary_sample], summarise_every_samples)
+                                          state_summaries_output[summary_sample, :],
+                                          observables_summaries_output[summary_sample, :],
+                                          summarise_every_samples,
+                                          )
 
         return euler_loop
 
@@ -196,4 +204,3 @@ class Euler(GenericIntegratorAlgorithm):
         n_drivers = self.compile_settings['n_drivers']
 
         return n_states + n_states + n_obs + n_drivers
-

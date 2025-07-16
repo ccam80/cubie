@@ -9,7 +9,8 @@ from numba import cuda, from_dtype, float32, float64
 from CuMC.SystemModels.SystemValues import SystemValues
 import numpy as np
 from CuMC.CUDAFactory import CUDAFactory
-
+from CuMC.SystemModels.Systems.ODEData import ODEData
+import attrs
 
 class GenericODE(CUDAFactory):
     """
@@ -49,7 +50,7 @@ class GenericODE(CUDAFactory):
         Args:
             initial_values (dict, optional): Initial values for state variables. Default is None.
             parameters (dict, optional): Parameter values for the system. Default is None.
-            constants (dict, optional): Constants that are not expected to change during simulation. Default is None.
+            constants (dict, optional): Constants that are not expected to change between simulations. Default is None.
             observables (dict, optional): Observable values to track. Default is None.
             default_initial_values (dict, optional): Default initial values if not provided in initial_values. Default is None.
             default_parameters (dict, optional): Default parameter values if not provided in parameters. Default is None.
@@ -58,23 +59,62 @@ class GenericODE(CUDAFactory):
             **kwargs: Additional arguments
         """
         super().__init__()
-        self.init_values = SystemValues(initial_values, precision, default_initial_values)
-        self.parameters = SystemValues(parameters, precision, default_parameters)
-        self.observables = SystemValues(observables, precision, default_observable_names)
-        self.setup_compile_settings({'constants': SystemValues(constants, precision, default_constants)})
+        system_data = ODEData.from_genericODE_initargs(initial_values=initial_values,
+                                                       parameters=parameters,
+                                                       constants=constants,
+                                                       observables=observables,
+                                                       default_initial_values=default_initial_values,
+                                                       default_parameters=default_parameters,
+                                                       default_constants=default_constants,
+                                                       default_observable_names=default_observable_names,
+                                                       precision=precision,
+                                                       num_drivers=num_drivers)
+        self.setup_compile_settings(system_data)
 
-        if precision in [np.float64, np.float32]:
-            self.precision = from_dtype(precision)
-        elif precision in [float32, float64]:
-            self.precision = precision
-        else:
-            raise ValueError("Precision must be a numpy or numba dtype (float32/float64).")
+    @property
+    def num_states(self):
+        return self.compile_settings.num_states
 
-        self.num_states = self.init_values.n
-        self.num_parameters = self.parameters.n
-        self.num_observables = self.observables.n
-        self.num_drivers = num_drivers
-        self.num_constants = self.compile_settings['constants'].n
+    @property
+    def num_observables(self):
+        return self.compile_settings.num_observables
+
+    @property
+    def num_parameters(self):
+        return self.compile_settings.num_parameters
+
+    @property
+    def num_constants(self):
+        return self.compile_settings.num_constants
+
+    @property
+    def num_drivers(self):
+        return self.compile_settings.num_drivers
+
+    @property
+    def sizes(self):
+        """Returns a dict of sizes (number of states, parameters, observables, constants, drivers) for the system."""
+        return self.compile_settings.sizes
+
+    @property
+    def precision(self):
+        """Get the precision of the system.
+
+        Returns:
+            The precision of the system (numba type, float32 or float64)
+        """
+        return self.compile_settings.precision
+
+    def set_constants(self, updates_dict):
+        """Update the constants of the system. Does not relabel parameters to constants, just updates values already
+        compiled as constants and forces a rebuild with new compile-time constants.
+
+        Args:
+            updates_dict (dict): A dictionary of constant names and their new values.
+        """
+        const = self.compile_settings.constants
+        const.update_from_dict(updates_dict)
+        self.update_compile_settings(constants=const)
 
     def build(self):
         """Compile the dxdt system as a CUDA device function."""
@@ -84,7 +124,7 @@ class GenericODE(CUDAFactory):
         #  in and copy back out, but that should only happen if the array is an argument.
 
         # Get dxdt contents into local scope, as the CUDA device function can't handle a reference to self
-        constants = self.compile_settings['constants'].values_array
+        constants = self.compile_settings.constants.values_array
         n_params = self.num_parameters
         n_states = self.num_states
         n_obs = self.num_observables
@@ -175,7 +215,7 @@ class GenericODE(CUDAFactory):
             _constants = np.zeros(n_observables, dtype=numpy_precision)
             n_constants = n_observables
         else:
-            _constants = self.compile_settings['constants'].values_array
+            _constants = self.compile_settings.constants.values_array
 
         for i, state in enumerate(states):
             dxdt[i] = state + parameters[i % n_parameters]
@@ -184,29 +224,5 @@ class GenericODE(CUDAFactory):
 
         return dxdt, observables
 
-    def get_sizes(self):
-        return {'n_states':      self.num_states,
-                'n_parameters':  self.num_parameters,
-                'max_observables': self.num_observables,
-                'n_constants':   self.num_constants,
-                'n_drivers':     self.num_drivers,
-                }
 
-    def get_precision(self):
-        """Get the precision of the system.
 
-        Returns:
-            The precision of the system (numba type, float32 or float64)
-        """
-        return self.precision
-
-    def set_constants(self, updates_dict):
-        """Update the constants of the system. Does not relabel parameters to constants, just updates values already
-        compiled as constants and forces a rebuild with new compile-time constants.
-
-        Args:
-            updates_dict (dict): A dictionary of constant names and their new values.
-        """
-        const = self.compile_settings['constants']
-        const.update_from_dict(updates_dict)
-        self.update_compile_settings(constants=const)

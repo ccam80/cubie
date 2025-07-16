@@ -102,6 +102,7 @@ def genericODE_model(precision, genericODE_model_override):
 @pytest.fixture(scope="function")
 def system_override(request):
     """Override for system model type, if provided."""
+    print(request.param if hasattr(request, 'param') else {})
     return request.param if hasattr(request, 'param') else {}
 
 
@@ -138,12 +139,13 @@ def system(request, system_override, precision):
 
 
 @pytest.fixture(scope='function')
-def output_functions(loop_compile_settings):
+def output_functions(loop_compile_settings, system):
     # Merge the default config with any overrides
 
-    outputfunctions = OutputFunctions(n_states, n_parameters, loop_compile_settings['output_functions'],
-                                      loop_compile_settings['saved_states'], loop_compile_settings['saved_observables'],
-                                      loop_compile_settings['n_peaks']
+    outputfunctions = OutputFunctions(system.num_states, system.num_parameters,
+                                      loop_compile_settings['output_functions'],
+                                      loop_compile_settings['saved_states'],
+                                      loop_compile_settings['saved_observables'],
                                       )
     return outputfunctions
 

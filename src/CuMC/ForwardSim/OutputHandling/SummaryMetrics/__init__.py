@@ -1,3 +1,4 @@
 from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetrics
 
-all_summary_metrics = SummaryMetrics
+summary_metrics = SummaryMetrics()
+SummaryMetrics.register_metric(mean)

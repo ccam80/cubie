@@ -60,7 +60,7 @@ class SingleIntegratorRun:
 
         # Store the system (already a CUDAFactory)
         self._system = system
-        system_sizes = system.get_sizes()
+        system_sizes = system.sizes()
 
         # Initialize output functions with proper system dimensions
         self._output_functions = OutputFunctions(
@@ -86,8 +86,8 @@ class SingleIntegratorRun:
                                 atol, rtol, saved_states, saved_observables, output_types,
                                 ):
         """Build parameters dict for algorithm initialization."""
-        precision = system.get_precision()
-        system_sizes = system.get_sizes()
+        precision = system.precision()
+        system_sizes = system.sizes()
         config = self._output_functions.compile_settings
 
         return {
@@ -116,7 +116,7 @@ class SingleIntegratorRun:
             self._algorithm_params.update({
                 'dxdt_func': self._system.device_function,
                 'save_state_func': self._output_functions.save_state_func,
-                'update_summary_func': self._output_functions.update_summary_metrics_func,
+                'update_summary_func': self._output_functions.update_summaries_func,
                 'save_summary_func': self._output_functions.save_summary_metrics_func,
                 'summary_temp_memory': self._output_functions.memory_per_summarised_variable['temporary'],
             })
@@ -182,7 +182,7 @@ class SingleIntegratorRun:
         lazy_updates = {
             'dxdt_func': self._system.device_function,
             'save_state_func': self._output_functions.save_state_func,
-            'update_summary_func': self._output_functions.update_summary_metrics_func,
+            'update_summary_func': self._output_functions.update_summaries_func,
             'save_summary_func': self._output_functions.save_summary_metrics_func,
             'summary_temp_memory': self._output_functions.memory_per_summarised_variable['temporary'],
         }
@@ -240,7 +240,7 @@ class SingleIntegratorRun:
     @property
     def precision(self):
         "Numba-format floating-point datatype from the system model."
-        return self._system.get_precision()
+        return self._system.precision()
 
     @property
     def threads_per_loop(self):

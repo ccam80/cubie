@@ -17,7 +17,6 @@ def kernelclass(system, loop_compile_settings, precision):
                           saved_states=loop_compile_settings['saved_states'],
                           saved_observables=loop_compile_settings['saved_observables'],
                           output_types=loop_compile_settings['output_functions'],
-                          n_peaks=loop_compile_settings['n_peaks'],
                           profileCUDA=False,
                           )
     kernel.build()
@@ -53,7 +52,7 @@ def run_settings(system, loop_compile_settings, run_settings_override, precision
     runs_per_block = 32 if run_settings_override['runs_per_block'] is None else run_settings_override['runs_per_block']
 
     output_samples = int(np.ceil(duration / loop_compile_settings['dt_save']))
-    sizes = system.get_sizes()
+    sizes = system.sizes()
     params = random_array(precision, (int(numruns/4), sizes['n_parameters']), randscale)
     inits = random_array(precision, (4, sizes['n_states']), randscale)
     forcing_vectors = random_array(precision, (output_samples, sizes['n_drivers']), randscale)

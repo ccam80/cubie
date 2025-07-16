@@ -8,10 +8,9 @@ Created on Tue May 27 17:45:03 2025
 import os
 import numpy as np
 from numba import int32, int16
-from numba import cuda, from_dtype
+from numba import cuda
 from numba.cuda.cudadrv.devicearray import is_cuda_ndarray
 from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
-from CuMC._utils import pinned_zeros
 from CuMC.CUDAFactory import CUDAFactory
 from numpy.typing import NDArray
 from numba.np.numpy_support import as_dtype as to_np_dtype
@@ -55,21 +54,16 @@ class SolverKernel(CUDAFactory):
                  ):
         super().__init__()
 
-        if saved_states is None:
-            saved_states = np.arange(system.get_sizes()['n_states'], dtype=np.int_)
-        if saved_observables is None:
-            saved_observables = np.arange(system.get_sizes()['max_observables'], dtype=np.int_)
-
-        self._profileCUDA = profileCUDA
-        self.sizes = system.get_sizes()
+        self.sizes = system.sizes()
 
         # Setup compile settings for the kernel
-        config = SolverKernelConfig(
-            n_saved_states=len(saved_states),
-            n_saved_observables=len(saved_observables),
-        )
-        self.setup_compile_settings(config)
+        self.setup_compile_settings({'n_saved_states':          len(saved_states),
+                                     'n_saved_observables':     len(saved_observables),
+                                     },
+                                    )
 
+        #TODO: Allocate compile settings in a sensible way - singleIntegratorRun should have all of it's own settings
+        # saved, and this module just passes them through.
         # Initialize the single integrator run
         self.singleIntegrator = SingleIntegratorRun(
             system,
@@ -86,14 +80,16 @@ class SolverKernel(CUDAFactory):
             n_peaks=n_peaks,
         )
 
-    def _check_input_array_shapes(self, input_device_arrays, numruns):
-        """Check shapes of input arrays match the expected dimensions."""
-        correct_sizes = {
-            'forcing_vector': self.sizes['n_drivers'],
-            'params': self.sizes['n_parameters'],
-            'inits': self.sizes['n_states']
-        }
-
+    def _check_input_array_shapes(self,
+                                  input_device_arrays,
+                                  numruns,
+                                  ):
+        """Check shapes of input arrays match the ordered run if user has provided them. If shapes do not match, raise
+        an error to alert the user that their convenience method of feeding back preallocated arrays is not working."""
+        correct_sizes = {'forcing_vector': self.sizes['n_drivers'],
+                         'params':          self.sizes['n_parameters'],
+                         'inits':           self.sizes['n_states']
+                         }
         for key, array in input_device_arrays.items():
             if key not in correct_sizes:
                 raise ValueError(f"Input device arrays contain unexpected key '{key}'. "
@@ -129,7 +125,14 @@ class SolverKernel(CUDAFactory):
                                 f"Expected {correct_shape}, got {supplied_shape}")
 
     def allocate_output_arrays(self, duration, numruns, _dtype):
-        """Allocate output arrays for the solver kernel."""
+        #Optimise: CuNODE had arrays strided in [time, run, state] order, which we'll proceed with until there's time
+        # or need to examine it. Intended behaviour is for each run to load state into L1 cache, and the chunk of
+        # the 3d array will contain all runs' information for a time step (or several, or part of one). Can check for
+        # optimality by changing stride order for a few different sized solves.
+
+        #Note: These arrays might be quite large, so pinning and mapping may prove to be performance-negative. Not sure
+        # until this rears its head in later optimisation. It was faster on 4GB arrays in testing. For now,
+        # we pin them to cut down on memory copies.
         output_arrays = {}
         output_sizes = self.singleIntegrator.output_sizes(duration)
 
@@ -167,6 +170,7 @@ class SolverKernel(CUDAFactory):
 
     def check_or_allocate_output_arrays(self, output_arrays, duration, numruns):
         """Check or allocate output arrays."""
+        #TODO: Add test for a provided array of the wrong type
         if output_arrays is None:
             output_arrays = self.allocate_output_arrays(
                 duration=duration,

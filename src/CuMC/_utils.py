@@ -12,7 +12,16 @@ from functools import wraps
 from warnings import warn
 from numba.cuda.random import xoroshiro128p_normal_float64,xoroshiro128p_normal_float32, xoroshiro128p_dtype
 xoro_type = from_dtype(xoroshiro128p_dtype)
+from attrs import fields, has
 
+
+def in_attr(name, attrs_class_instance):
+    """Checks if a name is in the attributes of a class instance."""
+    return name in {field.name for field in fields(attrs_class_instance.__class__)}
+
+def is_attrs_class(putative_class_instance):
+    """Checks if the given object is an attrs class instance."""
+    return has(putative_class_instance)
 
 def pinned_zeros(self, shape, dtype):
     """Returns a pinned array of zeros with the given shape and dtype."""
@@ -148,3 +157,4 @@ def get_readonly_view(array):
     view = array.view()
     view.flags.writeable = False
     return view
+

@@ -43,7 +43,7 @@ class LoopAlgorithmTester:
         """
         # Get the output functions from the output_functions fixture
         save_state = output_functions.save_state_func
-        update_summaries = output_functions.update_summary_metrics_func
+        update_summaries = output_functions.update_summaries_func
         save_summaries = output_functions.save_summary_metrics_func
         summary_temp_memory = output_functions.memory_per_summarised_variable['temporary']
         save_time = output_functions.save_time
@@ -137,35 +137,35 @@ class LoopAlgorithmTester:
 
         return test_kernel
 
-    @pytest.fixture(scope='function')
-    def expected_summary_temp_memory(self, loop_compile_settings):
-        """
-        Calculate the expected temporary memory usage for the loop function.
-
-        Usage example:
-        @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
-        def test_expected_temp_memory(expected_temp_memory):
-            ...
-        """
-        from CuMC.ForwardSim.OutputHandling.output_functions import _TempMemoryRequirements
-        n_peaks = loop_compile_settings['n_peaks']
-        outputs_list = loop_compile_settings['output_functions']
-        return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
-
-    @pytest.fixture(scope='function')
-    def expected_summary_output_memory(self, loop_compile_settings):
-        """
-        Calculate the expected temporary memory usage for the loop function.
-
-        Usage example:
-        @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
-        def test_expected_temp_memory(expected_temp_memory):
-            ...
-        """
-        from CuMC.ForwardSim.OutputHandling.output_functions import _OutputMemoryRequirements
-        n_peaks = loop_compile_settings['n_peaks']
-        outputs_list = loop_compile_settings['output_functions']
-        return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
+    # @pytest.fixture(scope='function')
+    # def expected_summary_temp_memory(self, loop_compile_settings, output_functions):
+    #     """
+    #     Calculate the expected temporary memory usage for the loop function.
+    #
+    #     Usage example:
+    #     @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
+    #     def test_expected_temp_memory(expected_temp_memory):
+    #         ...
+    #     """
+    #     from CuMC.ForwardSim.OutputHandling.output_functions import _TempMemoryRequirements
+    #     n_peaks = loop_compile_settings['n_peaks']
+    #     outputs_list = loop_compile_settings['output_functions']
+    #     return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
+    #
+    # @pytest.fixture(scope='function')
+    # def expected_summary_output_memory(self, loop_compile_settings):
+    #     """
+    #     Calculate the expected temporary memory usage for the loop function.
+    #
+    #     Usage example:
+    #     @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
+    #     def test_expected_temp_memory(expected_temp_memory):
+    #         ...
+    #     """
+    #     from CuMC.ForwardSim.OutputHandling.output_functions import _OutputMemoryRequirements
+    #     n_peaks = loop_compile_settings['n_peaks']
+    #     outputs_list = loop_compile_settings['output_functions']
+    #     return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
 
     def test_loop(self, loop_test_kernel, run_settings, loop_compile_settings, inputs, precision, output_functions,
                   loop_under_test, expected_answer):
@@ -181,8 +181,8 @@ class LoopAlgorithmTester:
         n_saved_states = len(saved_states)
         n_saved_observables = len(saved_observables)
 
-        output = cuda.pinned_array((n_saved_states, output_samples), dtype=precision)
-        observables = np.zeros((n_saved_observables, output_samples), dtype=precision)
+        output = cuda.pinned_array((output_samples, n_saved_states), dtype=precision)
+        observables = np.zeros((output_samples, n_saved_observables), dtype=precision)
 
         summary_samples = int(
                 np.ceil(output_samples * loop_compile_settings['dt_save'] / loop_compile_settings['dt_summarise']))
@@ -191,8 +191,8 @@ class LoopAlgorithmTester:
         num_state_summaries = summary_output_memory * n_saved_states
         num_observable_summaries = summary_output_memory * n_saved_observables
 
-        summary_outputs = np.zeros((num_state_summaries, summary_samples), dtype=precision)
-        summary_observables = np.zeros((num_observable_summaries, summary_samples), dtype=precision)
+        summary_outputs = np.zeros((summary_samples, num_state_summaries), dtype=precision)
+        summary_observables = np.zeros((summary_samples, num_observable_summaries), dtype=precision)
         forcing_vector = np.zeros(inputs['forcing_vectors'].shape, dtype=precision)
 
         inits = np.zeros(inputs['initial_values'].shape, dtype=precision)
