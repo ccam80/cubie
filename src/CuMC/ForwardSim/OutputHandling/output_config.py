@@ -5,12 +5,12 @@ Output configuration management system for flexible, user-controlled output sele
 import attrs
 from typing import List, Optional, Set, Tuple
 import numpy as np
-from CuMC.ForwardSim.OutputHandling._utils import process_outputs_list
+from CuMC.ForwardSim.OutputHandling import summary_metrics
 from numpy.typing import NDArray, ArrayLike
 
 import re
 
-_ImplementedSummaries = {'max', 'min', 'mean', 'rms', 'peaks'}
+# No longer need hardcoded _ImplementedSummaries - we get this from summary_metrics.implemented_metrics
 
 
 @attrs.define
@@ -140,13 +140,8 @@ class OutputConfig:
     summarised_observable_indices = attrs.field(default=None)
 
     # Summary types to compute
-    summary_types: Set[str] = attrs.field(default=attrs.Factory(set),
-                                          validator=attrs.validators.deep_iterable(attrs.validators.in_(
-                                                  _ImplementedSummaries,
-                                                  ),
-                                                  ),
-                                          )
-    n_peaks: int = attrs.field(default=0)
+    summary_types: Set[str] = attrs.field(default=attrs.Factory(set))
+    # n_peaks: int = attrs.field(default=0)
 
 
     def __attrs_post_init__(self):
@@ -206,22 +201,34 @@ class OutputConfig:
         if not self.save_summaries:
             self.summarised_state_indices = np.asarray([], dtype=np.int_)
             self.summarised_observable_indices = np.asarray([], dtype=np.int_)
-    @property
-    def _memory_per_output_type(self):
-        return {"max":   {"temp": 1, "output": 1},
-                "min":   {"temp": 1, "output": 1},
-                "mean":  {"temp": 1, "output": 1},
-                "rms":   {"temp": 1, "output": 1},
-                "peaks": {"temp": 3 + self.n_peaks, "output": self.n_peaks},
-                }
+    # @property
+    # def _memory_per_output_type(self):
+    #     return {"max":   {"temp": 1, "output": 1},
+    #             "min":   {"temp": 1, "output": 1},
+    #             "mean":  {"temp": 1, "output": 1},
+    #             "rms":   {"temp": 1, "output": 1},
+    #             "peaks": {"temp": 3 + self.n_peaks, "output": self.n_peaks},
+    #             }
 
     @property
     def summary_temp_memory_per_var(self) -> int:
-        return sum(self._memory_per_output_type[stype]["temp"] for stype in self.summary_types)
+        """Calculate temporary memory per variable using SummaryMetrics system."""
+        if not self.summary_types:
+            return 0
+        # Convert summary_types set to list for SummaryMetrics
+        summary_list = list(self.summary_types)
+        total_temp_size, _ = summary_metrics.temp_offsets(summary_list)
+        return total_temp_size
 
     @property
     def summary_output_memory_per_var(self) -> int:
-        return sum(self._memory_per_output_type[stype]["output"] for stype in self.summary_types)
+        """Calculate output memory per variable using SummaryMetrics system."""
+        if not self.summary_types:
+            return 0
+        # Convert summary_types set to list for SummaryMetrics
+        summary_list = list(self.summary_types)
+        total_output_size, _ = summary_metrics.output_offsets(summary_list)
+        return total_output_size
 
     @property
     def save_summaries(self) -> bool:
@@ -241,7 +248,7 @@ class OutputConfig:
     @property
     def summarise_peaks(self) -> bool:
         """Do we detect peaks?"""
-        return "peaks" in self.summary_types and self.n_peaks > 0
+        return "peaks" in self.summary_types
 
     @property
     def summarise_mean(self) -> bool:
@@ -334,9 +341,14 @@ class OutputConfig:
             max_observables: Total number of observables in system
         """
         # Set boolean compile flags for output types
+        output_types = output_types.copy()
         save_state = "state" in output_types
         save_observables = "observables" in output_types
         save_time = "time" in output_types
+
+        if save_state: output_types.remove("state")
+        if save_observables: output_types.remove("observables")
+        if save_time: output_types.remove("time")
 
         # set compile flags back off if the user has provided an empty indices array
         if saved_states is not None and len(saved_states) == 0:
@@ -345,12 +357,7 @@ class OutputConfig:
             save_observables = False
 
         # Extract summary types
-        cleaned_output_types, n = process_outputs_list(output_types)
-        summary_types = set()
-        for output_type in cleaned_output_types:
-            if output_type in _ImplementedSummaries:
-                summary_types.add(output_type)
-
+        summary_types = set(output_types)
 
         return cls(
                 max_states=max_states,
@@ -363,5 +370,4 @@ class OutputConfig:
                 summarised_state_indices=summarised_states,
                 summarised_observable_indices=summarised_observables,
                 summary_types=summary_types,
-                **n
                 )

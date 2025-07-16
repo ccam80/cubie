@@ -1,18 +1,22 @@
 from numba import cuda
-from CuMC.ForwardSim.OutputHandling.summaries import running_max, running_mean, running_peaks, running_rms
+from CuMC.ForwardSim.OutputHandling import summary_metrics
 from numpy.typing import ArrayLike
 from typing import Sequence
-
 
 def update_summary_factory(summarised_states: Sequence[int] | ArrayLike,
                            summarised_observables: Sequence[int] | ArrayLike,
                            summaries_list: Sequence[str],
-                           n_peaks: int,
                            ):
     """Factory function to create the update summary metrics device function."""
     n_summarised_states = len(summarised_states)
     n_summarised_observables = len(summarised_observables)
-    summarise = summarise_mean or summarise_peaks or summarise_max or summarise_rms
+    update_functions = summary_metrics.update_functions(summaries_list)
+    total_temp_size, temp_offsets_tuple = summary_metrics.temp_offsets(summaries_list)
+    temp_sizes = summary_metrics.temp_sizes(summaries_list)
+    params = summary_metrics.params(summaries_list)
+
+    num_metrics = len(update_functions)
+    summarise = num_metrics > 0  # We have metrics to summarise if any were requested
     summarise_observables = (n_summarised_observables > 0) and summarise
     summarise_state = (n_summarised_states > 0) and summarise
 
@@ -41,48 +45,71 @@ def update_summary_factory(summarised_states: Sequence[int] | ArrayLike,
         # different compile-time constants.
 
         if summarise_state:
-            for k in range(nstates):
-                if summarise_mean:
-                    running_mean(current_state[summarised_states[k]], temp_state_summaries, temp_array_index)
-                    temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
-                if summarise_peaks:
-                    running_peaks(current_state[summarised_states[k]], temp_state_summaries, temp_array_index,
-                                  current_step, n_peaks,
-                                  )
-                    temp_array_index += 3 + n_peaks
-                if summarise_max:
-                    running_max(current_state[summarised_states[k]], temp_state_summaries, temp_array_index)
-                    temp_array_index += 1
-                if summarise_rms:
-                    running_rms(current_state[summarised_states[k]], temp_state_summaries, temp_array_index,
+            for k in range(n_summarised_states):
+                for i in range(num_metrics):
+                    # No need to check flags since we only have requested metrics
+                    update_func = update_functions[i]
+                    temp_array_index_start = temp_offsets_tuple[i] + k * total_temp_size
+                    temp_array_index_end = temp_array_index_start + temp_sizes[i]
+                    update_func(current_state[summarised_states[k]],
+                                temp_state_summaries[temp_array_index_start:temp_array_index_end],
                                 current_step,
+                                params[i],
                                 )
-                    temp_array_index += 1
 
         if summarise_observables:
-            temp_array_index = 0
-
-            for k in range(nobs):
-                if summarise_mean:
-                    running_mean(current_observables[summarised_observables[k]], temp_observable_summaries,
-                                 temp_array_index,
-                                 )
-                    temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
-                if summarise_peaks:
-                    running_peaks(current_observables[summarised_observables[k]], temp_observable_summaries,
-                                  temp_array_index,
-                                  current_step, n_peaks,
-                                  )
-                    temp_array_index += 3 + n_peaks
-                if summarise_max:
-                    running_max(current_observables[summarised_observables[k]], temp_observable_summaries,
-                                temp_array_index,
+            for k in range(n_summarised_observables):
+                for i in range(num_metrics):
+                    # No need to check flags since we only have requested metrics
+                    update_func = update_functions[i]
+                    temp_array_index_start = temp_offsets_tuple[i] + k * total_temp_size
+                    temp_array_index_end = temp_array_index_start + temp_sizes[i]
+                    update_func(current_observables[summarised_observables[k]],
+                                temp_observable_summaries[temp_array_index_start:temp_array_index_end],
+                                current_step,
+                                params[i],
                                 )
-                    temp_array_index += 1
-                if summarise_rms:
-                    running_rms(current_observables[summarised_observables[k]], temp_observable_summaries,
-                                temp_array_index, current_step,
-                                )
-                    temp_array_index += 1
+        #         if summarise_mean:
+        #             running_mean(current_state[summarised_states[k]], temp_state_summaries, temp_array_index)
+        #             temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
+        #         if summarise_peaks:
+        #             running_peaks(current_state[summarised_states[k]], temp_state_summaries, temp_array_index,
+        #                           current_step, n_peaks,
+        #                           )
+        #             temp_array_index += 3 + n_peaks
+        #         if summarise_max:
+        #             running_max(current_state[summarised_states[k]], temp_state_summaries, temp_array_index)
+        #             temp_array_index += 1
+        #         if summarise_rms:
+        #             running_rms(current_state[summarised_states[k]], temp_state_summaries, temp_array_index,
+        #                         current_step,
+        #                         )
+        #             temp_array_index += 1
+        #
+        # if summarise_observables:
+        #     temp_array_index = 0
+        #
+        #     for k in range(nobs):
+        #         if summarise_mean:
+        #             running_mean(current_observables[summarised_observables[k]], temp_observable_summaries,
+        #                          temp_array_index,
+        #                          )
+        #             temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
+        #         if summarise_peaks:
+        #             running_peaks(current_observables[summarised_observables[k]], temp_observable_summaries,
+        #                           temp_array_index,
+        #                           current_step, n_peaks,
+        #                           )
+        #             temp_array_index += 3 + n_peaks
+        #         if summarise_max:
+        #             running_max(current_observables[summarised_observables[k]], temp_observable_summaries,
+        #                         temp_array_index,
+        #                         )
+        #             temp_array_index += 1
+        #         if summarise_rms:
+        #             running_rms(current_observables[summarised_observables[k]], temp_observable_summaries,
+        #                         temp_array_index, current_step,
+        #                         )
+        #             temp_array_index += 1
 
     return update_summary_metrics_func

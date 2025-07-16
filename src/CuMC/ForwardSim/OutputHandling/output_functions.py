@@ -93,19 +93,13 @@ class OutputFunctions(CUDAFactory):
         update_summary_metrics_func = update_summary_factory(
                 config.summarised_state_indices,
                 config.summarised_observable_indices,
-                config.save_summaries, config.summarise_mean,
-                config.summarise_peaks, config.summarise_max,
-                config.summarise_rms,
+                config.summary_types,
                 )
 
         save_summary_metrics_func = save_summary_factory(
-                config.save_summaries,
-                config.summarise_mean,
-                config.summarise_peaks,
-                config.summarise_max,
-                config.summarise_rms,
-                config.save_observables,
-                config.n_peaks,
+                config.summarised_state_indices,
+                config.summarised_observable_indices,
+                config.summary_types,
                 )
 
         return OutputFunctionCache(

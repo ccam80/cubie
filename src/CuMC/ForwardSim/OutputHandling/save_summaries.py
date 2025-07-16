@@ -3,25 +3,26 @@ from numba import cuda
 from math import sqrt
 from numpy.typing import ArrayLike
 from typing import Sequence
-from CuMC.ForwardSim.OutputHandling.summaries import OutputOffsets, SummaryFlags, TempOffsets
+from CuMC.ForwardSim.OutputHandling import summary_metrics
 
 def save_summary_factory(summarised_states: Sequence[int] | ArrayLike,
                          summarised_observables: Sequence[int] | ArrayLike,
                          summaries_list: Sequence[str],
-                         n_peaks: int,
                          ):
     """Factory function to create the save summary metrics device function."""
-    output_offsets = OutputOffsets(peaks=n_peaks)
-    (summarise_mean, summarise_peaks, summarise_max, summarise_rms) = SummaryFlags.unpack_from_list(summaries_list)
-
-    (MEAN_TEMP_OFFSET, PEAKS_TEMP_OFFSET, MAX_TEMP_OFFSET, RMS_TEMP_OFFSET) = TempOffsets.unpack_from_n_peaks(n_peaks)
-    (MEAN_OUTPUT_OFFSET, PEAKS_OUTPUT_OFFSET, MAX_OUTPUT_OFFSET, RMS_OUTPUT_OFFSET) = (
-        OutputOffsets.unpack_from_n_peaks(n_peaks))
-
     n_summarised_states = len(summarised_states)
     n_summarised_observables = len(summarised_observables)
 
-    summarise = summarise_mean or summarise_peaks or summarise_max or summarise_rms
+    # Get only the requested metrics data (no flags needed since we removed invalid metrics)
+    save_functions = summary_metrics.save_functions(summaries_list)
+    total_temp_size, temp_offsets_tuple = summary_metrics.temp_offsets(summaries_list)
+    total_output_size, output_offsets_tuple = summary_metrics.output_offsets(summaries_list)
+    temp_sizes = summary_metrics.temp_sizes(summaries_list)
+    output_sizes = summary_metrics.output_sizes(summaries_list)
+    params = summary_metrics.params(summaries_list)
+
+    num_metrics = len(save_functions)
+    summarise = num_metrics > 0  # We have metrics to summarise if any were requested
     summarise_observables = (n_summarised_observables > 0) and summarise
     summarise_state = (n_summarised_states > 0) and summarise
 
@@ -50,74 +51,35 @@ def save_summary_factory(summarised_states: Sequence[int] | ArrayLike,
         it seems reasonable.
         """
         if summarise_state:
-            output_index = 0
-            temp_index = 0
+            for k in range(n_summarised_states):
+                for i in range(num_metrics):
+                    # No need to check flags since we only have requested metrics
+                    save_func = save_functions[i]
+                    temp_array_index_start = temp_offsets_tuple[i] + k * total_temp_size
+                    temp_array_index_end = temp_array_index_start + temp_sizes[i]
+                    output_array_index_start = output_offsets_tuple[i] + k * total_output_size
+                    output_array_index_end = output_array_index_start + output_sizes[i]
 
-            for i in range(n_summarised_states):
-                if summarise_mean:
-                    output_state_summaries_slice[output_index] = temp_state_summaries[temp_index] / summarise_every
-                    temp_state_summaries[temp_index] = 0.0
-                    output_index += 1
-                    temp_index += 1
+                    save_func(temp_state_summaries[temp_array_index_start:temp_array_index_end],
+                             output_state_summaries_slice[output_array_index_start:output_array_index_end],
+                             summarise_every,
+                             params[i],
+                             )
 
-                if summarise_peaks:
-                    for p in range(n_peaks):
-                        output_state_summaries_slice[output_index + p] = temp_state_summaries[temp_index + 3 + p]
-                        temp_state_summaries[temp_index + 3 + p] = 0.0
-                    temp_state_summaries[temp_index + 2] = 0.0  # Reset peak counter
-                    output_index += n_peaks
-                    temp_index += 3 + n_peaks
-
-                if summarise_max:
-                    output_state_summaries_slice[output_index] = temp_state_summaries[temp_index]
-                    temp_state_summaries[
-                        temp_index] = -1.0e30  # A very negative number, to allow us to capture max values greater than this
-                    output_index += 1
-                    temp_index += 1
-
-                if summarise_rms:
-                    output_state_summaries_slice[output_index] = sqrt(
-                            temp_state_summaries[temp_index] / summarise_every,
-                            )
-                    temp_state_summaries[temp_index] = 0.0
-                    output_index += 1
-                    temp_index += 1
         if summarise_observables:
-            output_index = 0
-            temp_index = 0
+            for k in range(n_summarised_observables):
+                for i in range(num_metrics):
+                    # No need to check flags since we only have requested metrics
+                    save_func = save_functions[i]
+                    temp_array_index_start = temp_offsets_tuple[i] + k * total_temp_size
+                    temp_array_index_end = temp_array_index_start + temp_sizes[i]
+                    output_array_index_start = output_offsets_tuple[i] + k * total_output_size
+                    output_array_index_end = output_array_index_start + output_sizes[i]
 
-            for i in range(n_summarised_observables):
-
-                if summarise_mean:
-                    output_observable_summaries_slice[output_index] = temp_observable_summaries[
-                                                                          temp_index] / summarise_every
-                    temp_observable_summaries[temp_index] = 0.0
-                    output_index += 1
-                    temp_index += 1
-
-                if summarise_peaks:
-                    for p in range(n_peaks):
-                        output_observable_summaries_slice[output_index + p] = temp_observable_summaries[
-                            temp_index + 3 + p]
-                        temp_observable_summaries[temp_index + 3 + p] = 0.0
-                    temp_observable_summaries[temp_index + 2] = 0.0  # Reset peak counter
-                    output_index += n_peaks
-                    temp_index += 3 + n_peaks
-
-                if summarise_max:
-                    output_observable_summaries_slice[output_index] = temp_observable_summaries[temp_index]
-                    temp_observable_summaries[
-                        temp_index] = -1.0e30  # A very negative number, to allow us to capture max values greater than this
-                    output_index += 1
-                    temp_index += 1
-
-                if summarise_rms:
-                    output_observable_summaries_slice[output_index] = sqrt(
-                            temp_observable_summaries[temp_index] / summarise_every,
-                            )
-                    temp_observable_summaries[temp_index] = 0.0
-                    output_index += 1
-                    temp_index += 1
+                    save_func(temp_observable_summaries[temp_array_index_start:temp_array_index_end],
+                             output_observable_summaries_slice[output_array_index_start:output_array_index_end],
+                             summarise_every,
+                             params[i],
+                             )
 
     return save_summary_metrics_func
-

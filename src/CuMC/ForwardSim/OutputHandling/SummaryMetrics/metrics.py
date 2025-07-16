@@ -1,6 +1,17 @@
 import attrs
 from warnings import warn
-from typing import Optional
+from typing import Optional, Callable, Union, Any
+
+
+def register_metric(registry):
+    def decorator(cls):
+        instance = cls()
+        registry.register_metric(instance)
+        return cls
+
+    return decorator
+
+
 @attrs.define
 class SummaryMetric:
     """
@@ -9,32 +20,42 @@ class SummaryMetric:
     by the user, but as a dataclass to provide compile-critical information with less boilerplate.
     """
 
-    temp_size: int = attrs.field(validator=attrs.validators.instance_of(int), default=0)
-    output_size: int = attrs.field(validator=attrs.validators.instance_of(int), default=0)
-    update_device_func: callable = attrs.field(validator=attrs.validators.instance_of(callable), default=None)
-    save_device_func: callable = attrs.field(validator=attrs.validators.instance_of(callable), default=None)
+    temp_size: Union[int, Callable] = attrs.field(default=0, validator=attrs.validators.instance_of(Union[int, Callable]))
+    output_size: Union[int, Callable] = attrs.field(default=0, validator=attrs.validators.instance_of(Union[int, Callable]))
+    update_device_func: Callable = attrs.field(validator=attrs.validators.instance_of(Callable), default=None)
+    save_device_func: Callable = attrs.field(validator=attrs.validators.instance_of(Callable), default=None)
     name: str = attrs.field(validator=attrs.validators.instance_of(str), default="")
-    input_variable: Optional[dict[str, int]] = attrs.field(validator=attrs.validators.instance_of(dict), default=None)
+    input_variable: Optional[dict[str, int]] = attrs.field(validator=attrs.validators.instance_of(Optional[dict]),
+                                                           default=None)
+
 
 @attrs.define
 class SummaryMetrics:
     """
     Holds the full set of implemented summary metrics, and presents summary information to the rest of the modules.
     Presents:
-    - .names: a list of strings to check use requested metric types against
-    - .temp_offsets(output_types_requested): A dict of "metric name": starting index in temporary (running) array
-    - .output_offsets(output_types_requested): A dict of "metric name": starting index in output (save) array
-    - .flags(output_types_requested): A dict of "metric name": boolean flag indicating if the metric is requested
+    - .implemented_metrics: a list of strings to check requested metric types against (done internally for other
+    requests)
+    - .temp_offsets(output_types_requested): Returns (total_temp_size, offsets_tuple) for requested metrics only
+    - .output_offsets(output_types_requested): Returns (total_output_size, offsets_tuple) for requested metrics only
+    - .temp_sizes(output_types_requested): Returns sizes tuple for requested metrics only
+    - .output_sizes(output_types_requested): Returns sizes tuple for requested metrics only
+    - .save_functions(output_types_requested): Returns function tuple for requested metrics only
+    - .update_functions(output_types_requested): Returns function tuple for requested metrics only
+    - .params(output_types_requested): Returns parameter tuple for requested metrics only
 
+    All methods consistently return data only for the requested metrics, not for all implemented metrics.
     """
-    _names: list[str] = attrs.field(validator=attrs.validators.instance_of(list), default=[], init=False)
-    _temp_offsets: dict[str, int] = attrs.field(validator=attrs.validators.instance_of(dict), default={}, init=False)
-    _output_offsets: dict[str, int] = attrs.field(validator=attrs.validators.instance_of(dict), default={}, init=False)
-    _flags: dict[str, bool] = attrs.field(validator=attrs.validators.instance_of(dict), default={}, init=False)
-    _save_functions: dict[str, callable] = attrs.field(validator=attrs.validators.instance_of(dict), default={},
-                                                    init=False)
-    _update_functions
-    _metric_objects = attrs.field(validator=attrs.validators.instance_of(dict), default={}, init=False)
+    _names: list[str] = attrs.field(validator=attrs.validators.instance_of(list), factory=list, init=False)
+    _temp_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
+    _output_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
+    _save_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
+    _update_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
+    _metric_objects = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
+    _params: dict[str, Optional[Any]] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
+
+    def __attrs_post_init__(self):
+        self._params = {}
 
     def register_metric(self, metric: SummaryMetric):
         """
@@ -50,10 +71,25 @@ class SummaryMetrics:
             raise ValueError(f"Metric '{metric.name}' is already registered.")
 
         self._names.append(metric.name)
-        self._temp_offsets[metric.name] = metric.temp_size
-        self._output_offsets[metric.name] = metric.output_size
-        self._flags[metric.name] = False
+        self._temp_sizes[metric.name] = metric.temp_size
+        self._output_sizes[metric.name] = metric.output_size
+        # self._flags[metric.name] = False
         self._metric_objects[metric.name] = metric
+        self._update_functions[metric.name] = metric.update_device_func
+        self._save_functions[metric.name] = metric.save_device_func
+        self._params[metric.name] = 0
+
+    def preprocess_request(self, request):
+        """Parse parameters and validate the request."""
+        clean_request = self.parse_string_for_params(request)
+        # Validate that all metrics exist and filter out unregistered ones
+        validated_request = []
+        for metric in clean_request:
+            if metric not in self._names:
+                warn(f"Metric '{metric}' is not registered. Skipping.", stacklevel=2)
+            else:
+                validated_request.append(metric)
+        return validated_request
 
     @property
     def implemented_metrics(self):
@@ -62,4 +98,141 @@ class SummaryMetrics:
         """
         return self._names
 
-    def
+
+    def temp_offsets(self, output_types_requested):
+        """
+        Returns a tuple of temporary array starting offsets for the requested summary metrics.
+
+        Args:
+            output_types_requested: A list of metric names to generate offsets for.
+
+        Returns:
+            A tuple containing (total_temp_size, offsets_tuple).
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+
+        offset = 0
+        offsets_dict = {}
+        for metric in parsed_request:
+            offsets_dict[metric] = offset
+            size = self._get_size(metric, self._temp_sizes)
+            offset += size
+        _total_temp_size = offset
+        return _total_temp_size, tuple(offsets_dict[metric] for metric in parsed_request)
+
+    def temp_sizes(self, output_types_requested):
+        """
+        Returns a tuple of temporary array sizes for the requested summary metrics.
+
+        Args:
+            output_types_requested: A list of metric names to generate sizes for.
+
+        Returns:
+            A tuple with metric sizes in the temporary array.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+        return tuple(self._get_size(metric, self._temp_sizes) for metric in parsed_request)
+
+    def output_offsets(self, output_types_requested):
+        """
+        Returns a tuple of output array starting offsets for the requested summary metrics.
+
+        Args:
+            output_types_requested: A list of metric names to generate offsets for.
+
+        Returns:
+            A tuple containing (total_output_size, offsets_tuple).
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+
+        offset = 0
+        offsets_dict = {}
+        for metric in parsed_request:
+            offsets_dict[metric] = offset
+            size = self._get_size(metric, self._output_sizes)
+            offset += size
+        _total_output_size = offset
+        return _total_output_size, tuple(offsets_dict[metric] for metric in parsed_request)
+
+    def _get_size(self, metric_name, size_dict):
+        """Calculate size based on parameters if needed."""
+        size = size_dict.get(metric_name)
+        if callable(size):
+            try:
+                param = self._params.get(metric_name)
+                return size(param)
+            except:
+                raise ValueError(
+                        f"Parameter required for metric '{metric_name}'. Use '{metric_name}[parameter]' format.",
+                        )
+
+        return size
+
+    def output_sizes(self, output_types_requested):
+        """
+        Returns a tuple of output array sizes for the requested summary metrics.
+
+        Args:
+            output_types_requested: A list of metric names to generate sizes for.
+
+        Returns:
+            A tuple with metric sizes in the output array.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+        return tuple(self._get_size(metric, self._output_sizes) for metric in parsed_request)
+
+    def save_functions(self, output_types_requested):
+        """
+        Returns a tuple of save functions for the requested summary metrics.
+
+        Args:
+            output_types_requested: A list of metric names to generate save functions for.
+
+        Returns:
+            A tuple with save functions for the requested metrics.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+        return tuple(self._save_functions[metric] for metric in parsed_request)
+
+    def update_functions(self, output_types_requested):
+        """
+        Returns a tuple of update functions for the requested summary metrics.
+
+        Args:
+            output_types_requested: A list of metric names to generate update functions for.
+
+        Returns:
+            A tuple with update functions for the requested metrics.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+        return tuple(self._update_functions[metric] for metric in parsed_request)
+
+    def params(self, output_types_requested: list[str]):
+        """
+        Returns a tuple of params from the provided request string.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+        return tuple(self._params[metric] for metric in parsed_request)
+
+    def parse_string_for_params(self, dirty_request: list[str]):
+        """Get single integer metric from specification string like 'peaks[3]', and return the list of strings with
+        parameters removed, saving the parameter to self._params under the cleaned key."""
+        clean_request = []
+        self._params = {}
+        for string in dirty_request:
+            if '[' in string:
+                name, param_part = string.split('[', 1)
+                param_str = param_part.split(']')[0]
+
+                try:
+                    param_value = int(param_str)
+                except ValueError:
+                    raise ValueError(f"Parameter in '{string}' must be an integer.")
+
+                self._params[name] = param_value
+                clean_request.append(name)
+            else:
+                clean_request.append(string)
+                self._params[string] = 0
+
+        return clean_request

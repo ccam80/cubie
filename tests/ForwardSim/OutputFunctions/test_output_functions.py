@@ -2,7 +2,6 @@ import pytest
 import numpy as np
 from numpy.testing import assert_allclose
 from numba import cuda, from_dtype
-from pymc import observe
 
 from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
 from tests._utils import generate_test_array, calculate_expected_summaries

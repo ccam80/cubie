@@ -1,3 +1,3 @@
-from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetrics
+from CuMC.ForwardSim.OutputHandling.SummaryMetrics import summary_metrics
 
-all_summary_metrics = SummaryMetrics
+__all__ = ['summary_metrics']
