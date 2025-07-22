@@ -1,9 +1,9 @@
 name: TODO workflow
 on: [push, pull_request]
-permissions: write-all
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions: write-all
     steps:
     - uses: actions/checkout@master
     - name: Run tdg-github-action
@@ -13,3 +13,4 @@ jobs:
         REPO: ${{ github.repository }}
         SHA: ${{ github.sha }}
         REF: ${{ github.ref }}
+        LABEL: "Auto-generated from comment"
