@@ -1,5 +1,6 @@
 name: TODO workflow
 on: [push, pull_request]
+permissions: write-all
 jobs:
   build:
     runs-on: ubuntu-latest
