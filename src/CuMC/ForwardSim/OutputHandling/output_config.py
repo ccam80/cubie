@@ -3,90 +3,14 @@ Output configuration management system for flexible, user-controlled output sele
 """
 
 import attrs
-from typing import List, Optional, Set, Tuple
+from warnings import warn
+from typing import List, Tuple
 import numpy as np
 from CuMC.ForwardSim.OutputHandling import summary_metrics
-from numpy.typing import NDArray, ArrayLike
 
-import re
+# ************************************ standalone validators ************************************** #
 
-# No longer need hardcoded _ImplementedSummaries - we get this from summary_metrics.implemented_metrics
-
-
-@attrs.define
-class ArrayHeights:
-    """
-    Shape information for arrays - array.heights_temp is the number of samples required for the working array,
-    and ArrayHeights.output is the number of samples required for the output array. If you provide a boolean
-    argument CUDA_allocation_safe = True, then heights return a minimum value of 1, to avoid allocating a size-0
-    array."""
-    _CUDA_allocation_safe: Optional[bool] = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
-    temp: int = attrs.field(default=0, validator=attrs.validators.instance_of(int))
-    output: int = attrs.field(default=0, validator=attrs.validators.instance_of(int))
-
-    #TODO: see if we end up using this from here - it might be easier to use the boolean toggles directly when
-    # allocating in a higher-level module.
-    def __attrs_post_init__(self):
-        """If these are being generated for the purpose of filling a CUDA allocation slot, set any zero values to 1"""
-        if self._CUDA_allocation_safe:
-            self.temp = max(1, self.temp)
-            self.output = max(1, self.output)
-
-
-@attrs.define
-class OutputArraySizes:
-    """
-    Class to hold the sizes of output arrays. This is used to ensure that the arrays are allocated with the correct
-    sizes for the requested outputs.
-    """
-    state: ArrayHeights = attrs.field(default=ArrayHeights(temp=0, output=0),
-                                      validator=attrs.validators.instance_of(ArrayHeights),
-                                      )
-    observables: ArrayHeights = attrs.field(default=ArrayHeights(temp=0, output=0),
-                                            validator=attrs.validators.instance_of(ArrayHeights),
-                                            )
-    state_summaries: ArrayHeights = attrs.field(default=ArrayHeights(temp=0, output=0),
-                                                validator=attrs.validators.instance_of(ArrayHeights),
-                                                )
-    observable_summaries: ArrayHeights = attrs.field(default=ArrayHeights(temp=0, output=0),
-                                                     validator=attrs.validators.instance_of(ArrayHeights),
-                                                     )
-    _CUDA_allocation_safe: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
-
-    @classmethod
-    def from_sizes(cls,
-                   summary_temp_per_var: int,
-                   summary_output_per_var: int,
-                   n_saved_states: int,
-                   n_saved_observables: int,
-                   n_summarised_states: int,
-                   n_summarised_observables: int,
-                   max_states: int,
-                   max_observables: int,
-                   save_time,
-                   CUDA_allocation_safe=False,
-                   ):
-        return cls(state=ArrayHeights(temp=max_states,
-                                      output=(n_saved_states + 1 * save_time),
-                                      CUDA_allocation_safe=CUDA_allocation_safe,
-                                      ),
-                   observables=ArrayHeights(temp=max_observables,
-                                            output=n_saved_observables,
-                                            CUDA_allocation_safe=CUDA_allocation_safe,
-                                            ),
-                   state_summaries=ArrayHeights(temp=summary_temp_per_var * n_summarised_states,
-                                                output=summary_output_per_var * n_summarised_states,
-                                                CUDA_allocation_safe=CUDA_allocation_safe,
-                                                ),
-                   observable_summaries=ArrayHeights(temp=summary_temp_per_var * n_summarised_observables,
-                                                     output=summary_output_per_var * n_summarised_observables,
-                                                     CUDA_allocation_safe=CUDA_allocation_safe,
-                                                     ),
-                   )
-
-
-
-def indices_validator(array, max_index):
+def _indices_validator(array, max_index):
     """Validator to ensure indices are valid numpy arrays."""
     if array is not None:
         if not isinstance(array, np.ndarray) or array.dtype != np.int_:
@@ -104,45 +28,33 @@ def indices_validator(array, max_index):
 @attrs.define
 class OutputConfig:
     """
-    Attrs class to hold output configuration. Contains flags for compile-time toggling of different output types,
+    Data class to hold output configuration. Contains flags for compile-time toggling of different output types,
     and validation logic to ensure *some* output is requested, and that we're not requesting indices off the end of
-    the state arrays. Returns information about the size of output arrays and compile-time flags for which output
-    functions to build.
+    the state arrays.
 
-    To extend this class when adding new summary metrics, you will need to add:
-    - A boolean property for the new output type (e.g.
-        '''
-        @property
-        def summarise_new_output(self) -> bool):
-            \"""Check if new output type is requested.\"""
-            return "new_output" in self.summary_types
-        '''
-    - An entry in the _ImplementedSummaries set, e.g.
-        '''_ImplementedSummaries = {'max', 'min', 'mean', 'rms', 'peaks', 'new_output'}'''
-
-
-    This suggests a regrettable level of coupling, but we've got to tell the system *somewhere* what is acceptable.
-
+    Went a bit eager on the private attributes and properties to get around a circular logic bug when setting indices or
+     requested output flags. Many of them directly set/get a private attribute without additional logic, creating a
+     public attribute instead, but it's non-breaking and allows for easier addition of checking should bugs arise.
     """
+
     # System dimensions, used to validate indices
-    max_states: int = attrs.field(validator=attrs.validators.instance_of(int))
-    max_observables: int = attrs.field(validator=attrs.validators.instance_of(int))
+    _max_states: int = attrs.field(validator=attrs.validators.instance_of(int))
+    _max_observables: int = attrs.field(validator=attrs.validators.instance_of(int))
 
-    save_state: bool = attrs.field(default=True)
-    save_observables: bool = attrs.field(default=False)
-    save_time: bool = attrs.field(default=False)
+    _save_state: bool = attrs.field(default=True)
+    _save_observables: bool = attrs.field(default=True)
+    _save_time: bool = attrs.field(default=False)
 
-    # Which indices to save (None means save all)
-    saved_state_indices = attrs.field(default=None)
-    saved_observable_indices = attrs.field(default=None)
 
-    summarised_state_indices = attrs.field(default=None)
-    summarised_observable_indices = attrs.field(default=None)
+    _saved_state_indices = attrs.field(default=attrs.Factory(list))
+    _saved_observable_indices = attrs.field(default=attrs.Factory(list))
+    _summarised_state_indices = attrs.field(default=attrs.Factory(list))
+    _summarised_observable_indices = attrs.field(default=attrs.Factory(list))
 
-    # Summary types to compute
-    summary_types: Set[str] = attrs.field(default=attrs.Factory(set))
-    # n_peaks: int = attrs.field(default=0)
+    _summary_types: Tuple[str] = attrs.field(default=attrs.Factory(tuple))
 
+
+    #*********************************** post-init validators ***********************************
 
     def __attrs_post_init__(self):
         """Swap out None index arrays, check that all indices are within bounds, and check for a no-output request."""
@@ -150,65 +62,151 @@ class OutputConfig:
         self._check_summarised_indices()
         self._validate_index_arrays()
         self._check_for_no_outputs()
-        self._empty_indices_if_output_not_requested()
 
     def _validate_index_arrays(self):
         """Ensure that saved indices arrays are valid and in bounds. This is called post-init to allow None arrays to be
         replaced with full arrays in the _indices_to_arrays step before checking.
         """
-        index_arrays = [self.saved_state_indices, self.saved_observable_indices,
-                        self.summarised_state_indices, self.summarised_observable_indices]
-        maxima = [self.max_states, self.max_observables, self.max_states, self.max_observables]
+        index_arrays = [self._saved_state_indices, self._saved_observable_indices,
+                        self._summarised_state_indices, self._summarised_observable_indices]
+        maxima = [self._max_states, self._max_observables, self._max_states, self._max_observables]
         for i, array in enumerate(index_arrays):
-            indices_validator(array, maxima[i])
+            _indices_validator(array, maxima[i])
 
     def _check_for_no_outputs(self):
         """Check if any output is requested."""
-        any_output = (self.save_state or self.save_observables or self.save_time or self.save_summaries)
+        any_output = (self._save_state or self._save_observables or self._save_time or self.save_summaries)
         if not any_output:
             raise ValueError("At least one output type must be enabled (state, observables, time, summaries)")
 
     def _check_saved_indices(self):
         """Convert indices iterables to numpy arrays for interface with device functions. If the array type is None,
         create an array of all possible indices."""
-        if self.saved_state_indices is None:
-            self.saved_state_indices = np.arange(self.max_states, dtype=np.int_)
+        if len(self._saved_state_indices) == 0:
+            self._saved_state_indices = np.arange(self._max_states, dtype=np.int_)
         else:
-            self.saved_state_indices = np.asarray(self.saved_state_indices, dtype=np.int_)
-        if self.saved_observable_indices is None:
-            self.saved_observable_indices = np.arange(self.max_observables, dtype=np.int_)
+            self._saved_state_indices = np.asarray(self._saved_state_indices, dtype=np.int_)
+        if len(self._saved_observable_indices) == 0:
+            self._saved_observable_indices = np.arange(self._max_observables, dtype=np.int_)
         else:
-            self.saved_observable_indices = np.asarray(self.saved_observable_indices, dtype=np.int_)
+            self._saved_observable_indices = np.asarray(self._saved_observable_indices, dtype=np.int_)
 
     def _check_summarised_indices(self):
         """Set summarised indices to saved indices if not provided."""
-        if self.summarised_state_indices is None:
-            self.summarised_state_indices = self.saved_state_indices
+        if len(self._summarised_state_indices) == 0:
+            self._summarised_state_indices = self._saved_state_indices
         else:
-            self.summarised_state_indices = np.asarray(self.summarised_state_indices, dtype=np.int_)
-        if self.summarised_observable_indices is None:
-            self.summarised_observable_indices = self.saved_observable_indices
+            self._summarised_state_indices = np.asarray(self._summarised_state_indices, dtype=np.int_)
+        if len(self._summarised_observable_indices) == 0:
+            self._summarised_observable_indices = self._saved_observable_indices
         else:
-            self.summarised_observable_indices = np.asarray(self.summarised_observable_indices, dtype=np.int_)
-    def _empty_indices_if_output_not_requested(self):
-        """If the the user has requested some indices be saved/summarise, but the outputs list does not include the
-        requested type, then replace the indices with an empty array. For example, if saved_state_indices = [0, 1,
-        2], but output_types = ["observables"], set self.saved_state_indices= np.asarray([])."""
-        if not self.save_state:
-            self.saved_state_indices = np.asarray([], dtype=np.int_)
-        if not self.save_observables:
-            self.saved_observable_indices = np.asarray([], dtype=np.int_)
-        if not self.save_summaries:
-            self.summarised_state_indices = np.asarray([], dtype=np.int_)
-            self.summarised_observable_indices = np.asarray([], dtype=np.int_)
-    # @property
-    # def _memory_per_output_type(self):
-    #     return {"max":   {"temp": 1, "output": 1},
-    #             "min":   {"temp": 1, "output": 1},
-    #             "mean":  {"temp": 1, "output": 1},
-    #             "rms":   {"temp": 1, "output": 1},
-    #             "peaks": {"temp": 3 + self.n_peaks, "output": self.n_peaks},
-    #             }
+            self._summarised_observable_indices = np.asarray(self._summarised_observable_indices, dtype=np.int_)
+
+    # def _empty_indices_if_output_not_requested(self):
+    #     """If the the user has requested some indices be saved/summarise, but the outputs list does not include the
+    #     requested type, then replace the indices with an empty array. For example, if saved_state_indices = [0, 1,
+    #     2], but output_types = ["observables"], set self.saved_state_indices= np.asarray([])."""
+    #     if not self._save_state:
+    #         self._saved_state_indices = np.asarray([], dtype=np.int_)
+    #     if not self._save_observables:
+    #         self._saved_observable_indices = np.asarray([], dtype=np.int_)
+    #     if not self.save_summaries:
+    #         self._summarised_state_indices = np.asarray([], dtype=np.int_)
+    #         self._summarised_observable_indices = np.asarray([], dtype=np.int_)
+
+
+    # ************************************ Getters/Setters *************************************** #
+    # No setter implemented for flags - these can only be updated by the update_from_outputs_list method
+    @property
+    def save_state(self) -> bool:
+        return self._save_state and (len(self._saved_state_indices) > 0)
+
+    @property
+    def max_states(self):
+        return self._max_states
+
+    @max_states.setter
+    def max_states(self, value):
+        """Set the maximum number of states. If the saved state indices are set to the default range, update them to
+        the full range of the new maximum."""
+        if np.array_equal(self._saved_state_indices, np.arange(self.max_states, dtype=np.int_)):
+            self._saved_state_indices = np.arange(value, dtype=np.int_)
+        self._max_states = value
+        self.__attrs_post_init__()
+
+    @property
+    def max_observables(self):
+        return self._max_observables
+
+    @max_observables.setter
+    def max_observables(self, value):
+        """Set the maximum number of observables. If the saved observable indices are set to the default range, update
+        them to the full range of the new maximum."""
+        if np.array_equal(self._saved_observable_indices, np.arange(self.max_observables, dtype=np.int_)):
+            self._saved_observable_indices = np.arange(value, dtype=np.int_)
+        self._max_observables = value
+        self.__attrs_post_init__()
+
+    @property
+    def save_observables(self):
+        return self._save_observables and (len(self._saved_observable_indices) > 0)
+
+    @property
+    def save_time(self):
+        return self._save_time
+
+    @property
+    def saved_state_indices(self):
+        if not self._save_state:
+            return np.asarray([], dtype=np.int_)
+        return self._saved_state_indices
+
+    @saved_state_indices.setter
+    def saved_state_indices(self, value):
+        self._saved_state_indices = np.asarray(value, dtype=np.int_)
+        self._validate_index_arrays()
+        self._check_for_no_outputs()
+
+    @property
+    def saved_observable_indices(self):
+        if not self._save_observables:
+            return np.asarray([], dtype=np.int_)
+        return self._saved_observable_indices
+
+    @saved_observable_indices.setter
+    def saved_observable_indices(self, value):
+        self._saved_observable_indices = np.asarray(value, dtype=np.int_)
+        self._validate_index_arrays()
+        self._check_for_no_outputs()
+
+    @property
+    def summarised_state_indices(self):
+        return self._summarised_state_indices
+
+    @summarised_state_indices.setter
+    def summarised_state_indices(self, value):
+        self._summarised_state_indices = np.asarray(value, dtype=np.int_)
+        self._validate_index_arrays()
+        self._check_for_no_outputs()
+
+    @property
+    def summarised_observable_indices(self):
+        return self._summarised_observable_indices
+
+    @summarised_observable_indices.setter
+    def summarised_observable_indices(self, value):
+        self._summarised_observable_indices = np.asarray(value, dtype=np.int_)
+        self._validate_index_arrays()
+        self._check_for_no_outputs()
+
+    @property
+    def summary_types(self):
+        return self._summary_types
+
+    @property
+    def summary_parameters(self):
+        """Get parameters for summary metrics from the metrics system."""
+        return summary_metrics.params(list(self._summary_types))
 
     @property
     def summary_temp_memory_per_var(self) -> int:
@@ -216,105 +214,76 @@ class OutputConfig:
         if not self.summary_types:
             return 0
         # Convert summary_types set to list for SummaryMetrics
-        summary_list = list(self.summary_types)
+        summary_list = list(self._summary_types)
         total_temp_size, _ = summary_metrics.temp_offsets(summary_list)
         return total_temp_size
 
     @property
     def summary_output_memory_per_var(self) -> int:
         """Calculate output memory per variable using SummaryMetrics system."""
-        if not self.summary_types:
+        if not self._summary_types:
             return 0
-        # Convert summary_types set to list for SummaryMetrics
-        summary_list = list(self.summary_types)
+        # Convert summary_types tuple to list for SummaryMetrics
+        summary_list = list(self._summary_types)
         total_output_size, _ = summary_metrics.output_offsets(summary_list)
         return total_output_size
 
     @property
     def save_summaries(self) -> bool:
         """Do we need to summarise anything at all?"""
-        return len(self.summary_types) > 0
+        return len(self._summary_types) > 0
 
     @property
     def summarise_states(self) -> bool:
         """Will any states be summarised?"""
-        return len(self.summary_types) > 0 and self.n_summarised_states > 0
+        return self.save_summaries and self.n_summarised_states > 0
 
     @property
     def summarise_observables(self) -> bool:
         """Will any observables be summarised?"""
-        return len(self.summary_types) > 0 and self.n_summarised_observables > 0
-
-    @property
-    def summarise_peaks(self) -> bool:
-        """Do we detect peaks?"""
-        return "peaks" in self.summary_types
-
-    @property
-    def summarise_mean(self) -> bool:
-        """Do we calculate a running mean?"""
-        return "mean" in self.summary_types
-
-    @property
-    def summarise_rms(self) -> bool:
-        """Do we calculate a running RMS?"""
-        return "rms" in self.summary_types
-
-    @property
-    def summarise_max(self) -> bool:
-        """Do we calculate a running max?"""
-        return "max" in self.summary_types
+        return self.save_summaries and self.n_summarised_observables > 0
 
     @property
     def n_saved_states(self) -> int:
         """Number of states that will be saved (time-domain), which will the length of saved_state_indices as long as
         "save_state" is True."""
-        return len(self.saved_state_indices)
+        return len(self._saved_state_indices) if self._save_state else 0
 
     @property
     def n_saved_observables(self) -> int:
         """Number of observables that will actually be saved."""
-        return len(self.saved_observable_indices)
+        return len(self._saved_observable_indices) if self._save_observables else 0
 
     @property
     def n_summarised_states(self) -> int:
         """Number of states that will be summarised, which is the length of summarised_state_indices as long as
         "save_summaries" is active."""
-        return len(self.summarised_state_indices)
+        return len(self._summarised_state_indices) if self.save_summaries else 0
 
     @property
     def n_summarised_observables(self) -> int:
         """Number of observables that will actually be summarised."""
-        return len(self.summarised_observable_indices)
+        return len(self._summarised_observable_indices) if self.save_summaries else 0
 
-    def get_array_sizes(self, CUDA_allocation_safe=False) -> OutputArraySizes:
-        """Calculate the number of entries required in each array for the requested outputs. Optionally,
-        pass CUDA_allocation_safe=True and the function will provide a minimum size of 1, avoiding zero-sized arrays"""
+    # ***************************** Custom init methods for adapting to other components ***************************** #
+    def update_from_outputs_tuple(self,
+                                 output_types: tuple[str]):
+        """Update bools and summary types from a list of output types. Run the post_init validators to empty indices
+        if not requested."""
+        self._save_state = "state" in output_types
+        self._save_observables = "observables" in output_types
+        self._save_time = "time" in output_types
 
-        return OutputArraySizes.from_sizes(self.summary_temp_memory_per_var,
-                                           self.summary_output_memory_per_var,
-                                           n_saved_states=self.n_saved_states,
-                                           n_saved_observables=self.n_saved_observables,
-                                           n_summarised_states=self.n_summarised_states,
-                                           n_summarised_observables=self.n_summarised_observables,
-                                           max_states=self.max_states,
-                                           max_observables=self.max_observables,
-                                           save_time=self.save_time,
-                                           CUDA_allocation_safe=CUDA_allocation_safe,
-                                           )
+        summary_types = []
+        for output_type in output_types:
+            if any((output_type.startswith(name) for name in summary_metrics.implemented_metrics)):
+                summary_types.append(output_type)
+            else:
+                warn(f"Summary type '{output_type}' is not implemented. Ignoring.")
 
-    # @property
-    # def get_output_function_settings(self):
-    #     return {'summary_types':     self.summary_types,
-    #             "save_state":        self.save_state,
-    #             "save_observables":  self.save_observables,
-    #             "save_time":         self.save_time,
-    #             "n_peaks":           self.n_peaks,
-    #             "saved_states":      self.saved_state_indices,
-    #             "saved_observables": self.saved_observable_indices,
-    #             "max_states":        self.max_states,
-    #             "max_observables":   self.max_observables
-    #             }
+        self._summary_types = tuple(summary_types)
+
+        self._check_for_no_outputs()
 
     @classmethod
     def from_loop_settings(cls,
@@ -346,18 +315,31 @@ class OutputConfig:
         save_observables = "observables" in output_types
         save_time = "time" in output_types
 
-        if save_state: output_types.remove("state")
-        if save_observables: output_types.remove("observables")
-        if save_time: output_types.remove("time")
+        if save_state:
+            output_types.remove("state")
+        if save_observables:
+            output_types.remove("observables")
+        if save_time:
+            output_types.remove("time")
 
-        # set compile flags back off if the user has provided an empty indices array
-        if saved_states is not None and len(saved_states) == 0:
-            save_state = False
-        if saved_observables is not None and len(saved_observables) == 0:
-            save_observables = False
+        # OutputConfig doesn't play as nicely with Nones as the rest of python does
+        if saved_states is None:
+            saved_states = np.asarray([], dtype=np.int_)
+        if saved_observables is None:
+            saved_observables = np.asarray([], dtype=np.int_)
+        if summarised_states is None:
+            summarised_states = np.asarray([], dtype=np.int_)
+        if summarised_observables is None:
+            summarised_observables = np.asarray([], dtype=np.int_)
 
         # Extract summary types
-        summary_types = set(output_types)
+        summary_types = []
+        for output_type in output_types:
+            if any((output_type.startswith(name) for name in summary_metrics.implemented_metrics)):
+                summary_types.append(output_type)
+            else:
+                warn(f"Summary type '{output_type}' is not implemented. Ignoring.")
+        summary_types = tuple(summary_types)
 
         return cls(
                 max_states=max_states,

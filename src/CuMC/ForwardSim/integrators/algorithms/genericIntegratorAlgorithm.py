@@ -312,7 +312,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
         # Update the actual save and summary intervals, which will differ from what was ordered if they are not
         # a multiple of the loop step size.
-        save_every_samples, summarise_every_samples, actual_dt_save, actual_dt_summarise = convert_times_to_fixed_steps(
+        save_every_samples, summarise_every_samples, actual_dt_save, actual_dt_summarise =  convert_times_to_fixed_steps(
                 dt_min, dt_save, dt_summarise,
                 )
 

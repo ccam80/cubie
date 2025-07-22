@@ -7,7 +7,6 @@ import pytest
 import warnings
 from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetrics, SummaryMetric
 from CuMC.ForwardSim.OutputHandling import summary_metrics
-from CuMC.ForwardSim.OutputHandling.save_summaries import save_summary_factory
 
 
 @pytest.fixture(scope="function")
@@ -198,7 +197,7 @@ def test_parametrized_metric_without_parameter_raises_error(mock_metrics):
     """Test that parametrized metric without parameter raises ValueError."""
     requested = ["parameterised"]  # Missing parameter
 
-    with pytest.raises(ValueError, match="Parameter required for metric 'parameterised'"):
+    with pytest.warns(UserWarning, match="Metric 'parameterised' has a callable size"):
         mock_metrics.temp_sizes(requested)
 
 
@@ -272,7 +271,7 @@ def test_parse_string_for_params_valid_formats(mock_metrics):
     assert result == ["metric1", "metric2", "metric3"]
     assert mock_metrics._params["metric1"] == 3
     assert mock_metrics._params["metric2"] == 7
-    assert mock_metrics._params["metric3"] is None
+    assert mock_metrics._params["metric3"] == 0
 
 
 def test_parse_string_for_params_invalid_formats(mock_metrics):
@@ -421,9 +420,9 @@ def test_real_summary_metrics_peaks_parametrized(real_metrics):
         assert output_sizes_tuple == (expected_output_size,), f"Expected output_size={expected_output_size} for peaks[{n}], got {output_sizes_tuple}"
 
 
-def test_real_summary_metrics_peaks_without_parameter_raises_error(real_metrics):
+def test_real_summary_metrics_peaks_without_parameter_raises_warning(real_metrics):
     """Test that peaks metric without parameter raises ValueError."""
-    with pytest.raises(ValueError, match="Parameter required for metric 'peaks'"):
+    with pytest.warns(UserWarning, match="Metric 'peaks' has a callable size"):
         tuple(real_metrics.temp_sizes(["peaks"]))
 
 
@@ -517,3 +516,33 @@ def test_real_summary_metrics_edge_cases(real_metrics):
     assert temp_sizes_tuple == (3,)  # 3 + 0
     assert output_sizes_tuple == (0,)  # 0
 
+
+def test_column_headings(real_metrics):
+    """Test that column_headings returns correctly formatted headers for metrics."""
+    # Test with single output metrics
+    single_metrics = ["mean", "max", "rms"]
+    headings = real_metrics.column_headings(single_metrics)
+
+    # For single output metrics, headings should be identical to metric names
+    assert headings == single_metrics
+
+    # Test with a multi-output metric (peaks)
+    peak_request = ["peaks[3]"]
+    peak_headings = real_metrics.column_headings(peak_request)
+
+    # Should have 3 column headers: peaks_1, peaks_2, peaks_3
+    assert peak_headings == ["peaks_1", "peaks_2", "peaks_3"]
+
+    # Test with a mix of single and multi-output metrics
+    mixed_request = ["mean", "peaks[2]", "max"]
+    mixed_headings = real_metrics.column_headings(mixed_request)
+
+    # Should have 4 column headers: mean, peaks_1, peaks_2, max
+    assert mixed_headings == ["mean", "peaks_1", "peaks_2", "max"]
+
+    # Test with invalid metric name
+    with warnings.catch_warnings(record=True) as w:
+        invalid_headings = real_metrics.column_headings(["not_a_metric"])
+        assert len(w) == 1
+        assert "not registered" in str(w[0].message)
+        assert invalid_headings == []

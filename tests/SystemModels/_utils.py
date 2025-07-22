@@ -25,7 +25,7 @@ def get_observables_list(SystemClass):
         list[str]: A list of observable names from the system class.
     """
     sys, precision = instantiate_or_use_instance(SystemClass, precision=np.float32)
-    return [sys.observables.keys_by_index[i] for i in range(sys.num_observables)]
+    return [sys.compile_settings.observables.keys_by_index[i] for i in range(sys.num_observables)]
 
 
 def random_system_values(SystemClass, precision=np.float64, randscale=1e6, axis=0):
@@ -53,7 +53,8 @@ def random_system_values(SystemClass, precision=np.float64, randscale=1e6, axis=
     sys, precision = instantiate_or_use_instance(SystemClass, precision)
     n_states, n_params, n_obs, n_constants, n_drivers = get_sizes_from_model(sys)
     array_sizes = (n_states, n_params, n_constants)
-    sysarrays_to_make = (sys.init_values, sys.parameters, sys.compile_settings['constants'])
+    sysarrays_to_make = (sys.compile_settings.initial_states, sys.compile_settings.parameters,
+                         sys.compile_settings.constants)
     dicts = []
 
 

@@ -23,11 +23,6 @@ import attrs
 #TODO: Implement a "terminate" flag to communicate that a condition has been met - e.g. we have found a peak,
 # so stop integrating.
 
-
-#TODO: Replace all references to these with a call to get_memory_requirements
-# _TempMemoryRequirements
-# _OutputMemoryRequirements
-
 @attrs.define
 class OutputFunctionCache:
     save_state_function: Callable = attrs.field(validator=attrs.validators.instance_of(Callable))
@@ -108,13 +103,7 @@ class OutputFunctions(CUDAFactory):
                 save_summaries_function=save_summary_metrics_func,
                 )
 
-    @property
-    def array_sizes(self):
-        return self.compile_settings.get_array_sizes()
 
-    @property
-    def nonzero_array_sizes(self):
-        return self.compile_settings.get_array_sizes(CUDA_allocation_safe=True)
 
     @property
     def save_state_func(self):
@@ -191,88 +180,3 @@ class OutputFunctions(CUDAFactory):
         """Number of observables that will actually be summarised."""
         return self.compile_settings.n_summarised_observables
 
-    def get_output_sizes(self, n_samples: int = 0, n_summary_samples: int = 0, numruns: int = 0, for_allocation=True) \
-            -> dict[str, tuple]:
-        """
-        Get output array sizes for the current configuration. Call with no arguments for the heights of arrays (
-        number of elements per sample), call with n_samples and n_summary_samples to get 2d "slice" shapes,
-        and call with numruns as well to get the 3d full run array shapes.
-
-        Args:
-            n_samples: int
-                Number of time-domain samples. Sets the first dimension of 2d and 3d time-domain arrays
-            n_summary_samples: int
-                Number of summary samples. Sets the first dimension of 2d and 3d summary arrays
-            numruns: int
-                Number of runs, used to set the "middle" dimension of 3d arrays
-            for_allocation: If you're using this to allocate Memory, return minimum size 1 arrays to avoid breaking
-                the memory allocator in numba.cuda.
-
-        Returns:
-            Dictionary with array names and their (samples, variables) shapes
-
-        Example:
-            '''
-            >>> output_sizes = output_functions.get_output_sizes()
-            >>> print(output_sizes)
-            {
-                'state': 5,
-                'observables': 3,
-                'state_summaries': 4,
-                'observable_summaries': 2
-            }
-            >>> output_sizes = output_functions.get_output_sizes(n_samples=100, n_summary_samples=10)
-            >>> print(output_sizes)
-            {
-                'state': (100, 5),
-                'observables': (100, 3),
-                'state_summaries': (10, 4),
-                'observable_summaries': (10, 2)
-            }
-            >>> output_sizes = output_functions.get_output_sizes(n_samples=100, n_summary_samples=10, numruns=32)
-            >>> print(output_sizes)
-            {
-                'state': (32, 100, 5),
-                'observables': (32, 100, 3),
-                'state_summaries': (32, 10, 4),
-                'observable_summaries': (32, 10, 2)
-            }
-
-            '''
-            if for_allocation is true, any shapes featuring a zero will be replaced with a tuple full of ones.
-
-            #TODO: Move this into a kernel-level allocator function.
-        """
-        sizes = self.array_sizes()
-        if n_samples == 0 and n_summary_samples == 0:
-            state_shape = sizes.state.output
-            observable_shape = sizes.observables.output
-            state_summaries_shape = sizes.state_summaries.output
-            observable_summaries_shape = sizes.observable_summaries.output
-            one_element = 1
-        elif numruns == 0:
-            state_shape = (n_samples, sizes.state.output)
-            observable_shape = (n_samples, sizes.observables.output)
-            state_summaries_shape = (n_summary_samples, sizes.state_summaries.output)
-            observable_summaries_shape = (n_summary_samples, sizes.observable_summaries.output)
-            one_element = (1, 1)
-        else:
-            state_shape = (n_samples, numruns, sizes.state.output)
-            observable_shape = (n_samples, numruns, sizes.observables.output)
-            state_summaries_shape = (n_summary_samples, numruns, sizes.state_summaries.output)
-            observable_summaries_shape = (n_summary_samples, numruns, sizes.observable_summaries.output)
-            one_element = (1, 1, 1)
-
-        array_size_dict = {'state':                state_shape,
-                           'observables':          observable_shape,
-                           'state_summaries':      state_summaries_shape,
-                           'observable_summaries': observable_summaries_shape
-                           }
-
-        if for_allocation:
-            # Replace any zero dimensions with ones to avoid breaking the memory allocator
-            for key, value in array_size_dict.items():
-                if 0 in value:
-                    array_size_dict[key] = one_element
-
-        return array_size_dict

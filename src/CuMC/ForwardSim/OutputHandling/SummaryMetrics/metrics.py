@@ -158,15 +158,40 @@ class SummaryMetrics:
         """Calculate size based on parameters if needed."""
         size = size_dict.get(metric_name)
         if callable(size):
-            try:
-                param = self._params.get(metric_name)
-                return size(param)
-            except:
-                raise ValueError(
-                        f"Parameter required for metric '{metric_name}'. Use '{metric_name}[parameter]' format.",
-                        )
+            param = self._params.get(metric_name)
+            if param == 0:
+                warn(f"Metric '{metric_name}' has a callable size but parameter is set to 0. This resuts in a size"
+                     "of 0, which is likely not what you want", UserWarning, stacklevel=2)
+            return size(param)
 
         return size
+
+    def column_headings(self, output_types_requested):
+        """
+        Returns a list of column headings for the requested summary metrics.
+
+        For metrics with output_size=1, the heading is just the metric name.
+        For metrics with output_size>1, the headings are {name}_1, {name}_2, etc.
+
+        Args:
+            output_types_requested: A list of metric names to generate headings for.
+
+        Returns:
+            A list of column headings for the metrics in the order they appear.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+        headings = []
+
+        for metric in parsed_request:
+            output_size = self._get_size(metric, self._output_sizes)
+
+            if output_size == 1:
+                headings.append(metric)
+            else:
+                for i in range(output_size):
+                    headings.append(f"{metric}_{i + 1}")
+
+        return headings
 
     def output_sizes(self, output_types_requested):
         """

@@ -1,85 +1,148 @@
-import attrs.validators
 from numba import cuda
-from math import sqrt
 from numpy.typing import ArrayLike
 from typing import Sequence
 from CuMC.ForwardSim.OutputHandling import summary_metrics
 
-def save_summary_factory(summarised_states: Sequence[int] | ArrayLike,
-                         summarised_observables: Sequence[int] | ArrayLike,
-                         summaries_list: Sequence[str],
-                         ):
-    """Factory function to create the save summary metrics device function."""
-    n_summarised_states = len(summarised_states)
-    n_summarised_observables = len(summarised_observables)
+"""This is a modification of the "chain" approach by sklam in https://github.com/numba/numba/issues/3405
+to provide an alternative to an iterable of cuda.jit functions. This exists so that we can compile only the
+device functions for the update metrics requested, and avoid wasting memory on empty (non-calculated) updates).
 
-    # Get only the requested metrics data (no flags needed since we removed invalid metrics)
+The process is made up of:
+
+1. A "chain_metrics" function that takes a list of functions, memory offsets and sizes, and function params, 
+and pops the first item off the lists, executing the function on the other arguments. Subsequent calls execute the 
+saved function (which becomes the "inner chain"), then the next function on the list. Stepping through the list in 
+this way, we end up with a recursive execution of each summary function. For the first iteration, where there are no 
+functions in the inner chain, it calls a "do_nothing" function
+2. An "update_summary_factory" function that loops through the requested states and observables, applying the
+   chained function to each.
+
+Things are pretty verbose in this module, because it was confusing to write, and therefore (I presume) will be 
+confusing to read.
+"""
+
+
+@cuda.jit(device=True, inline=True)
+def do_nothing(
+        temporary_summary_array,
+        output_summary_array,
+        summarise_every,
+        ):
+    """ no-op function for the first call to chain_metrics, when there are no metrics already chained. """
+    pass
+
+
+def chain_metrics(
+        metric_functions: Sequence,
+        temp_offsets,
+        temp_sizes,
+        output_offsets,
+        output_sizes,
+        function_params,
+        inner_chain=do_nothing,
+        ):
+    """
+    Take an iterable of functions, then step through recursively, executing the last function in the iterable and the "inner_chain" function. Return the function which executes both, which becomes the "inner_chain" function for the next call, until we have a recursive execution of all functions in the iterable.
+    """
+    if len(metric_functions) == 0:
+        return do_nothing
+    current_metric_fn = metric_functions[0]
+    current_temp_offset = temp_offsets[0]
+    current_temp_size = temp_sizes[0]
+    current_output_offset = output_offsets[0]
+    current_output_size = output_sizes[0]
+    current_metric_param = function_params[0]
+
+    remaining_metric_fns = metric_functions[1:]
+    remaining_temp_offsets = temp_offsets[1:]
+    remaining_temp_sizes = temp_sizes[1:]
+    remaining_output_offsets = output_offsets[1:]
+    remaining_output_sizes = output_sizes[1:]
+    remaining_metric_params = function_params[1:]
+
+    @cuda.jit(device=True, inline=True)
+    def wrapper(
+            temporary_summary_array,
+            output_summary_array,
+            summarise_every,
+            ):
+        inner_chain(
+                temporary_summary_array,
+                output_summary_array,
+                summarise_every,
+                )
+        current_metric_fn(
+                temporary_summary_array[current_temp_offset: current_temp_offset + current_temp_size],
+                output_summary_array[current_output_offset: current_output_offset + current_output_size],
+                summarise_every,
+                current_metric_param,
+                )
+
+    if remaining_metric_fns:
+        return chain_metrics(remaining_metric_fns, remaining_temp_offsets, remaining_temp_sizes,
+                             remaining_output_offsets, remaining_output_sizes, remaining_metric_params,
+                             wrapper,
+                             )
+    else:
+        return wrapper
+
+
+def save_summary_factory(
+        summarised_states: Sequence[int] | ArrayLike,
+        summarised_observables: Sequence[int] | ArrayLike,
+        summaries_list: Sequence[str],
+        ):
+    """Loop through the requested states and observables, applying the chained function to each. Return a device
+    function which saves all requested summaries."""
+    num_summarised_states = len(summarised_states)
+    num_summarised_observables = len(summarised_observables)
     save_functions = summary_metrics.save_functions(summaries_list)
-    total_temp_size, temp_offsets_tuple = summary_metrics.temp_offsets(summaries_list)
-    total_output_size, output_offsets_tuple = summary_metrics.output_offsets(summaries_list)
-    temp_sizes = summary_metrics.temp_sizes(summaries_list)
+    total_temporary_size, temporary_offsets = summary_metrics.temp_offsets(summaries_list)
+    temporary_sizes = summary_metrics.temp_sizes(summaries_list)
+    total_output_size, output_offsets = summary_metrics.output_offsets(summaries_list)
     output_sizes = summary_metrics.output_sizes(summaries_list)
     params = summary_metrics.params(summaries_list)
+    num_summary_metrics = len(output_offsets)
 
-    num_metrics = len(save_functions)
-    summarise = num_metrics > 0  # We have metrics to summarise if any were requested
-    summarise_observables = (n_summarised_observables > 0) and summarise
-    summarise_state = (n_summarised_states > 0) and summarise
+    summarise_states = (num_summarised_states > 0) and (num_summary_metrics > 0)
+    summarise_observables = (num_summarised_observables > 0) and (num_summary_metrics > 0)
 
-    # noinspection DuplicatedCode
+    summary_metric_chain = chain_metrics(save_functions, temporary_offsets, temporary_sizes, output_offsets,
+                                         output_sizes,
+                                         params,
+                                         )
+
     @cuda.jit(device=True, inline=True)
-    def save_summary_metrics_func(temp_state_summaries,
-                                  temp_observable_summaries,
-                                  output_state_summaries_slice,
-                                  output_observable_summaries_slice,
-                                  summarise_every,
-                                  ):
-        """Update the summary metrics based on the current state and observables.
-        Arguments:
-            temp_state_summaries: temporary array for state summaries, updated by update_summaries_func
-            temp_observable_summaries: temporary array for observable summaries, updated by update_summaries_func
-            output_state_summaries_slice: current slice of output array for state summaries, to be updated
-            output_observable_summaries_slice: current slice of output array for observable summaries, to be updated
-            summarise_every: number of steps to average over for the summaries
+    def save_summary_metrics_func(
+            temporary_state_summaries,
+            temporary_observable_summaries,
+            output_state_summaries_window,
+            output_observable_summaries_window,
+            summarise_every,
+            ):
+        if summarise_states:
+            for state_index in range(num_summarised_states):
+                temp_array_slice_start = state_index * total_temporary_size
+                out_array_slice_start = state_index * total_output_size
 
-        Returns:
-            None, modifies the output_state_summaries_slice and output_observable_summaries_slice in-place.
+                summary_metric_chain(
+                        temporary_state_summaries[temp_array_slice_start:temp_array_slice_start + total_temporary_size],
+                        output_state_summaries_window[out_array_slice_start:out_array_slice_start + total_output_size],
+                        summarise_every,
+                        )
 
-        Efficiency note: this function contains duplicated code for each array type. Using a common
-        function to handle the cases would be more efficient, but numba does not seem to recognise a change in the
-        compile-time constants nstates/nobs for the same function. This is probably expected behaviour for numba,
-        it seems reasonable.
-        """
-        if summarise_state:
-            for k in range(n_summarised_states):
-                for i in range(num_metrics):
-                    # No need to check flags since we only have requested metrics
-                    save_func = save_functions[i]
-                    temp_array_index_start = temp_offsets_tuple[i] + k * total_temp_size
-                    temp_array_index_end = temp_array_index_start + temp_sizes[i]
-                    output_array_index_start = output_offsets_tuple[i] + k * total_output_size
-                    output_array_index_end = output_array_index_start + output_sizes[i]
-
-                    save_func(temp_state_summaries[temp_array_index_start:temp_array_index_end],
-                             output_state_summaries_slice[output_array_index_start:output_array_index_end],
-                             summarise_every,
-                             params[i],
-                             )
-
+        # from pdb import set_trace; set_trace()
         if summarise_observables:
-            for k in range(n_summarised_observables):
-                for i in range(num_metrics):
-                    # No need to check flags since we only have requested metrics
-                    save_func = save_functions[i]
-                    temp_array_index_start = temp_offsets_tuple[i] + k * total_temp_size
-                    temp_array_index_end = temp_array_index_start + temp_sizes[i]
-                    output_array_index_start = output_offsets_tuple[i] + k * total_output_size
-                    output_array_index_end = output_array_index_start + output_sizes[i]
+            for observable_index in range(num_summarised_observables):
+                temp_array_slice_start = observable_index * total_temporary_size
+                out_array_slice_start = observable_index * total_output_size
 
-                    save_func(temp_observable_summaries[temp_array_index_start:temp_array_index_end],
-                             output_observable_summaries_slice[output_array_index_start:output_array_index_end],
-                             summarise_every,
-                             params[i],
-                             )
+                summary_metric_chain(
+                        temporary_observable_summaries[
+                        temp_array_slice_start:temp_array_slice_start + total_temporary_size],
+                        output_observable_summaries_window[
+                        out_array_slice_start:out_array_slice_start + total_output_size],
+                        summarise_every,
+                        )
 
     return save_summary_metrics_func

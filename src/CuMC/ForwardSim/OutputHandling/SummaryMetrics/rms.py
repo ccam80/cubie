@@ -4,7 +4,7 @@ from numba import cuda, float32
 from math import sqrt
 
 @register_metric(summary_metrics)
-class Max(SummaryMetric):
+class RMS(SummaryMetric):
     """
     Summary metric to calculate the mean of a set of values.
     """
@@ -44,8 +44,8 @@ class Max(SummaryMetric):
                 nothing, modifies the output array in-place.
         """
 
-        precision = 'float32'
-        @cuda.jit(f"{precision}, {precision}[::1], int64, int64",
+        @cuda.jit(["float32, float32[::1], int64, int64",
+                   "float64, float64[::1], int64, int64"],
                   device=True,
                   inline=True)
         def update(value,
@@ -60,7 +60,8 @@ class Max(SummaryMetric):
             sum_of_squares += (value * value)
             temp_array[0] = sum_of_squares
 
-        @cuda.jit(f"{precision}[::1], {precision}[::1], int64, int64",
+        @cuda.jit(["float32[::1], float32[::1], int64, int64",
+                "float64[::1], float64[::1], int64, int64"],
                   device=True,
                   inline=True)
         def save(temp_array,
@@ -69,7 +70,7 @@ class Max(SummaryMetric):
                  customisable_variable,
                  ):
             """Calculate mean from running sum - 1 output memory slot required per state"""
-            output_array = sqrt(temp_array[0] / summarise_every)
-            temp_array = 0.0
+            output_array[0] = sqrt(temp_array[0] / summarise_every)
+            temp_array[0] = 0.0
 
         return update, save

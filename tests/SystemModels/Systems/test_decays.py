@@ -1,8 +1,7 @@
 import pytest
 import numpy as np
-from tests.SystemModels.SystemTester import SystemTester
+from tests.SystemModels.Systems.SystemTester import SystemTester
 from numpy.testing import assert_allclose
-from tests.SystemModels._utils import generate_system_tests
 from CuMC.SystemModels.Systems.decays import Decays
 
 from tests._utils import generate_test_array
@@ -30,10 +29,10 @@ def create_random_test_set(coeffs, precision=np.float64, randscale=1e6):
             f"Random test set with {len(params)} coefficients of scale {randscale} of type {precision}")
 
 
-def generate_decays_tests(param_lengths=[1, 10, 100], log10_scalerange=(-6, 6), tests_per_category=1):
+def generate_decays_tests(param_lengths=[1, 100], log10_scalerange=(-6, 6), range_step=6):
     test_cases = []
     coeffses = [list(range(n)) for n in param_lengths]
-    samescales = np.arange(log10_scalerange[0], log10_scalerange[1] + 1, tests_per_category)
+    samescales = np.arange(log10_scalerange[0], log10_scalerange[1] + 1, range_step)
 
     precisions = (np.float32, np.float64)
     for precision in (precisions):
@@ -43,7 +42,7 @@ def generate_decays_tests(param_lengths=[1, 10, 100], log10_scalerange=(-6, 6), 
             test_cases += [create_random_test_set(coeffs, precision, 10.0 ** scale) for scale in samescales]
             # mixed-scale random tests
             test_cases += [create_random_test_set(coeffs, precision, log10_scalerange) for scale in
-                           range(tests_per_category)]
+                           range(range_step)]
 
     return test_cases
 
@@ -123,7 +122,7 @@ class TestDecays(SystemTester):
         assert_allclose(dx, expected_dx, rtol=rtol, err_msg="initial dx mismatch")
         assert_allclose(observables, expected_obs, rtol=rtol, err_msg="initial observables mismatch")
 
-        for key, value in self.system_instance.compile_settings['constants'].values_dict.items():
+        for key, value in self.system_instance.compile_settings.constants.values_dict.items():
             self.system_instance.set_constants({key: value * 10.0})
 
         expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)

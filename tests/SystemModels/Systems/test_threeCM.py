@@ -1,6 +1,5 @@
 import pytest
-import numpy as np
-from tests.SystemModels.SystemTester import SystemTester
+from SystemModels.Systems.SystemTester import SystemTester
 from tests.SystemModels._utils import generate_system_tests
 from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
 

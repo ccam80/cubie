@@ -1,5 +1,5 @@
 import pytest
-from tests.SystemModels.SystemTester import SystemTester
+from SystemModels.Systems.SystemTester import SystemTester
 from CuMC.SystemModels.Systems.GenericODE import GenericODE
 import numpy as np
 

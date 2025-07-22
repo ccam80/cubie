@@ -1,5 +1,6 @@
 """ Fixtures for pytest and the functions that they use - any functions called by test modules should instead live
 in tests/_utils.py"""
+
 import pytest
 import numpy as np
 from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions

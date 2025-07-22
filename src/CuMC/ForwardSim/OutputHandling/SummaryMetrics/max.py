@@ -42,8 +42,8 @@ class Max(SummaryMetric):
             Returns:
                 nothing, modifies the output array in-place.
         """
-        precision = 'float32'
-        @cuda.jit(f"{precision}, {precision}[::1], int64, int64",
+        @cuda.jit(["float32, float32[::1], int64, int64",
+                   "float64, float64[::1], int64, int64"],
                   device=True,
                   inline=True)
         def update(value,
@@ -55,7 +55,8 @@ class Max(SummaryMetric):
             if value > temp_array[0]:
                 temp_array[0] = value
 
-        @cuda.jit(f"{precision}[::1], {precision}[::1], int64, int64",
+        @cuda.jit(["float32[::1], float32[::1], int64, int64",
+                "float64[::1], float64[::1], int64, int64"],
                   device=True,
                   inline=True)
         def save(temp_array,
@@ -65,6 +66,6 @@ class Max(SummaryMetric):
                  ):
             """Calculate mean from running sum - 1 output memory slot required per state"""
             output_array[0] = temp_array[0]
-            temp_array = -1.0e30  # A very negative number, to allow us to capture max values greater than this
+            temp_array[0] = -1.0e30  # A very negative number, to allow us to capture max values greater than this
 
         return update, save

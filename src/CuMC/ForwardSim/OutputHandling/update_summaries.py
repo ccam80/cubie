@@ -1,115 +1,123 @@
 from numba import cuda
-from CuMC.ForwardSim.OutputHandling import summary_metrics
 from numpy.typing import ArrayLike
 from typing import Sequence
+from CuMC.ForwardSim.OutputHandling import summary_metrics
 
-def update_summary_factory(summarised_states: Sequence[int] | ArrayLike,
-                           summarised_observables: Sequence[int] | ArrayLike,
-                           summaries_list: Sequence[str],
-                           ):
-    """Factory function to create the update summary metrics device function."""
-    n_summarised_states = len(summarised_states)
-    n_summarised_observables = len(summarised_observables)
-    update_functions = summary_metrics.update_functions(summaries_list)
-    total_temp_size, temp_offsets_tuple = summary_metrics.temp_offsets(summaries_list)
-    temp_sizes = summary_metrics.temp_sizes(summaries_list)
-    params = summary_metrics.params(summaries_list)
+"""This is a modification of the "chain" approach by sklam in https://github.com/numba/numba/issues/3405
+to provide an alternative to an iterable of cuda.jit functions. This exists so that we can compile only the
+device functions for the update metrics requested, and avoid wasting memory on empty (non-calculated) updates).
 
-    num_metrics = len(update_functions)
-    summarise = num_metrics > 0  # We have metrics to summarise if any were requested
-    summarise_observables = (n_summarised_observables > 0) and summarise
-    summarise_state = (n_summarised_states > 0) and summarise
+The process is made up of:
+
+1. A "chain_metrics" function that takes a list of functions, memory offsets and sizes, and function params, 
+and pops the first item off the lists, executing the function on the other arguments. Subsequent calls execute the 
+saved function (which becomes the "inner chain"), then the next function on the list. Stepping through the list in 
+this way, we end up with a recursive execution of each summary function. For the first iteration, where there are no 
+functions in the inner chain, it calls a "do_nothing" function
+2. An "update_summary_factory" function that loops through the requested states and observables, applying the
+   chained function to each.
+
+Things are pretty verbose in this module, because it was confusing to write, and therefore (I presume) will be 
+confusing to read.
+"""
+
+
+@cuda.jit(device=True, inline=True)
+def do_nothing(
+        values,
+        temp_array,
+        current_step,
+        ):
+    """ no-op function for the first call to chain_metrics, when there are no metrics already chained. """
+    pass
+
+
+def chain_metrics(
+        metric_functions: Sequence,
+        temp_offsets,
+        temp_sizes,
+        function_params,
+        inner_chain=do_nothing,
+        ):
+    """
+    Take iterables of functions and compile-time constants, then step through recursively, executing the previously
+    chained functions (the "inner chain" and then the top function in the iterable. Return the function which
+    executes both, which becomes the "inner_chain" function for the next call, until we have a recursive  execution
+    of all functions in the iterable.
+    """
+    if len(metric_functions) == 0:
+        return do_nothing
+
+    current_fn = metric_functions[0]
+    current_offset = temp_offsets[0]
+    current_size = temp_sizes[0]
+    current_param = function_params[0]
+
+    remaining_functions = metric_functions[1:]
+    remaining_offsets = temp_offsets[1:]
+    remaining_sizes = temp_sizes[1:]
+    remaining_params = function_params[1:]
 
     @cuda.jit(device=True, inline=True)
-    def update_summary_metrics_func(current_state,
-                                    current_observables,
-                                    temp_state_summaries,
-                                    temp_observable_summaries,
-                                    current_step,
-                                    ):
-        """Update the summary metrics based on the current state and observables.
+    def wrapper(
+            value,
+            temp_array,
+            current_step,
+            ):
+        inner_chain(value, temp_array, current_step)
+        current_fn(value, temp_array[current_offset: current_offset + current_size], current_step, current_param)
 
-        Arguments:
-            current_state: current state array, containing the values of the states
-            current_observables: current observables array, containing the values of the observables
-            temp_state_summaries: temporary array for state summaries and working values, to be updated
-            temp_observable_summaries: temporary array for observable summaries and working values, to be updated
-            current_step: current step number, used for calculating peak values or other time-dependent summaries
+    if remaining_functions:
+        return chain_metrics(remaining_functions, remaining_offsets, remaining_sizes, remaining_params, wrapper)
+    else:
+        return wrapper
 
-        Returns:
-            None, modifies the temp_state_summaries and temp_observable_summaries in-place.
+def update_summary_factory(
+        summarised_states: Sequence[int] | ArrayLike,
+        summarised_observables: Sequence[int] | ArrayLike,
+        summaries_list: Sequence[str],
+        ):
+    """Loop through the requested states and observables, applying the chained function to each. Return a device
+    function which updates all requested summaries."""
+    num_summarised_states = len(summarised_states)
+    num_summarised_observables = len(summarised_observables)
+    total_temporary_size, temp_offsets = summary_metrics.temp_offsets(summaries_list)
+    num_metrics = len(summary_metrics.temp_offsets(summaries_list)[1])
 
-            """
-        # Efficiency note: this function contains duplicated code for each array type. Using a common
-        # function to handle the cases would be more efficient, but the function can't be compiled twice with
-        # different compile-time constants.
+    summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
+    summarise_observables = (num_summarised_observables > 0) and (num_metrics > 0)
 
-        if summarise_state:
-            for k in range(n_summarised_states):
-                for i in range(num_metrics):
-                    # No need to check flags since we only have requested metrics
-                    update_func = update_functions[i]
-                    temp_array_index_start = temp_offsets_tuple[i] + k * total_temp_size
-                    temp_array_index_end = temp_array_index_start + temp_sizes[i]
-                    update_func(current_state[summarised_states[k]],
-                                temp_state_summaries[temp_array_index_start:temp_array_index_end],
-                                current_step,
-                                params[i],
-                                )
+    update_fns = summary_metrics.update_functions(summaries_list)
+    temp_sizes = summary_metrics.temp_sizes(summaries_list)
+    params = summary_metrics.params(summaries_list)
+    chain_fn = chain_metrics(update_fns, temp_offsets, temp_sizes, params)
+
+    @cuda.jit(device=True, inline=True)
+    def update_summary_metrics_func(
+            current_state,
+            current_observables,
+            temp_state_summaries,
+            temp_observable_summaries,
+            current_step,
+            ):
+        if summarise_states:
+            for state in range(num_summarised_states):
+                single_variable_slice_start = state * total_temporary_size
+                single_variable_slice_end = single_variable_slice_start + total_temporary_size
+                chain_fn(
+                        current_state[summarised_states[state]],
+                        temp_state_summaries[single_variable_slice_start:single_variable_slice_end],
+                        current_step,
+                        )
 
         if summarise_observables:
-            for k in range(n_summarised_observables):
-                for i in range(num_metrics):
-                    # No need to check flags since we only have requested metrics
-                    update_func = update_functions[i]
-                    temp_array_index_start = temp_offsets_tuple[i] + k * total_temp_size
-                    temp_array_index_end = temp_array_index_start + temp_sizes[i]
-                    update_func(current_observables[summarised_observables[k]],
-                                temp_observable_summaries[temp_array_index_start:temp_array_index_end],
-                                current_step,
-                                params[i],
-                                )
-        #         if summarise_mean:
-        #             running_mean(current_state[summarised_states[k]], temp_state_summaries, temp_array_index)
-        #             temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
-        #         if summarise_peaks:
-        #             running_peaks(current_state[summarised_states[k]], temp_state_summaries, temp_array_index,
-        #                           current_step, n_peaks,
-        #                           )
-        #             temp_array_index += 3 + n_peaks
-        #         if summarise_max:
-        #             running_max(current_state[summarised_states[k]], temp_state_summaries, temp_array_index)
-        #             temp_array_index += 1
-        #         if summarise_rms:
-        #             running_rms(current_state[summarised_states[k]], temp_state_summaries, temp_array_index,
-        #                         current_step,
-        #                         )
-        #             temp_array_index += 1
-        #
-        # if summarise_observables:
-        #     temp_array_index = 0
-        #
-        #     for k in range(nobs):
-        #         if summarise_mean:
-        #             running_mean(current_observables[summarised_observables[k]], temp_observable_summaries,
-        #                          temp_array_index,
-        #                          )
-        #             temp_array_index += 1  # Magic number - how can we get this out of the function without breaking Numba's rules?
-        #         if summarise_peaks:
-        #             running_peaks(current_observables[summarised_observables[k]], temp_observable_summaries,
-        #                           temp_array_index,
-        #                           current_step, n_peaks,
-        #                           )
-        #             temp_array_index += 3 + n_peaks
-        #         if summarise_max:
-        #             running_max(current_observables[summarised_observables[k]], temp_observable_summaries,
-        #                         temp_array_index,
-        #                         )
-        #             temp_array_index += 1
-        #         if summarise_rms:
-        #             running_rms(current_observables[summarised_observables[k]], temp_observable_summaries,
-        #                         temp_array_index, current_step,
-        #                         )
-        #             temp_array_index += 1
+            for observable in range(num_summarised_observables):
+                single_variable_slice_start = observable * total_temporary_size
+                single_variable_slice_end = single_variable_slice_start + total_temporary_size
+                chain_fn(
+                        current_observables[summarised_observables[observable]],
+                        temp_observable_summaries[single_variable_slice_start:single_variable_slice_end],
+                        current_step,
+                        )
 
     return update_summary_metrics_func

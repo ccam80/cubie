@@ -50,8 +50,8 @@ class Peaks(SummaryMetric):
             Returns:
                 nothing, modifies the output array in-place.
         """
-        precision = 'float32'
-        @cuda.jit(f"{precision}, {precision}[::1], int64, int64",
+        @cuda.jit(["float32, float32[::1], int64, int64",
+                   "float64, float64[::1], int64, int64"],
                   device=True,
                   inline=True)
         def update(value,
@@ -74,11 +74,11 @@ class Peaks(SummaryMetric):
                     # Bingo
                     temp_array[3 + peak_counter] = float(current_index - 1)
                     temp_array[2] = float(int(temp_array[2]) + 1)
-
             temp_array[0] = value  # Update previous value
             temp_array[1] = prev  # Update previous previous value
 
-        @cuda.jit(f"{precision}[::1], {precision}[::1], int64, int64",
+        @cuda.jit(["float32[::1], float32[::1], int64, int64",
+                "float64[::1], float64[::1], int64, int64"],
                   device=True,
                   inline=True)
         def save(temp_array,

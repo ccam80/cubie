@@ -62,7 +62,7 @@ class ThreeChamberModel(GenericODE):
     def build(self):
         # Hoist fixed parameters to global namespace
         global global_constants
-        global_constants = self.compile_settings['constants'].values_array
+        global_constants = self.compile_settings.constants.values_array
 
         #Optimise: Check whether this is being compiled-in or passed as a numpy array
 

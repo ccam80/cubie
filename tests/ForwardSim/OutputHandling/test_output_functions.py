@@ -35,7 +35,7 @@ def output_test_settings_overrides(request):
 
 @pytest.fixture(scope='function')
 def output_functions(output_test_settings):
-    """OutputFunctions object under test"""
+    """OutputHandling object under test"""
     return OutputFunctions(output_test_settings['num_states'],
                            output_test_settings['num_observables'],
                            output_test_settings['output_types'],
@@ -47,7 +47,7 @@ def output_functions(output_test_settings):
                          [{'output_types': ["state", "observables"]},
                           {'output_types': ["time"]}])
 def test_save_time(output_functions, output_test_settings):
-    """Test that the save_time setting is correctly set in the OutputFunctions object."""
+    """Test that the save_time setting is correctly set in the OutputHandling object."""
     assert output_functions.save_time == ("time" in output_test_settings['output_types'])
 
 
@@ -56,7 +56,7 @@ def test_save_time(output_functions, output_test_settings):
                           ({'output_types': ["state", "observables", "max", "rms", "peaks[3]"]}, False),
                           ({'saved_states': [0], 'saved_observables': [0]}, False),
                           ({'saved_states':[20]}, True),
-                          ({'saved_states': [], 'saved_observables': []}, True),
+                          ({'saved_states': [], 'saved_observables': []}, False),
                           ({'output_types': []}, True)],
                          ids=["no_summaries", "all_summaries", "single_saved", "saved_index_out_of_bounds",
                               "saved_empty", "no_output_types"],

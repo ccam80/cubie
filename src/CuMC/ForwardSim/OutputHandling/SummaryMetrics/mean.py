@@ -42,11 +42,9 @@ class Mean(SummaryMetric):
             Returns:
                 nothing, modifies the output array in-place.
         """
-        #TODO: Most recent attempt to force functions into first-class objecs to use a tuple of them in built combo
-        # functions. Start here - Either get the things into a working tuple (seems hard), or get a more elegant way
-        # of building from the selected functions. Some kind of unroll? A manually unrolled loop (again)?
-        precision = 'float32'
-        @cuda.jit(f"{precision}, {precision}[::1], int64, int64",
+
+        @cuda.jit(["float32, float32[::1], int64, int64",
+                   "float64, float64[::1], int64, int64"],
                   device=True,
                   inline=True)
         def update(value,
@@ -55,9 +53,11 @@ class Mean(SummaryMetric):
                    customisable_variable,
                    ):
             """Update running sum - 1 temp memory slot required per state"""
+
             temp_array[0] += value
 
-        @cuda.jit(f"{precision}[::1], {precision}[::1], int64, int64",
+        @cuda.jit(["float32[::1], float32[::1], int64, int64",
+                "float64[::1], float64[::1], int64, int64"],
                   device=True,
                   inline=True)
         def save(temp_array,
@@ -66,7 +66,7 @@ class Mean(SummaryMetric):
                  customisable_variable,
                  ):
             """Calculate mean from running sum - 1 output memory slot required per state"""
-            output_array = temp_array[0] / summarise_every
-            temp_array = 0.0
+            output_array[0] = temp_array[0] / summarise_every
+            temp_array[0] = 0.0
 
         return update, save
