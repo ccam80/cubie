@@ -1,6 +1,5 @@
 name: CUDA-enabled tests
-on:
-  workflow_dispatch:
+on: [create, workflow_dispatch]
   
 jobs:
   cuda:
