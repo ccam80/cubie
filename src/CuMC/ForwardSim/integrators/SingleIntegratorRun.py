@@ -8,6 +8,8 @@ Created on Tue May 27 17:45:03 2025
 import numpy as np
 from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
 from CuMC.ForwardSim.integrators.algorithms import Euler
+from CuMC.ForwardSim.integrators import IntegratorRunSettings
+
 from numpy.typing import NDArray
 
 _INTEGRATION_ALGORITHMS = {"euler": Euler}

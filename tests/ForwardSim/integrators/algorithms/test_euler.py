@@ -168,6 +168,6 @@ class TestEuler(LoopAlgorithmTester):
     def expected_loop_shared_memory(self, system):
         """Calculate the expected shared memory size for the Euler algorithm."""
         n_states = system.num_states
-        n_obs = system.num_observables
+        n_observables = system.num_observables
         n_drivers = system.num_drivers
-        return n_states + n_states + n_obs + n_drivers
+        return n_states + n_states + n_observables + n_drivers

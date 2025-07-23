@@ -14,8 +14,8 @@ class Euler(GenericIntegratorAlgorithm):
                  precision,
                  dxdt_func,
                  n_states,
-                 n_obs,
-                 n_par,
+                 n_observables,
+                 n_parameters,
                  n_drivers,
                  dt_min,
                  dt_max,
@@ -35,8 +35,8 @@ class Euler(GenericIntegratorAlgorithm):
         super().__init__(precision,
                          dxdt_func,
                          n_states,
-                         n_obs,
-                         n_par,
+                         n_observables,
+                         n_parameters,
                          n_drivers,
                          dt_min,
                          dt_max,
@@ -58,8 +58,8 @@ class Euler(GenericIntegratorAlgorithm):
                    precision,
                    dxdt_func,
                    n_states,
-                   n_obs,
-                   n_par,
+                   n_observables,
+                   n_parameters,
                    n_drivers,
                    dt_min,
                    dt_max,
@@ -117,7 +117,7 @@ class Euler(GenericIntegratorAlgorithm):
 
             dxdt_start_index = state_array_size
             observables_start_index = n_states + dxdt_start_index
-            drivers_start_index = observables_start_index + n_obs
+            drivers_start_index = observables_start_index + n_observables
             state_summaries_start_index = drivers_start_index + n_drivers
             observable_summaries_start_index = state_summaries_start_index + n_saved_states * summary_temp_memory
             end_index = observable_summaries_start_index + n_saved_observables * summary_temp_memory
@@ -143,14 +143,14 @@ class Euler(GenericIntegratorAlgorithm):
             #  slice
             # HACK: This is a workaround for a zero-parameter system, which allocates a one-element array that we
             #  then don't use. There has to be a more elegant way to handle this.
-            if n_par > 0:
-                l_parameters = cuda.local.array((n_par),
+            if n_parameters > 0:
+                l_parameters = cuda.local.array((n_parameters),
                                                 dtype=precision,
                                                 )
             else:
                 l_parameters = cuda.local.array((1), dtype=precision)
 
-            for i in range(n_par):
+            for i in range(n_parameters):
                 l_parameters[i] = parameters[i]
 
             # Loop through output samples, one iteration per output sample
@@ -199,8 +199,8 @@ class Euler(GenericIntegratorAlgorithm):
         for state, dxdt, observables, drivers, which will change between algorithms.
         """
 
-        n_states = self.compile_settings['n_states']
-        n_obs = self.compile_settings['n_obs']
-        n_drivers = self.compile_settings['n_drivers']
+        n_states = self.compile_settings.n_states
+        n_observables = self.compile_settings.n_observables
+        n_drivers = self.compile_settings.n_drivers
 
-        return n_states + n_states + n_obs + n_drivers
+        return n_states + n_states + n_observables + n_drivers

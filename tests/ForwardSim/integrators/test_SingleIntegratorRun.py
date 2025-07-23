@@ -74,7 +74,7 @@ def test_initialization(single_integrator_loop, system, integrator_params, preci
     assert single_integrator_loop._algorithm_params['precision'] == from_dtype(precision)
     assert single_integrator_loop._algorithm_params['n_states'] == system.num_states
     assert single_integrator_loop._algorithm_params['n_obs'] == system.num_observables
-    assert single_integrator_loop._algorithm_params['n_par'] == system.num_parameters
+    assert single_integrator_loop._algorithm_params['n_parameters'] == system.num_parameters
     assert single_integrator_loop._algorithm_params['n_drivers'] == system.num_drivers
     assert single_integrator_loop._algorithm_params['dt_min'] == integrator_params['dt_min']
     assert single_integrator_loop._algorithm_params['dt_max'] == integrator_params['dt_max']
@@ -128,7 +128,7 @@ def test_lazy_integrator_creation(single_integrator_loop, precision):
     assert algo_obj.compile_settings['precision'] == from_dtype(precision)
     assert algo_obj.compile_settings['n_states'] == single_integrator_loop._algorithm_params['n_states']
     assert algo_obj.compile_settings['n_obs'] == single_integrator_loop._algorithm_params['n_obs']
-    assert algo_obj.compile_settings['n_par'] == single_integrator_loop._algorithm_params['n_par']
+    assert algo_obj.compile_settings['n_parameters'] == single_integrator_loop._algorithm_params['n_parameters']
     assert algo_obj.compile_settings['n_drivers'] == single_integrator_loop._algorithm_params['n_drivers']
     assert algo_obj.compile_settings['dt_min'] == single_integrator_loop._algorithm_params['dt_min']
     assert algo_obj.compile_settings['dt_max'] == single_integrator_loop._algorithm_params['dt_max']
