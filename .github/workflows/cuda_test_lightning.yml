@@ -1,6 +1,5 @@
 name: CUDA-enabled tests
-on:
-  workflow_dispatch:
+on: [create, workflow_dispatch]
   
 jobs:
   cuda:
@@ -34,8 +33,11 @@ jobs:
 
               studio.download_file("pytest-results.xml", "pytest-results.xml")
               studio.download_file("pytest-output.log",  "pytest-output.log")
+              
           finally:
               studio.stop(); studio.delete()
+          sys.exit(code)
+          
           PY
         env:
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
