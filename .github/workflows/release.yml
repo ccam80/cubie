@@ -18,6 +18,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: python
+          bump-patch-for-minor-pre-major: True
+          changelog-sections: "feat, fix, perf, chore, test, refactor"
       - name: tag major and minor versions
         if: ${{ steps.release.outputs.release_created }}
         run: |
