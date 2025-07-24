@@ -34,4 +34,3 @@ write them without successive misses.
     #     if self.system_conditions['constants'] != old_vals['constants']:
     #         self.is_built = False
 
-#TODO: tidy gitignore and project files, scrub from repo
