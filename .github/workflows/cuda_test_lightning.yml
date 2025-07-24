@@ -4,7 +4,6 @@ on: [create, workflow_dispatch]
 jobs:
   cuda:
     runs-on: ubuntu-latest      
-    environment: stable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
