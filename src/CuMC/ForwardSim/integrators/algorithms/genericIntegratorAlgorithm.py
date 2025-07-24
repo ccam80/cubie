@@ -149,7 +149,6 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         # Manipulate user-space time parameters into loop internal parameters here if you need to for your algorithm
 
 
-        #TODO: Rename temporary or temp_ arrays in this system to "buffer" for clarity.
         #Array Sizes
         state_summary_buffer_size = (n_saved_states * summary_buffer_size,)
         observables_summary_buffer_size = (n_saved_observables * summary_buffer_size,)
