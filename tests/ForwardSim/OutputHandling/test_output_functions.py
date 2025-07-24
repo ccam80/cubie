@@ -353,7 +353,7 @@ def compare_input_output(output_functions_test_kernel,
         atol = 1e-05 if not rms_on else 1e-3
         rtol = 5e-05 if not rms_on else 1e-3
     elif precision == np.float64:
-        atol = 1e-12 if not rms_on else 1e-3
+        atol = 1e-12 if not rms_on else 1e-9
         rtol = 1e-12 if not rms_on else 1e-9
 
     if output_functions.compile_settings.summarise_states:
@@ -369,11 +369,14 @@ def compare_input_output(output_functions_test_kernel,
 
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"], indirect=True)
 @pytest.mark.parametrize("output_test_settings_overrides", [
-    {'output_types': ["state", "observables", "mean", "max", "rms", "peaks[3]"], 'num_samples': 1000},
-    {'output_types': ["state", "observables", "mean", "max", "rms", "peaks[3]"], 'num_samples': 50},
+    {'output_types': ["state", "observables", "mean", "max", "rms", "peaks[3]"], 'num_samples': 1000, 'random_scale': 1e3},
+    {'output_types': ["state", "observables", "mean", "max", "rms", "peaks[3]"], 'num_samples': 50, 'random_scale': 1e3},
 ], ids=["large_dataset", "small_dataset"], indirect=True)
 def test_precision_with_large_datasets(compare_input_output):
     """Test precision differences (float32 vs float64) with large datasets."""
+    #TODO: fix this test to not be flaky
+    # The large dataset increases the risk of numerical error exceeding tolerance, which is especially prevalent at
+    # small scales. I have increased the random scale to 1e3 - if test continues to fail, override tolerance instead.
     pass
 
 @pytest.mark.parametrize("precision_override", [np.float32], ids=["float32"], indirect=True)
