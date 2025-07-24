@@ -54,7 +54,6 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["src/CuMC"]
 omit = [
     "*/tests/*",
     "*/test_*",

@@ -14,6 +14,7 @@ class IntegatorRunSettings:
 
     def __attrs_post_init__(self):
         """Validate timing relationships."""
+        #This is covered in singleintegrator
         if self.dt_min > self.dt_max:
             raise ValueError("dt_min must be <= dt_max")
         if self.dt_save < self.dt_min:

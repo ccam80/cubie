@@ -66,7 +66,7 @@ class OutputFunctions(CUDAFactory):
         self.update_compile_settings(**kwargs)
 
     def build(self) -> OutputFunctionCache:
-        """Compile three functions: Save state, update summary metrics, and save summaries.
+        """Compile three functions: Save state, update summaries metrics, and save summaries.
         Calculate memory requirements for buffer and output arrays.
 
         Returns:
@@ -168,6 +168,24 @@ class OutputFunctions(CUDAFactory):
     def n_saved_observables(self) -> int:
         """Number of observables that will actually be saved."""
         return self.compile_settings.n_saved_observables
+
+    @property
+    def state_summaries_output_height(self) -> int:
+        """Height of the output array for state summaries."""
+        return self.compile_settings.state_summaries_output_height
+
+    @property
+    def observable_summaries_output_height(self) -> int:
+        """Height of the output array for observable summaries."""
+        return self.compile_settings.observable_summaries_output_height
+
+    def state_summaries_buffer_height(self) -> int:
+        """Calculate the height of the state summaries buffer."""
+        return self.compile_settings.state_summaries_buffer_height
+
+    def observable_summaries_buffer_height(self) -> int:
+        """Calculate the height of the observable summaries buffer."""
+        return self.compile_settings.observable_summaries_buffer_height
 
     @property
     def n_summarised_states(self) -> int:

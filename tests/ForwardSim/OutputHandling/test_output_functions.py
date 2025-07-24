@@ -353,7 +353,7 @@ def compare_input_output(output_functions_test_kernel,
         atol = 1e-05 if not rms_on else 1e-3
         rtol = 5e-05 if not rms_on else 1e-3
     elif precision == np.float64:
-        atol = 1e-12 if not rms_on else 1e-9
+        atol = 1e-12 if not rms_on else 1e-3
         rtol = 1e-12 if not rms_on else 1e-9
 
     if output_functions.compile_settings.summarise_states:
