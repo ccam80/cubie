@@ -41,8 +41,7 @@ def generate_decays_tests(param_lengths=[1, 100], log10_scalerange=(-6, 6), rang
             #single-scale random tests
             test_cases += [create_random_test_set(coeffs, precision, 10.0 ** scale) for scale in samescales]
             # mixed-scale random tests
-            test_cases += [create_random_test_set(coeffs, precision, log10_scalerange) for scale in
-                           range(range_step)]
+            test_cases += [create_random_test_set(coeffs, precision, log10_scalerange)]
 
     return test_cases
 

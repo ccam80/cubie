@@ -99,6 +99,24 @@ class SummaryMetrics:
         """
         return self._names
 
+    def summary_buffer_height(self, output_types_requested):
+        """
+        Returns the total buffer size for the requested summary metrics.
+
+        Args:
+            output_types_requested: A list of metric names to calculate total buffer size for.
+
+        Returns:
+            An integer representing the total buffer size needed.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+
+        offset = 0
+        for metric in parsed_request:
+            size = self._get_size(metric, self._buffer_sizes)
+            offset += size
+        return offset
+
     def buffer_offsets(self, output_types_requested):
         """
         Returns a tuple of buffer starting offsets for the requested summary metrics.
@@ -107,7 +125,7 @@ class SummaryMetrics:
             output_types_requested: A list of metric names to generate offsets for.
 
         Returns:
-            A tuple containing (total_buffer_size, offsets_tuple).
+            A tuple of offsets for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
 
@@ -117,8 +135,7 @@ class SummaryMetrics:
             offsets_dict[metric] = offset
             size = self._get_size(metric, self._buffer_sizes)
             offset += size
-        _total_buffer_size = offset
-        return _total_buffer_size, tuple(offsets_dict[metric] for metric in parsed_request)
+        return tuple(offsets_dict[metric] for metric in parsed_request)
 
     def buffer_sizes(self, output_types_requested):
         """
@@ -141,7 +158,7 @@ class SummaryMetrics:
             output_types_requested: A list of metric names to generate offsets for.
 
         Returns:
-            A tuple containing (total_output_size, offsets_tuple).
+            A tuple of offsets for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
 
@@ -151,8 +168,25 @@ class SummaryMetrics:
             offsets_dict[metric] = offset
             size = self._get_size(metric, self._output_sizes)
             offset += size
-        _total_output_size = offset
-        return _total_output_size, tuple(offsets_dict[metric] for metric in parsed_request)
+        return tuple(offsets_dict[metric] for metric in parsed_request)
+
+    def summary_output_height(self, output_types_requested):
+        """
+        Returns the total output size for the requested summary metrics.
+
+        Args:
+            output_types_requested: A list of metric names to calculate total output size for.
+
+        Returns:
+            An integer representing the total output size needed.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+
+        total_size = 0
+        for metric in parsed_request:
+            size = self._get_size(metric, self._output_sizes)
+            total_size += size
+        return total_size
 
     def _get_size(self, metric_name, size_dict):
         """Calculate size based on parameters if needed."""

@@ -89,7 +89,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
             save_summary_func=config.save_summary_func,
             n_saved_states=config.n_saved_states,
             n_saved_observables=config.n_saved_observables,
-            summary_buffer_size=config.summary_buffer_size,
+            summary_buffer_size=config.summary_buffer_height,
         )
 
         return {

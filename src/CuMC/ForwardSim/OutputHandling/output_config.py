@@ -215,7 +215,7 @@ class OutputConfig:
             return 0
         # Convert summary_types set to list for SummaryMetrics
         summary_list = list(self._summary_types)
-        total_buffer_size, _ = summary_metrics.buffer_offsets(summary_list)
+        total_buffer_size = summary_metrics.summary_buffer_height(summary_list)
         return total_buffer_size
 
     @property
@@ -225,7 +225,7 @@ class OutputConfig:
             return 0
         # Convert summary_types tuple to list for SummaryMetrics
         summary_list = list(self._summary_types)
-        total_output_size, _ = summary_metrics.output_offsets(summary_list)
+        total_output_size = summary_metrics.summary_output_height(summary_list)
         return total_output_size
 
     @property

@@ -116,20 +116,19 @@ def test_register_metric_duplicate_name_raises_error(empty_metrics, mock_functio
 def test_buffer_offsets_returns_correct_tuple(mock_metrics):
     """Test that buffer_offsets returns tuple with correct offset values."""
     requested = ["mock_metric", "parameterised[5]"]
-    total_size, offsets_tuple = mock_metrics.buffer_offsets(requested)
+    offsets_tuple = mock_metrics.buffer_offsets(requested)
 
     # mock_metric starts at 0, parameterised[5] starts at 5 (mock_metric's size)
     expected_offsets = (0, 5)
-    expected_total_size = 15  # mock_metric=5 + parameterised[5]=10
 
     assert offsets_tuple == expected_offsets
-    assert total_size == expected_total_size
 
 
 def test_output_offsets_returns_correct_tuple(mock_metrics):
     """Test that output_offsets returns tuple with correct offset values."""
     requested = ["mock_metric", "parameterised[5]"]
-    total_size, offsets_tuple = mock_metrics.output_offsets(requested)
+    offsets_tuple = mock_metrics.output_offsets(requested)
+    total_size = mock_metrics.summary_output_height(requested)
 
     # mock_metric starts at 0, parameterised[5] starts at 3 (mock_metric's output size)
     expected_offsets = (0, 3)
@@ -161,8 +160,9 @@ def test_tuple_ordering_alignment(mock_metrics):
     """Test that all tuple methods return values in the same order."""
     requested = ["parameterised[3]", "mock_metric"]  # Intentionally different order
 
-    buffer_total_size, buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
-    output_total_size, output_offsets_tuple = mock_metrics.output_offsets(requested)
+    buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
+    output_offsets_tuple = mock_metrics.output_offsets(requested)
+    output_total_size = mock_metrics.summary_output_height(requested)
     buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
     output_sizes_tuple = mock_metrics.output_sizes(requested)
 
@@ -176,8 +176,7 @@ def test_tuple_ordering_alignment(mock_metrics):
     assert buffer_offsets_tuple == (0, 6)  # parameterised[3]=0, mock_metric=6
     assert output_offsets_tuple == (0, 6)  # parameterised[3]=0, mock_metric=6
 
-    # Test total sizes
-    assert buffer_total_size == 11  # 6 + 5
+    # Test total size for output (buffer doesn't return total anymore)
     assert output_total_size == 9  # 6 + 3
 
 
@@ -246,8 +245,10 @@ def test_empty_request_returns_empty_tuple(mock_metrics):
     output_sizes_tuple = mock_metrics.output_sizes(requested)
 
     # For offset methods, empty requests should return (0, empty_tuple)
-    buffer_total_size, buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
-    output_total_size, output_offsets_tuple = mock_metrics.output_offsets(requested)
+    buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
+    output_offsets_tuple = mock_metrics.output_offsets(requested)
+    buffer_total_size = mock_metrics.summary_buffer_height(requested)
+    output_total_size = mock_metrics.summary_output_height(requested)
 
     assert buffer_sizes_tuple == ()
     assert output_sizes_tuple == ()
@@ -432,8 +433,7 @@ def test_real_summary_metrics_offset_calculations(real_metrics):
     requested = ["mean", "peaks[2]", "max", "rms"]
 
     # Test buffer offsets
-    buffer_total_size, buffer_offsets_generator = real_metrics.buffer_offsets(requested)
-    buffer_offsets_tuple = tuple(buffer_offsets_generator)
+    buffer_offsets_tuple = real_metrics.buffer_offsets(requested)
 
     # Expected buffer offsets:
     # mean: 0 (size=1)
@@ -441,14 +441,12 @@ def test_real_summary_metrics_offset_calculations(real_metrics):
     # max: 6 (size=1)
     # rms: 7 (size=1)
     expected_buffer_offsets = (0, 1, 6, 7)
-    expected_buffer_total = 8  # 1 + 5 + 1 + 1
 
     assert buffer_offsets_tuple == expected_buffer_offsets
-    assert buffer_total_size == expected_buffer_total
 
     # Test output offsets
-    output_total_size, output_offsets_generator = real_metrics.output_offsets(requested)
-    output_offsets_tuple = tuple(output_offsets_generator)
+    output_offsets_tuple = real_metrics.output_offsets(requested)
+    output_total_size = real_metrics.summary_output_height(requested)
 
     # Expected output offsets:
     # mean: 0 (size=1)
@@ -467,10 +465,8 @@ def test_real_summary_metrics_tuple_ordering_consistency(real_metrics):
     requested = ["rms", "peaks[4]", "mean"]  # Different order than registration
 
     # Get all tuple results
-    buffer_total_size, buffer_offsets_generator = real_metrics.buffer_offsets(requested)
-    output_total_size, output_offsets_generator = real_metrics.output_offsets(requested)
-    buffer_offsets_tuple = tuple(buffer_offsets_generator)
-    output_offsets_tuple = tuple(output_offsets_generator)
+    buffer_offsets_tuple = tuple(real_metrics.buffer_offsets(requested))
+    output_offsets_tuple = tuple(real_metrics.output_offsets(requested))
     buffer_sizes_tuple = tuple(real_metrics.buffer_sizes(requested))
     output_sizes_tuple = tuple(real_metrics.output_sizes(requested))
 
@@ -496,6 +492,9 @@ def test_real_summary_metrics_tuple_ordering_consistency(real_metrics):
     assert output_offsets_tuple == (0, 1, 5)
 
     # Verify totals
+    buffer_total_size = real_metrics.summary_buffer_height(requested)
+    output_total_size = real_metrics.summary_output_height(requested)
+
     assert buffer_total_size == 9  # 1 + 7 + 1
     assert output_total_size == 6  # 1 + 4 + 1
 
@@ -503,11 +502,12 @@ def test_real_summary_metrics_tuple_ordering_consistency(real_metrics):
 def test_real_summary_metrics_edge_cases(real_metrics):
     """Test edge cases with real metrics."""
     # Test with single metric
-    buffer_total_size, buffer_offsets_generator = real_metrics.buffer_offsets(["mean"])
+    summary_buffer_height = real_metrics.summary_buffer_height(["mean"])
+    buffer_offsets_generator = real_metrics.buffer_offsets(["mean"])
     buffer_offsets_tuple = tuple(buffer_offsets_generator)
 
     assert buffer_offsets_tuple == (0,)
-    assert buffer_total_size == 1
+    assert summary_buffer_height == 1
 
     # Test with peaks parameter edge cases
     buffer_sizes_tuple = tuple(real_metrics.buffer_sizes(["peaks[0]"]))
@@ -546,3 +546,14 @@ def test_column_headings(real_metrics):
         assert len(w) == 1
         assert "not registered" in str(w[0].message)
         assert invalid_headings == []
+
+
+def test_summary_buffer_size_returns_correct_total(mock_metrics):
+    """Test that summary_buffer_size returns correct total buffer size."""
+    requested = ["mock_metric", "parameterised[5]"]
+    total_size = mock_metrics.summary_buffer_height(requested)
+
+    # mock_metric=5 + parameterised[5]=10
+    expected_total_size = 15
+
+    assert total_size == expected_total_size

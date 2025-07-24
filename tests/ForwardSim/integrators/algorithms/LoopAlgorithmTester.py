@@ -87,7 +87,7 @@ class LoopAlgorithmTester:
                 assert loop_under_test.compile_settings.n_saved_observables == len(value), \
                     f"saved_states does not match expected value {len(value)}"
             elif key == "output_functions" or key == "n_peaks":
-                assert loop_under_test.compile_settings.summary_buffer_size == expected_summary_buffer_size, \
+                assert loop_under_test.compile_settings.summary_buffer_height == expected_summary_buffer_size, \
                     (f"Summary buffer requirement doesn't match expected - the loop_compile_settings change doesn't "
                      f"gethrough.")
             else:
@@ -147,9 +147,7 @@ class LoopAlgorithmTester:
             ...
         """
         outputs_list = loop_compile_settings['output_functions']
-
-        buffer_size, _ = summary_metrics.buffer_offsets(outputs_list)
-
+        buffer_size = summary_metrics.summary_buffer_height(outputs_list)
         return buffer_size
 
     @pytest.fixture(scope='function')
@@ -217,7 +215,7 @@ class LoopAlgorithmTester:
 
         # Shared memory requirements:
         loop_memory = loop_under_test.get_cached_output('loop_shared_memory')
-        summary_memory = loop_under_test.compile_settings.summary_buffer_size * (n_saved_states + n_saved_observables)
+        summary_memory = loop_under_test.compile_settings.summary_buffer_height * (n_saved_states + n_saved_observables)
         floatsize = precision().itemsize
 
         dynamic_sharedmem = floatsize * (summary_memory + loop_memory)
