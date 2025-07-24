@@ -2,13 +2,27 @@
 Integrator configuration management with validation and adapter patterns.
 """
 
-from attrs import define, field, validators
+from attrs import define, field, validators, Factory
 from typing import Callable, Optional
 from numba import float32, float64
 from numba.types import Float as _numba_float_type
 from warnings import warn
 import numpy as np
 
+from CuMC.SystemModels.Systems.ODEData import SystemSizes
+
+@define
+class LoopStepConfig:
+    """
+    Step timing and exit conditions for an integrator loop. Convenience class for grouping and passing around loop
+    step information.
+    """
+    dt_min: float = field(default=1e-6, validator=validators.instance_of(float))
+    dt_max: float = field(default=1.0, validator=validators.instance_of(float))
+    dt_save: float = field(default=0.1, validator=validators.instance_of(float))
+    dt_summarise: float = field(default=0.1, validator=validators.instance_of(float))
+    atol: float = field(default=1e-6, validator=validators.instance_of(float))
+    rtol: float = field(default=1e-6, validator=validators.instance_of(float))
 
 @define
 class IntegratorLoopSettings:
@@ -20,17 +34,20 @@ class IntegratorLoopSettings:
 
     # Core system properties
     precision: _numba_float_type = field(default=float32, validator=validators.in_([float32, float64]))
-    n_states: int = field(default=0, validator=validators.instance_of(int)) #getter
-    n_observables: int = field(default=0, validator=validators.instance_of(int)) #getter
-    n_parameters: int = field(default=0, validator=validators.instance_of(int)) # getter
-    n_drivers: int = field(default=0, validator=validators.instance_of(int)) #getter
+    _system_sizes: SystemSizes = field(default=Factory(SystemSizes), validator=validators.instance_of(SystemSizes))
+    _loop_step_config: LoopStepConfig = field(default=Factory(LoopStepConfig), validator=validators.instance_of(LoopStepConfig))
 
-    dt_min: float = field(default=1e-6, validator=validators.instance_of(float))
-    dt_max: float = field(default=1.0, validator=validators.instance_of(float))
-    dt_save: float = field(default=0.1, validator=validators.instance_of(float))
-    dt_summarise: float = field(default=0.1, validator=validators.instance_of(float))
-    atol: float = field(default=1e-6, validator=validators.instance_of(float))
-    rtol: float = field(default=1e-6, validator=validators.instance_of(float))
+    # n_states: int = field(default=0, validator=validators.instance_of(int))
+    # n_observables: int = field(default=0, validator=validators.instance_of(int))
+    # n_parameters: int = field(default=0, validator=validators.instance_of(int))
+    # n_drivers: int = field(default=0, validator=validators.instance_of(int))
+    #
+    # dt_min: float = field(default=1e-6, validator=validators.instance_of(float))
+    # dt_max: float = field(default=1.0, validator=validators.instance_of(float))
+    # dt_save: float = field(default=0.1, validator=validators.instance_of(float))
+    # dt_summarise: float = field(default=0.1, validator=validators.instance_of(float))
+    # atol: float = field(default=1e-6, validator=validators.instance_of(float))
+    # rtol: float = field(default=1e-6, validator=validators.instance_of(float))
 
     # Output configuration
     save_time: bool = field(default=False, validator=validators.instance_of(bool)) # getter from
@@ -125,7 +142,45 @@ class IntegratorLoopSettings:
 
         return n_steps_save, n_steps_summarise, step_size
 
+    @property
+    def n_states(self) -> int:
+        return self._system_sizes.states
 
+    @property
+    def n_observables(self) -> int:
+        return self._system_sizes.observables
+
+    @property
+    def n_parameters(self) -> int:
+        return self._system_sizes.parameters
+
+    @property
+    def n_drivers(self) -> int:
+        return self._system_sizes.drivers
+
+    @property
+    def dt_min(self) -> float:
+        return self._loop_step_config.dt_min
+
+    @property
+    def dt_max(self) -> float:
+        return self._loop_step_config.dt_max
+
+    @property
+    def dt_save(self) -> float:
+        return self._loop_step_config.dt_save
+
+    @property
+    def dt_summarise(self) -> float:
+        return self._loop_step_config.dt_summarise
+
+    @property
+    def atol(self) -> float:
+        return self._loop_step_config.atol
+
+    @property
+    def rtol(self) -> float:
+        return self._loop_step_config.rtol
     # @classmethod
     # def from_run_settings(cls,
     #                      precision,

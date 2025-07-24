@@ -6,29 +6,28 @@ from CuMC.ForwardSim.integrators.algorithms.IntegratorLoopSettings import Integr
 
 class GenericIntegratorAlgorithm(CUDAFactory):
     """
-    Base class for integrator algorithms with improved separation of concerns.
+    Base class for the inner "loop" algorithm for an ODE solving algorithm. This class handles building and caching
+    of the algorithm function, which is incorporated into a CUDA kernel (like the one in SolverKernel.py) for use.
+    Any integration algorithms (e.g. Euler, Runge-Kutta) should subclass this class and override the following
+    attributes/methods:
 
-    This class now uses IntegratorConfig for data handling and validation,
-    following the same pattern as OutputFunctions/OutputConfig.
-
-    Every integrator algorithm subclass should override:
-    - get_loop_internal_shared_memory() - calculate shared memory requirements
+    - _threads_per_loop: How many threads does the algorithm use? A simple loop will use 1, but a computationally
+    intensive algorithm might calculate dxdt at each point in its own thread, and then use a shuffle operation to add
+    the parallel results together from shared memory.
     - build_loop() - factory method that builds the CUDA device function
+    - _loop_shared_memory - How much shared memory your device allocates - usually a function of the number of states
+     of our system, depending on where you store your numbers.
+
+    Data used in compiling and controlling the loop is handled by the IntegratorLoopSettings class. This class
+    presents a few relevant attributes of the data class to higher-level components as properties.
+
     """
 
     def __init__(self,
                  precision,
                  dxdt_func,
-                 n_states,
-                 n_observables,
-                 n_parameters,
-                 n_drivers,
-                 dt_min,
-                 dt_max,
-                 dt_save,
-                 dt_summarise,
-                 atol,
-                 rtol,
+                 system_sizes,
+                 loop_step_config,
                  save_time,
                  save_state_func,
                  update_summary_func,
@@ -41,16 +40,8 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         super().__init__()
         compile_settings = IntegratorLoopSettings(
                 precision=precision,
-                n_states=n_states,
-                n_observables=n_observables,
-                n_parameters=n_parameters,
-                n_drivers=n_drivers,
-                dt_min=dt_min,
-                dt_max=dt_max,
-                dt_save=dt_save,
-                dt_summarise=dt_summarise,
-                atol=atol,
-                rtol=rtol,
+                system_sizes=system_sizes,
+                loop_step_config=loop_step_config,
                 save_time=save_time,
                 n_saved_states=n_saved_states,
                 n_saved_observables=n_saved_observables,
@@ -61,7 +52,10 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                 save_summary_func=save_summary_func,
                 )
         self.setup_compile_settings(compile_settings)
+
+        #Override this in subclasses!
         self._threads_per_loop = threads_per_loop
+
         self.integrator_loop = None
         self.is_current = False
 
@@ -73,28 +67,16 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         integrator_loop = self.build_loop(
             precision=config.precision,
             dxdt_func=config.dxdt_func,
-            n_states=config.n_states,
-            n_observables=config.n_observables,
-            n_parameters=config.n_parameters,
-            n_drivers=config.n_drivers,
-            dt_min=config.dt_min,
-            dt_max=config.dt_max,
-            dt_save=config.dt_save,
-            dt_summarise=config.dt_summarise,
-            atol=config.atol,
-            rtol=config.rtol,
-            save_time=config.save_time,
+            buffer_sizes = config.buffer_sizes,
+            loop_step_config = config.loop_step_config,
             save_state_func=config.save_state_func,
             update_summary_func=config.update_summary_func,
             save_summary_func=config.save_summary_func,
-            n_saved_states=config.n_saved_states,
-            n_saved_observables=config.n_saved_observables,
-            summary_buffer_size=config.summary_buffer_height,
         )
 
         return {
             'device_function': integrator_loop,
-            'loop_shared_memory': self.get_loop_internal_shared_memory()
+            'loop_shared_memory': self.shared_memory_required
         }
 
     # Properties for external access
@@ -127,44 +109,27 @@ class GenericIntegratorAlgorithm(CUDAFactory):
     def build_loop(self,
             precision,
             dxdt_func,
-            n_states,
-            n_observables,
-            n_parameters,
-            n_drivers,
-            dt_min,
-            dt_max,
-            dt_save,
-            dt_summarise,
-            atol,
-            rtol,
-            save_time,
+            buffer_sizes,
             save_state_func,
             update_summary_func,
             save_summary_func,
-            n_saved_states,
-            n_saved_observables,
-            summary_buffer_size,
         ):
         save_steps, summary_steps, step_size = self.compile_settings.fixed_steps
         # Manipulate user-space time parameters into loop internal parameters here if you need to for your algorithm
 
 
-        #Array Sizes
-        state_summary_buffer_size = (n_saved_states * summary_buffer_size,)
-        observables_summary_buffer_size = (n_saved_observables * summary_buffer_size,)
+        #Unpack sizes to keep compiler happy
+        state_summary_buffer_size = buffer_sizes.state_summaries
+        observables_summary_buffer_size = buffer_sizes.observables_summaries
+        state_buffer_size = buffer_sizes.state
+        observables_buffer_size = buffer_sizes.observables
+        dxdt_buffer_size = buffer_sizes.dxdt
+        parameters_buffer_size = buffer_sizes.parameters
+        drivers_buffer_size = buffer_sizes.drivers
 
-        # Logical flags for what to actually save (independent of array sizes)
-        # Present in summary_metrics
-        summaries_output = summary_buffer_size > 0
-        save_observables = n_saved_observables > 0
-        save_states = n_saved_states > 0
-
-
-        ##Array sizes
-        if save_time:
-            state_array_size = n_states + 1
-        else:
-            state_array_size = n_states
+        # summaries_output = summary_buffer_size > 0 # Without this toggle, the compiler will try to compile in empty
+        # functions. If it succeeds, that's a boon, it's just optimised out the calls. If it fails, we need to
+        # propagate this flag across from output_functions
 
         # noinspection PyTypeChecker
         @cuda.jit((precision[:],
@@ -193,34 +158,34 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                        warmup_samples=0,
                        ):
             """Dummy integrator loop implementation."""
-            l_state_buffer = cuda.local.array(shape=state_array_size, dtype=precision)
-            l_obs_buffer = cuda.local.array(shape=n_observables, dtype=precision)
+            l_state_buffer = cuda.local.array(shape=state_buffer_size, dtype=precision)
+            l_obs_buffer = cuda.local.array(shape=observables_buffer_size, dtype=precision)
             l_obs_buffer[:] = precision(0.0)
 
-            for i in range(n_states):
+            for i in range(state_buffer_size):
                 l_state_buffer[i] = inits[i]
 
             state_summary_buffer = cuda.local.array(shape=state_summary_buffer_size, dtype=precision)
             obs_summary_buffer = cuda.local.array(shape=observables_summary_buffer_size, dtype=precision)
 
             for i in range(output_length):
-                for j in range(n_states):
+                for j in range(state_buffer_size):
                     l_state_buffer[j] = inits[j]
-                for j in range(n_observables):
-                    l_obs_buffer[j] = inits[j % n_observables]
+                for j in range(observables_buffer_size):
+                    l_obs_buffer[j] = inits[j % observables_buffer_size]
 
                 save_state_func(l_state_buffer, l_obs_buffer, state_output[:, i], observables_output[:, i], i)
 
-                if summaries_output:
-                    update_summary_func(l_state_buffer, l_obs_buffer, state_summary_buffer, obs_summary_buffer, i)
+                # if summaries_output:
+                update_summary_func(l_state_buffer, l_obs_buffer, state_summary_buffer, obs_summary_buffer, i)
 
-                    if (i + 1) % summary_steps == 0:
-                        summary_sample = (i + 1) // summary_steps - 1
-                        save_summary_func(state_summary_buffer, obs_summary_buffer,
-                                          state_summaries_output[:, summary_sample],
-                                          observables_summaries_output[:, summary_sample],
-                                          summary_steps,
-                                          )
+                if (i + 1) % summary_steps == 0:
+                    summary_sample = (i + 1) // summary_steps - 1
+                    save_summary_func(state_summary_buffer, obs_summary_buffer,
+                                      state_summaries_output[:, summary_sample],
+                                      observables_summaries_output[:, summary_sample],
+                                      summary_steps,
+                                      )
 
         return dummy_loop
 
@@ -228,7 +193,11 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         """Update configuration parameters."""
         self.update_compile_settings(**kwargs)
 
-    def get_loop_internal_shared_memory(self):
+    @property
+    def shared_memory_required(self):
+        return self.get_cached_output("loop_shared_memory")
+
+    def _loop_internal_shared_memory(self):
         """Calculate shared memory requirements. Dummy implementation returns 0."""
         return 0
 

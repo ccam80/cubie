@@ -266,7 +266,7 @@ class LoopAlgorithmTester:
     def test_loop_shared_memory_calc(self, loop_under_test, expected_loop_shared_memory):
         """Test the calculate_shared_memory method of Euler."""
 
-        shared_memory = loop_under_test.get_loop_internal_shared_memory()
+        shared_memory = loop_under_test.shared_memory_required
         assert shared_memory == expected_loop_shared_memory, f"Expected {expected_loop_shared_memory} shared memory items, got {shared_memory}"
 
     # @pytest.mark.parametrize(

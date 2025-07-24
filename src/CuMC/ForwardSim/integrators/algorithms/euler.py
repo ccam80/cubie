@@ -29,7 +29,7 @@ class Euler(GenericIntegratorAlgorithm):
                  save_summary_func,
                  n_saved_states,
                  n_saved_observables,
-                 summary_temp_memory,
+                 summary_buffer_size,
                  **kwargs,
                  ):
         super().__init__(precision,
@@ -50,7 +50,7 @@ class Euler(GenericIntegratorAlgorithm):
                          save_summary_func,
                          n_saved_states,
                          n_saved_observables,
-                         summary_temp_memory,
+                         summary_buffer_size,
                          threads_per_loop=1,
                          )
 
