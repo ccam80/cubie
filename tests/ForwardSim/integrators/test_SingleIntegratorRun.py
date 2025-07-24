@@ -72,10 +72,10 @@ def test_initialization(single_integrator_loop, system, integrator_params, preci
 
     # Check that algorithm parameters are stored correctly
     assert single_integrator_loop._algorithm_params['precision'] == from_dtype(precision)
-    assert single_integrator_loop._algorithm_params['n_states'] == system.num_states
-    assert single_integrator_loop._algorithm_params['n_obs'] == system.num_observables
-    assert single_integrator_loop._algorithm_params['n_parameters'] == system.num_parameters
-    assert single_integrator_loop._algorithm_params['n_drivers'] == system.num_drivers
+    assert single_integrator_loop._algorithm_params['n_states'] == system.sizes.states
+    assert single_integrator_loop._algorithm_params['n_obs'] == system.sizes.observables
+    assert single_integrator_loop._algorithm_params['n_parameters'] == system.sizes.parameters
+    assert single_integrator_loop._algorithm_params['n_drivers'] == system.sizes.drivers
     assert single_integrator_loop._algorithm_params['dt_min'] == integrator_params['dt_min']
     assert single_integrator_loop._algorithm_params['dt_max'] == integrator_params['dt_max']
     assert single_integrator_loop._algorithm_params['dt_save'] == integrator_params['dt_save']
@@ -459,7 +459,3 @@ def test_no_redundant_dependency_checking_needed(single_integrator_loop):
     # The design ensures fresh functions without extra checking
 
 
-# Remove or update tests that were checking the complex dependency logic
-# since that's no longer needed with the simplified approach
-
-# ...existing code...

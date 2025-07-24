@@ -56,7 +56,7 @@ class Decays(GenericODE):
         # Hoist fixed parameters to global namespace
         global global_constants
         global_constants = self.compile_settings.constants.values_array
-        n_terms = self.num_states
+        n_terms = self.sizes.states
 
         @cuda.jit((self.precision[:],
                    self.precision[:],
@@ -87,11 +87,11 @@ class Decays(GenericODE):
         """ Python testing function - do it in python and compare results."""
 
         indices = np.arange(len(states))
-        observables = np.zeros(self.num_observables)
+        observables = np.zeros(self.sizes.observables)
         dxdt = -states / (indices + 1)
 
-        for i in range(self.num_observables):
-            observables[i] = (dxdt[i % self.num_states] * parameters[i % self.num_parameters] + drivers[0] +
+        for i in range(self.sizes.observables):
+            observables[i] = (dxdt[i % self.sizes.states] * parameters[i % self.sizes.parameters] + drivers[0] +
                               global_constants[i])
 
         return dxdt, observables

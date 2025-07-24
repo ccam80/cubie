@@ -6,6 +6,19 @@ from CuMC.SystemModels.SystemValues import SystemValues
 from numba import from_dtype
 
 @attrs.define
+class SystemSizes:
+    """
+    Data structure to hold the sizes of various components of a system.
+    This is used to pass size information to the ODE solver kernel.
+    """
+    states: int = attrs.field(validator=attrs.validators.instance_of(int))
+    observables: int = attrs.field(validator=attrs.validators.instance_of(int))
+    parameters: int = attrs.field(validator=attrs.validators.instance_of(int))
+    constants: int = attrs.field(validator=attrs.validators.instance_of(int))
+    drivers: int = attrs.field(validator=attrs.validators.instance_of(int))
+
+
+@attrs.define
 class ODEData:
     """
     Data structure to hold ODE system parameters, initial states, and forcing vectors.
@@ -21,7 +34,6 @@ class ODEData:
             SystemValues)))
     precision: Float = attrs.field(validator=attrs.validators.instance_of(Float), default=float32)
     num_drivers: int = attrs.field(validator=attrs.validators.instance_of(int), default=1)
-    # def __attrs_post_init__(self):
 
     @property
     def num_states(self):
@@ -42,13 +54,11 @@ class ODEData:
     @property
     def sizes(self):
         """Returns a dictionary of sizes for the ODE data."""
-        return {
-            'n_states': self.num_states,
-            'n_observables': self.num_observables,
-            'n_parameters': self.num_parameters,
-            'n_constants': self.num_constants,
-            'n_drivers': self.num_drivers
-        }
+        return SystemSizes(states = self.num_states,
+                           observables = self.num_observables,
+                           parameters = self.num_parameters,
+                           constants = self.num_constants,
+                           drivers = self.num_drivers)
 
     @classmethod
     def from_genericODE_initargs(cls,
@@ -66,7 +76,7 @@ class ODEData:
         init_values = SystemValues(initial_values, precision, default_initial_values)
         parameters = SystemValues(parameters, precision, default_parameters)
         observables = SystemValues(observables, precision, default_observable_names)
-        constants =  SystemValues(constants, precision, default_constants)
+        constants = SystemValues(constants, precision, default_constants)
 
         return cls(constants=constants,
                    parameters=parameters,

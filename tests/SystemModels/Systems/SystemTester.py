@@ -42,10 +42,10 @@ class SystemTester:
         precision = self.system_instance.precision
         dxdt_func = self.system_instance.device_function
 
-        n_states = self.system_instance.num_states
-        n_par = self.system_instance.num_parameters
-        n_obs = self.system_instance.num_observables
-        n_drivers = self.system_instance.num_drivers
+        n_states = self.system_instance.sizes.states
+        n_par = self.system_instance.sizes.parameters
+        n_obs = self.system_instance.sizes.observables
+        n_drivers = self.system_instance.sizes.drivers
 
         @cuda.jit()
         def test_kernel(outarray, obs_array, input_arr, param_arr, drivers_arr):
@@ -95,8 +95,8 @@ class SystemTester:
         self.instantiate_system(system_class, precision, s_list, p_list, o_list, const_dict, n_drivers)
         self.build_test_kernel()
 
-        dx = np.zeros(self.system_instance.num_states, dtype=precision)
-        observables = np.zeros(self.system_instance.num_observables, dtype=precision)
+        dx = np.zeros(self.system_instance.sizes.states, dtype=precision)
+        observables = np.zeros(self.system_instance.sizes.observables, dtype=precision)
 
         self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
         expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
@@ -118,8 +118,8 @@ class SystemTester:
         if len(const_dict) == 0:
             pytest.skip("No constants to edit in this system.")
 
-        dx = np.zeros(self.system_instance.num_states, dtype=precision)
-        observables = np.zeros(self.system_instance.num_observables, dtype=precision)
+        dx = np.zeros(self.system_instance.sizes.states, dtype=precision)
+        observables = np.zeros(self.system_instance.sizes.observables, dtype=precision)
 
         self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
 

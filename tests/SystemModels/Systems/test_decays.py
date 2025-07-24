@@ -83,8 +83,8 @@ class TestDecays(SystemTester):
         self.instantiate_system(system_class, coefficients, precision)
         self.build_test_kernel()
 
-        dx = np.zeros(self.system_instance.num_states, dtype=precision)
-        observables = np.zeros(self.system_instance.num_observables, dtype=precision)
+        dx = np.zeros(self.system_instance.sizes.states, dtype=precision)
+        observables = np.zeros(self.system_instance.sizes.observables, dtype=precision)
 
         self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
         expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
@@ -103,11 +103,11 @@ class TestDecays(SystemTester):
         self.instantiate_system(system_class, coefficients, precision)
         self.build_test_kernel()
 
-        if self.system_instance.num_constants == 0:
+        if self.system_instance.sizes.constants == 0:
             pytest.skip("No constants to edit in this system.")
 
-        dx = np.zeros(self.system_instance.num_states, dtype=precision)
-        observables = np.zeros(self.system_instance.num_observables, dtype=precision)
+        dx = np.zeros(self.system_instance.sizes.states, dtype=precision)
+        observables = np.zeros(self.system_instance.sizes.observables, dtype=precision)
 
         self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
 
@@ -134,10 +134,3 @@ class TestDecays(SystemTester):
 
         assert_allclose(dx, expected_dx, rtol=rtol, err_msg="post-edit dx mismatch")
         assert_allclose(observables, expected_obs, rtol=rtol, err_msg="post-edit observables mismatch")
-
-
-
-
-
-
-

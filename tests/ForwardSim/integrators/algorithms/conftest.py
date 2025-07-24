@@ -38,9 +38,9 @@ def inputs_dict(system, precision, **kwargs):
 
     # Create a default driver pattern (100 zeros with occasional 1.0 pulses) if not overridden
     sample_count = 100
-    drivers = np.zeros((system.num_drivers, sample_count), dtype=precision)
+    drivers = np.zeros((system.sizes.drivers, sample_count), dtype=precision)
 
-    if system.num_drivers > 0:
+    if system.sizes.drivers > 0:
         drivers[:, 0::25] = system.precision(1.0)  # Set every 25th sample to 1.0
 
     default_initial_values = system.init_values
@@ -86,7 +86,7 @@ def inputs_dict(system, precision, **kwargs):
         forcing_override = kwargs['forcing_vectors']
         if isinstance(forcing_override, np.ndarray):
             assert forcing_override.shape[
-                       0] == system.num_drivers, "forcing_vectors override must have system.num_drivers rows."
+                       0] == system.sizes.drivers, "forcing_vectors override must have system.num_drivers rows."
 
     inputs_config = {
         'initial_values': system.init_values.values_array.copy(),

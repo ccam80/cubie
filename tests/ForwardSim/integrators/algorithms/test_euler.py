@@ -167,7 +167,7 @@ class TestEuler(LoopAlgorithmTester):
     @pytest.fixture()
     def expected_loop_shared_memory(self, system):
         """Calculate the expected shared memory size for the Euler algorithm."""
-        n_states = system.num_states
-        n_observables = system.num_observables
-        n_drivers = system.num_drivers
+        n_states = system.sizes.states
+        n_observables = system.sizes.observables
+        n_drivers = system.sizes.drivers
         return n_states + n_states + n_observables + n_drivers

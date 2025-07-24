@@ -125,11 +125,12 @@ class GenericODE(CUDAFactory):
 
         # Get dxdt contents into local scope, as the CUDA device function can't handle a reference to self
         constants = self.compile_settings.constants.values_array
-        n_params = self.num_parameters
-        n_states = self.num_states
-        n_obs = self.num_observables
-        n_constants = self.num_constants
-        n_drivers = self.num_drivers
+        sizes = self.sizes
+        n_params = sizes.parameters
+        n_states = sizes.states
+        n_obs = sizes.observables
+        n_constants = sizes.constants
+        n_drivers = sizes.drivers
         precision = self.precision
 
         @cuda.jit(
@@ -194,14 +195,17 @@ class GenericODE(CUDAFactory):
         """This function is used in testing. Overload this with a simpler, Python version of the dxdt function.
         This will be run in a python test to compare the output of your CUDA function with this known, correct answer."""
         numpy_precision = np.float64 if self.precision == float64 else np.float32
-        dxdt = np.zeros(self.num_states, dtype=numpy_precision)
-        observables = np.zeros(self.num_observables, dtype=numpy_precision)
+        sizes = self.sizes
 
-        n_parameters = self.num_parameters
-        n_drivers = self.num_drivers
-        n_constants = self.num_constants
-        n_states = self.num_states
-        n_observables = self.num_observables
+
+        n_parameters = sizes.parameters
+        n_drivers = sizes.drivers
+        n_constants = sizes.constants
+        n_states = sizes.states
+        n_observables = sizes.observables
+
+        dxdt = np.zeros(n_states, dtype=numpy_precision)
+        observables = np.zeros(n_observables, dtype=numpy_precision)
 
         if n_parameters <= 0:
             parameters = np.zeros(n_states, dtype=numpy_precision)
@@ -223,6 +227,3 @@ class GenericODE(CUDAFactory):
             observables[i] = drivers[i % n_drivers] + _constants[i % n_constants]
 
         return dxdt, observables
-
-
-

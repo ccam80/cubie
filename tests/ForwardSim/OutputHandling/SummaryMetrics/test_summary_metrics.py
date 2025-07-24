@@ -446,7 +446,7 @@ def test_real_summary_metrics_offset_calculations(real_metrics):
 
     # Test output offsets
     output_offsets_tuple = real_metrics.output_offsets(requested)
-    output_total_size = real_metrics.summary_output_height(requested)
+    output_total_size = real_metrics.summary_output_height_per_var(requested)
 
     # Expected output offsets:
     # mean: 0 (size=1)
@@ -493,7 +493,7 @@ def test_real_summary_metrics_tuple_ordering_consistency(real_metrics):
 
     # Verify totals
     buffer_total_size = real_metrics.summary_buffer_height(requested)
-    output_total_size = real_metrics.summary_output_height(requested)
+    output_total_size = real_metrics.summary_output_height_per_var(requested)
 
     assert buffer_total_size == 9  # 1 + 7 + 1
     assert output_total_size == 6  # 1 + 4 + 1

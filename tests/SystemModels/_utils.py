@@ -3,19 +3,6 @@ from numba import float32, float64
 from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
 from tests._utils import generate_test_array
 
-def get_sizes_from_model(SystemClass):
-    """Given a model with default labels for states etc, return the sizes of each array
-
-    Args:
-        SystemClass (GenericODE subclass): A class that inherits from GenericODE, with default values set. If you pass
-            an instance of that class, it's precision will override the precision argument.
-    Returns:
-        A tuple of integers representing the number of (states, parameters, observables, constants, and drivers).
-    """
-    precision = np.float32
-    sys, precision = instantiate_or_use_instance(SystemClass, precision)
-    return sys.num_states, sys.num_parameters, sys.num_observables, sys.num_constants, sys.num_drivers
-
 def get_observables_list(SystemClass):
     """Get the list of observable names from a system class.
     Args:
@@ -25,7 +12,7 @@ def get_observables_list(SystemClass):
         list[str]: A list of observable names from the system class.
     """
     sys, precision = instantiate_or_use_instance(SystemClass, precision=np.float32)
-    return [sys.compile_settings.observables.keys_by_index[i] for i in range(sys.num_observables)]
+    return [sys.compile_settings.observables.keys_by_index[i] for i in range(sys.sizes.observables)]
 
 
 def random_system_values(SystemClass, precision=np.float64, randscale=1e6, axis=0):
@@ -51,7 +38,13 @@ def random_system_values(SystemClass, precision=np.float64, randscale=1e6, axis=
     """
 
     sys, precision = instantiate_or_use_instance(SystemClass, precision)
-    n_states, n_params, n_obs, n_constants, n_drivers = get_sizes_from_model(sys)
+    sizes = sys.sizes
+    n_states = sizes.states
+    n_params = sizes.parameters
+    n_constants = sizes.constants
+    n_drivers = sizes.drivers
+    n_obs = sizes.observables
+
     array_sizes = (n_states, n_params, n_constants)
     sysarrays_to_make = (sys.compile_settings.initial_states, sys.compile_settings.parameters,
                          sys.compile_settings.constants)
@@ -244,4 +237,3 @@ def generate_system_tests(SystemClass, log10_scalerange=(-6, 6), tests_per_categ
     test_cases += create_minimal_input_sets(SystemClass, precision)
 
     return test_cases
-

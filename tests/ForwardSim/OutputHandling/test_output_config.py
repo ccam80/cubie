@@ -238,13 +238,13 @@ class TestSummaryMetrics:
         config = config_with_summaries
 
         # These should call into the summary_metrics system
-        assert config.buffer_size_per_var > 0
-        assert config.summary_output_memory_per_var > 0
+        assert config.summary_buffer_height_per_var > 0
+        assert config.summary_output_height_per_var > 0
 
         # No summaries should mean no memory needed
         config.update_from_outputs_tuple(("state",))
-        assert config.buffer_size_per_var == 0
-        assert config.summary_output_memory_per_var == 0
+        assert config.summary_buffer_height_per_var == 0
+        assert config.summary_output_height_per_var == 0
 
 
 class TestUpdateMethods:

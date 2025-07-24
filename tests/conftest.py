@@ -143,7 +143,7 @@ def system(request, system_override, precision):
 def output_functions(loop_compile_settings, system):
     # Merge the default config with any overrides
 
-    outputfunctions = OutputFunctions(system.num_states, system.num_parameters,
+    outputfunctions = OutputFunctions(system.sizes.states, system.sizes.parameters,
                                       loop_compile_settings['output_functions'],
                                       loop_compile_settings['saved_states'],
                                       loop_compile_settings['saved_observables'],
