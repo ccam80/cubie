@@ -99,7 +99,7 @@ class SummaryMetrics:
         """
         return self._names
 
-    def summary_buffer_height(self, output_types_requested):
+    def summaries_buffer_height(self, output_types_requested):
         """
         Returns the total buffer size for the requested summary metrics.
 
@@ -170,9 +170,9 @@ class SummaryMetrics:
             offset += size
         return tuple(offsets_dict[metric] for metric in parsed_request)
 
-    def summary_output_height(self, output_types_requested):
+    def summaries_output_height(self, output_types_requested):
         """
-        Returns the total output size for the requested summary metrics.
+        Returns the total output size for the requested summaries metrics.
 
         Args:
             output_types_requested: A list of metric names to calculate total output size for.

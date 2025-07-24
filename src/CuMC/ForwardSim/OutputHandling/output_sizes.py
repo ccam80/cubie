@@ -1,7 +1,11 @@
 import attrs
 import numpy as np
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, ClassVar
+
+from IPython.core.magic import output_can_be_silenced
+
 from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
+from CuMC.ForwardSim.integrators import IntegratorRunSettings
 from CuMC.SystemModels.Systems.GenericODE import GenericODE
 from CuMC.ForwardSim.integrators.IntegratorRunSettings import IntegatorRunSettings
 from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
@@ -12,7 +16,7 @@ from CuMC.SystemModels.Systems.ODEData import SystemSizes
 from numba.np.numpy_support import as_dtype as to_np_dtype
 
 
-def _ensure_nonzero(value: Union[int, Tuple], nozeros: bool) -> Union[int, Tuple]:
+def _ensure_nonzero(value: Union[int, Tuple[int, ...]], nozeros: bool) -> Union[int, Tuple[int, ...]]:
     """Helper function to replace zeros with ones if nozeros is True"""
     if not nozeros:
         return value
@@ -27,152 +31,211 @@ def _ensure_nonzero(value: Union[int, Tuple], nozeros: bool) -> Union[int, Tuple
 
 @attrs.define
 class SummariesBufferSizes:
-    """Given an OutputFunctions object, return the heights of the 1d arrays used to store summary data"""
-    _output_functions: OutputFunctions = attrs.field(validator=attrs.validators.instance_of(OutputFunctions))
+    """Given heights of buffers, return them directly under state and observable aliases. Most useful when called 
+    with an adapter factory - for example, give it an output_functions object, and it returns sizes without awkward 
+    property names from a more cluttered namespace"""
+    state: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    observables: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
     _nozeros: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
-    state: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    observables: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    
-    def __attrs_post_init__(self):
-        self.state = _ensure_nonzero(self._output_functions.state_summaries_output_height, self._nozeros)
-        self.observables = _ensure_nonzero(self._output_functions.observable_summaries_output_height, self._nozeros)
 
-
-@attrs.define
-class InnerLoopBufferSizes:
-    """Given an ODE system, return the heights of the 1d arrays used to store non-summary data"""
-    _system_sizes: SystemSizes = attrs.field(validator=attrs.validators.instance_of(SystemSizes))
-    _nozeros: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
-    state: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    observables: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    dxdt: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    parameters: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    drivers: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    
     def __attrs_post_init__(self):
-        self.state = _ensure_nonzero(self._system_sizes.states, self._nozeros)
-        self.observables = _ensure_nonzero(self._system_sizes.observables, self._nozeros)
-        self.dxdt = _ensure_nonzero(self._system_sizes.states, self._nozeros)
-        self.parameters = _ensure_nonzero(self._system_sizes.parameters, self._nozeros)
-        self.drivers = _ensure_nonzero(self._system_sizes.drivers, self._nozeros)
+        self.state = _ensure_nonzero(self.state, self._nozeros)
+        self.observables = _ensure_nonzero(self.observables, self._nozeros)
+
+    @classmethod
+    def from_output_fns(cls, output_fns: OutputFunctions, nozeros: bool = False) -> "SummariesBufferSizes":
+        return cls(output_fns.state_summaries_buffer_height,
+                   output_fns.observable_summaries_buffer_height,
+                   nozeros=nozeros,
+                   )
 
 
 @attrs.define
 class LoopBufferSizes:
-    """ Given a system and an output functions object, return the heights of the 1d arrays used to store loop
-    and summary data inside an integration loop."""
-    _system_sizes: SystemSizes = attrs.field(validator=attrs.validators.instance_of(SystemSizes))
-    _output_functions: OutputFunctions = attrs.field(validator=attrs.validators.instance_of(OutputFunctions))
+    """Dataclass which presents the sizes of all buffers used in the inner loop of an integrator - system-size based
+    buffers like state, dxdt and summary buffers derived from output functions information."""
+    # _system_sizes: SystemSizes = attrs.field(validator=attrs.validators.instance_of(SystemSizes))
+    # _output_functions: OutputFunctions = attrs.field(validator=attrs.validators.instance_of(OutputFunctions))
+    state_summaries: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    observable_summaries: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    state: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    observables: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    dxdt: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    parameters: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    drivers: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
     _nozeros: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
-    state_summaries: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    observable_summaries: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    state: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    observables: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    dxdt: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    parameters: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    drivers: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
 
     def __attrs_post_init__(self):
-        summary_sizes = SummariesBufferSizes(self._output_functions, nozeros=self._nozeros)
-        innerloop_sizes = InnerLoopBufferSizes(self._system_sizes, nozeros=self._nozeros)
-        self.state_summaries = summary_sizes.state
-        self.observable_summaries = summary_sizes.observables
-        self.state = innerloop_sizes.state
-        self.observables = innerloop_sizes.observables
-        self.dxdt = innerloop_sizes.dxdt
-        self.parameters = innerloop_sizes.parameters
-        self.drivers = innerloop_sizes.drivers
+        self.state = _ensure_nonzero(self.state, self._nozeros)
+        self.observables = _ensure_nonzero(self.observables, self._nozeros)
+        self.state_summaries = _ensure_nonzero(self.state_summaries, self._nozeros)
+        self.observable_summaries = _ensure_nonzero(self.observable_summaries, self._nozeros)
+        self.dxdt = _ensure_nonzero(self.dxdt, self._nozeros)
+        self.parameters = _ensure_nonzero(self.parameters, self._nozeros)
+        self.drivers = _ensure_nonzero(self.drivers, self._nozeros)
+
+    @classmethod
+    def from_system_and_output_fns(cls, system: GenericODE, output_fns: OutputFunctions, nozeros: bool = False,
+                                   ) -> "LoopBufferSizes":
+        summary_sizes = SummariesBufferSizes.from_output_fns(output_fns, nozeros=nozeros)
+        system_sizes = system.sizes
+        return cls(summary_sizes.state,
+                   summary_sizes.observables,
+                   system_sizes.states,
+                   system_sizes.observables,
+                   system_sizes.states,
+                   system_sizes.parameters,
+                   system_sizes.drivers,
+                   nozeros=nozeros,
+                   )
 
 
 @attrs.define
 class OutputArrayHeights:
-    _output_functions: OutputFunctions = attrs.field(validator=attrs.validators.instance_of(OutputFunctions))
+    state: int = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    observables: int = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    state_summaries: int = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    observable_summaries: int = attrs.field(default=1, validator=attrs.validators.instance_of(int))
     _nozeros: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
-    state: int = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    observables: int = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    state_summaries: int = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
-    observable_summaries: int = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
 
     def __attrs_post_init__(self):
-        self.state = _ensure_nonzero(self._output_functions.n_saved_states + 1 * self._output_functions.save_time, self._nozeros)
-        self.observables = _ensure_nonzero(self._output_functions.n_saved_observables, self._nozeros)
-        self.state_summaries = _ensure_nonzero(self._output_functions.state_summaries_output_height, self._nozeros)
-        self.observable_summaries = _ensure_nonzero(self._output_functions.observable_summaries_output_height, self._nozeros)
+        self.state = _ensure_nonzero(self.state, self._nozeros)
+        self.observables = _ensure_nonzero(self.observables, self._nozeros)
+        self.state_summaries = _ensure_nonzero(self.state_summaries, self._nozeros)
+        self.observable_summaries = _ensure_nonzero(self.observable_summaries, self._nozeros)
+
+    @classmethod
+    def from_output_fns(cls, output_fns: OutputFunctions, nozeros: bool = False) -> "OutputArrayHeights":
+        state = output_fns.n_saved_states + 1 * output_fns.save_time
+        observables = output_fns.n_saved_observables
+        state_summaries = output_fns.state_summaries_output_height
+        observable_summaries = output_fns.observable_summaries_output_height
+        return cls(state,
+                   observables,
+                   state_summaries,
+                   observable_summaries,
+                   nozeros=nozeros,
+                   )
+
 
 @attrs.define
 class SingleRunOutputSizes:
-    """ Returns 2d single-slice output array sizes for a single integration run, given output functions object and a run
-    settings class which has  output_samples and summarise_samples attributes."""
-    _output_functions: OutputFunctions = attrs.field(validator=attrs.validators.instance_of(OutputFunctions))
-    _run_settings: IntegatorRunSettings = attrs.field(validator=attrs.validators.instance_of(IntegatorRunSettings))
+    """ Returns 2d single-slice output array sizes for a single integration run."""
+    state: Tuple[int, int] = attrs.field(default=(1, 1), validator=attrs.validators.instance_of(Tuple))
+    observables: Tuple[int, int] = attrs.field(default=(1, 1), validator=attrs.validators.instance_of(Tuple))
+    state_summaries: Tuple[int, int] = attrs.field(default=(1, 1), validator=attrs.validators.instance_of(Tuple))
+    observable_summaries: Tuple[int, int] = attrs.field(default=(1, 1), validator=attrs.validators.instance_of(Tuple))
     _nozeros: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
-    state: Tuple[int, int] = attrs.field(default=(0,0), validator=attrs.validators.instance_of(Tuple), init=False)
-    observables: Tuple[int, int] = attrs.field(default=(0,0), validator=attrs.validators.instance_of(Tuple), init=False)
-    state_summaries: Tuple[int, int] = attrs.field(default=(0,0), validator=attrs.validators.instance_of(Tuple),
-                                                init=False)
-    observable_summaries: Tuple[int, int] = attrs.field(default=(0,0), validator=attrs.validators.instance_of(Tuple),
-                                                    init=False)
 
+    # noinspection PyTypeChecker
     def __attrs_post_init__(self):
-        heights = OutputArrayHeights(output_functions=self._output_functions, nozeros=self._nozeros)
+        self.state = _ensure_nonzero(self.state, self._nozeros)
+        self.observables = _ensure_nonzero(self.observables, self._nozeros)
+        self.state_summaries = _ensure_nonzero(self.state_summaries, self._nozeros)
+        self.observable_summaries = _ensure_nonzero(self.observable_summaries, self._nozeros)
 
-        output_samples: int = _ensure_nonzero(self._run_settings.output_samples, self._nozeros)
-        summarise_samples: int = _ensure_nonzero(self._run_settings.summarise_samples, self._nozeros)
-        self.state = (heights.state, output_samples)
-        self.observables = (heights.observables, output_samples)
-        self.state_summaries = (heights.state_summaries, summarise_samples)
-        self.observable_summaries = (heights.observable_summaries, summarise_samples)
+    @classmethod
+    def from_output_fns_and_run_settings(cls, output_fns, run_settings, nozeros=False):
+        heights = OutputArrayHeights.from_output_fns(output_fns)
+
+        state = (heights.state, run_settings.output_samples)
+        observables = (heights.observables, run_settings.output_samples)
+        state_summaries = (heights.state_summaries, run_settings.summarise_samples)
+        observable_summaries = (heights.observable_summaries, run_settings.summarise_samples)
+        return cls(state,
+                   observables,
+                   state_summaries,
+                   observable_summaries,
+                   nozeros,
+                   )
+
 
 @attrs.define
 class BatchOutputSizes:
     """ Returns 3d output array sizes for a batch of integration runs, given a singleintegrator sizes object and
     num_runs"""
-    _single_run_sizes: SingleRunOutputSizes = attrs.field(validator=attrs.validators.instance_of(SingleRunOutputSizes))
-    numruns: int = attrs.field(default=0, validator=attrs.validators.instance_of(int))
+    # _single_run_sizes: SingleRunOutputSizes = attrs.field(validator=attrs.validators.instance_of(SingleRunOutputSizes))
+    # numruns: int = attrs.field(default=1, validator=attrs.validators.instance_of(int))
+    state: Tuple[int, int, int] = attrs.field(default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple))
+    observables: Tuple[int, int, int] = attrs.field(default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple))
+    state_summaries: Tuple[int, int, int] = attrs.field(default=(1, 1, 1),
+                                                        validator=attrs.validators.instance_of(Tuple),
+                                                        )
+    observable_summaries: Tuple[int, int, int] = attrs.field(default=(1, 1, 1),
+                                                             validator=attrs.validators.instance_of(Tuple),
+                                                             )
     _nozeros: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
-    state: Tuple[int, int, int] = attrs.field(default=(0,0,0), validator=attrs.validators.instance_of(Tuple), init=False)
-    observables: Tuple[int, int, int] = attrs.field(default=(0,0,0), validator=attrs.validators.instance_of(Tuple), init=False)
-    state_summaries: Tuple[int, int, int] = attrs.field(default=(0,0,0), validator=attrs.validators.instance_of(Tuple),
-                                                    init=False)
-    observable_summaries: Tuple[int, int, int] = attrs.field(default=(0,0,0), validator=attrs.validators.instance_of(Tuple),
-                                                    init=False)
 
+    # noinspection PyTypeChecker
     def __attrs_post_init__(self):
-        numruns = _ensure_nonzero(self.numruns, self._nozeros)
-        self.state = _ensure_nonzero((self._single_run_sizes.state[0], numruns, self._single_run_sizes.state[1]), self._nozeros)
-        self.observables = _ensure_nonzero((self._single_run_sizes.observables[0], numruns, self._single_run_sizes.observables[1]), self._nozeros)
-        self.state_summaries = _ensure_nonzero((self._single_run_sizes.state_summaries[0], numruns, self._single_run_sizes.state_summaries[1]), self._nozeros)
-        self.observable_summaries = _ensure_nonzero((self._single_run_sizes.observable_summaries[0], numruns,
-                                                    self._single_run_sizes.observable_summaries[1]), self._nozeros)
+        self.state = _ensure_nonzero(self.state, self._nozeros)
+        self.observables = _ensure_nonzero(self.observables, self._nozeros)
+        self.state_summaries = _ensure_nonzero(self.state_summaries, self._nozeros)
+        self.observable_summaries = _ensure_nonzero(self.observable_summaries, self._nozeros)
+
+    @classmethod
+    def from_output_fns_and_run_settings(cls,
+                                         output_fns: OutputFunctions,
+                                         run_settings: IntegratorRunSettings,
+                                         numruns: int,
+                                         nozeros: bool = False,
+                                         ) -> "BatchOutputSizes":
+        """
+        Create a BatchOutputSizes instance from a SingleRunOutputSizes object and the number of runs.
+        """
+        single_run_sizes = SingleRunOutputSizes.from_output_fns_and_run_settings(output_fns, run_settings,
+                                                                                 nozeros=nozeros,
+                                                                                 )
+        state = (single_run_sizes.state[0], numruns, single_run_sizes.state[1])
+        observables = (single_run_sizes.observables[0], numruns, single_run_sizes.observables[1])
+        state_summaries = (single_run_sizes.state_summaries[0], numruns, single_run_sizes.state_summaries[1])
+        observable_summaries = (single_run_sizes.observable_summaries[0],
+                                numruns,
+                                single_run_sizes.observable_summaries[1]
+                                )
+        return cls(state,
+                   observables,
+                   state_summaries,
+                   observable_summaries,
+                   nozeros=nozeros,
+                   )
 
 
 def cuda_3d_array_validator(instance, attribute, value):
     return is_cuda_array(value) and len(value.shape) == 3
 
+
 @attrs.define
 class BatchArrays:
     """ Allocates pinned and mapped output arrays for a batch of integration runs, caching them in case of a
     consecutive run with the same sizes"""
-    _sizes: BatchOutputSizes = attrs.field(validator=attrs.validators.instance_of(BatchOutputSizes))
+    sizes: BatchOutputSizes = attrs.field(validator=attrs.validators.instance_of(BatchOutputSizes))
     _precision: Float = attrs.field(default=float32, validator=attrs.validators.instance_of(Float))
+    _nozeros: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
     state = attrs.field(default=None, validator=attrs.validators.optional(cuda_3d_array_validator))
     observables = attrs.field(default=None, validator=attrs.validators.optional(cuda_3d_array_validator))
     state_summaries = attrs.field(default=None, validator=attrs.validators.optional(cuda_3d_array_validator))
     observable_summaries = attrs.field(default=None, validator=attrs.validators.optional(cuda_3d_array_validator))
 
     @classmethod
-    def from_output_functions_and_run_settings(cls,
-                                               output_functions: OutputFunctions,
-                                               run_settings: IntegatorRunSettings,
-                                               numruns: int=1,
-                                               nozeros: bool=False):
+    def from_output_fns_and_run_settings(cls,
+                                         output_fns: OutputFunctions,
+                                         run_settings: IntegratorRunSettings,
+                                         numruns: int,
+                                         precision: Optional[Float] = float32,
+                                         nozeros: bool = False,
+                                         ) -> "BatchArrays":
         """
-        Create a BatchArrays instance from an OutputFunctions object and an IntegatorRunSettings object.
-        This is useful for creating the batch arrays for a batch of runs with the same output functions and run settings.
+        Create a BatchArrays instance from a output functions and run settings. Does not allocate, just sets up sizes
         """
-        single_run_sizes = SingleRunOutputSizes(output_functions=output_functions, run_settings=run_settings, nozeros=nozeros)
-        batch_sizes = BatchOutputSizes(single_run_sizes=single_run_sizes, numruns=numruns, nozeros=nozeros)
-        return cls(sizes=batch_sizes, precision=run_settings.precision)
+        sizes = BatchOutputSizes.from_output_fns_and_run_settings(output_fns, run_settings, numruns,
+                                                                  nozeros=nozeros,
+                                                                  )
+
+        return cls(sizes,
+                   precision=precision,
+                   nozeros=nozeros,
+                   )
 
     #TODO: Add adapters to array size classes from single run and solver classes.
     #  The single integrator run sizes and up have been implemented before the classes were refactored to separate
@@ -206,9 +269,9 @@ class BatchArrays:
             self._precision = precision
             valid = False
         if self.state.shape != sizes.state or \
-           self.observables.shape != sizes.observables or \
-           self.state_summaries.shape != sizes.state_summaries or \
-           self.observable_summaries.shape != sizes.observable_summaries:
+                self.observables.shape != sizes.observables or \
+                self.state_summaries.shape != sizes.state_summaries or \
+                self.observable_summaries.shape != sizes.observable_summaries:
             self._sizes = sizes
             valid = False
 

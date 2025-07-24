@@ -81,7 +81,7 @@ def update_summary_factory(
     function which updates all requested summaries."""
     num_summarised_states = len(summarised_states)
     num_summarised_observables = len(summarised_observables)
-    total_buffer_size = summary_metrics.summary_buffer_height(summaries_list)
+    total_buffer_size = summary_metrics.summaries_buffer_height(summaries_list)
     buffer_offsets = summary_metrics.buffer_offsets(summaries_list)
     num_metrics = len(buffer_offsets)
 

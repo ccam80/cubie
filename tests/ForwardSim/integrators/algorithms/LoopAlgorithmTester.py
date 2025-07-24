@@ -87,7 +87,7 @@ class LoopAlgorithmTester:
                 assert loop_under_test.compile_settings.n_saved_observables == len(value), \
                     f"saved_states does not match expected value {len(value)}"
             elif key == "output_functions" or key == "n_peaks":
-                assert loop_under_test.compile_settings.summary_buffer_height == expected_summary_buffer_size, \
+                assert loop_under_test.compile_settings.summaries_buffer_height == expected_summary_buffer_size, \
                     (f"Summary buffer requirement doesn't match expected - the loop_compile_settings change doesn't "
                      f"gethrough.")
             else:
@@ -147,7 +147,7 @@ class LoopAlgorithmTester:
             ...
         """
         outputs_list = loop_compile_settings['output_functions']
-        buffer_size = summary_metrics.summary_buffer_height(outputs_list)
+        buffer_size = summary_metrics.summaries_buffer_height(outputs_list)
         return buffer_size
 
     @pytest.fixture(scope='function')
@@ -215,7 +215,7 @@ class LoopAlgorithmTester:
 
         # Shared memory requirements:
         loop_memory = loop_under_test.get_cached_output('loop_shared_memory')
-        summary_memory = loop_under_test.compile_settings.summary_buffer_height * (n_saved_states + n_saved_observables)
+        summary_memory = loop_under_test.compile_settings.summaries_buffer_height * (n_saved_states + n_saved_observables)
         floatsize = precision().itemsize
 
         dynamic_sharedmem = floatsize * (summary_memory + loop_memory)
@@ -269,41 +269,3 @@ class LoopAlgorithmTester:
         shared_memory = loop_under_test.shared_memory_required
         assert shared_memory == expected_loop_shared_memory, f"Expected {expected_loop_shared_memory} shared memory items, got {shared_memory}"
 
-    # @pytest.mark.parametrize(
-    #     "loop_compile_settings_overrides, expected_warnings, test_name",
-    #     [({}, None, "Default settings"),
-    #      ({"dt_min": 0.003, "dt_summarise": 0.15}, (UserWarning, "dt_save was set to ", "dt_summarise was set to"),
-    #       "both_inexact"),
-    #      ({"dt_min": 0.003, "dt_save": 0.003}, (UserWarning, "dt_summarise was set to"), "summarise_inexact"),
-    #      ({"dt_min": 0.003}, (UserWarning, "dt_save was set to"), "save_inexact")],
-    #     ids=lambda x: x if isinstance(x, str) else "",
-    #     indirect=["loop_compile_settings_overrides"])
-    # def test_time_to_fixed_steps(self, loop_under_test, loop_compile_settings, expected_warnings, system_override, test_name):
-    #     """Test the _time_to_samples method of Euler. Individual component functions are tested in test_utils, we
-    #     just need to check that the user is notified of changes to save/summarise intervals
-    #     """
-    #     if system_override is not None:
-    #         pytest.skip("Only running this test once, for default system")
-    #
-    #     if expected_warnings is not None:
-    #         with pytest.warns(expected_warnings[0]) as warnings:
-    #             actual_save_steps, actual_summarise_steps, step_size = loop_under_test._time_to_fixed_steps()
-    #         for warning in expected_warnings[1:]:
-    #             assert any(warning in str(w.message) for w in
-    #                        warnings), f"Expected warning '{warning}' not found in {warnings}"
-    #     else:
-    #         actual_save_steps, actual_summarise_steps, step_size = loop_under_test._time_to_fixed_steps()
-    #
-    #     dt_min = loop_compile_settings['dt_min']
-    #     dt_max = loop_compile_settings['dt_max']
-    #     dt_save = loop_compile_settings['dt_save']
-    #     dt_summarise = loop_compile_settings['dt_summarise']
-    #
-    #     expected_save_steps, expected_summarise_steps, expected_dt_save, expected_dt_summarise = (
-    #         loop_compile_settings.fixed_steps
-    #
-    #     assert loop_under_test.compile_settings.dt_save == expected_dt_save, "dt_save was not updated correctly"
-    #     assert loop_under_test.compile_settings.dt_summarise == expected_dt_summarise, "dt_summarise was not updated correctly"
-    #     assert actual_save_steps == expected_save_steps, "save_every_samples was not calculated correctly"
-    #     assert actual_summarise_steps == expected_summarise_steps, "summarise_every_samples was not calculated correctly"
-    #     assert step_size == dt_min, "step_size was not set to dt_min as expected"

@@ -129,8 +129,8 @@ class OutputFunctions(CUDAFactory):
     def memory_per_summarised_variable(self):
         """Return the memory requirements for buffer and output arrays."""
         return {
-            'buffer': self.compile_settings.summary_buffer_height_per_var,
-            'output':    self.compile_settings.summary_output_height_per_var,
+            'buffer': self.compile_settings.summaries_buffer_height_per_var,
+            'output':    self.compile_settings.summaries_output_height_per_var,
             }
 
     @property

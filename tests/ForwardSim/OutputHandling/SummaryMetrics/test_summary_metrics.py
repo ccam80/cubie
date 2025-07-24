@@ -128,7 +128,7 @@ def test_output_offsets_returns_correct_tuple(mock_metrics):
     """Test that output_offsets returns tuple with correct offset values."""
     requested = ["mock_metric", "parameterised[5]"]
     offsets_tuple = mock_metrics.output_offsets(requested)
-    total_size = mock_metrics.summary_output_height(requested)
+    total_size = mock_metrics.summaries_output_height(requested)
 
     # mock_metric starts at 0, parameterised[5] starts at 3 (mock_metric's output size)
     expected_offsets = (0, 3)
@@ -162,7 +162,7 @@ def test_tuple_ordering_alignment(mock_metrics):
 
     buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
     output_offsets_tuple = mock_metrics.output_offsets(requested)
-    output_total_size = mock_metrics.summary_output_height(requested)
+    output_total_size = mock_metrics.summaries_output_height(requested)
     buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
     output_sizes_tuple = mock_metrics.output_sizes(requested)
 
@@ -247,8 +247,8 @@ def test_empty_request_returns_empty_tuple(mock_metrics):
     # For offset methods, empty requests should return (0, empty_tuple)
     buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
     output_offsets_tuple = mock_metrics.output_offsets(requested)
-    buffer_total_size = mock_metrics.summary_buffer_height(requested)
-    output_total_size = mock_metrics.summary_output_height(requested)
+    buffer_total_size = mock_metrics.summaries_buffer_height(requested)
+    output_total_size = mock_metrics.summaries_output_height(requested)
 
     assert buffer_sizes_tuple == ()
     assert output_sizes_tuple == ()
@@ -446,7 +446,7 @@ def test_real_summary_metrics_offset_calculations(real_metrics):
 
     # Test output offsets
     output_offsets_tuple = real_metrics.output_offsets(requested)
-    output_total_size = real_metrics.summary_output_height(requested)
+    output_total_size = real_metrics.summaries_output_height(requested)
 
     # Expected output offsets:
     # mean: 0 (size=1)
@@ -492,8 +492,8 @@ def test_real_summary_metrics_tuple_ordering_consistency(real_metrics):
     assert output_offsets_tuple == (0, 1, 5)
 
     # Verify totals
-    buffer_total_size = real_metrics.summary_buffer_height(requested)
-    output_total_size = real_metrics.summary_output_height(requested)
+    buffer_total_size = real_metrics.summaries_buffer_height(requested)
+    output_total_size = real_metrics.summaries_output_height(requested)
 
     assert buffer_total_size == 9  # 1 + 7 + 1
     assert output_total_size == 6  # 1 + 4 + 1
@@ -502,7 +502,7 @@ def test_real_summary_metrics_tuple_ordering_consistency(real_metrics):
 def test_real_summary_metrics_edge_cases(real_metrics):
     """Test edge cases with real metrics."""
     # Test with single metric
-    summary_buffer_height = real_metrics.summary_buffer_height(["mean"])
+    summary_buffer_height = real_metrics.summaries_buffer_height(["mean"])
     buffer_offsets_generator = real_metrics.buffer_offsets(["mean"])
     buffer_offsets_tuple = tuple(buffer_offsets_generator)
 
@@ -551,7 +551,7 @@ def test_column_headings(real_metrics):
 def test_summary_buffer_size_returns_correct_total(mock_metrics):
     """Test that summary_buffer_size returns correct total buffer size."""
     requested = ["mock_metric", "parameterised[5]"]
-    total_size = mock_metrics.summary_buffer_height(requested)
+    total_size = mock_metrics.summaries_buffer_height(requested)
 
     # mock_metric=5 + parameterised[5]=10
     expected_total_size = 15

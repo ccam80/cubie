@@ -246,35 +246,44 @@ class OutputConfig:
         return len(self._summarised_observable_indices) if self.save_summaries else 0
 
     @property
-    def summary_buffer_height_per_var(self) -> int:
+    def summaries_buffer_height_per_var(self) -> int:
         """Calculate buffer size per variable using SummaryMetrics system."""
         if not self.summary_types:
             return 0
         # Convert summary_types set to list for SummaryMetrics
         summary_list = list(self._summary_types)
-        total_buffer_size = summary_metrics.summary_buffer_height(summary_list)
+        total_buffer_size = summary_metrics.summaries_buffer_height(summary_list)
         return total_buffer_size
 
     @property
-    def summary_output_height_per_var(self) -> int:
+    def summaries_output_height_per_var(self) -> int:
         """Calculate output memory per variable using SummaryMetrics system."""
         if not self._summary_types:
             return 0
         # Convert summary_types tuple to list for SummaryMetrics
         summary_list = list(self._summary_types)
-        total_output_size = summary_metrics.summary_output_height(summary_list)
+        total_output_size = summary_metrics.summaries_output_height(summary_list)
         return total_output_size
 
     @property
-    def state_summary_buffer_height(self) -> int:
+    def state_summaries_buffer_height(self) -> int:
         """Calculate the height of the state summary buffer."""
-        return self.summary_buffer_height_per_var * self.n_summarised_states
+        return self.summaries_buffer_height_per_var * self.n_summarised_states
 
     @property
-    def observable_summary_buffer_height(self) -> int:
+    def observable_summaries_buffer_height(self) -> int:
         """Calculate the height of the observable summary buffer."""
-        return self.summary_buffer_height_per_var * self.n_summarised_observables
+        return self.summaries_buffer_height_per_var * self.n_summarised_observables
 
+    @property
+    def state_summaries_output_height(self) -> int:
+        """Calculate the height of the state summary output."""
+        return self.summaries_output_height_per_var * self.n_summarised_states
+
+    @property
+    def observable_summaries_output_height(self) -> int:
+        """Calculate the height of the observable summary output."""
+        return self.summaries_output_height_per_var * self.n_summarised_observables
     # ***************************** Custom init methods for adapting to other components ***************************** #
     def update_from_outputs_tuple(self,
                                  output_types: tuple[str]):
