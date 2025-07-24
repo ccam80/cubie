@@ -1,6 +1,7 @@
 import attrs
 import numpy as np
-from numba.types import Float, float32
+from numba.types import Float
+from numba import float32
 from typing import Optional
 from CuMC.SystemModels.SystemValues import SystemValues
 from numba import from_dtype
