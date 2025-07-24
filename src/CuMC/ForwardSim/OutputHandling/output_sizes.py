@@ -8,6 +8,7 @@ from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
 from numba.cuda import is_cuda_array
 from numba.types import Float
 from numba import float32
+from CuMC.SystemModels.Systems.ODEData import SystemSizes
 
 
 #TODO: Add a no_zeros toggle to arraysize classes
@@ -23,14 +24,14 @@ class SummariesBufferSizes:
     observables: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
     
     def __attrs_post_init__(self):
-        state = self._output_functions.state_summaries_output_height
-        observables = self._output_functions.observable_summaries_output_height
+        self.state = self._output_functions.state_summaries_output_height
+        self.observables = self._output_functions.observable_summaries_output_height
 
 
 @attrs.define
 class InnerLoopBufferSizes:
     """Given an ODE system, return the heights of the 1d arrays used to store non-summary data"""
-    _system: GenericODE = attrs.field(validator=attrs.validators.instance_of(GenericODE))
+    _system_sizes: SystemSizes = attrs.field(validator=attrs.validators.instance_of(SystemSizes))
     state: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
     observables: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
     dxdt: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
@@ -38,18 +39,18 @@ class InnerLoopBufferSizes:
     drivers: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
     
     def __attrs_post_init__(self):
-        self.state = self._system.sizes.state
-        self.observables = self._system.sizes.observables
-        self.dxdt = self._system.sizes.states
-        self.parameters = self._system.sizes.parameters
-        self.drivers = self._system.sizes.drivers
+        self.state = self._system_sizes.state
+        self.observables = self._system_sizes.observables
+        self.dxdt = self._system_sizes.states
+        self.parameters = self._system_sizes.parameters
+        self.drivers = self._system_sizes.drivers
 
 
 @attrs.define
 class LoopBufferSizes:
     """ Given a system and an output functions object, return the heights of the 1d arrays used to store loop
     and summary data inside an integration loop."""
-    _system: GenericODE = attrs.field(validator=attrs.validators.instance_of(GenericODE))
+    _system_sizes: SystemSizes = attrs.field(validator=attrs.validators.instance_of(SystemSizes))
     _output_functions: OutputFunctions = attrs.field(validator=attrs.validators.instance_of(OutputFunctions))
     state_summaries: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
     observable_summaries: Optional[int] = attrs.field(default=0, validator=attrs.validators.instance_of(int), init=False)
@@ -61,7 +62,7 @@ class LoopBufferSizes:
 
     def __attrs_post_init__(self):
         summary_sizes = SummariesBufferSizes(self._output_functions)
-        innerloop_sizes = InnerLoopBufferSizes(self._system)
+        innerloop_sizes = InnerLoopBufferSizes(self._system_sizes)
         self.state_summaries = summary_sizes.state
         self.observable_summaries = summary_sizes.observables
         self.state = innerloop_sizes.state
@@ -135,146 +136,57 @@ class BatchArrays:
     """ Allocates pinned and mapped output arrays for a batch of integration runs, caching them in case of a
     consecutive run with the same sizes"""
     _sizes: BatchOutputSizes = attrs.field(validator=attrs.validators.instance_of(BatchOutputSizes))
-    precision: Float = attrs.field(default=float32, validator=attrs.validators.instance_of(Float))
+    _precision: Float = attrs.field(default=float32, validator=attrs.validators.instance_of(Float))
     state = None
     observables = None
     state_summaries = None
     observable_summaries = None
 
-    def allocate(self):
+    @classmethod
+    def from_output_functions_and_run_settings(cls,
+                                               output_functions: OutputFunctions,
+                                               run_settings: IntegatorRunSettings
+                                               ,numruns: int=1):
+        """
+        Create a BatchArrays instance from an OutputFunctions object and an IntegatorRunSettings object.
+        This is useful for creating the batch arrays for a batch of runs with the same output functions and run settings.
+        """
+        single_run_sizes = SingleRunOutputSizes(output_functions=output_functions, run_settings=run_settings)
+        batch_sizes = BatchOutputSizes(single_run_sizes=single_run_sizes, numruns=numruns)
+        return cls(sizes=batch_sizes, precision=run_settings.precision)
+
+    #TODO: Add adapters to array size classes from single run and solver classes.
+    #  The single integrator run sizes and up have been implemented before the classes were refactored to separate
+    #  data and build, and so their interface is not yet fixed. It makes more sense to accept whatever interface they
+    #  find and add an adapter in these modules, rather than try to guess how it will look, because my crystal ball
+    #  often fails me.
+
+    def _allocate_new(self):
+        self.state = np.zeros(self._sizes.state, dtype=self._precision)
+        self.observables = np.zeros(self._sizes.observables, dtype=self._precision)
+        self.state_summaries = np.zeros(self._sizes.state_summaries, dtype=self._precision)
+        self.observable_summaries = np.zeros(self._sizes.observable_summaries, dtype=self._precision)
+
+    def cache_valid(self, sizes: BatchOutputSizes, precision: Optional[Float] = None):
+        """Check if we have cached arrays that are still a match for the given sizes and precision."""
+        valid = True
+        if self.state is None:
+            valid = False
+        if precision is not None and precision != self._precision:
+            self._precision = precision
+            valid = False
+        if self.state.shape != sizes.state or \
+           self.observables.shape != sizes.observables or \
+           self.state_summaries.shape != sizes.state_summaries or \
+           self.observable_summaries.shape != sizes.observable_summaries:
+            self._sizes = sizes
+            valid = False
+
+        return valid
+
+    def allocate(self, sizes, precision=None):
         """
         Allocate the arrays for the batch of runs, using the sizes provided in the BatchOutputSizes object.
         """
-        if self.state is None:
-            self.state = np.zeros(self._sizes.state, dtype=self.precision)
-            self.observables = np.zeros(self._sizes.observables, dtype=self.precision)
-            self.state_summaries = np.zeros(self._sizes.state_summaries, dtype=self.precision)
-            self.observable_summaries = np.zeros(self._sizes.observable_summaries, dtype=self.precision)
-
-        return self
-
-
-
-#
-#
-# @attrs.define
-# class OutputArrayDimensions:
-#     """
-#     Manages 2D and 3D array dimensions with time and run information.
-#     """
-#     array_sizes: OutputArraySizes = attrs.field(validator=attrs.validators.instance_of(OutputArraySizes))
-#     n_samples: int = attrs.field(default=0, validator=attrs.validators.instance_of(int))
-#     n_summaries_samples: int = attrs.field(default=0, validator=attrs.validators.instance_of(int))
-#     numruns: int = attrs.field(default=0, validator=attrs.validators.instance_of(int))
-#
-#     def get_shapes(self, for_allocation=True):
-#
-#
-#         """
-#         Get output array sizes for the current configuration. Call with no arguments for the heights of arrays (
-#         number of elements per sample), call with n_samples and n_summaries_samples to get 2d "slice" shapes,
-#         and call with numruns as well to get the 3d full run array shapes.
-#
-#         Args:
-#             n_samples: int
-#                 Number of time-domain samples. Sets the first dimension of 2d and 3d time-domain arrays
-#             n_summaries_samples: int
-#                 Number of summaries samples. Sets the first dimension of 2d and 3d summaries arrays
-#             numruns: int
-#                 Number of runs, used to set the "middle" dimension of 3d arrays
-#             for_allocation: If you're using this to allocate Memory, return minimum size 1 arrays to avoid breaking
-#                 the memory allocator in numba.cuda.
-#
-#         Returns:
-#             Dictionary with array names and their (samples, variables) shapes
-#
-#         Example:
-#             '''
-#             >>> output_sizes = output_functions.get_output_sizes()
-#             >>> print(output_sizes)
-#             {
-#                 'state': 5,
-#                 'observables': 3,
-#                 'state_summaries': 4,
-#                 'observable_summaries': 2
-#             }
-#             >>> output_sizes = output_functions.get_output_sizes(n_samples=100, n_summaries_samples=10)
-#             >>> print(output_sizes)
-#             {
-#                 'state': (100, 5),
-#                 'observables': (100, 3),
-#                 'state_summaries': (10, 4),
-#                 'observable_summaries': (10, 2)
-#             }
-#             >>> output_sizes = output_functions.get_output_sizes(n_samples=100, n_summaries_samples=10, numruns=32)
-#             >>> print(output_sizes)
-#             {
-#                 'state': (32, 100, 5),
-#                 'observables': (32, 100, 3),
-#                 'state_summaries': (32, 10, 4),
-#                 'observable_summaries': (32, 10, 2)
-#             }
-#
-#             '''
-#             if for_allocation is true, any shapes featuring a zero will be replaced with a tuple full of ones.
-#
-#             #TODO: Move this into a kernel-level allocator function.
-#         """
-#         sizes = self.array_sizes()
-#         if n_samples == 0 and n_summaries_samples == 0:
-#             state_shape = sizes.state.output
-#             observable_shape = sizes.observables.output
-#             state_summaries_shape = sizes.state_summaries.output
-#             observable_summaries_shape = sizes.observable_summaries.output
-#             one_element = 1
-#         elif numruns == 0:
-#             state_shape = (n_samples, sizes.state.output)
-#             observable_shape = (n_samples, sizes.observables.output)
-#             state_summaries_shape = (n_summaries_samples, sizes.state_summaries.output)
-#             observable_summaries_shape = (n_summaries_samples, sizes.observable_summaries.output)
-#             one_element = (1, 1)
-#         else:
-#             state_shape = (n_samples, numruns, sizes.state.output)
-#             observable_shape = (n_samples, numruns, sizes.observables.output)
-#             state_summaries_shape = (n_summaries_samples, numruns, sizes.state_summaries.output)
-#             observable_summaries_shape = (n_summaries_samples, numruns, sizes.observable_summaries.output)
-#             one_element = (1, 1, 1)
-#
-#         array_size_dict = {'state':                state_shape,
-#                            'observables':          observable_shape,
-#                            'state_summaries':      state_summaries_shape,
-#                            'observable_summaries': observable_summaries_shape
-#                            }
-#
-#         if for_allocation:
-#             # Replace any zero dimensions with ones to avoid breaking the memory allocator
-#             for key, value in array_size_dict.items():
-#                 if 0 in value:
-#                     array_size_dict[key] = one_element
-#
-#         return array_size_dict
-#
-#
-#     @property
-#     def array_sizes(self):
-#         return self.compile_settings.get_array_sizes()
-#
-#     @property
-#     def nonzero_array_sizes(self):
-#         return self.compile_settings.get_array_sizes(CUDA_allocation_safe=True)
-#
-#     def get_array_sizes(self, CUDA_allocation_safe=False) -> OutputArraySizes:
-#         """Calculate the number of entries required in each array for the requested outputs. Optionally,
-#         pass CUDA_allocation_safe=True and the function will provide a minimum size of 1, avoiding zero-sized arrays"""
-#
-#         return OutputArraySizes.from_sizes(self.summaries_temp_memory_per_var,
-#                                            self.summaries_output_memory_per_var,
-#                                            n_saved_states=self.n_saved_states,
-#                                            n_saved_observables=self.n_saved_observables,
-#                                            n_summarised_states=self.n_summarised_states,
-#                                            n_summarised_observables=self.n_summarised_observables,
-#                                            max_states=self.max_states,
-#                                            max_observables=self.max_observables,
-#                                            save_time=self.save_time,
-#                                            CUDA_allocation_safe=CUDA_allocation_safe,
-#                                            )
+        if not self.cache_valid(sizes, precision):
+            self._allocate_new()
