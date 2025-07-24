@@ -179,10 +179,12 @@ class OutputFunctions(CUDAFactory):
         """Height of the output array for observable summaries."""
         return self.compile_settings.observable_summaries_output_height
 
+    @property
     def state_summaries_buffer_height(self) -> int:
         """Calculate the height of the state summaries buffer."""
         return self.compile_settings.state_summaries_buffer_height
 
+    @property
     def observable_summaries_buffer_height(self) -> int:
         """Calculate the height of the observable summaries buffer."""
         return self.compile_settings.observable_summaries_buffer_height

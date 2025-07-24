@@ -265,10 +265,12 @@ class OutputConfig:
         total_output_size = summary_metrics.summary_output_height(summary_list)
         return total_output_size
 
+    @property
     def state_summary_buffer_height(self) -> int:
         """Calculate the height of the state summary buffer."""
         return self.summary_buffer_height_per_var * self.n_summarised_states
 
+    @property
     def observable_summary_buffer_height(self) -> int:
         """Calculate the height of the observable summary buffer."""
         return self.summary_buffer_height_per_var * self.n_summarised_observables
