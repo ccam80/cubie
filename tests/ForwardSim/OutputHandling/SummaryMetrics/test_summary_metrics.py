@@ -24,10 +24,10 @@ def real_metrics():
 @pytest.fixture(scope="function")
 def mock_functions():
     """Create mock functions for update and save."""
-    def mock_update(value, temp_array, current_index, customisable_variable):
+    def mock_update(value, buffer, current_index, customisable_variable):
         """Mock update function that does nothing."""
         pass
-    def mock_save(temp_array, output_array, summarise_every, customisable_variable):
+    def mock_save(buffer, output_array, summarise_every, customisable_variable):
         """Mock save function that does nothing."""
         pass
     return mock_update, mock_save
@@ -36,7 +36,7 @@ def mock_functions():
 @pytest.fixture(scope="function")
 def mock_metric_settings(request):
     """Create mock settings for testing."""
-    defaults = {'temp_size': 5,
+    defaults = {'buffer_size': 5,
                 'output_size': 3,
                 'name': 'mock_metric'}
     if hasattr(request, 'param'):
@@ -50,12 +50,12 @@ def mock_metric(mock_functions, mock_metric_settings):
     """Create a mock SummaryMetric instance."""
     update_func, save_func = mock_functions
     name = mock_metric_settings['name']
-    temp_size = mock_metric_settings['temp_size']
+    buffer_size = mock_metric_settings['buffer_size']
     output_size = mock_metric_settings['output_size']
 
     return SummaryMetric(
         name=name,
-        temp_size=temp_size,
+        buffer_size=buffer_size,
         output_size=output_size,
         update_device_func=update_func,
         save_device_func=save_func
@@ -67,7 +67,7 @@ def mock_parametrized_metric(mock_functions, mock_metric_settings):
     """Create a mock SummaryMetric instance."""
     update_func, save_func = mock_functions
     name = 'parameterised'
-    def temp_size(param):
+    def buffer_size(param):
         return 2*param
 
     def output_size(param):
@@ -75,7 +75,7 @@ def mock_parametrized_metric(mock_functions, mock_metric_settings):
 
     return SummaryMetric(
             name=name,
-            temp_size=temp_size,
+            buffer_size=buffer_size,
             output_size=output_size,
             update_device_func=update_func,
             save_device_func=save_func
@@ -97,15 +97,15 @@ def test_register_metrics_success(empty_metrics, mock_metric, mock_parametrized_
 
     assert "mock_metric" in empty_metrics.implemented_metrics
     assert "parameterised" in empty_metrics.implemented_metrics
-    assert empty_metrics._temp_sizes["mock_metric"] == 5
+    assert empty_metrics._buffer_sizes["mock_metric"] == 5
     assert empty_metrics._output_sizes["mock_metric"] == 3
 
 
 def test_register_metric_duplicate_name_raises_error(empty_metrics, mock_functions):
     """Test that registering a metric with duplicate name raises ValueError."""
     update, save = mock_functions
-    metric1 = SummaryMetric(name="duplicate", temp_size=5, output_size=3, save_device_func=save, update_device_func=update)
-    metric2 = SummaryMetric(name="duplicate", temp_size=10, output_size=6, save_device_func=save, update_device_func=update)
+    metric1 = SummaryMetric(name="duplicate", buffer_size=5, output_size=3, save_device_func=save, update_device_func=update)
+    metric2 = SummaryMetric(name="duplicate", buffer_size=10, output_size=6, save_device_func=save, update_device_func=update)
 
     empty_metrics.register_metric(metric1)
 
@@ -113,10 +113,10 @@ def test_register_metric_duplicate_name_raises_error(empty_metrics, mock_functio
         empty_metrics.register_metric(metric2)
 
 
-def test_temp_offsets_returns_correct_tuple(mock_metrics):
-    """Test that temp_offsets returns tuple with correct offset values."""
+def test_buffer_offsets_returns_correct_tuple(mock_metrics):
+    """Test that buffer_offsets returns tuple with correct offset values."""
     requested = ["mock_metric", "parameterised[5]"]
-    total_size, offsets_tuple = mock_metrics.temp_offsets(requested)
+    total_size, offsets_tuple = mock_metrics.buffer_offsets(requested)
 
     # mock_metric starts at 0, parameterised[5] starts at 5 (mock_metric's size)
     expected_offsets = (0, 5)
@@ -139,10 +139,10 @@ def test_output_offsets_returns_correct_tuple(mock_metrics):
     assert total_size == expected_total_size
 
 
-def test_temp_sizes_returns_correct_tuple(mock_metrics):
-    """Test that temp_sizes returns tuple with correct size values."""
+def test_buffer_sizes_returns_correct_tuple(mock_metrics):
+    """Test that buffer_sizes returns tuple with correct size values."""
     requested = ["mock_metric", "parameterised[5]"]
-    sizes_tuple = mock_metrics.temp_sizes(requested)
+    sizes_tuple = mock_metrics.buffer_sizes(requested)
 
     expected_sizes = (5, 10)  # mock_metric=5, parameterised[5]=2*5=10
     assert sizes_tuple == expected_sizes
@@ -161,23 +161,23 @@ def test_tuple_ordering_alignment(mock_metrics):
     """Test that all tuple methods return values in the same order."""
     requested = ["parameterised[3]", "mock_metric"]  # Intentionally different order
 
-    temp_total_size, temp_offsets_tuple = mock_metrics.temp_offsets(requested)
+    buffer_total_size, buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
     output_total_size, output_offsets_tuple = mock_metrics.output_offsets(requested)
-    temp_sizes_tuple = mock_metrics.temp_sizes(requested)
+    buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
     output_sizes_tuple = mock_metrics.output_sizes(requested)
 
     # All tuples should have the same length
-    assert len(temp_offsets_tuple) == len(output_offsets_tuple) == len(temp_sizes_tuple) == len(output_sizes_tuple)
+    assert len(buffer_offsets_tuple) == len(output_offsets_tuple) == len(buffer_sizes_tuple) == len(output_sizes_tuple)
 
     # Check that the ordering is consistent by verifying specific values
     # Since we requested ["parameterised[3]", "mock_metric"], we should get values in that order
-    assert temp_sizes_tuple == (6, 5)  # parameterised[3]=2*3=6, mock_metric=5
+    assert buffer_sizes_tuple == (6, 5)  # parameterised[3]=2*3=6, mock_metric=5
     assert output_sizes_tuple == (6, 3)  # parameterised[3]=2*3=6, mock_metric=3
-    assert temp_offsets_tuple == (0, 6)  # parameterised[3]=0, mock_metric=6
+    assert buffer_offsets_tuple == (0, 6)  # parameterised[3]=0, mock_metric=6
     assert output_offsets_tuple == (0, 6)  # parameterised[3]=0, mock_metric=6
 
     # Test total sizes
-    assert temp_total_size == 11  # 6 + 5
+    assert buffer_total_size == 11  # 6 + 5
     assert output_total_size == 9  # 6 + 3
 
 
@@ -185,11 +185,11 @@ def test_parametrized_metric_with_valid_parameter(mock_metrics):
     """Test parametrized metric with valid parameter."""
     requested = ["parameterised[5]"]
 
-    temp_sizes_tuple = mock_metrics.temp_sizes(requested)
+    buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
     output_sizes_tuple = mock_metrics.output_sizes(requested)
 
-    # parametrized temp_size = param * 2, output_size = param * 2
-    assert temp_sizes_tuple == (10,)  # 5 * 2
+    # parametrized buffer_size = param * 2, output_size = param * 2
+    assert buffer_sizes_tuple == (10,)  # 5 * 2
     assert output_sizes_tuple == (10,)  # 5 * 2
 
 
@@ -198,7 +198,7 @@ def test_parametrized_metric_without_parameter_raises_error(mock_metrics):
     requested = ["parameterised"]  # Missing parameter
 
     with pytest.warns(UserWarning, match="Metric 'parameterised' has a callable size"):
-        mock_metrics.temp_sizes(requested)
+        mock_metrics.buffer_sizes(requested)
 
 
 def test_parametrized_metric_with_invalid_parameter_raises_error(mock_metrics):
@@ -206,7 +206,7 @@ def test_parametrized_metric_with_invalid_parameter_raises_error(mock_metrics):
     requested = ["parameterised[invalid]"]
 
     with pytest.raises(ValueError, match="Parameter in 'parameterised\\[invalid\\]' must be an integer"):
-        mock_metrics.temp_sizes(requested)
+        mock_metrics.buffer_sizes(requested)
 
 
 def test_invalid_metric_name_raises_warning(mock_metrics):
@@ -215,7 +215,7 @@ def test_invalid_metric_name_raises_warning(mock_metrics):
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        mock_metrics.temp_sizes(requested)
+        mock_metrics.buffer_sizes(requested)
 
         assert len(w) == 1
         assert issubclass(w[0].category, UserWarning)
@@ -228,34 +228,34 @@ def test_mixed_valid_invalid_metrics_with_warning(mock_metrics):
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        temp_sizes_tuple = mock_metrics.temp_sizes(requested)
+        buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
 
         # Should warn about nonexistent metric
         assert len(w) == 1
         assert "Metric 'nonexistent' is not registered" in str(w[0].message)
 
         # Should process valid metrics
-        assert temp_sizes_tuple == (5, 6)  # mock_metric=5, parameterised[3]=2*3=6
+        assert buffer_sizes_tuple == (5, 6)  # mock_metric=5, parameterised[3]=2*3=6
 
 
 def test_empty_request_returns_empty_tuple(mock_metrics):
     """Test that empty request returns appropriate empty values."""
     requested = []
 
-    temp_sizes_tuple = mock_metrics.temp_sizes(requested)
+    buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
     output_sizes_tuple = mock_metrics.output_sizes(requested)
 
     # For offset methods, empty requests should return (0, empty_tuple)
-    temp_total_size, temp_offsets_tuple = mock_metrics.temp_offsets(requested)
+    buffer_total_size, buffer_offsets_tuple = mock_metrics.buffer_offsets(requested)
     output_total_size, output_offsets_tuple = mock_metrics.output_offsets(requested)
 
-    assert temp_sizes_tuple == ()
+    assert buffer_sizes_tuple == ()
     assert output_sizes_tuple == ()
 
     # Empty requests should return total size of 0 and empty offset tuples
-    assert temp_total_size == 0
+    assert buffer_total_size == 0
     assert output_total_size == 0
-    assert temp_offsets_tuple == ()
+    assert buffer_offsets_tuple == ()
     assert output_offsets_tuple == ()
 
 
@@ -319,17 +319,17 @@ def test_update_functions_returns_correct_tuple(mock_metrics, mock_functions):
 
 def test_complex_parameter_scenarios(mock_metrics, mock_functions):
     """Test complex scenarios with multiple parametrized metrics."""
-    # Create and register the complex metric with parametrized temp_size
+    # Create and register the complex metric with parametrized buffer_size
     update_func, save_func = mock_functions
 
-    def complex_temp_size(param):
+    def complex_buffer_size(param):
         if param is None:
             raise ValueError("Parameter required")
         return param + 10
 
     complex_metric = SummaryMetric(
         name="complex",
-        temp_size=complex_temp_size,
+        buffer_size=complex_buffer_size,
         output_size=5,
         update_device_func=update_func,
         save_device_func=save_func
@@ -339,8 +339,8 @@ def test_complex_parameter_scenarios(mock_metrics, mock_functions):
     # Test with multiple parametrized metrics
     requested = ["parameterised[3]", "complex[7]", "mock_metric"]
 
-    temp_sizes_tuple = mock_metrics.temp_sizes(requested)
-    assert temp_sizes_tuple == (6, 17, 5)  # 3*2=6, 7+10=17, 5
+    buffer_sizes_tuple = mock_metrics.buffer_sizes(requested)
+    assert buffer_sizes_tuple == (6, 17, 5)  # 3*2=6, 7+10=17, 5
 
 
 def test_edge_case_bracket_parsing(mock_metrics):
@@ -368,9 +368,9 @@ def test_real_metrics_integration(real_metrics):
         first_metric = available_metrics[0]
 
         # Test sizes with real metrics
-        temp_sizes_tuple = real_metrics.temp_sizes([first_metric])
+        buffer_sizes_tuple = real_metrics.buffer_sizes([first_metric])
         output_sizes_tuple = real_metrics.output_sizes([first_metric])
-        assert len(temp_sizes_tuple) == 1
+        assert len(buffer_sizes_tuple) == 1
         assert len(output_sizes_tuple) == 1
 
 
@@ -392,9 +392,9 @@ def test_real_summary_metrics_simple_metrics_sizes(real_metrics):
     simple_metrics = ["mean", "max", "rms"]
 
     for metric in simple_metrics:
-        # Test temp sizes
-        temp_sizes_tuple = tuple(real_metrics.temp_sizes([metric]))
-        assert temp_sizes_tuple == (1,), f"Expected temp_size=1 for {metric}, got {temp_sizes_tuple}"
+        # Test buffer sizes
+        buffer_sizes_tuple = tuple(real_metrics.buffer_sizes([metric]))
+        assert buffer_sizes_tuple == (1,), f"Expected buffer_size=1 for {metric}, got {buffer_sizes_tuple}"
 
         # Test output sizes
         output_sizes_tuple = tuple(real_metrics.output_sizes([metric]))
@@ -409,10 +409,10 @@ def test_real_summary_metrics_peaks_parametrized(real_metrics):
     for n in test_params:
         metric_request = f"peaks[{n}]"
 
-        # Test temp sizes: should be 3 + n
-        temp_sizes_tuple = tuple(real_metrics.temp_sizes([metric_request]))
-        expected_temp_size = 3 + n
-        assert temp_sizes_tuple == (expected_temp_size,), f"Expected temp_size={expected_temp_size} for peaks[{n}], got {temp_sizes_tuple}"
+        # Test buffer sizes: should be 3 + n
+        buffer_sizes_tuple = tuple(real_metrics.buffer_sizes([metric_request]))
+        expected_buffer_size = 3 + n
+        assert buffer_sizes_tuple == (expected_buffer_size,), f"Expected buffer_size={expected_buffer_size} for peaks[{n}], got {buffer_sizes_tuple}"
 
         # Test output sizes: should be n
         output_sizes_tuple = tuple(real_metrics.output_sizes([metric_request]))
@@ -423,7 +423,7 @@ def test_real_summary_metrics_peaks_parametrized(real_metrics):
 def test_real_summary_metrics_peaks_without_parameter_raises_warning(real_metrics):
     """Test that peaks metric without parameter raises ValueError."""
     with pytest.warns(UserWarning, match="Metric 'peaks' has a callable size"):
-        tuple(real_metrics.temp_sizes(["peaks"]))
+        tuple(real_metrics.buffer_sizes(["peaks"]))
 
 
 def test_real_summary_metrics_offset_calculations(real_metrics):
@@ -431,20 +431,20 @@ def test_real_summary_metrics_offset_calculations(real_metrics):
     # Test with mix of simple and parametrized metrics
     requested = ["mean", "peaks[2]", "max", "rms"]
 
-    # Test temp offsets
-    temp_total_size, temp_offsets_generator = real_metrics.temp_offsets(requested)
-    temp_offsets_tuple = tuple(temp_offsets_generator)
+    # Test buffer offsets
+    buffer_total_size, buffer_offsets_generator = real_metrics.buffer_offsets(requested)
+    buffer_offsets_tuple = tuple(buffer_offsets_generator)
 
-    # Expected temp offsets:
+    # Expected buffer offsets:
     # mean: 0 (size=1)
     # peaks[2]: 1 (size=3+2=5)
     # max: 6 (size=1)
     # rms: 7 (size=1)
-    expected_temp_offsets = (0, 1, 6, 7)
-    expected_temp_total = 8  # 1 + 5 + 1 + 1
+    expected_buffer_offsets = (0, 1, 6, 7)
+    expected_buffer_total = 8  # 1 + 5 + 1 + 1
 
-    assert temp_offsets_tuple == expected_temp_offsets
-    assert temp_total_size == expected_temp_total
+    assert buffer_offsets_tuple == expected_buffer_offsets
+    assert buffer_total_size == expected_buffer_total
 
     # Test output offsets
     output_total_size, output_offsets_generator = real_metrics.output_offsets(requested)
@@ -467,53 +467,53 @@ def test_real_summary_metrics_tuple_ordering_consistency(real_metrics):
     requested = ["rms", "peaks[4]", "mean"]  # Different order than registration
 
     # Get all tuple results
-    temp_total_size, temp_offsets_generator = real_metrics.temp_offsets(requested)
+    buffer_total_size, buffer_offsets_generator = real_metrics.buffer_offsets(requested)
     output_total_size, output_offsets_generator = real_metrics.output_offsets(requested)
-    temp_offsets_tuple = tuple(temp_offsets_generator)
+    buffer_offsets_tuple = tuple(buffer_offsets_generator)
     output_offsets_tuple = tuple(output_offsets_generator)
-    temp_sizes_tuple = tuple(real_metrics.temp_sizes(requested))
+    buffer_sizes_tuple = tuple(real_metrics.buffer_sizes(requested))
     output_sizes_tuple = tuple(real_metrics.output_sizes(requested))
 
     # All should have same length (number of requested metrics)
     expected_length = len(requested)
-    assert len(temp_offsets_tuple) == expected_length
+    assert len(buffer_offsets_tuple) == expected_length
     assert len(output_offsets_tuple) == expected_length
-    assert len(temp_sizes_tuple) == expected_length
+    assert len(buffer_sizes_tuple) == expected_length
     assert len(output_sizes_tuple) == expected_length
 
     # Verify sizes match expected values for the requested order
-    # rms: temp=1, output=1
-    # peaks[4]: temp=3+4=7, output=4
-    # mean: temp=1, output=1
-    assert temp_sizes_tuple == (1, 7, 1)
+    # rms: buffer=1, output=1
+    # peaks[4]: buffer=3+4=7, output=4
+    # mean: buffer=1, output=1
+    assert buffer_sizes_tuple == (1, 7, 1)
     assert output_sizes_tuple == (1, 4, 1)
 
     # Verify offsets are calculated correctly
-    # rms: temp_offset=0, output_offset=0
-    # peaks[4]: temp_offset=1, output_offset=1
-    # mean: temp_offset=8, output_offset=5
-    assert temp_offsets_tuple == (0, 1, 8)
+    # rms: buffer_offset=0, output_offset=0
+    # peaks[4]: buffer_offset=1, output_offset=1
+    # mean: buffer_offset=8, output_offset=5
+    assert buffer_offsets_tuple == (0, 1, 8)
     assert output_offsets_tuple == (0, 1, 5)
 
     # Verify totals
-    assert temp_total_size == 9  # 1 + 7 + 1
+    assert buffer_total_size == 9  # 1 + 7 + 1
     assert output_total_size == 6  # 1 + 4 + 1
 
 
 def test_real_summary_metrics_edge_cases(real_metrics):
     """Test edge cases with real metrics."""
     # Test with single metric
-    temp_total_size, temp_offsets_generator = real_metrics.temp_offsets(["mean"])
-    temp_offsets_tuple = tuple(temp_offsets_generator)
+    buffer_total_size, buffer_offsets_generator = real_metrics.buffer_offsets(["mean"])
+    buffer_offsets_tuple = tuple(buffer_offsets_generator)
 
-    assert temp_offsets_tuple == (0,)
-    assert temp_total_size == 1
+    assert buffer_offsets_tuple == (0,)
+    assert buffer_total_size == 1
 
     # Test with peaks parameter edge cases
-    temp_sizes_tuple = tuple(real_metrics.temp_sizes(["peaks[0]"]))
+    buffer_sizes_tuple = tuple(real_metrics.buffer_sizes(["peaks[0]"]))
     output_sizes_tuple = tuple(real_metrics.output_sizes(["peaks[0]"]))
 
-    assert temp_sizes_tuple == (3,)  # 3 + 0
+    assert buffer_sizes_tuple == (3,)  # 3 + 0
     assert output_sizes_tuple == (0,)  # 0
 
 

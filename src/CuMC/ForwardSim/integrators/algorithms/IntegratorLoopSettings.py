@@ -39,7 +39,7 @@ class IntegratorLoopSettings:
     # outputfunctions
     n_saved_observables: int = field(default=0, validator=validators.instance_of(int)) #source_of_truth:
     # output_functions
-    summary_temp_memory: int = field(default=0, validator=validators.instance_of(int)) # getter from
+    summary_buffer_size: int = field(default=0, validator=validators.instance_of(int)) # getter from
     # summary_metrics
 
     # Function references (set by algorithm, not user)
@@ -126,123 +126,123 @@ class IntegratorLoopSettings:
         return n_steps_save, n_steps_summarise, step_size
 
 
-    @classmethod
-    def from_run_settings(cls,
-                         precision,
-                         n_states,
-                         n_observables,
-                         n_parameters,
-                         n_drivers,
-                         run_settings: IntegatorRunSettings,
-                         save_time,
-                         n_saved_states,
-                         n_saved_observables,
-                         summary_temp_memory,
-                         dxdt_func,
-                         save_state_func,
-                         update_summary_func,
-                         save_summary_func):
-        """
-        Adapter: Create config from IntegratorRunSettings object.
-        Breaks down the run_settings object into individual arguments.
-        """
-        return cls(
-            precision=precision,
-            n_states=n_states,
-            n_observables=n_observables,
-            n_parameters=n_parameters,
-            n_drivers=n_drivers,
-            duration=run_settings.duration,
-            warmup=run_settings.warmup,
-            dt_min=run_settings.dt_min,
-            dt_max=run_settings.dt_max,
-            dt_save=run_settings.dt_save,
-            dt_summarise=run_settings.dt_summarise,
-            atol=run_settings.atol,
-            rtol=run_settings.rtol,
-            save_time=save_time,
-            n_saved_states=n_saved_states,
-            n_saved_observables=n_saved_observables,
-            summary_temp_memory=summary_temp_memory,
-            dxdt_func=dxdt_func,
-            save_state_func=save_state_func,
-            update_summary_func=update_summary_func,
-            save_summary_func=save_summary_func,
-        )
-
-    @classmethod
-    def from_single_integrator_run(cls, single_integrator_run):
-        """
-        Adapter: Create config from SingleIntegratorRun instance.
-        Extracts relevant settings from the existing architecture.
-        """
-        system_sizes = single_integrator_run._system.sizes()
-        output_config = single_integrator_run._output_functions.compile_settings
-        params = single_integrator_run._algorithm_params
-
-        return cls(
-            precision=single_integrator_run._system.precision(),
-            n_states=system_sizes['n_states'],
-            n_observables=system_sizes['max_observables'],
-            n_parameters=system_sizes['n_parameters'],
-            n_drivers=system_sizes['n_drivers'],
-            duration=params.get('duration', 1.0),
-            warmup=params.get('warmup', 0.0),
-            dt_min=params['dt_min'],
-            dt_max=params['dt_max'],
-            dt_save=params['dt_save'],
-            dt_summarise=params['dt_summarise'],
-            atol=params['atol'],
-            rtol=params['rtol'],
-            save_time=output_config.save_time,
-            n_saved_states=output_config.n_saved_states,
-            n_saved_observables=output_config.n_saved_observables,
-            summary_temp_memory=single_integrator_run._output_functions.memory_per_summarised_variable['temporary'],
-            dxdt_func=single_integrator_run._system.device_function,
-            save_state_func=single_integrator_run._output_functions.save_state_func,
-            update_summary_func=single_integrator_run._output_functions.update_summaries_func,
-            save_summary_func=single_integrator_run._output_functions.save_summary_metrics_func,
-        )
-
-    @classmethod
-    def from_components(cls, system, output_functions, **timing_kwargs):
-        """
-        Adapter: Create config from system and output_functions components.
-        More modular approach for new code.
-        """
-        system_sizes = system.sizes()
-        output_config = output_functions.compile_settings
-
-        # Extract timing parameters with defaults
-        duration = timing_kwargs.get('duration', 1.0)
-        warmup = timing_kwargs.get('warmup', 0.0)
-        dt_min = timing_kwargs.get('dt_min', 1e-6)
-        dt_max = timing_kwargs.get('dt_max', 1.0)
-        dt_save = timing_kwargs.get('dt_save', 0.1)
-        dt_summarise = timing_kwargs.get('dt_summarise', 0.1)
-        atol = timing_kwargs.get('atol', 1e-6)
-        rtol = timing_kwargs.get('rtol', 1e-6)
-
-        return cls(
-            precision=system.precision(),
-            n_states=system_sizes['n_states'],
-            n_observables=system_sizes['max_observables'],
-            n_parameters=system_sizes['n_parameters'],
-            n_drivers=system_sizes['n_drivers'],
-            duration=duration,
-            warmup=warmup,
-            dt_min=dt_min,
-            dt_max=dt_max,
-            dt_save=dt_save,
-            dt_summarise=dt_summarise,
-            atol=atol,
-            rtol=rtol,
-            save_time=output_config.save_time,
-            n_saved_states=output_config.n_saved_states,
-            n_saved_observables=output_config.n_saved_observables,
-            summary_temp_memory=output_functions.memory_per_summarised_variable['temporary'],
-            dxdt_func=system.device_function,
-            save_state_func=output_functions.save_state_func,
-            update_summary_func=output_functions.update_summaries_func,
-            save_summary_func=output_functions.save_summary_metrics_func,
-        )
+    # @classmethod
+    # def from_run_settings(cls,
+    #                      precision,
+    #                      n_states,
+    #                      n_observables,
+    #                      n_parameters,
+    #                      n_drivers,
+    #                      # run_settings: IntegatorRunSettings,
+    #                      save_time,
+    #                      n_saved_states,
+    #                      n_saved_observables,
+    #                      summary_buffer_size,
+    #                      dxdt_func,
+    #                      save_state_func,
+    #                      update_summary_func,
+    #                      save_summary_func):
+    #     """
+    #     Adapter: Create config from IntegratorRunSettings object.
+    #     Breaks down the run_settings object into individual arguments.
+    #     """
+    #     return cls(
+    #         precision=precision,
+    #         n_states=n_states,
+    #         n_observables=n_observables,
+    #         n_parameters=n_parameters,
+    #         n_drivers=n_drivers,
+    #         duration=run_settings.duration,
+    #         warmup=run_settings.warmup,
+    #         dt_min=run_settings.dt_min,
+    #         dt_max=run_settings.dt_max,
+    #         dt_save=run_settings.dt_save,
+    #         dt_summarise=run_settings.dt_summarise,
+    #         atol=run_settings.atol,
+    #         rtol=run_settings.rtol,
+    #         save_time=save_time,
+    #         n_saved_states=n_saved_states,
+    #         n_saved_observables=n_saved_observables,
+    #         summary_buffer_size=summary_buffer_size,
+    #         dxdt_func=dxdt_func,
+    #         save_state_func=save_state_func,
+    #         update_summary_func=update_summary_func,
+    #         save_summary_func=save_summary_func,
+    #     )
+    #
+    # @classmethod
+    # def from_single_integrator_run(cls, single_integrator_run):
+    #     """
+    #     Adapter: Create config from SingleIntegratorRun instance.
+    #     Extracts relevant settings from the existing architecture.
+    #     """
+    #     system_sizes = single_integrator_run._system.sizes()
+    #     output_config = single_integrator_run._output_functions.compile_settings
+    #     params = single_integrator_run._algorithm_params
+    #
+    #     return cls(
+    #         precision=single_integrator_run._system.precision(),
+    #         n_states=system_sizes['n_states'],
+    #         n_observables=system_sizes['max_observables'],
+    #         n_parameters=system_sizes['n_parameters'],
+    #         n_drivers=system_sizes['n_drivers'],
+    #         duration=params.get('duration', 1.0),
+    #         warmup=params.get('warmup', 0.0),
+    #         dt_min=params['dt_min'],
+    #         dt_max=params['dt_max'],
+    #         dt_save=params['dt_save'],
+    #         dt_summarise=params['dt_summarise'],
+    #         atol=params['atol'],
+    #         rtol=params['rtol'],
+    #         save_time=output_config.save_time,
+    #         n_saved_states=output_config.n_saved_states,
+    #         n_saved_observables=output_config.n_saved_observables,
+    #         summary_temp_memory=single_integrator_run._output_functions.memory_per_summarised_variable['temporary'],
+    #         dxdt_func=single_integrator_run._system.device_function,
+    #         save_state_func=single_integrator_run._output_functions.save_state_func,
+    #         update_summary_func=single_integrator_run._output_functions.update_summaries_func,
+    #         save_summary_func=single_integrator_run._output_functions.save_summary_metrics_func,
+    #     )
+    #
+    # @classmethod
+    # def from_components(cls, system, output_functions, **timing_kwargs):
+    #     """
+    #     Adapter: Create config from system and output_functions components.
+    #     More modular approach for new code.
+    #     """
+    #     system_sizes = system.sizes()
+    #     output_config = output_functions.compile_settings
+    #
+    #     # Extract timing parameters with defaults
+    #     duration = timing_kwargs.get('duration', 1.0)
+    #     warmup = timing_kwargs.get('warmup', 0.0)
+    #     dt_min = timing_kwargs.get('dt_min', 1e-6)
+    #     dt_max = timing_kwargs.get('dt_max', 1.0)
+    #     dt_save = timing_kwargs.get('dt_save', 0.1)
+    #     dt_summarise = timing_kwargs.get('dt_summarise', 0.1)
+    #     atol = timing_kwargs.get('atol', 1e-6)
+    #     rtol = timing_kwargs.get('rtol', 1e-6)
+    #
+    #     return cls(
+    #         precision=system.precision(),
+    #         n_states=system_sizes['n_states'],
+    #         n_observables=system_sizes['max_observables'],
+    #         n_parameters=system_sizes['n_parameters'],
+    #         n_drivers=system_sizes['n_drivers'],
+    #         duration=duration,
+    #         warmup=warmup,
+    #         dt_min=dt_min,
+    #         dt_max=dt_max,
+    #         dt_save=dt_save,
+    #         dt_summarise=dt_summarise,
+    #         atol=atol,
+    #         rtol=rtol,
+    #         save_time=output_config.save_time,
+    #         n_saved_states=output_config.n_saved_states,
+    #         n_saved_observables=output_config.n_saved_observables,
+    #         summary_temp_memory=output_functions.memory_per_summarised_variable['temporary'],
+    #         dxdt_func=system.device_function,
+    #         save_state_func=output_functions.save_state_func,
+    #         update_summary_func=output_functions.update_summaries_func,
+    #         save_summary_func=output_functions.save_summary_metrics_func,
+    #     )

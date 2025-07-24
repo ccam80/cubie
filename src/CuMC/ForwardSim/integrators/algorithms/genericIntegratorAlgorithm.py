@@ -35,7 +35,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                  save_summary_func,
                  n_saved_states,
                  n_saved_observables,
-                 summary_temp_memory,
+                 summary_buffer_size,
                  threads_per_loop=1,
                  ):
         super().__init__()
@@ -54,7 +54,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                 save_time=save_time,
                 n_saved_states=n_saved_states,
                 n_saved_observables=n_saved_observables,
-                summary_temp_memory=summary_temp_memory,
+                summary_buffer_size=summary_buffer_size,
                 dxdt_func=dxdt_func,
                 save_state_func=save_state_func,
                 update_summary_func=update_summary_func,
@@ -89,7 +89,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
             save_summary_func=config.save_summary_func,
             n_saved_states=config.n_saved_states,
             n_saved_observables=config.n_saved_observables,
-            summary_temp_memory=config.summary_temp_memory,
+            summary_buffer_size=config.summary_buffer_size,
         )
 
         return {
@@ -143,7 +143,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
             save_summary_func,
             n_saved_states,
             n_saved_observables,
-            summary_temp_memory,
+            summary_buffer_size,
         ):
         save_steps, summary_steps, step_size = self.compile_settings.fixed_steps
         # Manipulate user-space time parameters into loop internal parameters here if you need to for your algorithm
@@ -151,12 +151,12 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
         #TODO: Rename temporary or temp_ arrays in this system to "buffer" for clarity.
         #Array Sizes
-        temp_state_summary_shape = (cuda_safe_n_saved_states * cuda_safe_summary_temp_memory,)
-        temp_observables_summary_shape = (cuda_safe_n_saved_observables * cuda_safe_summary_temp_memory,)
+        state_summary_buffer_size = (n_saved_states * summary_buffer_size,)
+        observables_summary_buffer_size = (n_saved_observables * summary_buffer_size,)
 
         # Logical flags for what to actually save (independent of array sizes)
         # Present in summary_metrics
-        summaries_output = summary_temp_memory > 0
+        summaries_output = summary_buffer_size > 0
         save_observables = n_saved_observables > 0
         save_states = n_saved_states > 0
 
@@ -194,30 +194,30 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                        warmup_samples=0,
                        ):
             """Dummy integrator loop implementation."""
-            l_state = cuda.local.array(shape=state_array_size, dtype=precision)
-            l_obs = cuda.local.array(shape=n_observables, dtype=precision)
-            l_obs[:] = precision(0.0)
+            l_state_buffer = cuda.local.array(shape=state_array_size, dtype=precision)
+            l_obs_buffer = cuda.local.array(shape=n_observables, dtype=precision)
+            l_obs_buffer[:] = precision(0.0)
 
             for i in range(n_states):
-                l_state[i] = inits[i]
+                l_state_buffer[i] = inits[i]
 
-            l_temp_summaries = cuda.local.array(shape=temp_state_summary_shape, dtype=precision)
-            l_temp_observables = cuda.local.array(shape=temp_observables_summary_shape, dtype=precision)
+            state_summary_buffer = cuda.local.array(shape=state_summary_buffer_size, dtype=precision)
+            obs_summary_buffer = cuda.local.array(shape=observables_summary_buffer_size, dtype=precision)
 
             for i in range(output_length):
                 for j in range(n_states):
-                    l_state[j] = inits[j]
+                    l_state_buffer[j] = inits[j]
                 for j in range(n_observables):
-                    l_obs[j] = inits[j % n_observables]
+                    l_obs_buffer[j] = inits[j % n_observables]
 
-                save_state_func(l_state, l_obs, state_output[:, i], observables_output[:, i], i)
+                save_state_func(l_state_buffer, l_obs_buffer, state_output[:, i], observables_output[:, i], i)
 
                 if summaries_output:
-                    update_summary_func(l_state, l_obs, l_temp_summaries, l_temp_observables, i)
+                    update_summary_func(l_state_buffer, l_obs_buffer, state_summary_buffer, obs_summary_buffer, i)
 
                     if (i + 1) % summary_steps == 0:
                         summary_sample = (i + 1) // summary_steps - 1
-                        save_summary_func(l_temp_summaries, l_temp_observables,
+                        save_summary_func(state_summary_buffer, obs_summary_buffer,
                                           state_summaries_output[:, summary_sample],
                                           observables_summaries_output[:, summary_sample],
                                           summary_steps,

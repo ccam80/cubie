@@ -85,7 +85,7 @@ def test_output_functions_build(output_test_settings, fails):
         update_summaries = output_functions.update_summaries_func
         save_summaries = output_functions.save_summary_metrics_func
         memory_required = output_functions.memory_per_summarised_variable
-        temp_memory = memory_required['temporary']
+        buffer_memory = memory_required['buffer']
         output_memory = memory_required['output']
 
         # Now use these functions in your test
@@ -94,7 +94,7 @@ def test_output_functions_build(output_test_settings, fails):
         assert callable(save_summaries)
         if len(output_functions.summary_types) > 0:
             assert output_memory > 0
-            assert temp_memory > 0
+            assert buffer_memory > 0
 
 @pytest.fixture(scope='function')
 def input_arrays(output_test_settings):
@@ -194,15 +194,15 @@ def output_functions_test_kernel(precision, output_test_settings, output_functio
     n_summarised_observables = output_functions.n_summarised_observables
 
     memory_requirements = output_functions.memory_per_summarised_variable
-    shared_memory_requirements = memory_requirements['temporary']
-    state_temp_summary_length = shared_memory_requirements * n_summarised_states
-    obs_temp_summary_length = shared_memory_requirements * n_summarised_observables
+    shared_memory_requirements = memory_requirements['buffer']
+    state_summary_buffer_length = shared_memory_requirements * n_summarised_states
+    obs_summary_buffer_length = shared_memory_requirements * n_summarised_observables
 
     if test_shared_mem is False:
         num_states = 1 if num_states == 0 else num_states
         num_observables = 1 if num_observables == 0 else num_observables
-        state_temp_summary_length = 1 if state_temp_summary_length == 0 else state_temp_summary_length
-        obs_temp_summary_length = 1 if obs_temp_summary_length == 0 else obs_temp_summary_length
+        state_summary_buffer_length = 1 if state_summary_buffer_length == 0 else state_summary_buffer_length
+        obs_summary_buffer_length = 1 if obs_summary_buffer_length == 0 else obs_summary_buffer_length
 
     numba_precision = from_dtype(precision)
 
@@ -226,8 +226,8 @@ def output_functions_test_kernel(precision, output_test_settings, output_functio
 
             observables_start_idx = num_states
             state_summaries_start_idx = observables_start_idx + num_observables
-            obs_summaries_start_idx = state_summaries_start_idx + state_temp_summary_length
-            obs_summaries_end_idx = obs_summaries_start_idx + obs_temp_summary_length
+            obs_summaries_start_idx = state_summaries_start_idx + state_summary_buffer_length
+            obs_summaries_end_idx = obs_summaries_start_idx + obs_summary_buffer_length
 
             current_state = shared[:observables_start_idx]
             current_observable = shared[observables_start_idx:state_summaries_start_idx]
@@ -237,8 +237,8 @@ def output_functions_test_kernel(precision, output_test_settings, output_functio
         else:
             current_state = cuda.local.array(num_states, dtype=numba_precision)
             current_observable = cuda.local.array(num_observables, dtype=numba_precision)
-            state_summaries = cuda.local.array(state_temp_summary_length, dtype=numba_precision)
-            observable_summaries = cuda.local.array(obs_temp_summary_length, dtype=numba_precision)
+            state_summaries = cuda.local.array(state_summary_buffer_length, dtype=numba_precision)
+            observable_summaries = cuda.local.array(obs_summary_buffer_length, dtype=numba_precision)
 
         current_state[:] = 0.0
         current_observable[:] = 0.0
@@ -312,8 +312,8 @@ def compare_input_output(output_functions_test_kernel,
     d_observable_summaries_output = cuda.to_device(observable_summaries_output)
 
     kernel_shared_memory = n_states + n_observables  # Hard-coded from test kernel code
-    summary_temp_per_state = output_functions.memory_per_summarised_variable['temporary']
-    summary_shared_memory = (n_summarised_states + n_summarised_obeservables) * summary_temp_per_state
+    summary_buffer_size = output_functions.memory_per_summarised_variable['buffer']
+    summary_shared_memory = (n_summarised_states + n_summarised_obeservables) * summary_buffer_size
     dynamic_shared_memory = (kernel_shared_memory + summary_shared_memory) * precision().itemsize
 
     output_functions_test_kernel[1, 1, 0, dynamic_shared_memory](

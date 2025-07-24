@@ -25,7 +25,7 @@ confusing to read.
 @cuda.jit(device=True, inline=True)
 def do_nothing(
         values,
-        temp_array,
+        buffer,
         current_step,
         ):
     """ no-op function for the first call to chain_metrics, when there are no metrics already chained. """
@@ -34,8 +34,8 @@ def do_nothing(
 
 def chain_metrics(
         metric_functions: Sequence,
-        temp_offsets,
-        temp_sizes,
+        buffer_offsets: Sequence[int],
+        buffer_sizes,
         function_params,
         inner_chain=do_nothing,
         ):
@@ -49,23 +49,23 @@ def chain_metrics(
         return do_nothing
 
     current_fn = metric_functions[0]
-    current_offset = temp_offsets[0]
-    current_size = temp_sizes[0]
+    current_offset = buffer_offsets[0]
+    current_size = buffer_sizes[0]
     current_param = function_params[0]
 
     remaining_functions = metric_functions[1:]
-    remaining_offsets = temp_offsets[1:]
-    remaining_sizes = temp_sizes[1:]
+    remaining_offsets = buffer_offsets[1:]
+    remaining_sizes = buffer_sizes[1:]
     remaining_params = function_params[1:]
 
     @cuda.jit(device=True, inline=True)
     def wrapper(
             value,
-            temp_array,
+            buffer,
             current_step,
             ):
-        inner_chain(value, temp_array, current_step)
-        current_fn(value, temp_array[current_offset: current_offset + current_size], current_step, current_param)
+        inner_chain(value, buffer, current_step)
+        current_fn(value, buffer[current_offset: current_offset + current_size], current_step, current_param)
 
     if remaining_functions:
         return chain_metrics(remaining_functions, remaining_offsets, remaining_sizes, remaining_params, wrapper)
@@ -81,42 +81,42 @@ def update_summary_factory(
     function which updates all requested summaries."""
     num_summarised_states = len(summarised_states)
     num_summarised_observables = len(summarised_observables)
-    total_temporary_size, temp_offsets = summary_metrics.temp_offsets(summaries_list)
-    num_metrics = len(summary_metrics.temp_offsets(summaries_list)[1])
+    total_buffer_size, buffer_offsets = summary_metrics.buffer_offsets(summaries_list)
+    num_metrics = len(summary_metrics.buffer_offsets(summaries_list)[1])
 
     summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
     summarise_observables = (num_summarised_observables > 0) and (num_metrics > 0)
 
     update_fns = summary_metrics.update_functions(summaries_list)
-    temp_sizes = summary_metrics.temp_sizes(summaries_list)
+    buffer_sizes = summary_metrics.buffer_sizes(summaries_list)
     params = summary_metrics.params(summaries_list)
-    chain_fn = chain_metrics(update_fns, temp_offsets, temp_sizes, params)
+    chain_fn = chain_metrics(update_fns, buffer_offsets, buffer_sizes, params)
 
     @cuda.jit(device=True, inline=True)
     def update_summary_metrics_func(
             current_state,
             current_observables,
-            temp_state_summaries,
-            temp_observable_summaries,
+            state_summary_buffer,
+            observable_summary_buffer,
             current_step,
             ):
         if summarise_states:
             for state in range(num_summarised_states):
-                single_variable_slice_start = state * total_temporary_size
-                single_variable_slice_end = single_variable_slice_start + total_temporary_size
+                single_variable_slice_start = state * total_buffer_size
+                single_variable_slice_end = single_variable_slice_start + total_buffer_size
                 chain_fn(
                         current_state[summarised_states[state]],
-                        temp_state_summaries[single_variable_slice_start:single_variable_slice_end],
+                        state_summary_buffer[single_variable_slice_start:single_variable_slice_end],
                         current_step,
                         )
 
         if summarise_observables:
             for observable in range(num_summarised_observables):
-                single_variable_slice_start = observable * total_temporary_size
-                single_variable_slice_end = single_variable_slice_start + total_temporary_size
+                single_variable_slice_start = observable * total_buffer_size
+                single_variable_slice_end = single_variable_slice_start + total_buffer_size
                 chain_fn(
                         current_observables[summarised_observables[observable]],
-                        temp_observable_summaries[single_variable_slice_start:single_variable_slice_end],
+                        observable_summary_buffer[single_variable_slice_start:single_variable_slice_end],
                         current_step,
                         )
 

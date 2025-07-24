@@ -24,8 +24,8 @@ confusing to read.
 
 @cuda.jit(device=True, inline=True)
 def do_nothing(
-        temporary_summary_array,
-        output_summary_array,
+        buffer,
+        output,
         summarise_every,
         ):
     """ no-op function for the first call to chain_metrics, when there are no metrics already chained. """
@@ -34,8 +34,8 @@ def do_nothing(
 
 def chain_metrics(
         metric_functions: Sequence,
-        temp_offsets,
-        temp_sizes,
+        buffer_offsets,
+        buffer_sizes,
         output_offsets,
         output_sizes,
         function_params,
@@ -47,39 +47,39 @@ def chain_metrics(
     if len(metric_functions) == 0:
         return do_nothing
     current_metric_fn = metric_functions[0]
-    current_temp_offset = temp_offsets[0]
-    current_temp_size = temp_sizes[0]
+    current_buffer_offset = buffer_offsets[0]
+    current_buffer_size = buffer_sizes[0]
     current_output_offset = output_offsets[0]
     current_output_size = output_sizes[0]
     current_metric_param = function_params[0]
 
     remaining_metric_fns = metric_functions[1:]
-    remaining_temp_offsets = temp_offsets[1:]
-    remaining_temp_sizes = temp_sizes[1:]
+    remaining_buffer_offsets = buffer_offsets[1:]
+    remaining_buffer_sizes = buffer_sizes[1:]
     remaining_output_offsets = output_offsets[1:]
     remaining_output_sizes = output_sizes[1:]
     remaining_metric_params = function_params[1:]
 
     @cuda.jit(device=True, inline=True)
     def wrapper(
-            temporary_summary_array,
-            output_summary_array,
+            buffer,
+            output,
             summarise_every,
             ):
         inner_chain(
-                temporary_summary_array,
-                output_summary_array,
+                buffer,
+                output,
                 summarise_every,
                 )
         current_metric_fn(
-                temporary_summary_array[current_temp_offset: current_temp_offset + current_temp_size],
-                output_summary_array[current_output_offset: current_output_offset + current_output_size],
+                buffer[current_buffer_offset: current_buffer_offset + current_buffer_size],
+                output[current_output_offset: current_output_offset + current_output_size],
                 summarise_every,
                 current_metric_param,
                 )
 
     if remaining_metric_fns:
-        return chain_metrics(remaining_metric_fns, remaining_temp_offsets, remaining_temp_sizes,
+        return chain_metrics(remaining_metric_fns, remaining_buffer_offsets, remaining_buffer_sizes,
                              remaining_output_offsets, remaining_output_sizes, remaining_metric_params,
                              wrapper,
                              )
@@ -97,8 +97,8 @@ def save_summary_factory(
     num_summarised_states = len(summarised_states)
     num_summarised_observables = len(summarised_observables)
     save_functions = summary_metrics.save_functions(summaries_list)
-    total_temporary_size, temporary_offsets = summary_metrics.temp_offsets(summaries_list)
-    temporary_sizes = summary_metrics.temp_sizes(summaries_list)
+    total_buffer_size, buffer_offsets = summary_metrics.buffer_offsets(summaries_list)
+    buffer_sizes = summary_metrics.buffer_sizes(summaries_list)
     total_output_size, output_offsets = summary_metrics.output_offsets(summaries_list)
     output_sizes = summary_metrics.output_sizes(summaries_list)
     params = summary_metrics.params(summaries_list)
@@ -107,26 +107,26 @@ def save_summary_factory(
     summarise_states = (num_summarised_states > 0) and (num_summary_metrics > 0)
     summarise_observables = (num_summarised_observables > 0) and (num_summary_metrics > 0)
 
-    summary_metric_chain = chain_metrics(save_functions, temporary_offsets, temporary_sizes, output_offsets,
+    summary_metric_chain = chain_metrics(save_functions, buffer_offsets, buffer_sizes, output_offsets,
                                          output_sizes,
                                          params,
                                          )
 
     @cuda.jit(device=True, inline=True)
     def save_summary_metrics_func(
-            temporary_state_summaries,
-            temporary_observable_summaries,
+            buffer_state_summaries,
+            buffer_observable_summaries,
             output_state_summaries_window,
             output_observable_summaries_window,
             summarise_every,
             ):
         if summarise_states:
             for state_index in range(num_summarised_states):
-                temp_array_slice_start = state_index * total_temporary_size
+                buffer_array_slice_start = state_index * total_buffer_size
                 out_array_slice_start = state_index * total_output_size
 
                 summary_metric_chain(
-                        temporary_state_summaries[temp_array_slice_start:temp_array_slice_start + total_temporary_size],
+                        buffer_state_summaries[buffer_array_slice_start:buffer_array_slice_start + total_buffer_size],
                         output_state_summaries_window[out_array_slice_start:out_array_slice_start + total_output_size],
                         summarise_every,
                         )
@@ -134,12 +134,12 @@ def save_summary_factory(
         # from pdb import set_trace; set_trace()
         if summarise_observables:
             for observable_index in range(num_summarised_observables):
-                temp_array_slice_start = observable_index * total_temporary_size
+                buffer_array_slice_start = observable_index * total_buffer_size
                 out_array_slice_start = observable_index * total_output_size
 
                 summary_metric_chain(
-                        temporary_observable_summaries[
-                        temp_array_slice_start:temp_array_slice_start + total_temporary_size],
+                        buffer_observable_summaries[
+                        buffer_array_slice_start:buffer_array_slice_start + total_buffer_size],
                         output_observable_summaries_window[
                         out_array_slice_start:out_array_slice_start + total_output_size],
                         summarise_every,

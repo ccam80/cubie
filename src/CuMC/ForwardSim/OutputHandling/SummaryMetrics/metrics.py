@@ -15,12 +15,13 @@ def register_metric(registry):
 @attrs.define
 class SummaryMetric:
     """
-    Base class for summary metrics in the CuMC integrator system. Holds memory requirements in temporary and output
+    Base class for summary metrics in the CuMC integrator system. Holds memory requirements in buffer and output
     arrays, as well as dispatchers for the update and save functions. Not intended to be mutable or even instantiated
     by the user, but as a dataclass to provide compile-critical information with less boilerplate.
     """
 
-    temp_size: Union[int, Callable] = attrs.field(default=0, validator=attrs.validators.instance_of(Union[int, Callable]))
+    buffer_size: Union[int, Callable] = attrs.field(default=0, validator=attrs.validators.instance_of(Union[int, 
+    Callable]))
     output_size: Union[int, Callable] = attrs.field(default=0, validator=attrs.validators.instance_of(Union[int, Callable]))
     update_device_func: Callable = attrs.field(validator=attrs.validators.instance_of(Callable), default=None)
     save_device_func: Callable = attrs.field(validator=attrs.validators.instance_of(Callable), default=None)
@@ -36,9 +37,9 @@ class SummaryMetrics:
     Presents:
     - .implemented_metrics: a list of strings to check requested metric types against (done internally for other
     requests)
-    - .temp_offsets(output_types_requested): Returns (total_temp_size, offsets_tuple) for requested metrics only
+    - .buffer_offsets(output_types_requested): Returns (total_buffer_size, offsets_tuple) for requested metrics only
     - .output_offsets(output_types_requested): Returns (total_output_size, offsets_tuple) for requested metrics only
-    - .temp_sizes(output_types_requested): Returns sizes tuple for requested metrics only
+    - .buffer_sizes(output_types_requested): Returns sizes tuple for requested metrics only
     - .output_sizes(output_types_requested): Returns sizes tuple for requested metrics only
     - .save_functions(output_types_requested): Returns function tuple for requested metrics only
     - .update_functions(output_types_requested): Returns function tuple for requested metrics only
@@ -47,7 +48,8 @@ class SummaryMetrics:
     All methods consistently return data only for the requested metrics, not for all implemented metrics.
     """
     _names: list[str] = attrs.field(validator=attrs.validators.instance_of(list), factory=list, init=False)
-    _temp_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
+    _buffer_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict),
+                                                                 factory=dict, init=False)
     _output_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
     _save_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
     _update_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
@@ -71,9 +73,8 @@ class SummaryMetrics:
             raise ValueError(f"Metric '{metric.name}' is already registered.")
 
         self._names.append(metric.name)
-        self._temp_sizes[metric.name] = metric.temp_size
+        self._buffer_sizes[metric.name] = metric.buffer_size
         self._output_sizes[metric.name] = metric.output_size
-        # self._flags[metric.name] = False
         self._metric_objects[metric.name] = metric
         self._update_functions[metric.name] = metric.update_device_func
         self._save_functions[metric.name] = metric.save_device_func
@@ -98,16 +99,15 @@ class SummaryMetrics:
         """
         return self._names
 
-
-    def temp_offsets(self, output_types_requested):
+    def buffer_offsets(self, output_types_requested):
         """
-        Returns a tuple of temporary array starting offsets for the requested summary metrics.
+        Returns a tuple of buffer starting offsets for the requested summary metrics.
 
         Args:
             output_types_requested: A list of metric names to generate offsets for.
 
         Returns:
-            A tuple containing (total_temp_size, offsets_tuple).
+            A tuple containing (total_buffer_size, offsets_tuple).
         """
         parsed_request = self.preprocess_request(output_types_requested)
 
@@ -115,23 +115,23 @@ class SummaryMetrics:
         offsets_dict = {}
         for metric in parsed_request:
             offsets_dict[metric] = offset
-            size = self._get_size(metric, self._temp_sizes)
+            size = self._get_size(metric, self._buffer_sizes)
             offset += size
-        _total_temp_size = offset
-        return _total_temp_size, tuple(offsets_dict[metric] for metric in parsed_request)
+        _total_buffer_size = offset
+        return _total_buffer_size, tuple(offsets_dict[metric] for metric in parsed_request)
 
-    def temp_sizes(self, output_types_requested):
+    def buffer_sizes(self, output_types_requested):
         """
-        Returns a tuple of temporary array sizes for the requested summary metrics.
+        Returns a tuple of buffer sizes for the requested summary metrics.
 
         Args:
             output_types_requested: A list of metric names to generate sizes for.
 
         Returns:
-            A tuple with metric sizes in the temporary array.
+            A tuple with metric sizes in the buffer.
         """
         parsed_request = self.preprocess_request(output_types_requested)
-        return tuple(self._get_size(metric, self._temp_sizes) for metric in parsed_request)
+        return tuple(self._get_size(metric, self._buffer_sizes) for metric in parsed_request)
 
     def output_offsets(self, output_types_requested):
         """

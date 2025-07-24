@@ -209,14 +209,14 @@ class OutputConfig:
         return summary_metrics.params(list(self._summary_types))
 
     @property
-    def summary_temp_memory_per_var(self) -> int:
-        """Calculate temporary memory per variable using SummaryMetrics system."""
+    def buffer_size_per_var(self) -> int:
+        """Calculate buffer size per variable using SummaryMetrics system."""
         if not self.summary_types:
             return 0
         # Convert summary_types set to list for SummaryMetrics
         summary_list = list(self._summary_types)
-        total_temp_size, _ = summary_metrics.temp_offsets(summary_list)
-        return total_temp_size
+        total_buffer_size, _ = summary_metrics.buffer_offsets(summary_list)
+        return total_buffer_size
 
     @property
     def summary_output_memory_per_var(self) -> int:

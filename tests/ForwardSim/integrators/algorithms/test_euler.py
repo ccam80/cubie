@@ -161,7 +161,7 @@ class TestEuler(LoopAlgorithmTester):
                                                        loop_under_test, expected_summary_temp_memory,
                                                        ):
         super().test_loop_compile_settings_passed_successfully(loop_compile_settings_overrides,
-                                                               loop_under_test, expected_summary_temp_memory,
+                                                               loop_under_test, expected_summary_buffer_size,
                                                                )
 
     @pytest.fixture()

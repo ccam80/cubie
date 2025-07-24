@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
-
+from CuMC.ForwardSim.OutputHandling import summary_metrics
 from tests._utils import calculate_expected_summaries
 
 class LoopAlgorithmTester:
@@ -43,7 +43,7 @@ class LoopAlgorithmTester:
         save_state = output_functions.save_state_func
         update_summaries = output_functions.update_summaries_func
         save_summaries = output_functions.save_summary_metrics_func
-        summary_temp_memory = output_functions.memory_per_summarised_variable['temporary']
+        summary_buffer_size = output_functions.memory_per_summarised_variable['buffer']
         save_time = output_functions.save_time
 
         dxdt_function = system.device_function
@@ -67,7 +67,7 @@ class LoopAlgorithmTester:
                 save_summary_func=save_summaries,
                 n_saved_states=len(loop_compile_settings['saved_states']),
                 n_saved_observables=len(loop_compile_settings['saved_observables']),
-                summary_temp_memory=summary_temp_memory,
+                summary_buffer_size=summary_buffer_size,
                 )
 
         return algorithm_instance
@@ -78,7 +78,7 @@ class LoopAlgorithmTester:
         return loop_under_test.device_function
 
     def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides,
-                                                       loop_under_test, expected_summary_temp_memory):
+                                                       loop_under_test, expected_summary_buffer_memory):
         for key, value in loop_compile_settings_overrides.items():
             if key == "saved_states":
                 assert loop_under_test.compile_settings.n_saved_states == len(value), \
@@ -87,8 +87,9 @@ class LoopAlgorithmTester:
                 assert loop_under_test.compile_settings.n_saved_observables == len(value), \
                     f"saved_states does not match expected value {len(value)}"
             elif key == "output_functions" or key == "n_peaks":
-                assert loop_under_test.compile_settings.summary_temp_memory == expected_summary_temp_memory, \
-                    f"Summary temp memory requirement doesn't match expected - the loop_compile_settings change doesn't get through."
+                assert loop_under_test.compile_settings.summary_buffer_size == expected_summary_buffer_size, \
+                    (f"Summary buffer requirement doesn't match expected - the loop_compile_settings change doesn't "
+                     f"gethrough.")
             else:
                 assert hasattr(loop_under_test.compile_settings, key), f"{key} not found in loop parameters"
                 assert getattr(loop_under_test.compile_settings, key) == value, f"{key} does not match expected value {value}"
@@ -135,35 +136,37 @@ class LoopAlgorithmTester:
 
         return test_kernel
 
-    # @pytest.fixture(scope='function')
-    # def expected_summary_temp_memory(self, loop_compile_settings, output_functions):
-    #     """
-    #     Calculate the expected temporary memory usage for the loop function.
-    #
-    #     Usage example:
-    #     @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
-    #     def test_expected_temp_memory(expected_temp_memory):
-    #         ...
-    #     """
-    #     from CuMC.ForwardSim.OutputHandling.output_functions import _TempMemoryRequirements
-    #     n_peaks = loop_compile_settings['n_peaks']
-    #     outputs_list = loop_compile_settings['output_functions']
-    #     return sum([_TempMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
-    #
-    # @pytest.fixture(scope='function')
-    # def expected_summary_output_memory(self, loop_compile_settings):
-    #     """
-    #     Calculate the expected temporary memory usage for the loop function.
-    #
-    #     Usage example:
-    #     @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
-    #     def test_expected_temp_memory(expected_temp_memory):
-    #         ...
-    #     """
-    #     from CuMC.ForwardSim.OutputHandling.output_functions import _OutputMemoryRequirements
-    #     n_peaks = loop_compile_settings['n_peaks']
-    #     outputs_list = loop_compile_settings['output_functions']
-    #     return sum([_OutputMemoryRequirements(n_peaks)[output_type] for output_type in outputs_list])
+    @pytest.fixture(scope='function')
+    def expected_summary_buffer_size(self, loop_compile_settings, output_functions):
+        """
+        Calculate the expected buffer memory usage for the loop function.
+
+        Usage example:
+        @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
+        def test_expected_buffer_memory(expected_buffer_memory):
+            ...
+        """
+        outputs_list = loop_compile_settings['output_functions']
+
+        buffer_size, _ = summary_metrics.buffer_offsets(outputs_list)
+
+        return buffer_size
+
+    @pytest.fixture(scope='function')
+    def expected_summary_output_size(self, loop_compile_settings):
+        """
+        Calculate the expected output size usage for the loop function.
+
+        Usage example:
+        @pytest.mark.parametrize("loop_compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
+        def test_expected_output_memory(expected_summary_output_memory):
+            ...
+        """
+        outputs_list = loop_compile_settings['output_functions']
+        output_size = sum(summary_metrics.output_sizes(outputs_list))
+
+
+        return output_size
 
     def test_loop(self, loop_test_kernel, run_settings, loop_compile_settings, inputs, precision, output_functions,
                   loop_under_test, expected_answer):
@@ -214,7 +217,7 @@ class LoopAlgorithmTester:
 
         # Shared memory requirements:
         loop_memory = loop_under_test.get_cached_output('loop_shared_memory')
-        summary_memory = loop_under_test.compile_settings.summary_temp_memory * (n_saved_states + n_saved_observables)
+        summary_memory = loop_under_test.compile_settings.summary_buffer_size * (n_saved_states + n_saved_observables)
         floatsize = precision().itemsize
 
         dynamic_sharedmem = floatsize * (summary_memory + loop_memory)

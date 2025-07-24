@@ -67,7 +67,7 @@ class OutputFunctions(CUDAFactory):
 
     def build(self) -> OutputFunctionCache:
         """Compile three functions: Save state, update summary metrics, and save summaries.
-        Calculate memory requirements for temporary and output arrays.
+        Calculate memory requirements for buffer and output arrays.
 
         Returns:
             A dictionary containing all compiled functions and memory requirements
@@ -127,9 +127,9 @@ class OutputFunctions(CUDAFactory):
 
     @property
     def memory_per_summarised_variable(self):
-        """Return the memory requirements for temporary and output arrays."""
+        """Return the memory requirements for buffer and output arrays."""
         return {
-            'temporary': self.compile_settings.summary_temp_memory_per_var,
+            'buffer': self.compile_settings.buffer_size_per_var,
             'output':    self.compile_settings.summary_output_memory_per_var,
             }
 

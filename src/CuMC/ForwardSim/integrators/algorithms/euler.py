@@ -73,11 +73,10 @@ class Euler(GenericIntegratorAlgorithm):
                    save_summary_func,
                    n_saved_states,
                    n_saved_observables,
-                   summary_temp_memory,
+                   summary_buffer_size,
                    ):
 
-        internal_step_size = dt_min
-        save_every_samples, summarise_every_samples, internal_step_size = self._time_to_fixed_steps()
+        save_steps, summarise_steps, step_size = self.compile_settings.fixed_steps
 
         if save_time:
             state_array_size = n_states + 1
@@ -119,23 +118,23 @@ class Euler(GenericIntegratorAlgorithm):
             observables_start_index = n_states + dxdt_start_index
             drivers_start_index = observables_start_index + n_observables
             state_summaries_start_index = drivers_start_index + n_drivers
-            observable_summaries_start_index = state_summaries_start_index + n_saved_states * summary_temp_memory
-            end_index = observable_summaries_start_index + n_saved_observables * summary_temp_memory
+            observable_summaries_start_index = state_summaries_start_index + n_saved_states * summary_buffer_size
+            end_index = observable_summaries_start_index + n_saved_observables * summary_buffer_size
 
-            state = shared_memory[:dxdt_start_index]
+            state_buffer = shared_memory[:dxdt_start_index]
             dxdt = shared_memory[dxdt_start_index:observables_start_index]
-            observables = shared_memory[observables_start_index:drivers_start_index]
+            observables_buffer = shared_memory[observables_start_index:drivers_start_index]
             drivers = shared_memory[drivers_start_index: state_summaries_start_index]
-            state_summaries = shared_memory[
+            state_summary_buffer = shared_memory[
                               state_summaries_start_index:observable_summaries_start_index]  # Alias for drivers[-1] if no summaries.
-            observables_summaries = shared_memory[observable_summaries_start_index: end_index]
+            observable_summary_buffer = shared_memory[observable_summaries_start_index: end_index]
 
             driver_length = forcing_vec.shape[0]
 
             # Initialise/Assign values to allocated memory
             shared_memory[:end_index] = precision(0.0)  # initialise all shared memory before adding values
             for i in range(n_states):
-                state[i] = inits[i]
+                state_buffer[i] = inits[i]
 
             # Feature: Consider offering user-togglable memory locations for these parameters; it will probably differ
             #  based on system size. These toggles could allow for handling of the zero-parameter case more cleanly - if
@@ -157,37 +156,37 @@ class Euler(GenericIntegratorAlgorithm):
             for i in range(warmup_samples + output_length):
 
                 # Euler loop - internal step size <= outout step size
-                for j in range(save_every_samples):
+                for j in range(save_steps):
                     for k in range(n_drivers):
-                        drivers[k] = forcing_vec[(i * save_every_samples + j) % driver_length, k]
+                        drivers[k] = forcing_vec[(i * save_steps + j) % driver_length, k]
 
                     # Calculate derivative at sample
-                    dxdt_func(state,
+                    dxdt_func(state_buffer,
                               parameters,
                               drivers,
-                              observables,
+                              observables_buffer,
                               dxdt,
                               )
 
                     # Forward-step state using euler
                     for k in range(n_states):
-                        state[k] += dxdt[k] * internal_step_size
+                        state_buffer[k] += dxdt[k] * step_size
 
                 # Start saving after the requested settling time has passed.
                 if i > (warmup_samples - 1):
                     output_sample = i - warmup_samples
-                    save_state_func(state, observables, state_output[output_sample, :], observables_output[
+                    save_state_func(state_buffer, observables_buffer, state_output[output_sample, :], observables_output[
                                                                                         output_sample, :],
                                     output_sample,
                                     )
-                    update_summary_func(state, observables, state_summaries, observables_summaries, output_sample)
+                    update_summary_func(state_buffer, observables_buffer, state_summary_buffer, observable_summary_buffer, output_sample)
 
-                    if (i + 1) % summarise_every_samples == 0:
-                        summary_sample = (output_sample + 1) // summarise_every_samples - 1
-                        save_summary_func(state_summaries, observables_summaries,
+                    if (i + 1) % summarise_steps == 0:
+                        summary_sample = (output_sample + 1) // summarise_steps - 1
+                        save_summary_func(state_summary_buffer, observable_summary_buffer,
                                           state_summaries_output[summary_sample, :],
                                           observables_summaries_output[summary_sample, :],
-                                          summarise_every_samples,
+                                          summarise_steps,
                                           )
 
         return euler_loop

@@ -14,13 +14,13 @@ class Peaks(SummaryMetric):
         #For metrics with a variable number of outputs, define sizes as functions of a parameter to be passed when
         # requesting sizes.
 
-        def temp_size_func(n):
+        def buffer_size_func(n):
             return 3 + n
         def output_size_func(n):
             return n
 
         super().__init__(name="peaks",
-                         temp_size=temp_size_func,
+                         buffer_size=buffer_size_func,
                          output_size= output_size_func,
                          update_device_func=update_func,
                          save_device_func=save_func)
@@ -29,21 +29,22 @@ class Peaks(SummaryMetric):
         """
         Generate the CUDA functions to calculate the metric. The signatures of the functions are fixed:
 
-        - update(value, temp_array, current_index, customisable_variable)
+        - update(value, buffer, current_index, customisable_variable)
             Perform math required to maintain a running prerequisite for the metric, like a sum or a count.
             Args:
                 value (float): The new value to add to the running sum
-                temp_array (CUDA device array): Temporary array location (will be sized to accomodate self.temp_size values)
+                buffer (CUDA device array): buffer location (will be sized to accomodate self.buffer_size 
+                values)
                 current_index (int): Current index or time, given by the loop, for saving times at which things occur
                 customisable_variable (scalar): An extra variable that can be used for metric-specific calculations,
                 like the number of peaks to count or similar.
             Returns:
-                nothing, modifies the temp_array in-place.
+                nothing, modifies the buffer in-place.
 
-        - save(temp_array, output_array, summarise_every, customisable_variable):
-            Perform final math to transform running variable into the metric, then reset temp array to a starting state.
+        - save(buffer, output_array, summarise_every, customisable_variable):
+            Perform final math to transform running variable into the metric, then reset buffer to a starting state.
             Args:
-                temp_array (CUDA device array): Temporary array location which contains the running value
+                buffer (CUDA device array): buffer location which contains the running value
                 output_array (CUDA device array): Output array location (will be sized to accomodate self.output_size values)
                 summarise_every (int): Number of steps between saves, for calculating average metrics.
                 customisable_variable (scalar): An extra variable that can be used for metric-specific calculations,
@@ -55,15 +56,15 @@ class Peaks(SummaryMetric):
                   device=True,
                   inline=True)
         def update(value,
-                   temp_array,
+                   buffer,
                    current_index,
                    customisable_variable,
                    ):
-            """Update running sum - 1 temp memory slot required per state"""
+            """Update running sum - 1 buffer memory slot required per state"""
             npeaks = customisable_variable
-            prev = temp_array[0]
-            prev_prev = temp_array[1]
-            peak_counter = int(temp_array[2])
+            prev = buffer[0]
+            prev_prev = buffer[1]
+            peak_counter = int(buffer[2])
 
             # Check if we have enough points and we haven't already maxed out the counter, and that we're not working
             # with
@@ -72,16 +73,16 @@ class Peaks(SummaryMetric):
             if (current_index >= 2) and (peak_counter < npeaks) and (prev_prev != 0.0):
                 if prev > value and prev_prev < prev:
                     # Bingo
-                    temp_array[3 + peak_counter] = float(current_index - 1)
-                    temp_array[2] = float(int(temp_array[2]) + 1)
-            temp_array[0] = value  # Update previous value
-            temp_array[1] = prev  # Update previous previous value
+                    buffer[3 + peak_counter] = float(current_index - 1)
+                    buffer[2] = float(int(buffer[2]) + 1)
+            buffer[0] = value  # Update previous value
+            buffer[1] = prev  # Update previous previous value
 
         @cuda.jit(["float32[::1], float32[::1], int64, int64",
                 "float64[::1], float64[::1], int64, int64"],
                   device=True,
                   inline=True)
-        def save(temp_array,
+        def save(buffer,
                  output_array,
                  summarise_every,
                  customisable_variable,
@@ -89,8 +90,8 @@ class Peaks(SummaryMetric):
             """Calculate mean from running sum - 1 output memory slot required per state"""
             n_peaks = customisable_variable
             for p in range(n_peaks):
-                output_array[p] = temp_array[3 + p]
-                temp_array[3 + p] = 0.0
-            temp_array[2] = 0.0
+                output_array[p] = buffer[3 + p]
+                buffer[3 + p] = 0.0
+            buffer[2] = 0.0
 
         return update, save
