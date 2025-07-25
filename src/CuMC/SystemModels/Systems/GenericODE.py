@@ -72,6 +72,42 @@ class GenericODE(CUDAFactory):
         self.setup_compile_settings(system_data)
 
     @property
+    def parameters(self):
+        """Get the parameters of the system.
+
+        Returns:
+            SystemValues: The parameters of the system.
+        """
+        return self.compile_settings.parameters
+
+    @property
+    def initial_values(self):
+        """Get the initial values of the system.
+
+        Returns:
+            SystemValues: The initial values of the system.
+        """
+        return self.compile_settings.initial_states
+
+    @property
+    def observables(self):
+        """Get the observables of the system.
+
+        Returns:
+            SystemValues: The observables of the system.
+        """
+        return self.compile_settings.observables
+
+    @property
+    def contants(self):
+        """Get the constants of the system.
+
+        Returns:
+            SystemValues: The constants of the system.
+        """
+        return self.compile_settings.constants
+
+    @property
     def num_states(self):
         return self.compile_settings.num_states
 

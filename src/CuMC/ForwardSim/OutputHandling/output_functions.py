@@ -6,7 +6,7 @@ from CuMC.ForwardSim.OutputHandling.save_state import save_state_factory
 from CuMC.ForwardSim.OutputHandling.save_summaries import save_summary_factory
 from CuMC.ForwardSim.OutputHandling.update_summaries import update_summary_factory
 from CuMC.ForwardSim.OutputHandling.output_config import OutputConfig
-from CuMC.ForwardSim.OutputHandling.output_sizes import OutputArrayHeights, SummariesBufferSizes
+from CuMC.ForwardSim.OutputHandling.output_sizes import SummariesBufferSizes
 import attrs
 
 
@@ -74,7 +74,6 @@ class OutputFunctions(CUDAFactory):
         """
         config = self.compile_settings
 
-        heights = OutputArrayHeights.from_output_fns(self)
         buffer_sizes = SummariesBufferSizes.from_output_fns(self)
 
         # Build functions using output sizes objects
@@ -133,7 +132,7 @@ class OutputFunctions(CUDAFactory):
         """Return the memory requirements for buffer and output arrays."""
         return {
             'buffer': self.compile_settings.summaries_buffer_height_per_var,
-            'output':    self.compile_settings.summaries_output_height_per_var,
+            'output': self.compile_settings.summaries_output_height_per_var,
             }
 
     @property
