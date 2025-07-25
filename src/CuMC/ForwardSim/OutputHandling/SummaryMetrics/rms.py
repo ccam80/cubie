@@ -3,6 +3,7 @@ from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetric,
 from numba import cuda, float32
 from math import sqrt
 
+
 @register_metric(summary_metrics)
 class RMS(SummaryMetric):
     """
@@ -16,7 +17,8 @@ class RMS(SummaryMetric):
                          buffer_size=1,
                          output_size=1,
                          update_device_func=update_func,
-                         save_device_func=save_func)
+                         save_device_func=save_func,
+                         )
 
     def CUDA_factory(self):
         """
@@ -47,7 +49,8 @@ class RMS(SummaryMetric):
         @cuda.jit(["float32, float32[::1], int64, int64",
                    "float64, float64[::1], int64, int64"],
                   device=True,
-                  inline=True)
+                  inline=True,
+                  )
         def update(value,
                    buffer,
                    current_index,
@@ -61,9 +64,10 @@ class RMS(SummaryMetric):
             buffer[0] = sum_of_squares
 
         @cuda.jit(["float32[::1], float32[::1], int64, int64",
-                "float64[::1], float64[::1], int64, int64"],
+                   "float64[::1], float64[::1], int64, int64"],
                   device=True,
-                  inline=True)
+                  inline=True,
+                  )
         def save(buffer,
                  output_array,
                  summarise_every,

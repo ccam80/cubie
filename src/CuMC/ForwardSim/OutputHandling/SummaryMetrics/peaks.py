@@ -2,6 +2,7 @@ from CuMC.ForwardSim.OutputHandling.SummaryMetrics import summary_metrics
 from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetric, register_metric
 from numba import cuda, float32
 
+
 @register_metric(summary_metrics)
 class Peaks(SummaryMetric):
     """
@@ -11,19 +12,21 @@ class Peaks(SummaryMetric):
     def __init__(self):
         update_func, save_func = self.CUDA_factory()
 
-        #For metrics with a variable number of outputs, define sizes as functions of a parameter to be passed when
+        # For metrics with a variable number of outputs, define sizes as functions of a parameter to be passed when
         # requesting sizes.
 
         def buffer_size_func(n):
             return 3 + n
+
         def output_size_func(n):
             return n
 
         super().__init__(name="peaks",
                          buffer_size=buffer_size_func,
-                         output_size= output_size_func,
+                         output_size=output_size_func,
                          update_device_func=update_func,
-                         save_device_func=save_func)
+                         save_device_func=save_func,
+                         )
 
     def CUDA_factory(self):
         """
@@ -51,10 +54,12 @@ class Peaks(SummaryMetric):
             Returns:
                 nothing, modifies the output array in-place.
         """
+
         @cuda.jit(["float32, float32[::1], int64, int64",
                    "float64, float64[::1], int64, int64"],
                   device=True,
-                  inline=True)
+                  inline=True,
+                  )
         def update(value,
                    buffer,
                    current_index,
@@ -79,9 +84,10 @@ class Peaks(SummaryMetric):
             buffer[1] = prev  # Update previous previous value
 
         @cuda.jit(["float32[::1], float32[::1], int64, int64",
-                "float64[::1], float64[::1], int64, int64"],
+                   "float64[::1], float64[::1], int64, int64"],
                   device=True,
-                  inline=True)
+                  inline=True,
+                  )
         def save(buffer,
                  output_array,
                  summarise_every,

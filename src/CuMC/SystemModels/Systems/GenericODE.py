@@ -12,6 +12,7 @@ from CuMC.CUDAFactory import CUDAFactory
 from CuMC.SystemModels.Systems.ODEData import ODEData
 import attrs
 
+
 class GenericODE(CUDAFactory):
     """
     Template class for a system of ODEs. This class is designed to be subclassed for specific systems so that the
@@ -34,9 +35,9 @@ class GenericODE(CUDAFactory):
 
     def __init__(self,
                  initial_values=None,
-                 parameters=None,  #parameters that can change during simulation
-                 constants=None,  #Parameters that are not expected to change during simulation
-                 observables=None,  #Auxiliary variables you might want to track during simulation
+                 parameters=None,  # parameters that can change during simulation
+                 constants=None,  # Parameters that are not expected to change during simulation
+                 observables=None,  # Auxiliary variables you might want to track during simulation
                  default_initial_values=None,
                  default_parameters=None,
                  default_constants=None,
@@ -68,7 +69,8 @@ class GenericODE(CUDAFactory):
                                                        default_constants=default_constants,
                                                        default_observable_names=default_observable_names,
                                                        precision=precision,
-                                                       num_drivers=num_drivers)
+                                                       num_drivers=num_drivers,
+                                                       )
         self.setup_compile_settings(system_data)
 
     @property
@@ -232,7 +234,6 @@ class GenericODE(CUDAFactory):
         This will be run in a python test to compare the output of your CUDA function with this known, correct answer."""
         numpy_precision = np.float64 if self.precision == float64 else np.float32
         sizes = self.sizes
-
 
         n_parameters = sizes.parameters
         n_drivers = sizes.drivers

@@ -8,6 +8,7 @@ from typing import List, Tuple
 import numpy as np
 from CuMC.ForwardSim.OutputHandling import summary_metrics
 
+
 # ************************************ standalone validators ************************************** #
 
 def _indices_validator(array, max_index):
@@ -52,8 +53,7 @@ class OutputConfig:
 
     _summary_types: Tuple[str] = attrs.field(default=attrs.Factory(tuple))
 
-
-    #*********************************** post-init validators ***********************************
+    # *********************************** post-init validators ***********************************
 
     def __attrs_post_init__(self):
         """Swap out None index arrays, check that all indices are within bounds, and check for a no-output request."""
@@ -112,7 +112,6 @@ class OutputConfig:
     #     if not self.save_summaries:
     #         self._summarised_state_indices = np.asarray([], dtype=np.int_)
     #         self._summarised_observable_indices = np.asarray([], dtype=np.int_)
-
 
     # ************************************ Getters/Setters *************************************** #
     # No setter implemented for flags - these can only be updated by the update_from_outputs_list method
@@ -283,9 +282,11 @@ class OutputConfig:
     def observable_summaries_output_height(self) -> int:
         """Calculate the height of the observable summary output."""
         return self.summaries_output_height_per_var * self.n_summarised_observables
+
     # ***************************** Custom init methods for adapting to other components ***************************** #
     def update_from_outputs_tuple(self,
-                                 output_types: tuple[str]):
+                                  output_types: tuple[str],
+                                  ):
         """Update bools and summary types from a list of output types. Run the post_init validators to empty indices
         if not requested."""
         self._save_state = "state" in output_types

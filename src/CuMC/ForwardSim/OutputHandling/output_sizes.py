@@ -46,8 +46,10 @@ class SummariesBufferSizes(ArraySizingClass):
     @classmethod
     def from_output_fns(cls, output_fns: "OutputFunctions") -> "SummariesBufferSizes":
         return cls(output_fns.state_summaries_buffer_height,
-                  output_fns.observable_summaries_buffer_height,
-                  output_fns.summaries_buffer_height_per_var)
+                   output_fns.observable_summaries_buffer_height,
+                   output_fns.summaries_buffer_height_per_var,
+                   )
+
 
 @attrs.define
 class LoopBufferSizes(ArraySizingClass):
@@ -71,7 +73,8 @@ class LoopBufferSizes(ArraySizingClass):
                   system_sizes.observables,
                   system_sizes.states,
                   system_sizes.parameters,
-                  system_sizes.drivers)
+                  system_sizes.drivers,
+                  )
         return obj
 
 
@@ -94,7 +97,8 @@ class OutputArrayHeights(ArraySizingClass):
                   observables,
                   state_summaries,
                   observable_summaries,
-                  per_variable)
+                  per_variable,
+                  )
         return obj
 
 
@@ -110,14 +114,15 @@ class SingleRunOutputSizes(ArraySizingClass):
     def from_output_fns_and_run_settings(cls, output_fns, run_settings):
         heights = OutputArrayHeights.from_output_fns(output_fns)
 
-        state = (run_settings.output_samples, heights.state )
+        state = (run_settings.output_samples, heights.state)
         observables = (run_settings.output_samples, heights.observables)
         state_summaries = (run_settings.summary_samples, heights.state_summaries)
         observable_summaries = (run_settings.summary_samples, heights.observable_summaries)
         obj = cls(state,
                   observables,
                   state_summaries,
-                  observable_summaries)
+                  observable_summaries,
+                  )
         return obj
 
 
@@ -154,7 +159,8 @@ class BatchOutputSizes(ArraySizingClass):
         obj = cls(state,
                   observables,
                   state_summaries,
-                  observable_summaries)
+                  observable_summaries,
+                  )
         return obj
 
 
@@ -187,7 +193,7 @@ class BatchArrays:
 
         return cls(sizes, precision=precision)
 
-    #TODO: Add adapters to array size classes from single run and solver classes.
+    # TODO: Add adapters to array size classes from single run and solver classes.
     #  The single integrator run sizes and up have been implemented before the classes were refactored to separate
     #  data and build, and so their interface is not yet fixed. It makes more sense to accept whatever interface they
     #  find and add an adapter in these modules, rather than try to guess how it will look, because my crystal ball
@@ -243,7 +249,7 @@ class BatchArrays:
         if not self.cache_valid(sizes, precision):
             self.allocate(sizes, precision)
 
-        self.state[:,:,:] = precision(0.0)
-        self.observables[:,:,:] = precision(0.0)
-        self.state_summaries[:,:,:] = precision(0.0)
-        self.observable_summaries[:,:,:] = precision(0.0)
+        self.state[:, :, :] = precision(0.0)
+        self.observables[:, :, :] = precision(0.0)
+        self.state_summaries[:, :, :] = precision(0.0)
+        self.observable_summaries[:, :, :] = precision(0.0)

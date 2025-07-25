@@ -10,17 +10,17 @@ from CuMC.ForwardSim.OutputHandling.output_sizes import SummariesBufferSizes
 import attrs
 
 
-#feature: max absolute
-#feature: running std deviation
-#feature: min
-#feature: neg_peak
-#feature: both_extrema
-#feature: dxdt_extrema
-#feature: d2xdt2 extrema
-#feature: dxdt_max_peaks
-#feature: raw dxdt
+# feature: max absolute
+# feature: running std deviation
+# feature: min
+# feature: neg_peak
+# feature: both_extrema
+# feature: dxdt_extrema
+# feature: d2xdt2 extrema
+# feature: dxdt_max_peaks
+# feature: raw dxdt
 
-#TODO: Implement a "terminate" flag to communicate that a condition has been met - e.g. we have found a peak,
+# TODO: Implement a "terminate" flag to communicate that a condition has been met - e.g. we have found a peak,
 # so stop integrating.
 
 @attrs.define
@@ -104,8 +104,6 @@ class OutputFunctions(CUDAFactory):
                 update_summaries_function=update_summary_metrics_func,
                 save_summaries_function=save_summary_metrics_func,
                 )
-
-
 
     @property
     def save_state_func(self):

@@ -10,7 +10,6 @@ class Solver:
     model, which contains the ODEs to be solved.
     """
 
-
     def _clarify_None_output_functions(self, n_saved_observables):
         """Clarify the output functions to be used in the loop, if None is specified, set to default values."""
         # TODO [$6873084f7cdbf00008a72cfc]: add empty list check
@@ -22,7 +21,7 @@ class Solver:
     def _get_saved_values(self, n_states):
         """Sanitise empty lists and None values - statse default to all, observables default to none."""
 
-        #TODO: add a routine to handle saved_state or saved_observables being given as strings - figure out at which level this should
+        # TODO: add a routine to handle saved_state or saved_observables being given as strings - figure out at which level this should
         # happen and whether it can just call one of them fancy systemvalues functions.ar
         saved_states = self.compile_settings.saved_states
         saved_observables = self.compile_settings.saved_observables

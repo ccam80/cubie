@@ -33,12 +33,12 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                  save_summary_func,
                  ):
         super().__init__()
-        loop_step_config = LoopStepConfig(dt_min = run_settings.dt_min,
-                                          dt_max = run_settings.dt_max,
-                                          dt_save = run_settings.dt_save,
-                                          dt_summarise = run_settings.dt_summarise,
-                                          atol = run_settings.atol,
-                                          rtol = run_settings.rtol,
+        loop_step_config = LoopStepConfig(dt_min=run_settings.dt_min,
+                                          dt_max=run_settings.dt_max,
+                                          dt_save=run_settings.dt_save,
+                                          dt_summarise=run_settings.dt_summarise,
+                                          atol=run_settings.atol,
+                                          rtol=run_settings.rtol,
                                           )
         compile_settings = IntegratorLoopSettings(
                 precision=precision,
@@ -64,7 +64,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                                           dxdt_func=config.dxdt_func,
                                           save_state_func=config.save_state_func,
                                           update_summary_func=config.update_summary_func,
-                                          save_summary_func=config.save_summary_func
+                                          save_summary_func=config.save_summary_func,
                                           )
 
         return integrator_loop
@@ -75,22 +75,21 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         return self._threads_per_loop
 
     def build_loop(self,
-            precision,
-            dxdt_func,
-            save_state_func,
-            update_summary_func,
-            save_summary_func,
-        ):
+                   precision,
+                   dxdt_func,
+                   save_state_func,
+                   update_summary_func,
+                   save_summary_func,
+                   ):
         save_steps, summary_steps, step_size = self.compile_settings.fixed_steps
 
         sizes = self.compile_settings.buffer_sizes.nonzero
 
-        #Unpack sizes to keep compiler happy
+        # Unpack sizes to keep compiler happy
         state_summary_buffer_size = sizes.state_summaries
         observables_summary_buffer_size = sizes.observable_summaries
         state_buffer_size = sizes.state
         observables_buffer_size = sizes.observables
-
 
         loop_sizes = self.compile_settings.buffer_sizes
         loop_states = loop_sizes.state

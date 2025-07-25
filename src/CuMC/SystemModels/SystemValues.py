@@ -1,5 +1,6 @@
 import numpy as np
-from collections.abc import Sized # Workaround just to check if an argument has len()
+from collections.abc import Sized  # Workaround just to check if an argument has len()
+
 
 class SystemValues:
     """ A container for numerical values used to specify ODE systems, such as initial state
@@ -15,11 +16,13 @@ class SystemValues:
     You can index into this object like a dictionary or an array, i.e. values['key'] or values[index or slice].
 
     """
+
     def __init__(self,
                  values_dict,
                  precision,
-                 defaults = None,
-                 **kwargs):
+                 defaults=None,
+                 **kwargs,
+                 ):
         """
         Initialize the system parameters with default values, user-specified values from a dictionary,
         then any keyword arguments. Sets up an array of values and a dictionary mapping parameter names to indices.
@@ -62,7 +65,7 @@ class SystemValues:
         if isinstance(defaults, (list, tuple)) and all(isinstance(item, str) for item in defaults):
             defaults = {k: 0.0 for k in defaults}
 
-        if defaults==None:
+        if defaults == None:
             defaults = {}
 
         # Set default values, then overwrite with values provided in values dict, then any single-parameter
@@ -78,7 +81,6 @@ class SystemValues:
 
         self.n = len(self.values_array)
 
-
     def update_param_array_and_indices(self):
         """
         Extract all values in self.values_dict and save to a numpy array with the specified precision.
@@ -93,7 +95,6 @@ class SystemValues:
         self.indices_dict = {k: i for i, k in enumerate(keys)}
         self.keys_by_index = {i: k for i, k in enumerate(keys)}
 
-
     def get_index_of_key(self, parameter_key):
         """
         Retrieve the index of a given key in the values_array.
@@ -103,8 +104,10 @@ class SystemValues:
             if parameter_key in self.indices_dict:
                 return self.indices_dict[parameter_key]
             else:
-                raise KeyError(f"'{parameter_key}' not found in this SystemValues object. Double check that you're looking " +
-                               f"in the right place (i.e. states, or parameters, or constants)")
+                raise KeyError(
+                    f"'{parameter_key}' not found in this SystemValues object. Double check that you're looking " +
+                    f"in the right place (i.e. states, or parameters, or constants)",
+                        )
         else:
             raise TypeError(f"parameter_key must be a string, you submitted a {type(parameter_key)}.")
 
@@ -129,7 +132,8 @@ class SystemValues:
             if all(isinstance(item, str) for item in keys_or_indices):
                 # A list of strings
                 indices = np.asarray([self.get_index_of_key(state) for state in keys_or_indices],
-                                   dtype=np.int16)
+                                     dtype=np.int16,
+                                     )
             elif all(isinstance(item, int) for item in keys_or_indices):
                 # A list of ints
                 indices = np.asarray(keys_or_indices, dtype=np.int16)
@@ -138,12 +142,14 @@ class SystemValues:
                 non_str_int_types = [type(item) for item in keys_or_indices if not isinstance(item, (str, int))]
                 if non_str_int_types:
                     raise TypeError(
-                        f"When specifying a variable to save or modify, you can provide strings that match the labels,"
-                        f" or integers that match the indices - you provided a list containing {non_str_int_types[0]}")
+                            f"When specifying a variable to save or modify, you can provide strings that match the labels,"
+                            f" or integers that match the indices - you provided a list containing {non_str_int_types[0]}",
+                            )
                 else:
                     raise TypeError(
-                        f"When specifying a variable to save or modify, you can provide a list of strings or a list of integers,"
-                        f" but not a mixed list of both")
+                            f"When specifying a variable to save or modify, you can provide a list of strings or a list of integers,"
+                            f" but not a mixed list of both",
+                            )
 
         elif isinstance(keys_or_indices, str):
             # A single string
@@ -161,12 +167,14 @@ class SystemValues:
 
         else:
             raise TypeError(
-                f"When specifying a variable to save or modify, you can provide strings that match the labels,"
-                f" or integers that match the indices - you provided a {type(keys_or_indices)}")
+                    f"When specifying a variable to save or modify, you can provide strings that match the labels,"
+                    f" or integers that match the indices - you provided a {type(keys_or_indices)}",
+                    )
 
         if any(index < 0 or index >= len(self.values_array) for index in indices):
             raise IndexError(
-                f"One or more indices are out of bounds. Valid indices are from 0 to {len(self.values_array) - 1}.")
+                    f"One or more indices are out of bounds. Valid indices are from 0 to {len(self.values_array) - 1}.",
+                    )
 
         return indices
 
@@ -200,13 +208,13 @@ class SystemValues:
         indices = self.get_indices(keys_or_indices)
         if len(indices) == 1:
             return np.asarray(self.values_array[indices[0]], dtype=self.precision)
-        return np.asarray([self.values_array[index] for index in  indices], dtype=self.precision)
+        return np.asarray([self.values_array[index] for index in indices], dtype=self.precision)
 
     def set_values(self, keys, values):
 
         indices = self.get_indices(keys)
 
-        #Checks for mismatches between lengths of indices and values
+        # Checks for mismatches between lengths of indices and values
         if len(indices) == 1:
             if isinstance(values, Sized):
                 # Check for one key, multiple values
@@ -218,7 +226,7 @@ class SystemValues:
                 updates = {self.keys_by_index[indices[0]]: values}
 
         elif not isinstance(values, Sized):
-            #Check for two keys, one value
+            # Check for two keys, one value
             raise ValueError("The number of indices does not match the number of values provided. ")
 
         elif len(indices) != len(values):
@@ -242,12 +250,14 @@ class SystemValues:
         missing = [k for k in values_dict.keys() if k not in self.indices_dict]
         if missing:
             raise KeyError(
-                f"Parameter key(s) {missing} not found in this SystemValues object. Double check that you're looking " +
-                f"in the right place (i.e. states, or parameters, or constants)")
+                    f"Parameter key(s) {missing} not found in this SystemValues object. Double check that you're looking " +
+                    f"in the right place (i.e. states, or parameters, or constants)",
+                    )
         if any(np.can_cast(value, self.precision) is False for value in values_dict.values()):
             raise TypeError(
-                f"One or more values in the provided dictionary cannot be cast to the specified precision {self.precision}. "
-                f"Please ensure all values are compatible with this precision.")
+                    f"One or more values in the provided dictionary cannot be cast to the specified precision {self.precision}. "
+                    f"Please ensure all values are compatible with this precision.",
+                    )
         else:
             # Update the dictionary
             self.values_dict.update(values_dict)
@@ -293,4 +303,4 @@ class SystemValues:
             IndexError: If the integer index is out of bounds
             TypeError: If the key is not a string, integer, or slice
         """
-        self.set_values(key, value)
+        self.set_values(key, vaue)

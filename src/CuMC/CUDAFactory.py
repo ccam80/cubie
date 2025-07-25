@@ -2,6 +2,7 @@ from warnings import warn
 import attrs
 from CuMC._utils import in_attr, is_attrs_class
 
+
 class CUDAFactory:
     """
     Factory class for creating CUDA device functions and kernels in Numba. This parent class has common cache
@@ -113,15 +114,16 @@ class CUDAFactory:
         """
         if self._compile_settings is None:
             raise ValueError("Compile settings must be set up using self.setup_compile_settings before updating.")
-        
+
         update_successful = False
         for key, value in kwargs.items():
             if in_attr(key, self._compile_settings):
                 setattr(self._compile_settings, key, value)
                 update_successful = True
             else:
-                warn(f"'{key}' is not a valid compile setting for this object, and so was not updated.", 
-                     stacklevel=2)
+                warn(f"'{key}' is not a valid compile setting for this object, and so was not updated.",
+                     stacklevel=2,
+                     )
 
         if update_successful:
             self._invalidate_cache()

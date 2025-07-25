@@ -2,6 +2,7 @@ from warnings import warn
 from numba import cuda, int32
 from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import GenericIntegratorAlgorithm
 
+
 class Euler(GenericIntegratorAlgorithm):
     """Euler integrator algorithm for fixed-step integration.
 

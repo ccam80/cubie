@@ -20,14 +20,19 @@ class SummaryMetric:
     by the user, but as a dataclass to provide compile-critical information with less boilerplate.
     """
 
-    buffer_size: Union[int, Callable] = attrs.field(default=0, validator=attrs.validators.instance_of(Union[int, 
-    Callable]))
-    output_size: Union[int, Callable] = attrs.field(default=0, validator=attrs.validators.instance_of(Union[int, Callable]))
+    buffer_size: Union[int, Callable] = attrs.field(default=0, validator=attrs.validators.instance_of(Union[int,
+    Callable],
+                                                                                                      ),
+                                                    )
+    output_size: Union[int, Callable] = attrs.field(default=0,
+                                                    validator=attrs.validators.instance_of(Union[int, Callable]),
+                                                    )
     update_device_func: Callable = attrs.field(validator=attrs.validators.instance_of(Callable), default=None)
     save_device_func: Callable = attrs.field(validator=attrs.validators.instance_of(Callable), default=None)
     name: str = attrs.field(validator=attrs.validators.instance_of(str), default="")
     input_variable: Optional[dict[str, int]] = attrs.field(validator=attrs.validators.instance_of(Optional[dict]),
-                                                           default=None)
+                                                           default=None,
+                                                           )
 
 
 @attrs.define
@@ -49,12 +54,21 @@ class SummaryMetrics:
     """
     _names: list[str] = attrs.field(validator=attrs.validators.instance_of(list), factory=list, init=False)
     _buffer_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict),
-                                                                 factory=dict, init=False)
-    _output_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
-    _save_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
-    _update_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
+                                                                 factory=dict, init=False,
+                                                                 )
+    _output_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict),
+                                                                 factory=dict, init=False,
+                                                                 )
+    _save_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict,
+                                                       init=False,
+                                                       )
+    _update_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict,
+                                                         init=False,
+                                                         )
     _metric_objects = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
-    _params: dict[str, Optional[Any]] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
+    _params: dict[str, Optional[Any]] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict,
+                                                    init=False,
+                                                    )
 
     def __attrs_post_init__(self):
         self._params = {}
@@ -195,7 +209,8 @@ class SummaryMetrics:
             param = self._params.get(metric_name)
             if param == 0:
                 warn(f"Metric '{metric_name}' has a callable size but parameter is set to 0. This resuts in a size"
-                     "of 0, which is likely not what you want", UserWarning, stacklevel=2)
+                     "of 0, which is likely not what you want", UserWarning, stacklevel=2,
+                     )
             return size(param)
 
         return size

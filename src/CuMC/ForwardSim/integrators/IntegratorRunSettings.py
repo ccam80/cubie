@@ -3,6 +3,7 @@ from CuMC.ForwardSim.integrators.algorithms.IntegratorLoopSettings import LoopSt
 from numpy import ceil
 from warnings import warn
 
+
 @attrs.define
 class IntegratorRunSettings:
     """Container for runtime/timing settings that are commonly grouped together."""
@@ -17,16 +18,16 @@ class IntegratorRunSettings:
 
     def __attrs_post_init__(self):
         """Validate timing relationships."""
-        #This is covered in singleintegrator
+        # This is covered in singleintegrator
         if self.dt_min > self.dt_max:
             raise ValueError("dt_min must be <= dt_max")
         if self.dt_save < self.dt_min:
             raise ValueError("dt_save must be >= dt_min")
         if self.dt_summarise < self.dt_save:
             raise ValueError("dt_summarise must be >= dt_save")
-        if self.dt_summarise <= 0: #Potentially gate this based on whether summaries are requested?:
+        if self.dt_summarise <= 0:  # Potentially gate this based on whether summaries are requested?:
             raise ValueError("dt_summarise must be greater than 0")
-        if self.dt_save <= 0: #Potentially gate this based on whether summaries are requested?:
+        if self.dt_save <= 0:  # Potentially gate this based on whether summaries are requested?:
             raise ValueError("dt_save must be greater than 0")
 
     def _validate_timing(self):
@@ -40,19 +41,19 @@ class IntegratorRunSettings:
         dt_summarise = self.dt_summarise
 
         if self.dt_max < self.dt_min:
-            raise ValueError(f"dt_max ({dt_max}s) must be >= dt_min ({dt_min}s)."
+            raise ValueError(f"dt_max ({dt_max}s) must be >= dt_min ({dt_min}s).",
                              )
         if dt_save < dt_min:
-            raise ValueError(f"dt_save ({dt_save}s) must be >= dt_min ({dt_min}s). "
+            raise ValueError(f"dt_save ({dt_save}s) must be >= dt_min ({dt_min}s). ",
                              )
         if dt_summarise < dt_save:
             raise ValueError(
-                f"dt_summarise ({dt_summarise}s) must be >= to dt_save ({dt_save}s)"
-                )
+                    f"dt_summarise ({dt_summarise}s) must be >= to dt_save ({dt_save}s)",
+                    )
 
         if dt_max > dt_save:
             warn(f"dt_max ({dt_max}s) > dt_save ({dt_save}s). The loop will never be able to step"
-                 f"that far before stopping to save, so dt_max is redundant.", UserWarning
+                 f"that far before stopping to save, so dt_max is redundant.", UserWarning,
                  )
 
     def _discretize_steps(self):
@@ -94,7 +95,7 @@ class IntegratorRunSettings:
                               dt_save=self.dt_save,
                               dt_summarise=self.dt_summarise,
                               atol=self.atol,
-                              rtol=self.rtol
+                              rtol=self.rtol,
                               )
 
     @property

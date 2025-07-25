@@ -27,7 +27,7 @@ class CUDASafeAllocator:
         Returns:
             Dictionary of array names to shapes
         """
-        cuda_dims = self.config.get_cuda_safe_dimensions() # remove cuda safe naming
+        cuda_dims = self.config.get_cuda_safe_dimensions()  # remove cuda safe naming
 
         shapes = {}
 
@@ -78,7 +78,8 @@ class CUDASafeAllocator:
         return arrays
 
     def extract_user_data(self, arrays: Dict[str, np.ndarray],
-                         n_samples: int, n_summary_samples: int) -> Dict[str, Optional[np.ndarray]]:
+                          n_samples: int, n_summary_samples: int,
+                          ) -> Dict[str, Optional[np.ndarray]]:
         """
         Extract only the data the user actually requested, filtering out padding.
 
@@ -111,7 +112,7 @@ class CUDASafeAllocator:
             user_data["observables"] = arrays["observables_output"][:n_samples, :n_obs]
 
         # Summary data
-        #TODO: This one needs to get labels for each summary type
+        # TODO: This one needs to get labels for each summary type
         if self.config.save_summaries:
             if self.config.needs_state_summaries:
                 req = self.config.get_memory_requirements()
@@ -121,7 +122,8 @@ class CUDASafeAllocator:
             if self.config.needs_observable_summaries:
                 req = self.config.get_memory_requirements()
                 n_obs_summaries = req["observable_summaries"]["output"]
-                user_data["observable_summaries"] = arrays["observables_summaries_output"][:n_summary_samples, :n_obs_summaries]
+                user_data["observable_summaries"] = arrays["observables_summaries_output"][:n_summary_samples,
+                                                    :n_obs_summaries]
 
         return user_data
 
@@ -135,15 +137,14 @@ class CUDASafeAllocator:
         cuda_dims = self.config.get_cuda_safe_dimensions()
 
         return {
-            "actual_n_saved_states": self.config.effective_n_saved_states,
+            "actual_n_saved_states":      self.config.effective_n_saved_states,
             "actual_n_saved_observables": self.config.effective_n_saved_observables,
-            "cuda_n_saved_states": cuda_dims["n_saved_states"],
-            "cuda_n_saved_observables": cuda_dims["n_saved_observables"],
-            "save_state": self.config.save_state,
-            "save_observables": self.config.save_observables,
-            "save_time": self.config.save_time,
-            "save_summaries": self.config.save_summaries,
-            "needs_state_summaries": self.config.needs_state_summaries,
+            "cuda_n_saved_states":        cuda_dims["n_saved_states"],
+            "cuda_n_saved_observables":   cuda_dims["n_saved_observables"],
+            "save_state":                 self.config.save_state,
+            "save_observables":           self.config.save_observables,
+            "save_time":                  self.config.save_time,
+            "save_summaries":             self.config.save_summaries,
+            "needs_state_summaries":      self.config.needs_state_summaries,
             "needs_observable_summaries": self.config.needs_observable_summaries,
-        }
-
+            }

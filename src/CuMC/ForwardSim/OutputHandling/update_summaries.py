@@ -73,6 +73,7 @@ def chain_metrics(
     else:
         return wrapper
 
+
 def update_summary_factory(
         buffer_sizes: SummariesBufferSizes,
         summarised_states: Sequence[int] | ArrayLike,

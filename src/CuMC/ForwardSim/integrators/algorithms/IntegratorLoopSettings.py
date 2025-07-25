@@ -23,6 +23,7 @@ class LoopStepConfig:
     atol: float = field(default=1e-6, validator=validators.instance_of(float))
     rtol: float = field(default=1e-6, validator=validators.instance_of(float))
 
+
 @define
 class IntegratorLoopSettings:
     """
@@ -40,7 +41,6 @@ class IntegratorLoopSettings:
     save_state_func: Optional[Callable] = field(default=None)
     update_summary_func: Optional[Callable] = field(default=None)
     save_summary_func: Optional[Callable] = field(default=None)
-
 
     @property
     def fixed_steps(self):

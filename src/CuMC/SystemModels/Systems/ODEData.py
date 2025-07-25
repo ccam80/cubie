@@ -6,6 +6,7 @@ from typing import Optional
 from CuMC.SystemModels.SystemValues import SystemValues
 from numba import from_dtype
 
+
 @attrs.define
 class SystemSizes:
     """
@@ -26,13 +27,25 @@ class ODEData:
     This is used to pass data to the ODE solver kernel.
     """
     constants: Optional[SystemValues] = attrs.field(validator=attrs.validators.optional(attrs.validators.instance_of(
-            SystemValues)))
+            SystemValues,
+            ),
+            ),
+            )
     parameters: Optional[SystemValues] = attrs.field(validator=attrs.validators.optional(attrs.validators.instance_of(
-            SystemValues)))
+            SystemValues,
+            ),
+            ),
+            )
     initial_states: SystemValues = attrs.field(validator=attrs.validators.optional(attrs.validators.instance_of(
-            SystemValues)))
+            SystemValues,
+            ),
+            ),
+            )
     observables: SystemValues = attrs.field(validator=attrs.validators.optional(attrs.validators.instance_of(
-            SystemValues)))
+            SystemValues,
+            ),
+            ),
+            )
     precision: Float = attrs.field(validator=attrs.validators.instance_of(Float), default=float32)
     num_drivers: int = attrs.field(validator=attrs.validators.instance_of(int), default=1)
 
@@ -55,11 +68,12 @@ class ODEData:
     @property
     def sizes(self):
         """Returns a dictionary of sizes for the ODE data."""
-        return SystemSizes(states = self.num_states,
-                           observables = self.num_observables,
-                           parameters = self.num_parameters,
-                           constants = self.num_constants,
-                           drivers = self.num_drivers)
+        return SystemSizes(states=self.num_states,
+                           observables=self.num_observables,
+                           parameters=self.num_parameters,
+                           constants=self.num_constants,
+                           drivers=self.num_drivers,
+                           )
 
     @classmethod
     def from_genericODE_initargs(cls,
@@ -86,4 +100,3 @@ class ODEData:
                    precision=from_dtype(precision),
                    num_drivers=num_drivers,
                    )
-
