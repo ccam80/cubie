@@ -1,7 +1,6 @@
 import attrs
 from typing import Optional, Tuple, Union
 
-from CuMC.ForwardSim.integrators.IntegratorRunSettings import IntegratorRunSettings
 from numba.cuda import is_cuda_array, mapped_array
 from numba.types import Float
 from numba import float32
@@ -27,7 +26,10 @@ class ArraySizingClass:
         if isinstance(value, int):
             return max(1, value)
         elif isinstance(value, tuple):
-            return tuple(max(1, v) for v in value)
+            if any(v == 0 for v in value):
+                return tuple(1 for v in value)
+            else:
+                return value
         else:
             return value
 
@@ -108,10 +110,10 @@ class SingleRunOutputSizes(ArraySizingClass):
     def from_output_fns_and_run_settings(cls, output_fns, run_settings):
         heights = OutputArrayHeights.from_output_fns(output_fns)
 
-        state = (heights.state, run_settings.output_samples)
-        observables = (heights.observables, run_settings.output_samples)
-        state_summaries = (heights.state_summaries, run_settings.summarise_samples)
-        observable_summaries = (heights.observable_summaries, run_settings.summarise_samples)
+        state = (run_settings.output_samples, heights.state )
+        observables = (run_settings.output_samples, heights.observables)
+        state_summaries = (run_settings.summary_samples, heights.state_summaries)
+        observable_summaries = (run_settings.summary_samples, heights.observable_summaries)
         obj = cls(state,
                   observables,
                   state_summaries,
@@ -232,3 +234,16 @@ class BatchArrays:
         if not self.cache_valid(sizes, precision):
             self._clear_cache()
             self._allocate_new()
+
+    def initialize_zeros(self, sizes: BatchOutputSizes, precision: Optional[Float] = None):
+        """
+        Initialize the arrays for the batch of runs, using the sizes provided in the BatchOutputSizes object.
+        If the arrays are already allocated and valid, this does nothing.
+        """
+        if not self.cache_valid(sizes, precision):
+            self.allocate(sizes, precision)
+
+        self.state[:,:,:] = precision(0.0)
+        self.observables[:,:,:] = precision(0.0)
+        self.state_summaries[:,:,:] = precision(0.0)
+        self.observable_summaries[:,:,:] = precision(0.0)
