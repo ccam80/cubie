@@ -4,16 +4,15 @@ from typing import Sequence
 from .output_sizes import OutputArrayHeights
 
 
-def save_state_factory(heights: OutputArrayHeights,
-                       saved_states: Sequence[int] | ArrayLike,
+def save_state_factory(saved_states: Sequence[int] | ArrayLike,
                        saved_observables: Sequence[int] | ArrayLike,
                        save_state: bool,
                        save_observables: bool,
                        save_time: bool,
                        ):
     # Extract sizes from heights object
-    nstates = heights.state
-    nobs = heights.observables
+    nobs = len(saved_observables)
+    nstates = len(saved_states)
 
     @cuda.jit(device=True, inline=True)
     def save_state_func(current_state,

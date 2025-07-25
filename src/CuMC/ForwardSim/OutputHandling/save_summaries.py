@@ -101,7 +101,7 @@ def save_summary_factory(
 
     save_functions = summary_metrics.save_functions(summaries_list)
 
-    total_buffer_size = buffer_sizes.per_variable  # Use from SummariesBufferSizes instead of manual calculation
+    total_buffer_size = buffer_sizes.per_variable
     total_output_size = summary_metrics.summaries_output_height(summaries_list)
 
     buffer_offsets = summary_metrics.buffer_offsets(summaries_list)

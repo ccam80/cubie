@@ -79,7 +79,6 @@ class OutputFunctions(CUDAFactory):
 
         # Build functions using output sizes objects
         save_state_func = save_state_factory(
-                heights,
                 config.saved_state_indices,
                 config.saved_observable_indices,
                 config.save_state,

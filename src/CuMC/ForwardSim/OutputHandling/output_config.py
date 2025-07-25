@@ -45,7 +45,6 @@ class OutputConfig:
     _save_observables: bool = attrs.field(default=True)
     _save_time: bool = attrs.field(default=False)
 
-
     _saved_state_indices = attrs.field(default=attrs.Factory(list))
     _saved_observable_indices = attrs.field(default=attrs.Factory(list))
     _summarised_state_indices = attrs.field(default=attrs.Factory(list))
