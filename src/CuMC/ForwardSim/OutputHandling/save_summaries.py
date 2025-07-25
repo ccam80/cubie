@@ -2,6 +2,7 @@ from numba import cuda
 from numpy.typing import ArrayLike
 from typing import Sequence
 from CuMC.ForwardSim.OutputHandling import summary_metrics
+from .output_sizes import SummariesBufferSizes
 
 """This is a modification of the "chain" approach by sklam in https://github.com/numba/numba/issues/3405
 to provide an alternative to an iterable of cuda.jit functions. This exists so that we can compile only the
@@ -88,6 +89,7 @@ def chain_metrics(
 
 
 def save_summary_factory(
+        buffer_sizes: SummariesBufferSizes,
         summarised_states: Sequence[int] | ArrayLike,
         summarised_observables: Sequence[int] | ArrayLike,
         summaries_list: Sequence[str],
@@ -96,11 +98,14 @@ def save_summary_factory(
     function which saves all requested summaries."""
     num_summarised_states = len(summarised_states)
     num_summarised_observables = len(summarised_observables)
+
     save_functions = summary_metrics.save_functions(summaries_list)
-    total_buffer_size = summary_metrics.summaries_buffer_height(summaries_list)
-    buffer_offsets = summary_metrics.buffer_offsets(summaries_list)
-    buffer_sizes = summary_metrics.buffer_sizes(summaries_list)
+
+    total_buffer_size = buffer_sizes.per_variable  # Use from SummariesBufferSizes instead of manual calculation
     total_output_size = summary_metrics.summaries_output_height(summaries_list)
+
+    buffer_offsets = summary_metrics.buffer_offsets(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
     output_offsets = summary_metrics.output_offsets(summaries_list)
     output_sizes = summary_metrics.output_sizes(summaries_list)
     params = summary_metrics.params(summaries_list)
@@ -109,7 +114,7 @@ def save_summary_factory(
     summarise_states = (num_summarised_states > 0) and (num_summary_metrics > 0)
     summarise_observables = (num_summarised_observables > 0) and (num_summary_metrics > 0)
 
-    summary_metric_chain = chain_metrics(save_functions, buffer_offsets, buffer_sizes, output_offsets,
+    summary_metric_chain = chain_metrics(save_functions, buffer_offsets, buffer_sizes_list, output_offsets,
                                          output_sizes,
                                          params,
                                          )
@@ -133,7 +138,6 @@ def save_summary_factory(
                         summarise_every,
                         )
 
-        # from pdb import set_trace; set_trace()
         if summarise_observables:
             for observable_index in range(num_summarised_observables):
                 buffer_array_slice_start = observable_index * total_buffer_size

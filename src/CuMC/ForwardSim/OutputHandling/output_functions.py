@@ -1,12 +1,12 @@
 from dataclasses import dataclass
-from numpy import asarray
 from numpy.typing import ArrayLike
-from typing import Sequence, Dict, Any, Callable
+from typing import Sequence, Callable
 from CuMC.CUDAFactory import CUDAFactory
 from CuMC.ForwardSim.OutputHandling.save_state import save_state_factory
 from CuMC.ForwardSim.OutputHandling.save_summaries import save_summary_factory
 from CuMC.ForwardSim.OutputHandling.update_summaries import update_summary_factory
 from CuMC.ForwardSim.OutputHandling.output_config import OutputConfig
+from CuMC.ForwardSim.OutputHandling.output_sizes import OutputArrayHeights, SummariesBufferSizes
 import attrs
 
 
@@ -74,10 +74,12 @@ class OutputFunctions(CUDAFactory):
         """
         config = self.compile_settings
 
-        # Build functions using config attributes
+        heights = OutputArrayHeights.from_output_fns(self)
+        buffer_sizes = SummariesBufferSizes.from_output_fns(self)
+
+        # Build functions using output sizes objects
         save_state_func = save_state_factory(
-                config.n_saved_states,
-                config.n_saved_observables,
+                heights,
                 config.saved_state_indices,
                 config.saved_observable_indices,
                 config.save_state,
@@ -86,12 +88,14 @@ class OutputFunctions(CUDAFactory):
                 )
 
         update_summary_metrics_func = update_summary_factory(
+                buffer_sizes,
                 config.summarised_state_indices,
                 config.summarised_observable_indices,
                 config.summary_types,
                 )
 
         save_summary_metrics_func = save_summary_factory(
+                buffer_sizes,
                 config.summarised_state_indices,
                 config.summarised_observable_indices,
                 config.summary_types,
@@ -180,6 +184,11 @@ class OutputFunctions(CUDAFactory):
         return self.compile_settings.observable_summaries_output_height
 
     @property
+    def summaries_buffer_height_per_var(self) -> int:
+        """Calculate the height of the state summaries buffer."""
+        return self.compile_settings.summaries_buffer_height_per_var
+
+    @property
     def state_summaries_buffer_height(self) -> int:
         """Calculate the height of the state summaries buffer."""
         return self.compile_settings.state_summaries_buffer_height
@@ -188,6 +197,11 @@ class OutputFunctions(CUDAFactory):
     def observable_summaries_buffer_height(self) -> int:
         """Calculate the height of the observable summaries buffer."""
         return self.compile_settings.observable_summaries_buffer_height
+
+    @property
+    def summaries_output_height_per_var(self) -> int:
+        """Calculate the height of the state summaries output."""
+        return self.compile_settings.summaries_output_height_per_var
 
     @property
     def n_summarised_states(self) -> int:
@@ -199,4 +213,3 @@ class OutputFunctions(CUDAFactory):
     def n_summarised_observables(self) -> int:
         """Number of observables that will actually be summarised."""
         return self.compile_settings.n_summarised_observables
-

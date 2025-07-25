@@ -2,6 +2,7 @@ from numba import cuda
 from numpy.typing import ArrayLike
 from typing import Sequence
 from CuMC.ForwardSim.OutputHandling import summary_metrics
+from .output_sizes import SummariesBufferSizes
 
 """This is a modification of the "chain" approach by sklam in https://github.com/numba/numba/issues/3405
 to provide an alternative to an iterable of cuda.jit functions. This exists so that we can compile only the
@@ -73,6 +74,7 @@ def chain_metrics(
         return wrapper
 
 def update_summary_factory(
+        buffer_sizes: SummariesBufferSizes,
         summarised_states: Sequence[int] | ArrayLike,
         summarised_observables: Sequence[int] | ArrayLike,
         summaries_list: Sequence[str],
@@ -81,7 +83,7 @@ def update_summary_factory(
     function which updates all requested summaries."""
     num_summarised_states = len(summarised_states)
     num_summarised_observables = len(summarised_observables)
-    total_buffer_size = summary_metrics.summaries_buffer_height(summaries_list)
+    total_buffer_size = buffer_sizes.per_variable  # Use from SummariesBufferSizes instead of manual calculation
     buffer_offsets = summary_metrics.buffer_offsets(summaries_list)
     num_metrics = len(buffer_offsets)
 
@@ -89,9 +91,9 @@ def update_summary_factory(
     summarise_observables = (num_summarised_observables > 0) and (num_metrics > 0)
 
     update_fns = summary_metrics.update_functions(summaries_list)
-    buffer_sizes = summary_metrics.buffer_sizes(summaries_list)
+    buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
     params = summary_metrics.params(summaries_list)
-    chain_fn = chain_metrics(update_fns, buffer_offsets, buffer_sizes, params)
+    chain_fn = chain_metrics(update_fns, buffer_offsets, buffer_sizes_list, params)
 
     @cuda.jit(device=True, inline=True)
     def update_summary_metrics_func(
