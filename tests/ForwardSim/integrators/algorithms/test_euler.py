@@ -3,7 +3,9 @@ import numpy as np
 from tests.ForwardSim.integrators.algorithms.LoopAlgorithmTester import LoopAlgorithmTester
 
 from CuMC.ForwardSim.integrators.algorithms.euler import Euler
+from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 
+#TODO: Reduce test burden by decreasing parameter combinations
 
 @pytest.mark.parametrize("system_override", [None, "ThreeChamber", "Decays1_100", "genericODE"])
 class TestEuler(LoopAlgorithmTester):
@@ -15,7 +17,7 @@ class TestEuler(LoopAlgorithmTester):
         pass
 
     def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides,
-                                                       loop_under_test, expected_summary_temp_memory,
+                                                       loop_under_test, expected_summary_buffer_size,
                                                        ):
         pass
 
@@ -30,8 +32,8 @@ class TestEuler(LoopAlgorithmTester):
         driver_vec = inputs['forcing_vectors']
         dt = loop_compile_settings['dt_min']
         output_dt = loop_compile_settings['dt_save']
-        warmup = run_settings['warmup']
-        duration = run_settings['duration']
+        warmup = run_settings.warmup
+        duration = run_settings.duration
         saved_observables = loop_compile_settings['saved_observables']
         saved_states = loop_compile_settings['saved_states']
         save_time = "time" in loop_compile_settings['output_functions']
@@ -94,8 +96,8 @@ class TestEuler(LoopAlgorithmTester):
                                ),
                               ({}, {'initial_values': np.array([1.0, 2.0, 3.0])}, {}),
                               ({}, {}, {'duration': 5.0, 'warmup': 1.0}),
-                              ({'output_functions': ["state", "observables", "mean", "max", "rms", "peaks"],
-                                'n_peaks':          3, 'saved_states': [0, 1, 2]
+                              ({'output_functions': ["state", "observables", "mean", "max", "rms", "peaks[3]"],
+                                'saved_states': [0, 1, 2]
                                 }, {}, {}
                                )],
                              ids=['state_and_observables_empty_obs_list', 'state_observables_and_mean',
@@ -103,11 +105,11 @@ class TestEuler(LoopAlgorithmTester):
                              indirect=True,
                              )
     @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=['float32', 'float64'])
-    def test_loop(self, loop_test_kernel, run_settings, loop_compile_settings, inputs, precision, output_functions,
-                  loop_under_test, expected_answer,
+    def test_loop(self, loop_test_kernel, outputs, inputs, precision, output_functions, run_settings,
+                  loop_under_test, expected_answer, expected_summaries
                   ):
-        super().test_loop(loop_test_kernel, run_settings, loop_compile_settings, inputs, precision, output_functions,
-                          loop_under_test, expected_answer,
+        super().test_loop(loop_test_kernel, outputs, inputs, precision, output_functions, run_settings,
+                  loop_under_test, expected_answer, expected_summaries
                           )
 
     @pytest.mark.parametrize("loop_compile_settings_overrides",
@@ -124,9 +126,8 @@ class TestEuler(LoopAlgorithmTester):
                                'atol':              1.0e-7,
                                'rtol':              1.0e-5,
                                'saved_states':      [0, 1, 2],
-                               'saved_observables': [0, 3],
-                               'output_functions':  ["state", "peaks"],
-                               'n_peaks':           2
+                               'saved_observables': [0, 2],
+                               'output_functions':  ["state", "peaks[3]"],
                                }
                               ],
                              ids=['change_dts', 'change_tols', 'change_output_sizes', 'change_all'],
@@ -149,25 +150,24 @@ class TestEuler(LoopAlgorithmTester):
                                'atol':              1.0e-7,
                                'rtol':              1.0e-5,
                                'saved_states':      [0, 1, 2],
-                               'saved_observables': [0, 3],
-                               'output_functions':  ["state", "peaks"],
-                               'n_peaks':           2
+                               'saved_observables': [0, 2],
+                               'output_functions':  ["state", "peaks[2]"],
                                }
                               ],
                              ids=['change_dts', 'change_tols', 'change_output_sizes', 'change_all'],
                              indirect=True,
                              )
-    def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides,
-                                                       loop_under_test, expected_summary_temp_memory,
+    def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides,output_functions,
+                                                       loop_under_test, expected_summary_buffer_size,
                                                        ):
-        super().test_loop_compile_settings_passed_successfully(loop_compile_settings_overrides,
+        super().test_loop_compile_settings_passed_successfully(loop_compile_settings_overrides, output_functions,
                                                                loop_under_test, expected_summary_buffer_size,
                                                                )
 
     @pytest.fixture()
-    def expected_loop_shared_memory(self, system):
+    def expected_loop_shared_memory(self, system, output_functions):
         """Calculate the expected shared memory size for the Euler algorithm."""
-        n_states = system.sizes.states
-        n_observables = system.sizes.observables
-        n_drivers = system.sizes.drivers
-        return n_states + n_states + n_observables + n_drivers
+        sizes = LoopBufferSizes.from_system_and_output_fns(system, output_functions)
+        loop_shared_memory = (sizes.state + sizes.dxdt + sizes.observables + sizes.drivers +
+                              sizes.state_summaries + sizes.observable_summaries)
+        return loop_shared_memory

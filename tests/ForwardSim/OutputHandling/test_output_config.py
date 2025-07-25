@@ -6,8 +6,8 @@ import pytest
 import numpy as np
 from warnings import catch_warnings
 from typing import Set, Tuple, List
-from src.CuMC.ForwardSim.OutputHandling.output_config import OutputConfig
-from src.CuMC.ForwardSim import summary_metrics
+from CuMC.ForwardSim.OutputHandling.output_config import OutputConfig
+from CuMC.ForwardSim import summary_metrics
 
 
 @pytest.fixture

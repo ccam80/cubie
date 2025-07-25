@@ -1,16 +1,7 @@
 import pytest
 import numpy as np
 from warnings import warn
-
-def run_settings_dict(**kwargs):
-    """Default settings for simulation runtime configuration."""
-    settings = {
-        'duration': 1.0,
-        'warmup': 0.0,
-    }
-    settings.update(kwargs)
-    return settings
-
+from CuMC.ForwardSim.integrators.IntegratorRunSettings import IntegratorRunSettings
 
 @pytest.fixture(scope='function')
 def run_settings_override(request):
@@ -19,19 +10,28 @@ def run_settings_override(request):
 
 
 @pytest.fixture(scope='function')
-def run_settings(run_settings_override):
-    """
-    Create runtime settings with defaults and potential overrides.
+def run_settings(loop_compile_settings, run_settings_override):
+    """Create LoopStepConfig from loop_compile_settings."""
+    defaults = IntegratorRunSettings(
+            dt_min=loop_compile_settings['dt_min'],
+            dt_max=loop_compile_settings['dt_max'],
+            dt_save=loop_compile_settings['dt_save'],
+            dt_summarise=loop_compile_settings['dt_summarise'],
+            atol=loop_compile_settings['atol'],
+            rtol=loop_compile_settings['rtol'],
+            duration= 1.0,
+            warmup=0.0,
+            )
 
-    Usage:
-    @pytest.mark.parametrize("run_settings_override",
-                           [{'duration': 20.0, 'warmup': 10.0}],
-                           indirect=True)
-    def test_something(run_settings):
-        # run_settings will have duration=20.0 and warmup=10.0
-    """
-    return run_settings_dict(**run_settings_override)
+    if run_settings_override:
+        # Update defaults with any overrides provided
+        for key, value in run_settings_override.items():
+            if hasattr(defaults, key):
+                setattr(defaults, key, value)
+            else:
+                warn(f"Unknown run setting '{key}' provided; ignoring.", UserWarning)
 
+    return defaults
 
 def inputs_dict(system, precision, **kwargs):
     """Default input configuration for a system with the ability to override."""
@@ -39,32 +39,32 @@ def inputs_dict(system, precision, **kwargs):
     # Create a default driver pattern (100 zeros with occasional 1.0 pulses) if not overridden
     sample_count = 100
     drivers = np.zeros((system.sizes.drivers, sample_count), dtype=precision)
+    updated_arrays = {}
+
+    inputs_default = {
+        'initial_values': system.initial_values.values_array.copy(),
+        'parameters': system.parameters.values_array.copy(),
+        'forcing_vectors': drivers,
+    }
 
     if system.sizes.drivers > 0:
         drivers[:, 0::25] = system.precision(1.0)  # Set every 25th sample to 1.0
 
-    default_initial_values = system.init_values
-    default_parameters = system.parameters
-    system.init_values.values_array.copy()
-    # When testing input overrides from the user, we need to make sure that they
-    # fit the system. This is very intense for test parametrization handling, and
-    # is really just doing the job of a higher-level system component, but it's included
-    # for convenience in testing loop functions with multiple systems.
     if 'initial_values' in kwargs:
         initial_values_edits = kwargs.pop('initial_values')
         if isinstance(initial_values_edits, np.ndarray):
             # Ensure a 1D array is provided
             assert initial_values_edits.ndim == 1, "Initial values must be a 1D array."
-            required_length = system.init_values.n
+            required_length = system.initial_values.n
             provided_length = len(initial_values_edits)
-            new_initial = system.init_values.values_array.copy()
+            new_initial = system.initial_values.values_array.copy()
             if provided_length < required_length:
                 new_initial[:provided_length] = initial_values_edits
             else:
                 new_initial[:] = initial_values_edits[:required_length]
                 if provided_length > required_length:
                     warn("Redundant initial values provided; extra values are discarded.", UserWarning)
-            kwargs['initial_values'] = new_initial
+            updated_arrays['initial_values'] = new_initial.astype(precision)
 
     if 'parameters' in kwargs:
         parameters_edits = kwargs.pop('parameters')
@@ -80,21 +80,19 @@ def inputs_dict(system, precision, **kwargs):
                 new_params[:] = parameters_edits[:required_length]
                 if provided_length > required_length:
                     warn("Redundant parameters provided; extra values are discarded.", UserWarning)
-            kwargs['parameters'] = new_params
+            updated_arrays['parameters'] = new_params.astype(precision)
 
     if 'forcing_vectors' in kwargs:
         forcing_override = kwargs['forcing_vectors']
         if isinstance(forcing_override, np.ndarray):
             assert forcing_override.shape[
                        0] == system.sizes.drivers, "forcing_vectors override must have system.num_drivers rows."
+            drivers = forcing_override.astype(precision)
+            updated_arrays['forcing_vectors'] = drivers
 
-    inputs_config = {
-        'initial_values': system.init_values.values_array.copy(),
-        'parameters': system.parameters.values_array.copy(),
-        'forcing_vectors': drivers,
-    }
-    inputs_config.update(kwargs)
-    return inputs_config
+
+    inputs_default.update(kwargs)
+    return inputs_default
 
 
 @pytest.fixture(scope='function')

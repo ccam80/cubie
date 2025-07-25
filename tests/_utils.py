@@ -1,5 +1,4 @@
 import numpy as np
-from CuMC.ForwardSim.OutputHandling import summary_metrics
 
 def calculate_expected_summaries(state,
                                  observables,

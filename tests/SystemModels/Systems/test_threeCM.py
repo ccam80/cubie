@@ -1,5 +1,5 @@
 import pytest
-from SystemModels.Systems.SystemTester import SystemTester
+from tests.SystemModels.Systems.SystemTester import SystemTester
 from tests.SystemModels._utils import generate_system_tests
 from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
 
