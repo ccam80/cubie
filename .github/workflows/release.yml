@@ -1,7 +1,7 @@
-on: workflow_dispatch
-  # push:
-  #   branches:
-  #     - main
+on: 
+  push:
+    branches:
+      - main
 
 permissions:
   contents: write
@@ -17,9 +17,7 @@ jobs:
       - uses: googleapis/release-please-action@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          release-type: python
-          bump-patch-for-minor-pre-major: True
-          changelog-sections: "feat, fix, perf, chore, test, refactor"
+          release-type: python       
       - name: tag major and minor versions
         if: ${{ steps.release.outputs.release_created }}
         run: |
