@@ -22,14 +22,14 @@ class IntegratorRunSettings:
     atol: float = attrs.field(default=1e-6, validator=attrs.validators.instance_of(float))
     rtol: float = attrs.field(default=1e-6, validator=attrs.validators.instance_of(float))
 
-    requested_outputs: list[str] = attrs.field(
+    _requested_outputs: list[str] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.deep_iterable(
                     member_validator=attrs.validators.instance_of(str),
                     iterable_validator=attrs.validators.instance_of(list),
                     ),
             )
-    saved_states: Optional[Sequence | NDArray[int]] = attrs.field(
+    _saved_states: Optional[Sequence | NDArray[int]] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.optional(
                     attrs.validators.deep_iterable(
@@ -38,7 +38,7 @@ class IntegratorRunSettings:
                             ),
                     ),
             )
-    saved_observables: Optional[Sequence | NDArray[int]] = attrs.field(
+    _saved_observables: Optional[Sequence | NDArray[int]] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.optional(
                     attrs.validators.deep_iterable(
@@ -47,7 +47,7 @@ class IntegratorRunSettings:
                             ),
                     ),
             )
-    summarised_states: Optional[Sequence | NDArray[int]] = attrs.field(
+    _summarised_states: Optional[Sequence | NDArray[int]] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.optional(
                     attrs.validators.deep_iterable(
@@ -56,7 +56,7 @@ class IntegratorRunSettings:
                             ),
                     ),
             )
-    summarised_observables: Optional[Sequence | NDArray[int]] = attrs.field(
+    _summarised_observables: Optional[Sequence | NDArray[int]] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.optional(
                     attrs.validators.deep_iterable(
@@ -68,6 +68,10 @@ class IntegratorRunSettings:
 
     def __attrs_post_init__(self):
         """Validate timing relationships."""
+        self.validate_settings()
+
+    def validate_settings(self):
+        """Check the timing settings for consistency and raise errors or warnings as appropriate."""
         self._validate_timing()
         self._discretize_steps()
 

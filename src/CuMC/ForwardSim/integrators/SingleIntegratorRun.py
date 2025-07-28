@@ -184,6 +184,7 @@ class SingleIntegratorRun:
             'precision':             self.precision
             }
 
+        self.config.validate_settings()
         self._integrator_instance.update(**updates)
 
         self._compiled_loop = self._integrator_instance.device_function
