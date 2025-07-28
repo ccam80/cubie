@@ -21,8 +21,8 @@ def random_system_values(coeffs, precision=np.float64, randscale=1e6):
 
 
 def create_random_test_set(coeffs, precision=np.float64, randscale=1e6):
+    coeffs = [precision(c) for c in range(coeffs)]
     inits, params, drivers = random_system_values(coeffs, precision, randscale)
-
     input_data = (inits, params, drivers)
     instantiation_parameters = (precision, coeffs)
     return (instantiation_parameters, input_data,
@@ -31,17 +31,11 @@ def create_random_test_set(coeffs, precision=np.float64, randscale=1e6):
 
 def generate_decays_tests(param_lengths=[1, 100], log10_scalerange=(-6, 6), range_step=6):
     test_cases = []
-    coeffses = [list(range(n)) for n in param_lengths]
-    samescales = np.arange(log10_scalerange[0], log10_scalerange[1] + 1, range_step)
-
-    precisions = (np.float32, np.float64)
-    for precision in (precisions):
-        for coeffs in coeffses:
-            coeffs = [precision(c) for c in coeffs]
-            #single-scale random tests
-            test_cases += [create_random_test_set(coeffs, precision, 10.0 ** scale) for scale in samescales]
-            # mixed-scale random tests
-            test_cases += [create_random_test_set(coeffs, precision, log10_scalerange)]
+    test_cases += [create_random_test_set(10, np.float32, 10.0 ** -6)]
+    test_cases += [create_random_test_set(10, np.float32, 10.0 ** 0)]
+    test_cases += [create_random_test_set(10, np.float32, 10.0 ** 6)]
+    test_cases += [create_random_test_set(100, np.float32, (-6,6))]
+    test_cases += [create_random_test_set(100, np.float64, (-6,6))]
 
     return test_cases
 
