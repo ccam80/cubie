@@ -4,7 +4,6 @@ Tests the nonzero functionality and size calculation classes using fixtures.
 """
 
 import pytest
-import numpy as np
 from numba import float32, float64
 import attrs
 
@@ -13,9 +12,9 @@ from CuMC.ForwardSim.OutputHandling.output_sizes import (
     LoopBufferSizes,
     OutputArrayHeights,
     SingleRunOutputSizes,
-    BatchOutputSizes,
-    BatchArrays
+    BatchOutputSizes
     )
+from CuMC.ForwardSim.BatchArrays import OutputArrays
 
 
 class TestNonzeroProperty:
@@ -468,55 +467,6 @@ class TestBatchOutputSizes:
         assert from_fns.observable_summaries == explicit.observable_summaries
 
 
-class TestBatchArrays:
-    """Test BatchArrays class"""
-
-    @pytest.mark.parametrize("loop_compile_settings_overrides",
-                             [{'output_functions': ["time", "state", "observables", "mean"]}]
-                             , indirect=True)
-    def test_from_output_fns_and_run_settings_default(self, output_functions, run_settings):
-        """Test creating BatchArrays from output_functions and run_settings"""
-        numruns = 2
-        batch_arrays = BatchArrays.from_output_fns_and_run_settings(
-            output_functions, run_settings, numruns
-        )
-
-        expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
-
-        assert batch_arrays.sizes.state == (run_settings.output_samples, numruns, expected_state_height)
-        assert batch_arrays.sizes.observables == (run_settings.output_samples, numruns,output_functions.n_saved_observables
-                                                  )
-        assert batch_arrays._precision == float32
-
-    @pytest.mark.parametrize("loop_compile_settings_overrides",
-                             [{'output_functions': ["time", "state", "observables", "mean"]}]
-                             , indirect=True)
-    @pytest.mark.parametrize("run_settings_override", [{'output_samples': 0, 'summarise_samples': 0}], indirect=True)
-    def test_from_output_fns_and_run_settings_with_nonzero(self, output_functions, run_settings):
-        """Test creating BatchArrays and using nonzero property"""
-        numruns = 0
-        batch_arrays = BatchArrays.from_output_fns_and_run_settings(
-            output_functions, run_settings, numruns
-        )
-
-        # Use nonzero property to get nonzero sizes
-        nonzero_batch_arrays = BatchArrays(batch_arrays.sizes.nonzero, batch_arrays._precision)
-
-        # All dimensions should be at least 1
-        assert all(v >= 1 for v in nonzero_batch_arrays.sizes.state)
-        assert all(v >= 1 for v in nonzero_batch_arrays.sizes.observables)
-
-    @pytest.mark.parametrize("loop_compile_settings_overrides",
-                             [{'output_functions': ["time", "state", "observables", "mean"]}]
-                             , indirect=True)
-    def test_from_output_fns_and_run_settings_precision(self, output_functions, run_settings):
-        """Test creating BatchArrays with different precision"""
-        numruns = 2
-        batch_arrays = BatchArrays.from_output_fns_and_run_settings(
-            output_functions, run_settings, numruns, precision=float64
-        )
-
-        assert batch_arrays._precision == float64
 
 
 class TestIntegrationScenarios:
