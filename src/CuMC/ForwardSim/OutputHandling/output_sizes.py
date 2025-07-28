@@ -116,13 +116,14 @@ class SingleRunOutputSizes(ArraySizingClass):
 
         state = (run_settings.output_samples, heights.state)
         observables = (run_settings.output_samples, heights.observables)
-        state_summaries = (run_settings.summary_samples, heights.state_summaries)
-        observable_summaries = (run_settings.summary_samples, heights.observable_summaries)
+        state_summaries = (run_settings.summarise_samples, heights.state_summaries)
+        observable_summaries = (run_settings.summarise_samples, heights.observable_summaries)
         obj = cls(state,
                   observables,
                   state_summaries,
                   observable_summaries,
                   )
+
         return obj
 
 

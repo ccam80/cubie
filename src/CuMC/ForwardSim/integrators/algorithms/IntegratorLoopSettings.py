@@ -2,26 +2,12 @@
 Integrator configuration management with validation and adapter patterns.
 """
 
-from attrs import define, field, validators, Factory
+from attrs import define, field, validators
 from typing import Callable, Optional
 from numba import float32, float64
 from numba.types import Float as _numba_float_type
-from warnings import warn
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
-
-
-@define
-class LoopStepConfig:
-    """
-    Step timing and exit conditions for an integrator loop. Convenience class for grouping and passing around loop
-    step information.
-    """
-    dt_min: float = field(default=1e-6, validator=validators.instance_of(float))
-    dt_max: float = field(default=1.0, validator=validators.instance_of(float))
-    dt_save: float = field(default=0.1, validator=validators.instance_of(float))
-    dt_summarise: float = field(default=0.1, validator=validators.instance_of(float))
-    atol: float = field(default=1e-6, validator=validators.instance_of(float))
-    rtol: float = field(default=1e-6, validator=validators.instance_of(float))
+from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
 
 
 @define
@@ -68,21 +54,10 @@ class IntegratorLoopSettings:
 
         return n_steps_save, n_steps_summarise, step_size
 
-    # @property
-    # def n_states(self) -> int:
-    #     return self._system_sizes.states
-    #
-    # @property
-    # def n_observables(self) -> int:
-    #     return self._system_sizes.observables
-    #
-    # @property
-    # def n_parameters(self) -> int:
-    #     return self._system_sizes.parameters
-    #
-    # @property
-    # def n_drivers(self) -> int:
-    #     return self._system_sizes.drivers
+    @property
+    def fixed_steps(self):
+        """Return the fixed steps as a tuple of (save_every_samples, summarise_every_samples, step_size)."""
+        return self.loop_step_config.fixed_steps
 
     @property
     def dt_min(self) -> float:
@@ -107,3 +82,16 @@ class IntegratorLoopSettings:
     @property
     def rtol(self) -> float:
         return self.loop_step_config.rtol
+
+    @classmethod
+    def from_integrator_run(cls, run_object):
+        """Create an IntegratorLoopSettings instance from an SingleIntegratorRun object."""
+        return cls(
+                loop_step_config=run_object.loop_step_config,
+                buffer_sizes=run_object.loop_buffer_sizes,
+                precision=run_object.precision,
+                dxdt_func=run_object.dxdt_func,
+                save_state_func=run_object.save_state_func,
+                update_summary_func=run_object.update_summary_func,
+                save_summary_func=run_object.save_summary_func,
+                )

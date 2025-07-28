@@ -1,7 +1,8 @@
 from warnings import warn
 from numba import cuda, int32
 from CuMC.CUDAFactory import CUDAFactory
-from CuMC.ForwardSim.integrators.algorithms.IntegratorLoopSettings import IntegratorLoopSettings, LoopStepConfig
+from CuMC.ForwardSim.integrators.algorithms.IntegratorLoopSettings import IntegratorLoopSettings
+from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
 
 
 class GenericIntegratorAlgorithm(CUDAFactory):
@@ -27,7 +28,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                  precision,
                  dxdt_func,
                  buffer_sizes,
-                 run_settings,
+                 loop_step_config,
                  save_state_func,
                  update_summary_func,
                  save_summary_func,
@@ -165,13 +166,3 @@ class GenericIntegratorAlgorithm(CUDAFactory):
     def shared_memory_required(self):
         """Calculate shared memory requirements. Dummy implementation returns 0."""
         return 0
-
-    # @classmethod
-    # def from_single_integrator_run(cls,
-    #                             system,
-    #                             output_functions,
-    #                             run_settings,
-    #                             output_settings):
-    #     """Adapter to instantiate a loop algorithm from grouped parameters and other objects in the integrator
-    #     architecture: systems and output functions."""
-    #     pass

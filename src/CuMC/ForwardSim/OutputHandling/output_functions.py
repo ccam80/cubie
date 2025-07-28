@@ -6,7 +6,7 @@ from CuMC.ForwardSim.OutputHandling.save_state import save_state_factory
 from CuMC.ForwardSim.OutputHandling.save_summaries import save_summary_factory
 from CuMC.ForwardSim.OutputHandling.update_summaries import update_summary_factory
 from CuMC.ForwardSim.OutputHandling.output_config import OutputConfig
-from CuMC.ForwardSim.OutputHandling.output_sizes import SummariesBufferSizes
+from CuMC.ForwardSim.OutputHandling.output_sizes import SummariesBufferSizes, OutputArrayHeights
 import attrs
 
 
@@ -74,7 +74,7 @@ class OutputFunctions(CUDAFactory):
         """
         config = self.compile_settings
 
-        buffer_sizes = SummariesBufferSizes.from_output_fns(self)
+        buffer_sizes = self.summaries_buffer_sizes
 
         # Build functions using output sizes objects
         save_state_func = save_state_factory(
@@ -209,3 +209,13 @@ class OutputFunctions(CUDAFactory):
     def n_summarised_observables(self) -> int:
         """Number of observables that will actually be summarised."""
         return self.compile_settings.n_summarised_observables
+
+    @property
+    def summaries_buffer_sizes(self) -> SummariesBufferSizes:
+        """Return the buffer sizes for summaries."""
+        return SummariesBufferSizes.from_output_fns(self)
+
+    @property
+    def output_array_heights(self) -> OutputArrayHeights:
+        """Return the heights of the output arrays for states and observables."""
+        return OutputArrayHeights.from_output_fns(self)

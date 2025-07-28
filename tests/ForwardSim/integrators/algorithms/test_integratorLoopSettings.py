@@ -4,9 +4,9 @@ from numba import float32, float64
 from warnings import warn
 
 from CuMC.ForwardSim.integrators.algorithms.IntegratorLoopSettings import (
-    LoopStepConfig,
     IntegratorLoopSettings
 )
+from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 
 
@@ -152,58 +152,6 @@ class TestIntegratorLoopSettings:
         assert settings.dt_summarise == mock_step_config.dt_summarise
         assert settings.atol == mock_step_config.atol
         assert settings.rtol == mock_step_config.rtol
-
-    @pytest.mark.parametrize("dt_min, dt_save, dt_summarise, should_warn", [
-        (0.01, 0.1, 0.5, False),  # Valid configuration
-        (0.01, 0.055, 0.1, True),  # dt_save not multiple of dt_min
-        (0.01, 0.1, 0.35, True),   # dt_summarise not multiple of dt_save
-        (0.01, 0.055, 0.152, True), # Both not multiples
-    ], ids=['valid_timing', 'save_warning', 'summarise_warning', 'both_warnings'])
-    def test_fixed_steps_timing_validation(self, dt_min, dt_save, dt_summarise, should_warn,
-                                         mock_buffer_sizes, mock_functions):
-        """Test timing validation in fixed_steps property."""
-        step_config = LoopStepConfig(
-            dt_min=dt_min,
-            dt_save=dt_save,
-            dt_summarise=dt_summarise
-        )
-        settings = IntegratorLoopSettings(
-            loop_step_config=step_config,
-            buffer_sizes=mock_buffer_sizes,
-            **mock_functions
-        )
-
-        if should_warn:
-            with pytest.warns(UserWarning):
-                save_steps, summarise_steps, step_size = settings.fixed_steps
-        else:
-            save_steps, summarise_steps, step_size = settings.fixed_steps
-
-        assert step_size == dt_min
-        assert save_steps == int(dt_save / dt_min)
-        assert isinstance(save_steps, int)
-        assert isinstance(summarise_steps, int)
-
-    @pytest.mark.parametrize("dt_max, dt_min, dt_save, dt_summarise", [
-        (0.01, 0.1, 0.05, 0.1),   # dt_max < dt_min
-        (0.1, 0.01, 0.005, 0.1),  # dt_save < dt_min
-        (0.1, 0.01, 0.1, 0.05),   # dt_summarise < dt_save
-    ], ids=['max_less_than_min', 'save_less_than_min', 'summarise_less_than_save'])
-    def test_timing_validation_errors(self, dt_max, dt_min, dt_save, dt_summarise,
-                                    mock_buffer_sizes, mock_functions):
-        """Test that invalid timing configurations raise errors."""
-        step_config = LoopStepConfig(
-            dt_min=dt_min,
-            dt_max=dt_max,
-            dt_save=dt_save,
-            dt_summarise=dt_summarise
-        )
-        with pytest.raises(ValueError):
-            IntegratorLoopSettings(
-                loop_step_config=step_config,
-                buffer_sizes=mock_buffer_sizes,
-                **mock_functions
-            )
 
     def test_buffer_sizes_property(self, mock_buffer_sizes, mock_step_config, mock_functions):
         """Test that buffer_sizes property returns correct values."""
