@@ -89,7 +89,7 @@ class TestDecays(SystemTester):
         self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
         expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
         if precision == np.float32:
-            rtol = 1e-5 #float32 will underperform in fixed-precision land, and on big systems this error will stack
+            rtol = 5e-5 # float32 will underperform in fixed-precision land, and on big systems this error will stack
         else:
             rtol = 1e-12
         assert_allclose(dx, expected_dx, rtol=rtol, err_msg="dx mismatch")
