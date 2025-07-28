@@ -303,4 +303,4 @@ class SystemValues:
             IndexError: If the integer index is out of bounds
             TypeError: If the key is not a string, integer, or slice
         """
-        self.set_values(key, vaue)
+        self.set_values(key, value)
