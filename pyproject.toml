@@ -45,7 +45,7 @@ markers = [
 addopts = [
     "--import-mode=importlib",
     "-ra",
-    "--cov=src/CuMC",
+    "--cov=CuMC",
     "--cov-report=html:htmlReport",
     "--cov-report=term-missing"
 ]
@@ -54,22 +54,13 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
+#source = ["CuMC"]
 omit = [
     "*/tests/*",
-    "*/test_*",
-    "*/__pycache__/*",
-    "*/site-packages/*",
-    "*/PyCharm*",
-    "*/pycharm*",
-    "*/_jb_*",
-    "*/teamcity/*",
-    "*/conftest.py",
-]
-include = [
-    "src/CuMC/*",
-    "src/CuMC/**/*",
+    "*/__pycache__/*"
 ]
 relative_files = true
+
 
 [tool.coverage.report]
 exclude_lines = [
