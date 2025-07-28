@@ -3,8 +3,6 @@ from tests.SystemModels.Systems.SystemTester import SystemTester
 from CuMC.SystemModels.Systems.GenericODE import GenericODE
 import numpy as np
 
-#These are hard-coded in the generalODE class as it does not have a fixed set of parameters, states, or observables.
-# For a custom class, there are helper functions to generate tests sets in tests.SystemsModels._utils
 testsets = [
     # instantiate_settings is a tuple of (precision, state_names, parameter_names, observable_names, constants, num_drivers)
     # input_data is a tuple of (state, parameters, drivers)

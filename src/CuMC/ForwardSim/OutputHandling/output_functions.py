@@ -61,9 +61,21 @@ class OutputFunctions(CUDAFactory):
                 )
         self.setup_compile_settings(config)
 
-    def update(self, **kwargs):
-        """Update the configuration of the output functions with new parameters."""
-        self.update_compile_settings(**kwargs)
+    def update(self, silent=False, **kwargs):
+        """        Pass updates to compile settings through the CUDAFactory interface, which will invalidate cache if an update
+        is successful. Pass silent=True if doing a bulk update with other component's params to suppress warnings
+        about keys not found.
+
+        Args:
+            silent (bool): If True, suppress warnings about unrecognized parameters
+            **kwargs: Parameter updates to apply
+
+        Returns:
+            list: unrecognized_params
+            """
+        if 'output_types' in kwargs:
+            self.compile_settings.update_from_outputs_tuple(kwargs.pop('output_types'))
+        return self.update_compile_settings(silent=silent, **kwargs)
 
     def build(self) -> OutputFunctionCache:
         """Compile three functions: Save state, update summaries metrics, and save summaries.
@@ -126,14 +138,6 @@ class OutputFunctions(CUDAFactory):
         return self.get_cached_output('save_summaries_function')
 
     @property
-    def memory_per_summarised_variable(self):
-        """Return the memory requirements for buffer and output arrays."""
-        return {
-            'buffer': self.compile_settings.summaries_buffer_height_per_var,
-            'output': self.compile_settings.summaries_output_height_per_var,
-            }
-
-    @property
     def save_time(self):
         """Return whether time is being saved."""
         return self.compile_settings.save_time
@@ -193,6 +197,11 @@ class OutputFunctions(CUDAFactory):
     def observable_summaries_buffer_height(self) -> int:
         """Calculate the height of the observable summaries buffer."""
         return self.compile_settings.observable_summaries_buffer_height
+
+    @property
+    def total_summary_buffer_size(self) -> int:
+        """Calculate the total size of the summaries buffer."""
+        return self.compile_settings.total_summary_buffer_size
 
     @property
     def summaries_output_height_per_var(self) -> int:

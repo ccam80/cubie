@@ -4,7 +4,7 @@ Created on Wed May 28 10:36:56 2025
 
 @author: cca79
 """
-from numba import cuda, float64
+from numba import cuda, float64, from_dtype
 from CuMC.SystemModels.Systems.GenericODE import GenericODE
 import numpy as np
 
@@ -62,15 +62,16 @@ class ThreeChamberModel(GenericODE):
     def build(self):
         # Hoist fixed parameters to global namespace
         global global_constants
-        global_constants = self.compile_settings.constants.values_array
+        global_constants = self.compile_settings.constants.values_array.astype(self.precision)
 
         # Optimise: Check whether this is being compiled-in or passed as a numpy array
+        numba_precision = from_dtype(self.precision)
 
-        @cuda.jit((self.precision[:],
-                   self.precision[:],
-                   self.precision[:],
-                   self.precision[:],
-                   self.precision[:]
+        @cuda.jit((numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:]
                    ),
                   device=True,
                   inline=True,
@@ -165,7 +166,7 @@ class ThreeChamberModel(GenericODE):
 
     def correct_answer_python(self, states, parameters, drivers):
         """ More-direct port of Nic Davey's MATLAB implementation.         """
-        numpy_precision = np.float64 if self.precision == float64 else np.float32
+
 
         E_h, E_a, E_v, R_i, R_o, R_c, _ = parameters
         V_h, V_a, V_v = states
@@ -187,7 +188,7 @@ class ThreeChamberModel(GenericODE):
 
         Q_c = (P_a - P_v) / R_c
 
-        dxdt = np.asarray([Q_i - Q_o, Q_o - Q_c, Q_c - Q_i], dtype=numpy_precision)
-        observables = np.asarray([P_a, P_v, P_h, Q_i, Q_o, Q_c], dtype=numpy_precision)
+        dxdt = np.asarray([Q_i - Q_o, Q_o - Q_c, Q_c - Q_i], dtype=self.precision)
+        observables = np.asarray([P_a, P_v, P_h, Q_i, Q_o, Q_c], dtype=self.precision)
 
         return dxdt, observables

@@ -107,26 +107,36 @@ class CUDAFactory:
         """
         return self._compile_settings
 
-    def update_compile_settings(self, **kwargs):
+    def update_compile_settings(self, silent=False, **kwargs):
         """
         Update the compile settings with new values, specified as keyword arguments.
         This method should be called before building the system to ensure that the latest settings are used.
+
+        Args:
+            silent (bool): If True, suppress warnings about unrecognized parameters
+            **kwargs: Parameter updates to apply
         """
         if self._compile_settings is None:
             raise ValueError("Compile settings must be set up using self.setup_compile_settings before updating.")
 
         update_successful = False
+        unrecognized_params = []
+
         for key, value in kwargs.items():
             if in_attr(key, self._compile_settings):
                 setattr(self._compile_settings, key, value)
                 update_successful = True
             else:
-                warn(f"'{key}' is not a valid compile setting for this object, and so was not updated.",
-                     stacklevel=2,
-                     )
+                unrecognized_params.append(key)
+                if not silent:
+                    warn(f"'{key}' is not a valid compile setting for this object, and so was not updated.",
+                         stacklevel=2,
+                         )
 
         if update_successful:
             self._invalidate_cache()
+
+        return unrecognized_params
 
     def _invalidate_cache(self):
         self._cache_valid = False

@@ -1,5 +1,5 @@
 from warnings import warn
-from numba import cuda, int32
+from numba import cuda, int32, from_dtype
 from CuMC.CUDAFactory import CUDAFactory
 from CuMC.ForwardSim.integrators.algorithms.IntegratorLoopSettings import IntegratorLoopSettings
 from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
@@ -8,7 +8,7 @@ from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
 class GenericIntegratorAlgorithm(CUDAFactory):
     """
     Base class for the inner "loop" algorithm for an ODE solving algorithm. This class handles building and caching
-    of the algorithm function, which is incorporated into a CUDA kernel (like the one in SolverKernel.py) for use.
+    of the algorithm function, which is incorporated into a CUDA kernel (like the one in BatchSolverKernel.py) for use.
     Any integration algorithms (e.g. Euler, Runge-Kutta) should subclass this class and override the following
     attributes/methods:
 
@@ -26,29 +26,23 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
     def __init__(self,
                  precision,
-                 dxdt_func,
+                 dxdt_function,
                  buffer_sizes,
                  loop_step_config,
                  save_state_func,
-                 update_summary_func,
-                 save_summary_func,
+                 update_summaries_func,
+                 save_summaries_func,
                  ):
         super().__init__()
-        loop_step_config = LoopStepConfig(dt_min=run_settings.dt_min,
-                                          dt_max=run_settings.dt_max,
-                                          dt_save=run_settings.dt_save,
-                                          dt_summarise=run_settings.dt_summarise,
-                                          atol=run_settings.atol,
-                                          rtol=run_settings.rtol,
-                                          )
+
         compile_settings = IntegratorLoopSettings(
                 precision=precision,
                 loop_step_config=loop_step_config,
                 buffer_sizes=buffer_sizes,
-                dxdt_func=dxdt_func,
+                dxdt_function=dxdt_function,
                 save_state_func=save_state_func,
-                update_summary_func=update_summary_func,
-                save_summary_func=save_summary_func,
+                update_summaries_func=update_summaries_func,
+                save_summaries_func=save_summaries_func,
                 )
         self.setup_compile_settings(compile_settings)
 
@@ -62,10 +56,10 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         config = self.compile_settings
 
         integrator_loop = self.build_loop(precision=config.precision,
-                                          dxdt_func=config.dxdt_func,
+                                          dxdt_function=config.dxdt_function,
                                           save_state_func=config.save_state_func,
-                                          update_summary_func=config.update_summary_func,
-                                          save_summary_func=config.save_summary_func,
+                                          update_summaries_func=config.update_summaries_func,
+                                          save_summaries_func=config.save_summaries_func,
                                           )
 
         return integrator_loop
@@ -77,10 +71,10 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
     def build_loop(self,
                    precision,
-                   dxdt_func,
+                   dxdt_function,
                    save_state_func,
-                   update_summary_func,
-                   save_summary_func,
+                   update_summaries_func,
+                   save_summaries_func,
                    ):
         save_steps, summary_steps, step_size = self.compile_settings.fixed_steps
 
@@ -101,14 +95,15 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         # propagate this flag across from output_functions
 
         # noinspection PyTypeChecker
-        @cuda.jit((precision[:],
-                   precision[:],
-                   precision[:, :],
-                   precision[:],
-                   precision[:, :],
-                   precision[:, :],
-                   precision[:, :],
-                   precision[:, :],
+        numba_precision = from_dtype(precision)
+        @cuda.jit((numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:, :],
+                   numba_precision[:],
+                   numba_precision[:, :],
+                   numba_precision[:, :],
+                   numba_precision[:, :],
+                   numba_precision[:, :],
                    int32,
                    int32,
                    ),
@@ -127,15 +122,15 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                        warmup_samples=0,
                        ):
             """Dummy integrator loop implementation."""
-            l_state_buffer = cuda.local.array(shape=state_buffer_size, dtype=precision)
-            l_obs_buffer = cuda.local.array(shape=observables_buffer_size, dtype=precision)
-            l_obs_buffer[:] = precision(0.0)
+            l_state_buffer = cuda.local.array(shape=state_buffer_size, dtype=numba_precision)
+            l_obs_buffer = cuda.local.array(shape=observables_buffer_size, dtype=numba_precision)
+            l_obs_buffer[:] = numba_precision(0.0)
 
             for i in range(loop_states):
                 l_state_buffer[i] = inits[i]
 
-            state_summary_buffer = cuda.local.array(shape=state_summary_buffer_size, dtype=precision)
-            obs_summary_buffer = cuda.local.array(shape=observables_summary_buffer_size, dtype=precision)
+            state_summary_buffer = cuda.local.array(shape=state_summary_buffer_size, dtype=numba_precision)
+            obs_summary_buffer = cuda.local.array(shape=observables_summary_buffer_size, dtype=numba_precision)
 
             for i in range(output_length):
                 for j in range(loop_states):
@@ -146,11 +141,11 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                 save_state_func(l_state_buffer, l_obs_buffer, state_output[i, :], observables_output[i, :], i)
 
                 # if summaries_output:
-                update_summary_func(l_state_buffer, l_obs_buffer, state_summary_buffer, obs_summary_buffer, i)
+                update_summaries_func(l_state_buffer, l_obs_buffer, state_summary_buffer, obs_summary_buffer, i)
 
                 if (i + 1) % summary_steps == 0:
                     summary_sample = (i + 1) // summary_steps - 1
-                    save_summary_func(state_summary_buffer, obs_summary_buffer,
+                    save_summaries_func(state_summary_buffer, obs_summary_buffer,
                                       state_summaries_output[summary_sample, :],
                                       observables_summaries_output[summary_sample, :],
                                       summary_steps,
@@ -158,11 +153,34 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
         return dummy_loop
 
-    def update(self, **kwargs):
-        """Update configuration parameters."""
-        self.update_compile_settings(**kwargs)
+    def update(self, silent=False, **kwargs):
+        """
+        Pass updates to compile settings through the CUDAFactory interface, which will invalidate cache if an update
+        is successful. Pass silent=True if doing a bulk update with other component's params to suppress warnings
+        about keys not found.
+
+        Args:
+            silent (bool): If True, suppress warnings about unrecognized parameters
+            **kwargs: Parameter updates to apply
+
+        Returns:
+            list: unrecognized_params"""
+        return self.update_compile_settings(silent=silent, **kwargs)
 
     @property
     def shared_memory_required(self):
         """Calculate shared memory requirements. Dummy implementation returns 0."""
         return 0
+
+    @classmethod
+    def from_single_integrator_run(cls, run_object):
+        """Create an instance of the integrator algorithm from a SingleIntegratorRun object."""
+        return cls(
+                precision=run_object.precision,
+                dxdt_function=run_object.dxdt_function,
+                buffer_sizes=run_object.loop_buffer_sizes,
+                loop_step_config=run_object.loop_step_config,
+                save_state_func=run_object.save_state_func,
+                update_summaries_func=run_object.update_summaries_func,
+                save_summaries_func=run_object.save_summaries_func,
+                )

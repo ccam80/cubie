@@ -40,8 +40,8 @@ class TestNonzeroProperty:
         )
         nonzero_sizes = sizes.nonzero
 
-        assert nonzero_sizes.state == (1, 5)
-        assert nonzero_sizes.observables == (3, 1)
+        assert nonzero_sizes.state == (1, 1)
+        assert nonzero_sizes.observables == (1, 1)
         assert nonzero_sizes.state_summaries == (1, 1)
         assert nonzero_sizes.observable_summaries == (2, 4)
 
@@ -329,12 +329,13 @@ class TestSingleRunOutputSizes:
 
         expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
 
-        assert sizes.state == (expected_state_height, run_settings.output_samples)
-        assert sizes.observables == (output_functions.n_saved_observables, run_settings.output_samples)
-        assert sizes.state_summaries == (output_functions.state_summaries_output_height,
-                                         run_settings.summarise_samples)
-        assert sizes.observable_summaries == (output_functions.observable_summaries_output_height,
-                                              run_settings.summarise_samples)
+        assert sizes.state == (run_settings.output_samples, expected_state_height)
+        assert sizes.observables == (run_settings.output_samples, output_functions.n_saved_observables)
+        assert sizes.state_summaries == (run_settings.summarise_samples,
+                                         output_functions.state_summaries_output_height)
+        assert sizes.observable_summaries == (run_settings.summarise_samples,
+                                              output_functions.observable_summaries_output_height
+                                              )
 
     @pytest.mark.parametrize("loop_compile_settings_overrides",
                              [{'output_functions': ["time", "state", "observables", "mean"]}]
@@ -360,12 +361,13 @@ class TestSingleRunOutputSizes:
 
         expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
         explicit = SingleRunOutputSizes(
-            state=(expected_state_height, run_settings.output_samples),
-            observables=(output_functions.n_saved_observables, run_settings.output_samples),
-            state_summaries=(output_functions.state_summaries_output_height, run_settings.summarise_samples),
-            observable_summaries=(output_functions.observable_summaries_output_height,
-                                  run_settings.summarise_samples),
-        )
+                state=(run_settings.output_samples, expected_state_height),
+                observables=(run_settings.output_samples, output_functions.n_saved_observables),
+                state_summaries=(run_settings.summarise_samples, output_functions.state_summaries_output_height),
+                observable_summaries=(run_settings.summarise_samples,
+                                  output_functions.observable_summaries_output_height
+                                      ),
+                )
 
         assert from_fns.state == explicit.state
         assert from_fns.observables == explicit.observables
@@ -419,12 +421,12 @@ class TestBatchOutputSizes:
 
         expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
 
-        assert sizes.state == (expected_state_height, numruns, run_settings.output_samples)
-        assert sizes.observables == (output_functions.n_saved_observables, numruns, run_settings.output_samples)
-        assert sizes.state_summaries == (output_functions.state_summaries_output_height, numruns,
-                                         run_settings.summarise_samples)
-        assert sizes.observable_summaries == (output_functions.observable_summaries_output_height, numruns,
-                                              run_settings.summarise_samples)
+        assert sizes.state == (run_settings.output_samples, numruns, expected_state_height)
+        assert sizes.observables == (run_settings.output_samples, numruns, output_functions.n_saved_observables)
+        assert sizes.state_summaries == (run_settings.summarise_samples, numruns,
+                                         output_functions.state_summaries_output_height)
+        assert sizes.observable_summaries == (run_settings.summarise_samples, numruns,
+                                              output_functions.observable_summaries_output_height)
 
     @pytest.mark.parametrize("loop_compile_settings_overrides",
                              [{'output_functions': ["time", "state", "observables", "mean"]}]
@@ -452,12 +454,12 @@ class TestBatchOutputSizes:
 
         expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
         explicit = BatchOutputSizes(
-            state=(expected_state_height, numruns, run_settings.output_samples),
-            observables=(output_functions.n_saved_observables, numruns, run_settings.output_samples),
-            state_summaries=(output_functions.state_summaries_output_height, numruns,
-                             run_settings.summarise_samples),
-            observable_summaries=(output_functions.observable_summaries_output_height, numruns,
-                                  run_settings.summarise_samples),
+            state=(run_settings.output_samples, numruns, expected_state_height),
+            observables=(run_settings.output_samples, numruns, output_functions.n_saved_observables),
+            state_summaries=(run_settings.summarise_samples, numruns,output_functions.state_summaries_output_height
+                             ),
+            observable_summaries=(run_settings.summarise_samples, numruns,
+                                  output_functions.observable_summaries_output_height),
         )
 
         assert from_fns.state == explicit.state
@@ -481,9 +483,9 @@ class TestBatchArrays:
 
         expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
 
-        assert batch_arrays.sizes.state == (expected_state_height, numruns, run_settings.output_samples)
-        assert batch_arrays.sizes.observables == (output_functions.n_saved_observables, numruns,
-                                                  run_settings.output_samples)
+        assert batch_arrays.sizes.state == (run_settings.output_samples, numruns, expected_state_height)
+        assert batch_arrays.sizes.observables == (run_settings.output_samples, numruns,output_functions.n_saved_observables
+                                                  )
         assert batch_arrays._precision == float32
 
     @pytest.mark.parametrize("loop_compile_settings_overrides",
@@ -535,11 +537,11 @@ class TestIntegrationScenarios:
 
         expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
 
-        assert single_run.state == (expected_state_height, run_settings.output_samples)
-        assert single_run.observables == (output_functions.n_saved_observables, run_settings.output_samples)
+        assert single_run.state == (run_settings.output_samples, expected_state_height)
+        assert single_run.observables == (run_settings.output_samples, output_functions.n_saved_observables)
 
-        assert batch.state == (expected_state_height, numruns, run_settings.output_samples)
-        assert batch.observables == (output_functions.n_saved_observables, numruns, run_settings.output_samples)
+        assert batch.state == (run_settings.output_samples, numruns, expected_state_height)
+        assert batch.observables == (run_settings.output_samples, numruns, output_functions.n_saved_observables)
 
     @pytest.mark.parametrize("loop_compile_settings_overrides", [
         {'output_functions': ["time", "state", "observables", "mean"], 'saved_states': [], 'saved_observables': []}

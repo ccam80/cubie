@@ -78,13 +78,13 @@ class LoopAlgorithmTester:
         dxdt_function = system.device_function
 
         algorithm_instance = algorithm_class(
-                precision=from_dtype(precision),
-                dxdt_func=dxdt_function,
+                precision=precision,
+                dxdt_function=dxdt_function,
                 buffer_sizes=buffer_sizes,
-                run_settings=run_settings,
+                loop_step_config=run_settings.loop_step_config,
                 save_state_func=save_state,
-                update_summary_func=update_summaries,
-                save_summary_func=save_summaries,
+                update_summaries_func=update_summaries,
+                save_summaries_func=save_summaries,
                 )
 
         return algorithm_instance

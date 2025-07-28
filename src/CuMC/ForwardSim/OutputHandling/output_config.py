@@ -101,18 +101,6 @@ class OutputConfig:
         else:
             self._summarised_observable_indices = np.asarray(self._summarised_observable_indices, dtype=np.int_)
 
-    # def _empty_indices_if_output_not_requested(self):
-    #     """If the the user has requested some indices be saved/summarise, but the outputs list does not include the
-    #     requested type, then replace the indices with an empty array. For example, if saved_state_indices = [0, 1,
-    #     2], but output_types = ["observables"], set self.saved_state_indices= np.asarray([])."""
-    #     if not self._save_state:
-    #         self._saved_state_indices = np.asarray([], dtype=np.int_)
-    #     if not self._save_observables:
-    #         self._saved_observable_indices = np.asarray([], dtype=np.int_)
-    #     if not self.save_summaries:
-    #         self._summarised_state_indices = np.asarray([], dtype=np.int_)
-    #         self._summarised_observable_indices = np.asarray([], dtype=np.int_)
-
     # ************************************ Getters/Setters *************************************** #
     # No setter implemented for flags - these can only be updated by the update_from_outputs_list method
     @property
@@ -272,6 +260,11 @@ class OutputConfig:
     def observable_summaries_buffer_height(self) -> int:
         """Calculate the height of the observable summary buffer."""
         return self.summaries_buffer_height_per_var * self.n_summarised_observables
+
+    @property
+    def total_summary_buffer_size(self) -> int:
+        """Calculate the total size of the summary buffer."""
+        return (self.state_summaries_buffer_height + self.observable_summaries_buffer_height)
 
     @property
     def state_summaries_output_height(self) -> int:

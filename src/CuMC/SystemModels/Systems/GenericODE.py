@@ -5,12 +5,13 @@ Created on Wed May 28 10:36:56 2025
 @author: cca79
 """
 
-from numba import cuda, from_dtype, float32, float64
+from numba import cuda, from_dtype
 from CuMC.SystemModels.SystemValues import SystemValues
 import numpy as np
 from CuMC.CUDAFactory import CUDAFactory
+from CuMC._utils import in_attr
+from warnings import warn
 from CuMC.SystemModels.Systems.ODEData import ODEData
-import attrs
 
 
 class GenericODE(CUDAFactory):
@@ -143,6 +144,10 @@ class GenericODE(CUDAFactory):
         """
         return self.compile_settings.precision
 
+    @property
+    def dxdt_function(self):
+        return self.device_function
+
     def set_constants(self, updates_dict):
         """Update the constants of the system. Does not relabel parameters to constants, just updates values already
         compiled as constants and forces a rebuild with new compile-time constants.
@@ -169,14 +174,14 @@ class GenericODE(CUDAFactory):
         n_obs = sizes.observables
         n_constants = sizes.constants
         n_drivers = sizes.drivers
-        precision = self.precision
+        numba_precision = from_dtype(self.precision)
 
         @cuda.jit(
-                (self.precision[:],
-                 self.precision[:],
-                 self.precision[:],
-                 self.precision[:],
-                 self.precision[:]
+                (numba_precision[:],
+                 numba_precision[:],
+                 numba_precision[:],
+                 numba_precision[:],
+                 numba_precision[:]
                  ),
                 device=True,
                 inline=True,
@@ -219,11 +224,11 @@ class GenericODE(CUDAFactory):
                 if n_constants > 0:
                     constant = constants[i % n_constants]
                 else:
-                    constant = precision(0.0)
+                    constant = numba_precision(0.0)
                 if n_drivers > 0:
                     driver = drivers[i % n_drivers]
                 else:
-                    driver = precision(0.0)
+                    driver = numba_precision(0.0)
 
                 observables[i] = constant + driver
 
@@ -232,7 +237,6 @@ class GenericODE(CUDAFactory):
     def correct_answer_python(self, states, parameters, drivers):
         """This function is used in testing. Overload this with a simpler, Python version of the dxdt function.
         This will be run in a python test to compare the output of your CUDA function with this known, correct answer."""
-        numpy_precision = np.float64 if self.precision == float64 else np.float32
         sizes = self.sizes
 
         n_parameters = sizes.parameters
@@ -241,19 +245,19 @@ class GenericODE(CUDAFactory):
         n_states = sizes.states
         n_observables = sizes.observables
 
-        dxdt = np.zeros(n_states, dtype=numpy_precision)
-        observables = np.zeros(n_observables, dtype=numpy_precision)
+        dxdt = np.zeros(n_states, dtype=self.precision)
+        observables = np.zeros(n_observables, dtype=self.precision)
 
         if n_parameters <= 0:
-            parameters = np.zeros(n_states, dtype=numpy_precision)
+            parameters = np.zeros(n_states, dtype=self.precision)
             n_parameters = n_states
 
         if n_drivers <= 0:
-            drivers = np.zeros(n_observables, dtype=numpy_precision)
+            drivers = np.zeros(n_observables, dtype=self.precision)
             n_drivers = n_observables
 
         if n_constants <= 0:
-            _constants = np.zeros(n_observables, dtype=numpy_precision)
+            _constants = np.zeros(n_observables, dtype=self.precision)
             n_constants = n_observables
         else:
             _constants = self.compile_settings.constants.values_array
@@ -264,3 +268,45 @@ class GenericODE(CUDAFactory):
             observables[i] = drivers[i % n_drivers] + _constants[i % n_constants]
 
         return dxdt, observables
+
+    def update(self, silent=False, **kwargs):
+        """
+        Pass updates to compile settings through the CUDAFactory interface, which will invalidate cache if an update
+        is successful. Pass silent=True if doing a bulk update with other component's params to suppress warnings
+        about keys not found.
+
+        Args:
+            silent (bool): If True, suppress warnings about unrecognized parameters
+            **kwargs: Parameter updates to apply
+
+        Returns:
+            list: unrecognized_params
+        """
+        return self.update_compile_settings(silent=silent, **kwargs)
+
+
+    def update_compile_settings(self, silent=False, **kwargs):
+        """Overrides the CUDAFactory's update function due to the awkward nature of constants being hidden in a
+        SystemValues object in this module only. Awkward; a good refactor target.
+        """
+        if self._compile_settings is None:
+            raise ValueError("Compile settings must be set up using self.setup_compile_settings before updating.")
+
+        update_successful = False
+        unrecognized_params = []
+
+        for key, value in kwargs.items():
+            if key in self._compile_settings.constants.values_dict: #Only this line changes to look in constants
+                self._compile_settings.constants.values_dict[key] = value
+                update_successful = True
+            else:
+                unrecognized_params.append(key)
+                if not silent:
+                    warn(f"'{key}' is not a valid compile setting for this object, and so was not updated.",
+                         stacklevel=2,
+                         )
+
+        if update_successful:
+            self._invalidate_cache()
+
+        return unrecognized_params

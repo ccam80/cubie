@@ -99,10 +99,10 @@ class TestIntegratorLoopSettings:
             pass
 
         return {
-            'dxdt_func': mock_dxdt,
+            'dxdt_function': mock_dxdt,
             'save_state_func': mock_save_state,
-            'update_summary_func': mock_update_summary,
-            'save_summary_func': mock_save_summary
+            'update_summaries_func': mock_update_summary,
+            'save_summaries_func': mock_save_summary
         }
 
     def test_default_initialization(self, mock_buffer_sizes, mock_step_config, mock_functions):
@@ -112,13 +112,13 @@ class TestIntegratorLoopSettings:
             loop_step_config=mock_step_config,
             **mock_functions
         )
-        assert settings.precision == float32
+        assert settings.precision == np.float32
         assert settings.dt_min == 1e-4
         assert settings.dt_max == 0.1
         assert settings.dt_save == 0.01
         assert settings.buffer_sizes == mock_buffer_sizes
 
-    @pytest.mark.parametrize("precision", [float32, float64], ids=['float32', 'float64'])
+    @pytest.mark.parametrize("precision", [np.float32, np.float64], ids=['float32', 'float64'])
     def test_precision_validation(self, precision, mock_buffer_sizes, mock_step_config, mock_functions):
         """Test that precision validation works correctly."""
         settings = IntegratorLoopSettings(
@@ -133,7 +133,7 @@ class TestIntegratorLoopSettings:
         """Test that invalid precision raises ValueError."""
         with pytest.raises(ValueError):
             IntegratorLoopSettings(
-                precision=np.float16,  # Invalid precision
+                precision=np.int32,  # Invalid precision
                 loop_step_config=mock_step_config,
                 buffer_sizes=mock_buffer_sizes,
                 **mock_functions
@@ -172,10 +172,10 @@ class TestIntegratorLoopSettings:
             buffer_sizes=mock_buffer_sizes,
             **mock_functions
         )
-        assert settings.dxdt_func == mock_functions['dxdt_func']
+        assert settings.dxdt_function == mock_functions['dxdt_function']
         assert settings.save_state_func == mock_functions['save_state_func']
-        assert settings.update_summary_func == mock_functions['update_summary_func']
-        assert settings.save_summary_func == mock_functions['save_summary_func']
+        assert settings.update_summaries_func == mock_functions['update_summaries_func']
+        assert settings.save_summaries_func == mock_functions['save_summaries_func']
 
     def test_none_functions_allowed(self, mock_buffer_sizes, mock_step_config):
         """Test that None functions are allowed during initialization."""
@@ -183,7 +183,7 @@ class TestIntegratorLoopSettings:
             loop_step_config=mock_step_config,
             buffer_sizes=mock_buffer_sizes
         )
-        assert settings.dxdt_func is None
+        assert settings.dxdt_function is None
         assert settings.save_state_func is None
-        assert settings.update_summary_func is None
-        assert settings.save_summary_func is None
+        assert settings.update_summaries_func is None
+        assert settings.save_summaries_func is None

@@ -190,8 +190,7 @@ def output_functions_test_kernel(precision, output_test_settings, output_functio
     n_summarised_states = output_functions.n_summarised_states
     n_summarised_observables = output_functions.n_summarised_observables
 
-    memory_requirements = output_functions.memory_per_summarised_variable
-    shared_memory_requirements = memory_requirements['buffer']
+    shared_memory_requirements = output_functions.summaries_buffer_height_per_var
     state_summary_buffer_length = shared_memory_requirements * n_summarised_states
     obs_summary_buffer_length = shared_memory_requirements * n_summarised_observables
 
@@ -367,7 +366,7 @@ def compare_input_output(output_functions_test_kernel,
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"], indirect=True)
 @pytest.mark.parametrize("output_test_settings_overrides", [
     {'output_types': ["state", "observables", "mean", "max", "rms", "peaks[3]"], 'num_samples': 1000, 'random_scale': 1e3},
-], ids=["large_dataset", "small_dataset"], indirect=True)
+], ids=["large_dataset"], indirect=True)
 def test_precision_with_large_datasets(compare_input_output):
     """Test precision differences (float32 vs float64) with large datasets."""
     pass

@@ -162,7 +162,6 @@ def update_loop_compile_settings(system, **kwargs):
                                   'saved_states':      [0, 1],
                                   'saved_observables': [0, 1],
                                   'output_functions':  ["state"],
-                                  'n_peaks':           0
                                   }
     loop_compile_settings_dict.update(kwargs)
     return loop_compile_settings_dict

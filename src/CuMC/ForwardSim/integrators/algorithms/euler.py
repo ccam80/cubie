@@ -1,5 +1,5 @@
 from warnings import warn
-from numba import cuda, int32
+from numba import cuda, int32, from_dtype
 from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import GenericIntegratorAlgorithm
 
 
@@ -12,31 +12,31 @@ class Euler(GenericIntegratorAlgorithm):
 
     def __init__(self,
                  precision,
-                 dxdt_func,
+                 dxdt_function,
                  buffer_sizes,
-                 run_settings,
+                 loop_step_config,
                  save_state_func,
-                 update_summary_func,
-                 save_summary_func,
+                 update_summaries_func,
+                 save_summaries_func,
                  **kwargs,
                  ):
         super().__init__(precision,
-                         dxdt_func,
+                         dxdt_function,
                          buffer_sizes,
-                         run_settings,
+                         loop_step_config,
                          save_state_func,
-                         update_summary_func,
-                         save_summary_func,
+                         update_summaries_func,
+                         save_summaries_func,
                          )
 
         self._threads_per_loop = 1
 
     def build_loop(self,
                    precision,
-                   dxdt_func,
+                   dxdt_function,
                    save_state_func,
-                   update_summary_func,
-                   save_summary_func,
+                   update_summaries_func,
+                   save_summaries_func,
                    ):
 
         save_steps, summarise_steps, step_size = self.compile_settings.fixed_steps
@@ -52,14 +52,15 @@ class Euler(GenericIntegratorAlgorithm):
         state_summary_buffer_size = sizes.state_summaries
         observables_summary_buffer_size = sizes.observable_summaries
 
-        @cuda.jit((precision[:],
-                   precision[:],
-                   precision[:, :],
-                   precision[:],
-                   precision[:, :],
-                   precision[:, :],
-                   precision[:, :],
-                   precision[:, :],
+        numba_precision = from_dtype(precision)
+        @cuda.jit((numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:, :],
+                   numba_precision[:],
+                   numba_precision[:, :],
+                   numba_precision[:, :],
+                   numba_precision[:, :],
+                   numba_precision[:, :],
                    int32,
                    int32,
                    ),
@@ -101,7 +102,7 @@ class Euler(GenericIntegratorAlgorithm):
             driver_length = forcing_vec.shape[0]
 
             # Initialise/Assign values to allocated memory
-            shared_memory[:end_index] = precision(0.0)  # initialise all shared memory before adding values
+            shared_memory[:end_index] = numba_precision(0.0)  # initialise all shared memory before adding values
             for i in range(state_buffer_size):
                 state_buffer[i] = inits[i]
 
@@ -113,7 +114,7 @@ class Euler(GenericIntegratorAlgorithm):
             # If there's zero parameters, then the buffer size will be 1, but there'll be none provided, so use the
             # potentially zero "parameters_actual" for the initialisation loop.
             l_parameters = cuda.local.array((parameter_buffer_size),
-                                            dtype=precision,
+                                            dtype=numba_precision,
                                             )
 
             for i in range(parameters_actual):
@@ -128,7 +129,7 @@ class Euler(GenericIntegratorAlgorithm):
                         drivers[k] = forcing_vec[(i * save_steps + j) % driver_length, k]
 
                     # Calculate derivative at sample
-                    dxdt_func(state_buffer,
+                    dxdt_function(state_buffer,
                               parameters,
                               drivers,
                               observables_buffer,
@@ -147,13 +148,13 @@ class Euler(GenericIntegratorAlgorithm):
                                     output_sample, :],
                                     output_sample,
                                     )
-                    update_summary_func(state_buffer, observables_buffer, state_summary_buffer,
+                    update_summaries_func(state_buffer, observables_buffer, state_summary_buffer,
                                         observable_summary_buffer, output_sample,
                                         )
 
                     if (i + 1) % summarise_steps == 0:
                         summary_sample = (output_sample + 1) // summarise_steps - 1
-                        save_summary_func(state_summary_buffer, observable_summary_buffer,
+                        save_summaries_func(state_summary_buffer, observable_summary_buffer,
                                           state_summaries_output[summary_sample, :],
                                           observables_summaries_output[summary_sample, :],
                                           summarise_steps,

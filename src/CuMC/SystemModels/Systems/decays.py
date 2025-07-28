@@ -5,7 +5,7 @@ Created on Wed May 28 10:36:56 2025
 @author: cca79
 """
 
-from numba import cuda
+from numba import cuda, from_dtype
 from CuMC.SystemModels.Systems.GenericODE import GenericODE
 import numpy as np
 
@@ -57,12 +57,13 @@ class Decays(GenericODE):
         global global_constants
         global_constants = self.compile_settings.constants.values_array
         n_terms = self.sizes.states
+        numba_precision = from_dtype(self.precision)
 
-        @cuda.jit((self.precision[:],
-                   self.precision[:],
-                   self.precision[:],
-                   self.precision[:],
-                   self.precision[:]
+        @cuda.jit((numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:]
                    ),
                   device=True,
                   inline=True,

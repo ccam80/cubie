@@ -233,7 +233,7 @@ def generate_system_tests(SystemClass, log10_scalerange=(-6, 6), tests_per_categ
         # mixed-scale random tests
         test_cases += [create_random_test_set(SystemClass, precision, log10_scalerange) for scale in range(tests_per_category)]
 
-    #Incomplete input sets
-    test_cases += create_minimal_input_sets(SystemClass, precision)
+        #Incomplete input sets
+        test_cases += create_minimal_input_sets(SystemClass, precision)
 
     return test_cases

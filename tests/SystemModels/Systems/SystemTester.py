@@ -133,8 +133,12 @@ class SystemTester:
         assert_allclose(dx, expected_dx, rtol=rtol, err_msg="initial dx mismatch")
         assert_allclose(observables, expected_obs, rtol=rtol, err_msg="initial observables mismatch")
 
-        for key, value in const_dict.items():
-            self.system_instance.set_constants({key: value * 10.0})
+        # Test the new update functionality - update constants using the new pattern
+        constant_updates = {key: value * 10.0 for key, value in const_dict.items()}
+        unrecognized = self.system_instance.update(silent=True, **constant_updates)
+
+        # Verify that constants were recognized (unrecognized list should be empty)
+        assert len(unrecognized) == 0, f"Constants {unrecognized} were not recognized by the update method"
 
         self.build_test_kernel()
         expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
