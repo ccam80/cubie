@@ -114,7 +114,7 @@ class SingleIntegratorRun:
 
     def update(self, **kwargs):
         """
-        Update parameters across all components using EAFP approach.
+        Update parameters across all components..
 
         This method sends all parameters to all child components with silent=True
         to avoid spurious warnings, then checks if any parameters were not
@@ -257,10 +257,12 @@ class SingleIntegratorRun:
         """Get the loop step configuration."""
         return self.config.loop_step_config
 
-#Create once batch interface is more mature
-    # @classmethod
-    # def from_batch_kernel(cls, batcher):
-    #     return cls(batcher.system,
-    #                batcher.algorithm,
-    #                batcher.dt_min,
-    #                )
+    @property
+    def dt_save(self):
+        """Get the time step size for saving states and observables."""
+        return self.config.dt_save
+
+    @property
+    def dt_summarise(self):
+        """Get the time step size for summarising states and observables."""
+        return self.config.dt_summarise

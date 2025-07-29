@@ -119,8 +119,27 @@ class SingleRunOutputSizes(ArraySizingClass):
         Create a SingleRunOutputSizes instance from a BatchSolverKernel object.
         """
         heights = solver_instance.output_heights
-        output_samples = solver_instance.output_samples
-        summarise_samples = solver_instance.summarise_samples
+        output_samples = solver_instance.output_length
+        summarise_samples = solver_instance.summaries_length
+
+        state = (output_samples, heights.state)
+        observables = (output_samples, heights.observables)
+        state_summaries = (summarise_samples, heights.state_summaries)
+        observable_summaries = (summarise_samples, heights.observable_summaries)
+        obj = cls(state,
+                  observables,
+                  state_summaries,
+                  observable_summaries,
+                  )
+
+        return obj
+
+    @classmethod
+    def from_output_fns_and_run_settings(cls, output_fns, run_settings):
+        """Only used for testing, otherwise the higher-level from_solver method is used"""
+        heights = OutputArrayHeights.from_output_fns(output_fns)
+        output_samples = int(run_settings.duration // run_settings.dt_save)
+        summarise_samples = int(run_settings.duration // run_settings.dt_summarise)
 
         state = (output_samples, heights.state)
         observables = (output_samples, heights.observables)

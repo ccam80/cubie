@@ -24,7 +24,7 @@ class LoopAlgorithmTester:
         pass
 
     @pytest.fixture(scope='function')
-    def expected_answer(self, system, loop_compile_settings, run_settings, inputs, precision):
+    def expected_answer(self, system, loop_compile_settings, run_settings, solver, inputs, precision):
         """OVERRIDE THIS FIXTURE with a python version of what your integrator loop should return - a scipy integrator
         or homebrew CPU loop should be able to provide an answer that matches the output of a given loop to within
         floating-point precision."""
@@ -44,19 +44,18 @@ class LoopAlgorithmTester:
         _, summarise_every, _ = loop_under_test.compile_settings.fixed_steps
 
         state, obs =  calculate_expected_summaries(
-            *expected_answer,
-            summarise_every,
-            loop_compile_settings['output_functions'],
-            output_functions.summaries_output_height_per_var,
-            precision
-        )
+                *expected_answer,
+                summarise_every,
+                loop_compile_settings['output_functions'],
+                output_functions.summaries_output_height_per_var,
+                precision
+                )
         return {'state': state, 'observables': obs}
 
     @pytest.fixture(scope='function')
     def buffer_sizes(self, system, output_functions):
         """Create LoopBufferSizes from system and output functions."""
         return LoopBufferSizes.from_system_and_output_fns(system, output_functions)
-
 
 
     @pytest.fixture(scope='function')
@@ -122,11 +121,11 @@ class LoopAlgorithmTester:
 
     #Don't call it test_kernel, as that is a reserved name in pytest
     @pytest.fixture(scope='function')
-    def loop_test_kernel(self, precision, run_settings, built_loop_function):
+    def loop_test_kernel(self, precision, built_loop_function, solver):
         loop_func = built_loop_function
 
-        output_samples = int(run_settings.duration / run_settings.dt_save)
-        warmup_samples = int(run_settings.warmup / run_settings.dt_save)
+        output_samples = solver.output_length
+        warmup_samples = int(solver.warmup / solver.dt_save)
         numba_precision = from_dtype(precision)
 
         @cuda.jit()
@@ -186,8 +185,8 @@ class LoopAlgorithmTester:
         return output_size
 
     @pytest.fixture(scope='function')
-    def outputs(self, output_functions, run_settings, precision):
-        output_shapes = SingleRunOutputSizes.from_output_fns_and_run_settings(output_functions, run_settings).nonzero
+    def outputs(self, output_functions, precision, solver):
+        output_shapes = SingleRunOutputSizes.from_solver(solver).nonzero
         state_output = cuda.pinned_array(output_shapes.state, dtype=precision)
         observables_output = cuda.pinned_array(output_shapes.observables, dtype=precision)
         state_summary_output = cuda.pinned_array(output_shapes.state_summaries, dtype=precision)
@@ -206,11 +205,9 @@ class LoopAlgorithmTester:
                 'observable_summary': observable_summary_output,
                 }
 
-    def test_loop(self, loop_test_kernel, outputs, inputs, precision, output_functions, run_settings,
-                  loop_under_test, expected_answer, expected_summaries):
+    def test_loop(self, loop_test_kernel, outputs, inputs, precision, output_functions,
+                  loop_under_test, expected_answer, expected_summaries, solver):
         """Run the loop test kernel, checking the output against the expected answer."""
-        save_every, summarise_every, step_size = loop_under_test.compile_settings.fixed_steps
-        output_shapes = SingleRunOutputSizes.from_output_fns_and_run_settings(output_functions, run_settings)
         save_state = output_functions.compile_settings.save_state
         save_observables = output_functions.compile_settings.save_observables
         summarise_state = output_functions.compile_settings.summarise_observables

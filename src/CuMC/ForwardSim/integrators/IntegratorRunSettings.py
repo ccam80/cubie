@@ -12,8 +12,6 @@ from typing import Optional
 @attrs.define
 class IntegratorRunSettings:
     """Container for runtime/timing settings that are commonly grouped together."""
-    duration: Optional[float] = attrs.field(default=1.0, validator=attrs.validators.instance_of(float))
-    warmup: Optional[float] = attrs.field(default=0.0, validator=attrs.validators.instance_of(float))
     dt_min: float = attrs.field(default=1e-6, validator=attrs.validators.instance_of(float))
     dt_max: float = attrs.field(default=1.0, validator=attrs.validators.instance_of(float))
     dt_save: float = attrs.field(default=0.1, validator=attrs.validators.instance_of(float))
@@ -68,6 +66,7 @@ class IntegratorRunSettings:
     def __attrs_post_init__(self):
         """Validate timing relationships."""
         self.validate_settings()
+
 
     def validate_settings(self):
         """Check the timing settings for consistency and raise errors or warnings as appropriate."""
@@ -141,13 +140,6 @@ class IntegratorRunSettings:
                               rtol=self.rtol,
                               )
 
-    @property
-    def output_samples(self):
-        """Calculate the number of output samples based on the duration and dt_save."""
-        return int(ceil(self.duration) / self.dt_save)
-
-    @property
-    def summarise_samples(self):
-        """Calculate the number of summary samples based on the duration and dt_summarise."""
-        return int(ceil(self.duration) / self.dt_summarise)
-
+    def dt_save_samples(self):
+        """Calculate the number of samples per save interval."""
+        return int(ceil(self.dt_save / self.dt_min))

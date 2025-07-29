@@ -27,7 +27,10 @@ class InputArrays:
     - Overwrite the old device array if the shape has not changed but the content has
     - Do nothing an input array has not changed.
     """
-
+    _sizes: Optional[LoopBufferSizes] = attrs.field(
+            default=None,
+            validator=val.optional(val.instance_of(LoopBufferSizes)),
+            )
     _precision: type = attrs.field(default=float32, validator=val.instance_of(type))
     _initial_values: Optional[NDArray] = attrs.field(default=None, validator=val.optional(val.instance_of(ndarray)))
     _parameters: Optional[NDArray] = attrs.field(default=None, validator=val.optional(val.instance_of(ndarray)))
@@ -46,11 +49,6 @@ class InputArrays:
     _device_forcing: Optional[DeviceNDArray] = attrs.field(
             default=None,
             validator=val.optional(optional_cuda_array_validator),
-            init=False
-            )
-    _sizes: Optional[LoopBufferSizes] = attrs.field(
-            default=None,
-            validator=val.optional(val.instance_of(LoopBufferSizes)),
             init=False
             )
 
@@ -91,6 +89,18 @@ class InputArrays:
     @property
     def forcing_vectors(self):
         return self._forcing_vectors
+
+    @property
+    def device_initial_values(self):
+        return self._device_inits
+
+    @property
+    def device_parameters(self):
+        return self._device_parameters
+
+    @property
+    def device_forcing_vectors(self):
+        return self._device_forcing
 
     def _arrays_equal(self, arr1, arr2):
         """Check if two arrays are equal in shape and content."""

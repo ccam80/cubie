@@ -173,6 +173,43 @@ def loop_compile_settings_overrides(request):
     unless you're testing that it worked."""
     return request.param if hasattr(request, 'param') else {}
 
+@pytest.fixture(scope='function')
+def solver_settings_override(request):
+    """Override for solver settings, if provided."""
+    return request.param if hasattr(request, 'param') else {}
+
+@pytest.fixture(scope='function')
+def solver_settings(loop_compile_settings, solver_settings_override, precision):
+    """Create LoopStepConfig from loop_compile_settings."""
+    defaults = {
+        'algorithm':         'euler',
+        'duration':          1.0,
+        'warmup':            0.0,
+        'dt_min':            loop_compile_settings['dt_min'],
+        'dt_max':            loop_compile_settings['dt_max'],
+        'dt_save':           loop_compile_settings['dt_save'],
+        'dt_summarise':      loop_compile_settings['dt_summarise'],
+        'atol':              loop_compile_settings['atol'],
+        'rtol':              loop_compile_settings['rtol'],
+        'saved_states':      loop_compile_settings['saved_states'],
+        'saved_observables': loop_compile_settings['saved_observables'],
+        'output_types':      loop_compile_settings['output_functions'],
+        'precision':         precision,
+        'profileCUDA':       False,
+    }
+
+    if solver_settings_override:
+        # Update defaults with any overrides provided
+        for key, value in solver_settings_override.items():
+            if key in defaults:
+                defaults[key] = value
+    return defaults
+
+@pytest.fixture
+def solver(solver_settings, system):
+    """Create a solver instance with the provided settings."""
+    from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
+    return BatchSolverKernel(system, **solver_settings)
 
 @pytest.fixture(scope='function')
 def loop_compile_settings(request, system, loop_compile_settings_overrides):

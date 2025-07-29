@@ -19,8 +19,6 @@ def run_settings(loop_compile_settings, run_settings_override):
             dt_summarise=loop_compile_settings['dt_summarise'],
             atol=loop_compile_settings['atol'],
             rtol=loop_compile_settings['rtol'],
-            duration= 1.0,
-            warmup=0.0,
             )
 
     if run_settings_override:

@@ -5,19 +5,16 @@ from tests.ForwardSim.integrators.algorithms.LoopAlgorithmTester import LoopAlgo
 from CuMC.ForwardSim.integrators.algorithms.euler import Euler
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 
-#TODO: Reduce test burden by decreasing parameter combinations
-
-@pytest.mark.parametrize("system_override", [None, "ThreeChamber", "Decays1_100", "genericODE"])
 class TestEuler(LoopAlgorithmTester):
     """Testing class for the Euler algorithm. Checks the instantiation, compilation, and input/output for a range
     of cases, including incomplete inputs and random floats of different scales."""
 
-    #overrides to debug the other tests
+    @pytest.mark.parametrize("system_override", [None, "ThreeChamber", "Decays1_100", "genericODE"])
     def test_loop_function_builds(self, built_loop_function):
         pass
 
-    def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides,
-                                                       loop_under_test, expected_summary_buffer_size,
+    def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides, output_functions,
+                                                       loop_under_test, expected_summary_buffer_size
                                                        ):
         pass
 
@@ -26,14 +23,14 @@ class TestEuler(LoopAlgorithmTester):
         return Euler
 
     @pytest.fixture(scope="function")
-    def expected_answer(self, system, loop_compile_settings, run_settings, inputs, precision):
+    def expected_answer(self, system, loop_compile_settings, run_settings, solver, inputs, precision):
         inits = inputs['initial_values']
         params = inputs['parameters']
         driver_vec = inputs['forcing_vectors']
         dt = loop_compile_settings['dt_min']
         output_dt = loop_compile_settings['dt_save']
-        warmup = run_settings.warmup
-        duration = run_settings.duration
+        warmup = solver.warmup
+        duration = solver.duration
         saved_observables = loop_compile_settings['saved_observables']
         saved_states = loop_compile_settings['saved_states']
         save_time = "time" in loop_compile_settings['output_functions']
@@ -85,31 +82,30 @@ class TestEuler(LoopAlgorithmTester):
 
         return state_output, observables_output
 
-    @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, run_settings_override",
-                             [({'output_functions': ["state", "observables"], 'saved_states': [0, 1, 2]}, {}, {}),
+    @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, solver_settings_override",
+                             [({'output_functions': ["state", "observables"], 'saved_states': [0, 1, 2]}, {}, {'duration': 0.1, 'warmup': 0.0}),
                               ({'output_functions':  ["state", "observables", "mean"],
                                 'saved_states':      [0, 1],
                                 'saved_observables': [0, 1, 2]
                                 },
                                {},
-                               {}
+                               {'duration': 0.2, 'warmup': 0.0}
                                ),
-                              ({}, {'initial_values': np.array([1.0, 2.0, 3.0])}, {}),
+                              ({}, {'initial_values': np.array([1.0, 2.0, 3.0])}, {'duration': 0.1, 'warmup': 0.0}),
                               ({}, {}, {'duration': 5.0, 'warmup': 1.0}),
                               ({'output_functions': ["state", "observables", "mean", "max", "rms", "peaks[3]"],
                                 'saved_states': [0, 1, 2]
-                                }, {}, {}
+                                }, {}, {'duration': 0.1, 'warmup': 0.0}
                                )],
                              ids=['state_and_observables_empty_obs_list', 'state_observables_and_mean',
                                   'custom_initial_values', 'custom_run_settings', "all_summaries"],
                              indirect=True,
                              )
     @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=['float32', 'float64'])
-    def test_loop(self, loop_test_kernel, outputs, inputs, precision, output_functions, run_settings,
-                  loop_under_test, expected_answer, expected_summaries
-                  ):
-        super().test_loop(loop_test_kernel, outputs, inputs, precision, output_functions, run_settings,
-                  loop_under_test, expected_answer, expected_summaries
+    def test_loop(self, loop_test_kernel, outputs, inputs, precision, output_functions,
+                  loop_under_test, expected_answer, expected_summaries, solver):
+        super().test_loop(loop_test_kernel, outputs, inputs, precision, output_functions,
+                  loop_under_test, expected_answer, expected_summaries, solver
                           )
 
     @pytest.mark.parametrize("loop_compile_settings_overrides",
