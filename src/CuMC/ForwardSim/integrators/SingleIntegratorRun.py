@@ -13,7 +13,7 @@ from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 
 from CuMC.ForwardSim.integrators.algorithms import ImplementedAlgorithms
 from CuMC.ForwardSim.integrators.IntegratorRunSettings import IntegratorRunSettings
-
+from CuMC.SystemModels.Systems.ODEData import SystemSizes
 
 
 class SingleIntegratorRun:
@@ -266,3 +266,8 @@ class SingleIntegratorRun:
     def dt_summarise(self):
         """Get the time step size for summarising states and observables."""
         return self.config.dt_summarise
+
+    @property
+    def system_sizes(self) -> SystemSizes:
+        """Get the sizes of the system."""
+        return self._system.sizes

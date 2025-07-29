@@ -7,8 +7,10 @@ Created on Tue May 27 17:45:03 2025
 
 import os
 import numpy as np
-from numba import int32, int16
+from numba import int32, int16, from_dtype
 from numba import cuda
+
+from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes, SingleRunOutputSizes
 from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
 from CuMC.ForwardSim.BatchInputArrays import InputArrays
 from CuMC.ForwardSim.BatchOutputArrays import OutputArrays
@@ -53,8 +55,6 @@ class BatchSolverKernel(CUDAFactory):
                  ):
         super().__init__()
 
-        self.sizes = system.sizes()
-
         config = BatchSolverConfig(precision = precision,
                                    algorithm=algorithm,
                                    duration=duration,
@@ -64,9 +64,8 @@ class BatchSolverKernel(CUDAFactory):
         # Setup compile settings for the kernel
         self.setup_compile_settings(config)
 
-        # saved, and this module just passes them through.
-        # Initialize the single integrator run
-        self.singleIntegrator = SingleIntegratorRun(
+
+        self.single_integrator = SingleIntegratorRun(
                 system,
                 algorithm=algorithm,
                 dt_min=dt_min,
@@ -82,13 +81,13 @@ class BatchSolverKernel(CUDAFactory):
                 output_types=output_types,
                 )
 
-        self.output_arrays = OutputArrays.from_solver(self)
         self.input_arrays = InputArrays.from_solver(self)
+        self.output_arrays = OutputArrays.from_solver(self)
 
     @property
     def output_heights(self):
         """Returns the heights of the output arrays."""
-        return self.singleIntegrator.output_array_heights
+        return self.single_integrator.output_array_heights
 
     @property
     def kernel(self):
@@ -103,46 +102,47 @@ class BatchSolverKernel(CUDAFactory):
             inits,
             forcing_vectors,
             output_arrays=None,
-            runs_per_block=32,
+            blocksize=128,
             stream=0,
             warmup=0.0,
             ):
         """Run the solver kernel."""
+        #Order currently VERY IMPORTANT - num_runs is updated in input_arrays, which is used in output_arrays.
         self.input_arrays(inits, params, forcing_vectors)
         self.output_arrays(self)
-        numruns = len(inits)
-        # input_arrays = self.check_or_allocate_input_arrays(input_arrays, numruns)
+        numruns = self.input_arrays.num_runs
 
-        BLOCKSPERGRID = int(max(1, np.ceil(numruns / self.xblocksize)))
+        threads_per_loop = self.single_integrator.threads_per_loop
+        runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
+        BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
         dynamic_sharedmem = self.shared_memory_bytes_per_run * numruns
-        threads_per_loop = self.threads_per_loop
 
-        if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self._profileCUDA:
+        if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self.compile_settings.profileCUDA:
             cuda.profile_start()
 
-        self.device_function[BLOCKSPERGRID, (self.xblocksize, runs_per_block), stream, dynamic_sharedmem](
-                input_arrays.device_inits,
-                input_arrays.device_parameters,
-                input_arrays.device_forcing_vectors,
-                output_arrays['state'],
-                output_arrays['observables'],
-                output_arrays['state_summaries'],
-                output_arrays['observable_summaries'],
-                self.output_length(duration),
-                self.output_length(warmup),
+        self.device_function[BLOCKSPERGRID, (threads_per_loop, runsperblock), stream, dynamic_sharedmem](
+                self.input_arrays.device_initial_values,
+                self.input_arrays.device_parameters,
+                self.input_arrays.device_forcing_vectors,
+                self.output_arrays.state,
+                self.output_arrays.observables,
+                self.output_arrays.state_summaries,
+                self.output_arrays.observable_summaries,
+                self.compile_settings.duration,
+                self.compile_settings.warmup,
                 numruns,
                 )
         cuda.synchronize()
 
-        if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self._profileCUDA:
+        if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self.profileCUDA:
             cuda.profile_stop()
 
-        return self.fetch_output_arrays(output_arrays)
+        return self.output_arrays
 
     def build_kernel(self):
         """Build the integration kernel."""
         precision = from_dtype(self.precision)
-        loopfunction = self.singleIntegrator.device_function
+        loopfunction = self.single_integrator.device_function
         shared_elements_per_run = self.shared_memory_elements_per_run
 
         @cuda.jit((precision[:, :],
@@ -215,27 +215,74 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def shared_memory_bytes_per_run(self):
         """Returns the number of bytes of shared memory required for each run."""
-        return self.singleIntegrator.shared_memory_bytes
+        return self.single_integrator.shared_memory_bytes
 
     @property
     def shared_memory_elements_per_run(self):
         """Returns the number of elements in shared memory required for each run."""
-        return self.singleIntegrator.shared_memory_elements
+        return self.single_integrator.shared_memory_elements
 
     @property
     def precision(self):
         """Returns the precision (numba data type) used by the solver kernel."""
-        return self.singleIntegrator.precision
+        return self.single_integrator.precision
 
     @property
-    def xblocksize(self):
-        """Returns the number of threads in the x dimension of the block."""
-        return self.singleIntegrator.threads_per_loop
+    def threads_per_loop(self):
+        """Returns the number of threads per loop."""
+        return self.single_integrator.threads_per_loop
 
-    def output_length(self, duration):
+    @property
+    def output_length(self):
         """Returns the number of output samples per run."""
-        return int(np.ceil(duration / self.singleIntegrator.dt_save))
+        return int(np.ceil(self.compile_settings.duration / self.single_integrator.dt_save))
 
-    def summaries_length(self, duration):
+    @property
+    def summaries_length(self):
         """Returns the number of summary samples per run."""
-        return int(np.ceil(duration / self.singleIntegrator.dt_summarise))
+        return int(np.ceil(self.compile_settings.duration / self.single_integrator.dt_summarise))
+
+    @property
+    def num_runs(self):
+        """Returns the number of runs in the input arrays."""
+        return self.input_arrays.num_runs
+
+    @property
+    def system(self):
+        """Returns the system model used by the solver kernel."""
+        return self.single_integrator._system
+
+    @property
+    def duration(self):
+        """Returns the duration of the simulation."""
+        return self.compile_settings.duration
+
+    @property
+    def warmup(self):
+        """Returns the warmup time of the simulation."""
+        return self.compile_settings.warmup
+
+    @property
+    def dt_save(self):
+        """Returns the save time step."""
+        return self.single_integrator.dt_save
+
+    @property
+    def dt_summarise(self):
+        """Returns the summary time step."""
+        return self.single_integrator.dt_summarise
+
+    @property
+    def system_sizes(self):
+        """Returns the sizes of the system model."""
+        return self.single_integrator.system_sizes
+
+    @property
+    def ouput_array_sizes_2d(self):
+        """Returns the 2D output array sizes for a single run."""
+        return SingleRunOutputSizes.from_solver(self)
+
+    @property
+    def output_array_sizes_3d(self):
+        """Returns the 3D output array sizes for a batch of runs."""
+        return BatchOutputSizes.from_solver(self)

@@ -73,13 +73,21 @@ class LoopBufferSizes(ArraySizingClass):
         return obj
 
     @classmethod
-    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "LoopBufferSizes":
+    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "LoopBufferSizes": # noqa: F821
         """
         Create a LoopBufferSizes instance from a BatchSolverKernel object.
         """
-        system = solver_instance.system
-        output_fns = solver_instance.single_integrator._output_functions
-        return cls.from_system_and_output_fns(system, output_fns)
+        system_sizes = solver_instance.system_sizes
+        summary_sizes = solver_instance.single_integrator.summaries_buffer_sizes
+        return cls(summary_sizes.state,
+                   summary_sizes.observables,
+                   system_sizes.states,
+                   system_sizes.observables,
+                   system_sizes.states,
+                   system_sizes.parameters,
+                   system_sizes.drivers,
+                   )
+
 
 @attrs.define
 class OutputArrayHeights(ArraySizingClass):

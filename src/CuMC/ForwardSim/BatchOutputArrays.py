@@ -28,7 +28,7 @@ class OutputArrays:
         self.update_from_solver(solver_instance)
         self.allocate()
 
-    def update_from_solver(self, solver_instance: "BatchSolverKernel"):
+    def update_from_solver(self, solver_instance: "BatchSolverKernel"):  # noqa: F821
         """
         Update the sizes and precision of the OutputArrays instance from a solver instance.
         This is useful if the solver instance has changed and we need to update the output arrays accordingly.

@@ -146,10 +146,10 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                 if (i + 1) % summary_steps == 0:
                     summary_sample = (i + 1) // summary_steps - 1
                     save_summaries_func(state_summary_buffer, obs_summary_buffer,
-                                      state_summaries_output[summary_sample, :],
-                                      observables_summaries_output[summary_sample, :],
-                                      summary_steps,
-                                      )
+                                        state_summaries_output[summary_sample, :],
+                                        observables_summaries_output[summary_sample, :],
+                                        summary_steps,
+                                        )
 
         return dummy_loop
 
