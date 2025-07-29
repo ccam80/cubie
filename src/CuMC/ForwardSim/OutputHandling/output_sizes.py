@@ -72,6 +72,14 @@ class LoopBufferSizes(ArraySizingClass):
                   )
         return obj
 
+    @classmethod
+    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "LoopBufferSizes":
+        """
+        Create a LoopBufferSizes instance from a BatchSolverKernel object.
+        """
+        system = solver_instance.system
+        output_fns = solver_instance.single_integrator._output_functions
+        return cls.from_system_and_output_fns(system, output_fns)
 
 @attrs.define
 class OutputArrayHeights(ArraySizingClass):
@@ -105,6 +113,7 @@ class SingleRunOutputSizes(ArraySizingClass):
     state_summaries: Tuple[int, int] = attrs.field(default=(1, 1), validator=attrs.validators.instance_of(Tuple))
     observable_summaries: Tuple[int, int] = attrs.field(default=(1, 1), validator=attrs.validators.instance_of(Tuple))
 
+    @classmethod
     def from_solver(cls, solver_instance: "BatchSolverKernel") -> "SingleRunOutputSizes":  # noqa: F821
         """
         Create a SingleRunOutputSizes instance from a BatchSolverKernel object.

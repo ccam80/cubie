@@ -1,5 +1,4 @@
 import attrs
-from pandas.io.formats.style import properties_args
 
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig

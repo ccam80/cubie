@@ -14,7 +14,6 @@ from CuMC.ForwardSim.OutputHandling.output_sizes import (
     SingleRunOutputSizes,
     BatchOutputSizes
     )
-from CuMC.ForwardSim.BatchArrays import OutputArrays
 
 
 class TestNonzeroProperty:
@@ -60,17 +59,19 @@ class TestNonzeroProperty:
         assert nonzero_copy.per_variable == 1
 
 
-# Fixtures for run settings
-@pytest.fixture(scope="function")
-def run_settings_override(request):
-    """Override for run settings, if provided."""
-    return request.param if hasattr(request, 'param') else {}
+
 
 @attrs.define
 class IntegratorRunSettings:
     output_samples: int = attrs.field(default=1000, metadata={'description': 'Number of output samples'})
     summarise_samples: int = attrs.field(default=100, metadata={'description': 'Number of samples to summarise'})
     duration: float = attrs.field(default=10.0, metadata={'description': 'Total simulation duration'})
+
+# Fixtures for run settings
+@pytest.fixture(scope="function")
+def run_settings_override(request):
+    """Override for run settings, if provided."""
+    return request.param if hasattr(request, 'param') else {}
 
 @pytest.fixture(scope="function")
 def run_settings(run_settings_override):
