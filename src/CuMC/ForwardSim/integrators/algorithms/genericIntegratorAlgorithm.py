@@ -1,8 +1,7 @@
-from warnings import warn
 from numba import cuda, int32, from_dtype
+
 from CuMC.CUDAFactory import CUDAFactory
 from CuMC.ForwardSim.integrators.algorithms.IntegratorLoopSettings import IntegratorLoopSettings
-from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
 
 
 class GenericIntegratorAlgorithm(CUDAFactory):
@@ -98,6 +97,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
         # noinspection PyTypeChecker
         numba_precision = from_dtype(precision)
+
         @cuda.jit((numba_precision[:],
                    numba_precision[:],
                    numba_precision[:, :],
@@ -185,5 +185,5 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                 save_state_func=run_object.save_state_func,
                 update_summaries_func=run_object.update_summaries_func,
                 save_summaries_func=run_object.save_summaries_func,
-                compile_flags=run_object.compile_flags
+                compile_flags=run_object.compile_flags,
                 )

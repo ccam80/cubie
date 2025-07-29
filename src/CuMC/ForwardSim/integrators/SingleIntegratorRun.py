@@ -5,14 +5,14 @@ Created on Tue May 27 17:45:03 2025
 @author: cca79
 """
 
-import numpy as np
 from typing import Optional
+
 from numpy.typing import ArrayLike
+
 from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
-
-from CuMC.ForwardSim.integrators.algorithms import ImplementedAlgorithms
 from CuMC.ForwardSim.integrators.IntegratorRunSettings import IntegratorRunSettings
+from CuMC.ForwardSim.integrators.algorithms import ImplementedAlgorithms
 from CuMC.SystemModels.Systems.ODEData import SystemSizes
 
 
@@ -130,7 +130,7 @@ class SingleIntegratorRun:
             return
 
         all_unrecognized = set(kwargs.keys())
-        #Update anything held in the config object (step sizes, etc)
+        # Update anything held in the config object (step sizes, etc)
         recognized = []
         for key, value in kwargs.items():
             if hasattr(self.config, key):
@@ -142,7 +142,7 @@ class SingleIntegratorRun:
 
         all_unrecognized -= set(recognized)
 
-        #Update children
+        # Update children
 
         unrecognized = self._system.update(silent=True, **kwargs)
         all_unrecognized -= set(kwargs.keys()) - set(unrecognized)
@@ -161,7 +161,8 @@ class SingleIntegratorRun:
         if all_unrecognized:
             unrecognized_list = sorted(all_unrecognized)
             raise KeyError(f"The following updates were not recognized by any component. Was this a typo?:"
-                           f" {unrecognized_list}")
+                           f" {unrecognized_list}",
+                           )
 
         self._invalidate_cache()
 
@@ -175,7 +176,7 @@ class SingleIntegratorRun:
 
         # Update with latest function references
         updates = {
-            'dxdt_function':             self.dxdt_function,
+            'dxdt_function':         self.dxdt_function,
             'save_state_func':       self.save_state_func,
             'update_summaries_func': self.update_summaries_func,
             'save_summaries_func':   self.save_summaries_func,

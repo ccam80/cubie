@@ -1,6 +1,7 @@
-import attrs
-from warnings import warn
 from typing import Optional, Callable, Union, Any
+from warnings import warn
+
+import attrs
 
 
 def register_metric(registry):

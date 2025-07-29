@@ -1,9 +1,11 @@
 from os import environ
+
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     def is_cuda_array(value):
         return hasattr(value, 'shape')
 else:
     from numba.cuda import is_cuda_array
+
 
 def cuda_array_validator(instance, attribute, value, dimensions=None):
     if dimensions is None:

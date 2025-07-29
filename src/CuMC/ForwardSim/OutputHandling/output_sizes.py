@@ -1,5 +1,6 @@
-import attrs
 from typing import Optional, Tuple, Union
+
+import attrs
 
 
 @attrs.define
@@ -59,7 +60,8 @@ class LoopBufferSizes(ArraySizingClass):
     drivers: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
 
     @classmethod
-    def from_system_and_output_fns(cls, system: "GenericODE", output_fns: "OutputFunctions") -> "LoopBufferSizes":  # noqa: F821
+    def from_system_and_output_fns(cls, system: "GenericODE", output_fns: "OutputFunctions",
+                                   ) -> "LoopBufferSizes":  # noqa: F821
         summary_sizes = SummariesBufferSizes.from_output_fns(output_fns)
         system_sizes = system.sizes
         obj = cls(summary_sizes.state,
@@ -73,7 +75,7 @@ class LoopBufferSizes(ArraySizingClass):
         return obj
 
     @classmethod
-    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "LoopBufferSizes": # noqa: F821
+    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "LoopBufferSizes":  # noqa: F821
         """
         Create a LoopBufferSizes instance from a BatchSolverKernel object.
         """
@@ -161,6 +163,7 @@ class SingleRunOutputSizes(ArraySizingClass):
 
         return obj
 
+
 @attrs.define
 class BatchOutputSizes(ArraySizingClass):
     """ Returns 3d output array sizes for a batch of integration runs, given a singleintegrator sizes object and
@@ -194,5 +197,3 @@ class BatchOutputSizes(ArraySizingClass):
                   observable_summaries,
                   )
         return obj
-
-

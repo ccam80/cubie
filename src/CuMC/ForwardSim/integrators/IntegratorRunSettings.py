@@ -1,12 +1,13 @@
-import attrs
-
-from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
-from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
-from numpy import ceil
-from warnings import warn
-from typing import Sequence
-from numpy.typing import NDArray
 from typing import Optional
+from typing import Sequence
+from warnings import warn
+
+import attrs
+from numpy import ceil
+from numpy.typing import NDArray
+
+from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
+
 
 @attrs.define
 class IntegratorRunSettings:
@@ -65,7 +66,6 @@ class IntegratorRunSettings:
     def __attrs_post_init__(self):
         """Validate timing relationships."""
         self.validate_settings()
-
 
     def validate_settings(self):
         """Check the timing settings for consistency and raise errors or warnings as appropriate."""

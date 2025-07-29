@@ -5,12 +5,13 @@ Created on Wed May 28 10:36:56 2025
 @author: cca79
 """
 
-from numba import cuda, from_dtype
-from CuMC.SystemModels.SystemValues import SystemValues
-import numpy as np
-from CuMC.CUDAFactory import CUDAFactory
-from CuMC._utils import in_attr
 from warnings import warn
+
+import numpy as np
+from numba import cuda, from_dtype
+
+from CuMC.CUDAFactory import CUDAFactory
+from CuMC.SystemModels.SystemValues import SystemValues
 from CuMC.SystemModels.Systems.ODEData import ODEData
 
 
@@ -284,7 +285,6 @@ class GenericODE(CUDAFactory):
         """
         return self.update_compile_settings(silent=silent, **kwargs)
 
-
     def update_compile_settings(self, silent=False, **kwargs):
         """Overrides the CUDAFactory's update function due to the awkward nature of constants being hidden in a
         SystemValues object in this module only. Awkward; a good refactor target.
@@ -296,7 +296,7 @@ class GenericODE(CUDAFactory):
         unrecognized_params = []
 
         for key, value in kwargs.items():
-            if key in self._compile_settings.constants.values_dict: #Only this line changes to look in constants
+            if key in self._compile_settings.constants.values_dict:  # Only this line changes to look in constants
                 self._compile_settings.constants.values_dict[key] = value
                 update_successful = True
             else:

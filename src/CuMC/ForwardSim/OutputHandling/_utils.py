@@ -1,6 +1,3 @@
-import re
-from typing import Tuple, Optional
-
 # def parse_string_with_value(text: str) -> Tuple[str, Optional[int]]:
 #     """For a string of the form "text[int]", return ("text", int) or ("text",None) for a string without square
 #     brackets."""

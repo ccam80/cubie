@@ -1,7 +1,7 @@
+from typing import Sequence
+
 from numba import cuda
 from numpy.typing import ArrayLike
-from typing import Sequence
-from .output_sizes import OutputArrayHeights
 
 
 def save_state_factory(saved_states: Sequence[int] | ArrayLike,

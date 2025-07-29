@@ -1,13 +1,14 @@
-from dataclasses import dataclass
-from numpy.typing import ArrayLike
 from typing import Sequence, Callable
+
+import attrs
+from numpy.typing import ArrayLike
+
 from CuMC.CUDAFactory import CUDAFactory
+from CuMC.ForwardSim.OutputHandling.output_config import OutputConfig
+from CuMC.ForwardSim.OutputHandling.output_sizes import SummariesBufferSizes, OutputArrayHeights
 from CuMC.ForwardSim.OutputHandling.save_state import save_state_factory
 from CuMC.ForwardSim.OutputHandling.save_summaries import save_summary_factory
 from CuMC.ForwardSim.OutputHandling.update_summaries import update_summary_factory
-from CuMC.ForwardSim.OutputHandling.output_config import OutputConfig
-from CuMC.ForwardSim.OutputHandling.output_sizes import SummariesBufferSizes, OutputArrayHeights
-import attrs
 
 
 # feature: max absolute

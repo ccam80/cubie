@@ -1,6 +1,8 @@
+from typing import Sequence
+
 from numba import cuda
 from numpy.typing import ArrayLike
-from typing import Sequence
+
 from CuMC.ForwardSim.OutputHandling import summary_metrics
 from .output_sizes import SummariesBufferSizes
 

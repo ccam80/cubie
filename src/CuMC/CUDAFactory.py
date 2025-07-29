@@ -1,5 +1,7 @@
 from warnings import warn
+
 import attrs
+
 from CuMC._utils import in_attr, is_attrs_class
 
 

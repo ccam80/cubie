@@ -2,17 +2,20 @@
 Module to configure batch runs by building parameter and initial value grids,
 index generators for saved states/observables, and splitting summary outputs.
 """
+from typing import List, Union, Dict
+
 import numpy as np
 from numpy.typing import ArrayLike
-from typing import List, Union, Dict
-from CuMC.SystemModels.SystemValues import SystemValues
+
 from CuMC.ForwardSim.OutputHandling import summary_metrics
+from CuMC.SystemModels.SystemValues import SystemValues
 
 
 class BatchConfigurator:
     """
     Build grids of parameters or initial values for batch runs and generate index arrays.
     """
+
     def __init__(self, system):
         self.system = system
         # system must expose .parameters and .initial_values as SystemValues
@@ -48,13 +51,13 @@ class BatchConfigurator:
         grid[:, idx] = values
         return grid
 
-    def generate_saved_state_indices(self, keys_or_indices: Union[List[Union[str,int]], str, int]) -> np.ndarray:
+    def generate_saved_state_indices(self, keys_or_indices: Union[List[Union[str, int]], str, int]) -> np.ndarray:
         """
         Convert user-specified state names or indices to numpy array of int indices.
         """
         return self.system.initial_values.get_indices(keys_or_indices)
 
-    def generate_saved_observable_indices(self, keys_or_indices: Union[List[Union[str,int]], str, int]) -> np.ndarray:
+    def generate_saved_observable_indices(self, keys_or_indices: Union[List[Union[str, int]], str, int]) -> np.ndarray:
         """
         Convert user-specified observable names or indices to numpy array of int indices.
         """
@@ -65,6 +68,7 @@ class SummarySplitter:
     """
     Split the flat summary output arrays into separate arrays for each summary metric.
     """
+
     def __init__(self, summary_types: List[str]):
         self.summary_types = summary_types
         # get output sizes per summary metric (width per variable)
@@ -78,7 +82,7 @@ class SummarySplitter:
         splits = {}
         offset = 0
         for s_type, h in zip(self.summary_types, self.heights):
-            splits[s_type] = state_summary_array[..., offset:offset+h]
+            splits[s_type] = state_summary_array[..., offset:offset + h]
             offset += h
         return splits
 
@@ -89,6 +93,6 @@ class SummarySplitter:
         splits = {}
         offset = 0
         for s_type, h in zip(self.summary_types, self.heights):
-            splits[s_type] = obs_summary_array[..., offset:offset+h]
+            splits[s_type] = obs_summary_array[..., offset:offset + h]
             offset += h
         return splits

@@ -1,7 +1,9 @@
+from math import sqrt
+
+from numba import cuda
+
 from CuMC.ForwardSim.OutputHandling.SummaryMetrics import summary_metrics
 from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetric, register_metric
-from numba import cuda, float32
-from math import sqrt
 
 
 @register_metric(summary_metrics)

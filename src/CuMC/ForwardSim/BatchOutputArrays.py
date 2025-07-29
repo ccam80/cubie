@@ -1,11 +1,13 @@
-from numba.cuda import mapped_array
+from warnings import warn
+
 import attrs
 import attrs.validators as val
+from numba.cuda import mapped_array
 from numpy import float32
-from CuMC.ForwardSim._utils import optional_cuda_array_validator_3d
-from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
-from warnings import warn
+
 from CuMC.ForwardSim.BatchConfigurator import SummarySplitter
+from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
+from CuMC.ForwardSim._utils import optional_cuda_array_validator_3d
 
 
 @attrs.define
@@ -58,7 +60,7 @@ class OutputArrays:
                     observables,
                     state_summaries,
                     observable_summaries,
-                    sizes: BatchOutputSizes
+                    sizes: BatchOutputSizes,
                     ):
         """
         Check dimensions of provided arrays match the expected sizes. Return True if sizes match.
@@ -82,7 +84,7 @@ class OutputArrays:
                     observables,
                     state_summaries,
                     observable_summaries,
-                    precision
+                    precision,
                     ):
         """
         Check types of provided arrays match the expected precision. Return True if types match.
@@ -112,13 +114,13 @@ class OutputArrays:
                                       self.observables,
                                       self.state_summaries,
                                       self.observable_summaries,
-                                      self._sizes
+                                      self._sizes,
                                       )
         type_match = self._check_type(self.state,
                                       self.observables,
                                       self.state_summaries,
                                       self.observable_summaries,
-                                      self._precision
+                                      self._precision,
                                       )
 
         return size_match and type_match
@@ -143,7 +145,7 @@ class OutputArrays:
 
         else:
             warn("Provided arrays do not match the expected sizes or types, allocating new ones instead.",
-                 UserWarning
+                 UserWarning,
                  )
             self._allocate_new()
 

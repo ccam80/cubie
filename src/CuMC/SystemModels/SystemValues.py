@@ -1,5 +1,6 @@
-import numpy as np
 from collections.abc import Sized  # Workaround just to check if an argument has len()
+
+import numpy as np
 
 
 class SystemValues:
@@ -105,8 +106,8 @@ class SystemValues:
                 return self.indices_dict[parameter_key]
             else:
                 raise KeyError(
-                    f"'{parameter_key}' not found in this SystemValues object. Double check that you're looking " +
-                    f"in the right place (i.e. states, or parameters, or constants)",
+                        f"'{parameter_key}' not found in this SystemValues object. Double check that you're looking " +
+                        f"in the right place (i.e. states, or parameters, or constants)",
                         )
         else:
             raise TypeError(f"parameter_key must be a string, you submitted a {type(parameter_key)}.")

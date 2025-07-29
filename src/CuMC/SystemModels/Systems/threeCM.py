@@ -4,9 +4,10 @@ Created on Wed May 28 10:36:56 2025
 
 @author: cca79
 """
-from numba import cuda, float64, from_dtype
-from CuMC.SystemModels.Systems.GenericODE import GenericODE
 import numpy as np
+from numba import cuda, from_dtype
+
+from CuMC.SystemModels.Systems.GenericODE import GenericODE
 
 default_parameters = {'E_h':  0.52,
                       'E_a':  0.0133,
@@ -166,7 +167,6 @@ class ThreeChamberModel(GenericODE):
 
     def correct_answer_python(self, states, parameters, drivers):
         """ More-direct port of Nic Davey's MATLAB implementation.         """
-
 
         E_h, E_a, E_v, R_i, R_o, R_c, _ = parameters
         V_h, V_a, V_v = states

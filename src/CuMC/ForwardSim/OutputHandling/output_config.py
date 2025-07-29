@@ -2,10 +2,12 @@
 Output configuration management system for flexible, user-controlled output selection.
 """
 
-import attrs
-from warnings import warn
 from typing import List, Tuple
+from warnings import warn
+
+import attrs
 import numpy as np
+
 from CuMC.ForwardSim.OutputHandling import summary_metrics
 
 
@@ -25,6 +27,7 @@ def _indices_validator(array, max_index):
         if len(duplicates) > 0:
             raise ValueError(f"Duplicate indices found: {duplicates.tolist()}")
 
+
 @attrs.define
 class OutputCompileFlags:
     save_state: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
@@ -32,6 +35,7 @@ class OutputCompileFlags:
     summarise: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
     summarise_observables: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
     summarise_state: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
+
 
 @attrs.define
 class OutputConfig:
@@ -172,7 +176,7 @@ class OutputConfig:
                 save_observables=self.save_observables,
                 summarise=self.save_summaries,
                 summarise_observables=self.summarise_observables,
-                summarise_state=self.summarise_state
+                summarise_state=self.summarise_state,
                 )
 
     @property

@@ -4,12 +4,13 @@ Created on Fri Jul  5 19:24:23 2024
 
 @author: cca79
 """
+from functools import wraps
+from time import time
+from warnings import warn
+
+import numpy as np
 from numba import cuda
 from numba import float64, int32, from_dtype, float32
-from time import time
-import numpy as np
-from functools import wraps
-from warnings import warn
 from numba.cuda.random import xoroshiro128p_normal_float64, xoroshiro128p_normal_float32, xoroshiro128p_dtype
 
 xoro_type = from_dtype(xoroshiro128p_dtype)

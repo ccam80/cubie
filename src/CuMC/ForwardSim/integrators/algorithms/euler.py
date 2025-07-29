@@ -1,5 +1,5 @@
-from warnings import warn
 from numba import cuda, int32, from_dtype
+
 from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import GenericIntegratorAlgorithm
 
 
@@ -59,7 +59,7 @@ class Euler(GenericIntegratorAlgorithm):
         state_summary_buffer_size = sizes.state_summaries
         observables_summary_buffer_size = sizes.observable_summaries
 
-        #Generate indices into shared memory as compile-time constants
+        # Generate indices into shared memory as compile-time constants
         dxdt_start_index = state_buffer_size
         observables_start_index = dxdt_start_index + dxdt_buffer_size
         drivers_start_index = observables_start_index + observables_buffer_size
@@ -68,6 +68,7 @@ class Euler(GenericIntegratorAlgorithm):
         end_index = observable_summaries_start_index + observables_summary_buffer_size
 
         numba_precision = from_dtype(precision)
+
         @cuda.jit((numba_precision[:],
                    numba_precision[:],
                    numba_precision[:, :],
@@ -98,7 +99,6 @@ class Euler(GenericIntegratorAlgorithm):
             """
 
             # Allocate shared memory slices
-
 
             state_buffer = shared_memory[:dxdt_start_index]
             dxdt = shared_memory[dxdt_start_index:observables_start_index]
@@ -157,7 +157,8 @@ class Euler(GenericIntegratorAlgorithm):
                         summary_sample = (output_sample + 1) // summarise_steps - 1
                         save_summaries_func(state_summary_buffer, observable_summary_buffer,
                                             state_summaries_output[summary_sample * summarise_state_bool, :],
-                                            observables_summaries_output[summary_sample * summarise_observables_bool,:],
+                                            observables_summaries_output[summary_sample * summarise_observables_bool,
+                                            :],
                                             summarise_steps,
                                             )
 

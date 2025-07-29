@@ -1,7 +1,7 @@
-import attrs
+from attrs import define
+
 from CuMC.ForwardSim.integrators.algorithms.euler import Euler
 from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import GenericIntegratorAlgorithm
-from attrs import define
 
 
 @define
@@ -18,7 +18,7 @@ class _ImplementedAlgorithms:
         except AttributeError:
             raise KeyError(f"Algorithm '{item}' is not implemented.")
 
-ImplementedAlgorithms = _ImplementedAlgorithms()
 
+ImplementedAlgorithms = _ImplementedAlgorithms()
 
 __all__ = ['Euler', 'GenericIntegratorAlgorithm', 'ImplementedAlgorithms']

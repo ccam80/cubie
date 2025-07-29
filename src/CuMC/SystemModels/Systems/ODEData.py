@@ -1,7 +1,9 @@
+from typing import Optional
+
 import attrs
 import numpy as np
 from numpy import float32
-from typing import Optional
+
 from CuMC.SystemModels.SystemValues import SystemValues
 
 
@@ -25,13 +27,25 @@ class ODEData:
     This is used to pass data to the ODE solver kernel.
     """
     constants: Optional[SystemValues] = attrs.field(validator=attrs.validators.optional(attrs.validators.instance_of(
-            SystemValues)))
+            SystemValues,
+            ),
+            ),
+            )
     parameters: Optional[SystemValues] = attrs.field(validator=attrs.validators.optional(attrs.validators.instance_of(
-            SystemValues)))
+            SystemValues,
+            ),
+            ),
+            )
     initial_states: SystemValues = attrs.field(validator=attrs.validators.optional(attrs.validators.instance_of(
-            SystemValues)))
+            SystemValues,
+            ),
+            ),
+            )
     observables: SystemValues = attrs.field(validator=attrs.validators.optional(attrs.validators.instance_of(
-            SystemValues)))
+            SystemValues,
+            ),
+            ),
+            )
     precision: type = attrs.field(validator=attrs.validators.instance_of(type), default=float32)
     num_drivers: int = attrs.field(validator=attrs.validators.instance_of(int), default=1)
 

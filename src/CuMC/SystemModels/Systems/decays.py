@@ -5,9 +5,10 @@ Created on Wed May 28 10:36:56 2025
 @author: cca79
 """
 
-from numba import cuda, from_dtype
-from CuMC.SystemModels.Systems.GenericODE import GenericODE
 import numpy as np
+from numba import cuda, from_dtype
+
+from CuMC.SystemModels.Systems.GenericODE import GenericODE
 
 
 class Decays(GenericODE):

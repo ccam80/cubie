@@ -6,19 +6,19 @@ Created on Tue May 27 17:45:03 2025
 """
 
 import os
-import numpy as np
-from numba import int32, int16, from_dtype
-from numba import cuda
+from typing import Optional
 
-from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes, SingleRunOutputSizes
-from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
+import numpy as np
+from numba import cuda
+from numba import int32, int16, from_dtype
+from numpy.typing import NDArray, ArrayLike
+
+from CuMC.CUDAFactory import CUDAFactory
 from CuMC.ForwardSim.BatchInputArrays import InputArrays
 from CuMC.ForwardSim.BatchOutputArrays import OutputArrays
-from CuMC.CUDAFactory import CUDAFactory
-from numpy.typing import NDArray, ArrayLike
-from typing import Optional
-from numba.np.numpy_support import as_dtype as to_np_dtype
 from CuMC.ForwardSim.BatchSolverConfig import BatchSolverConfig
+from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes, SingleRunOutputSizes
+from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
 
 
 class BatchSolverKernel(CUDAFactory):
@@ -55,11 +55,12 @@ class BatchSolverKernel(CUDAFactory):
                  ):
         super().__init__()
 
-        config = BatchSolverConfig(precision = precision,
+        config = BatchSolverConfig(precision=precision,
                                    algorithm=algorithm,
                                    duration=duration,
                                    warmup=warmup,
-                                   profileCUDA=profileCUDA)
+                                   profileCUDA=profileCUDA,
+                                   )
 
         # Setup compile settings for the kernel
         self.setup_compile_settings(config)
@@ -106,7 +107,7 @@ class BatchSolverKernel(CUDAFactory):
             warmup=0.0,
             ):
         """Run the solver kernel."""
-        #Order currently VERY IMPORTANT - num_runs is updated in input_arrays, which is used in output_arrays.
+        # Order currently VERY IMPORTANT - num_runs is updated in input_arrays, which is used in output_arrays.
         self.input_arrays(inits, params, forcing_vectors)
         self.output_arrays(self)
         numruns = self.input_arrays.num_runs

@@ -1,11 +1,11 @@
 from _warnings import warn
+from os import environ
 
 import attrs
 import attrs.validators as val
-from numba import from_dtype
+from numba.cuda import to_device
 from numpy import float32, array_equal, zeros, ndarray
-from numba.cuda import device_array_like, to_device
-from os import environ
+
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray as DeviceNDArray
 else:
@@ -13,11 +13,7 @@ else:
 from CuMC.ForwardSim._utils import optional_cuda_array_validator, optional_cuda_array_validator_3d
 from numpy.typing import NDArray
 from typing import Optional
-
-
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
-
-
 
 
 @attrs.define
@@ -43,17 +39,17 @@ class InputArrays:
     _device_inits: Optional[DeviceNDArray] = attrs.field(
             default=None,
             validator=val.optional(optional_cuda_array_validator_3d),
-            init=False
+            init=False,
             )
     _device_parameters: Optional[DeviceNDArray] = attrs.field(
             default=None,
             validator=val.optional(optional_cuda_array_validator_3d),
-            init=False
+            init=False,
             )
     _device_forcing: Optional[DeviceNDArray] = attrs.field(
             default=None,
             validator=val.optional(optional_cuda_array_validator),
-            init=False
+            init=False,
             )
 
     _needs_reallocation: list[str] = attrs.field(factory=list, init=False)
@@ -61,11 +57,11 @@ class InputArrays:
 
     def __attrs_post_init__(self):
         if self._initial_values is None:
-            self._initial_values = zeros((1,1,1), dtype=self._precision)
+            self._initial_values = zeros((1, 1, 1), dtype=self._precision)
         if self._parameters is None:
-            self._parameters = zeros((1,1,1), dtype=self._precision)
+            self._parameters = zeros((1, 1, 1), dtype=self._precision)
         if self._forcing_vectors is None:
-            self._forcing_vectors = zeros((1,1,1), dtype=self._precision)
+            self._forcing_vectors = zeros((1, 1, 1), dtype=self._precision)
 
         self._needs_reallocation = ["initial_values", "parameters", "forcing_vectors"]
 
@@ -76,11 +72,12 @@ class InputArrays:
         if self._check_dims_vs_system(initial_values, parameters, forcing_vectors):
             self._initial_values = self._update_host_array(initial_values, self._initial_values, "initial_values")
             self._parameters = self._update_host_array(parameters, self._parameters, "parameters")
-            self._forcing_vectors = self._update_host_array(forcing_vectors, self._forcing_vectors,  "forcing_vectors")
+            self._forcing_vectors = self._update_host_array(forcing_vectors, self._forcing_vectors, "forcing_vectors")
             self.to_device(stream=stream)
         else:
             warn("Provided initial values/parameters/driver arrays do not match the sizes according to the ODE "
-                 "system, ignoring update")
+                 "system, ignoring update",
+                 )
 
     @property
     def initial_values(self):

@@ -1,7 +1,6 @@
 import attrs
-from numpy import float32, ceil
-from typing import Optional
-from numpy.typing import ArrayLike
+from numpy import float32
+
 
 @attrs.define
 class BatchSolverConfig:
@@ -11,5 +10,8 @@ class BatchSolverConfig:
     duration: float = 1.0
     warmup: float = 0.0
     stream: int = attrs.field(default=0, validator=attrs.validators.optional(attrs.validators.instance_of(
-            int)))
+            int,
+            ),
+            ),
+                              )
     profileCUDA: bool = False
