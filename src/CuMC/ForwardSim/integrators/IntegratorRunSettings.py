@@ -5,7 +5,6 @@ from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
 from numpy import ceil
 from warnings import warn
 from typing import Sequence
-import numpy as np
 from numpy.typing import NDArray
 from typing import Optional
 

@@ -64,7 +64,6 @@ class BatchSolverKernel(CUDAFactory):
         # Setup compile settings for the kernel
         self.setup_compile_settings(config)
 
-
         self.single_integrator = SingleIntegratorRun(
                 system,
                 algorithm=algorithm,

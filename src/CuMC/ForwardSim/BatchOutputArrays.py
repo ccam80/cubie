@@ -1,12 +1,11 @@
-from numba import from_dtype
 from numba.cuda import mapped_array
-from numba.np.numpy_support import as_dtype as to_np_dtype
 import attrs
 import attrs.validators as val
 from numpy import float32
-from CuMC.ForwardSim._utils import optional_cuda_array_validator, optional_cuda_array_validator_3d
+from CuMC.ForwardSim._utils import optional_cuda_array_validator_3d
 from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
 from warnings import warn
+from CuMC.ForwardSim.BatchConfigurator import SummarySplitter
 
 
 @attrs.define
@@ -169,13 +168,14 @@ class OutputArrays:
 
     def summary_views(self, solver_instance: "BatchSolverKernel"):  # noqa: F821
         """
-        Return views of the summaries arrays for the given solver instance.
-        This is useful for passing the summaries to the solver without copying the data.
+        Return dicts of summary arrays split by metric type for states and observables.
         """
-        # break up into per-summary views by digging out summary indices from the solver instance. Might require
-        # getting a list of indices from the summary_metrics or output functions module.
-
-        return (self.state_summaries, self.observable_summaries)
+        # Fetch summary types from output functions
+        summary_types = solver_instance.single_integrator._output_functions.summary_types
+        splitter = SummarySplitter(summary_types)
+        state_splits = splitter.split_state_summaries(self.state_summaries)
+        obs_splits = splitter.split_observable_summaries(self.observable_summaries)
+        return state_splits, obs_splits
 
     @classmethod
     def from_solver(cls, solver_instance: "BatchSolverKernel") -> "OutputArrays":  # noqa: F821
