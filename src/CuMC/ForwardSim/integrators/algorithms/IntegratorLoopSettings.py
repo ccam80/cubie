@@ -7,6 +7,7 @@ from typing import Callable, Optional
 from numpy import float32, float16, float64
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
+from CuMC.ForwardSim.OutputHandling.output_config import OutputCompileFlags
 
 
 @define
@@ -22,6 +23,8 @@ class IntegratorLoopSettings:
     buffer_sizes: LoopBufferSizes = field(validator=validators.instance_of(LoopBufferSizes))
     precision: type = field(default=float32, validator=validators.and_(validators.instance_of(type), validators.in_([
         float32, float64, float16])))
+    compile_flags: OutputCompileFlags = field(default=OutputCompileFlags(), validator=validators.instance_of(
+            OutputCompileFlags))
     dxdt_function: Optional[Callable] = field(default=None)
     save_state_func: Optional[Callable] = field(default=None)
     update_summaries_func: Optional[Callable] = field(default=None)

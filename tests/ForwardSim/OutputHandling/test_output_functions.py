@@ -352,7 +352,7 @@ def compare_input_output(output_functions_test_kernel,
         atol = 1e-12 if not rms_on else 1e-9
         rtol = 1e-12 if not rms_on else 1e-9
 
-    if output_functions.compile_settings.summarise_states:
+    if output_functions.compile_settings.summarise_state:
         assert_allclose(expected_state_summaries, state_summaries_output, atol=atol, rtol=rtol,
                         err_msg=f"State summaries didn't match expected values. Shapes: expected"
                                 f"[{expected_state_summaries.shape}, actual[{state_summaries_output.shape}]",

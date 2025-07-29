@@ -75,6 +75,7 @@ class LoopAlgorithmTester:
         save_summaries = output_functions.save_summary_metrics_func
 
         dxdt_function = system.device_function
+        compile_flags = output_functions.compile_flags
 
         algorithm_instance = algorithm_class(
                 precision=precision,
@@ -84,6 +85,7 @@ class LoopAlgorithmTester:
                 save_state_func=save_state,
                 update_summaries_func=update_summaries,
                 save_summaries_func=save_summaries,
+                compile_flags=compile_flags
                 )
 
         return algorithm_instance

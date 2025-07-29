@@ -138,6 +138,11 @@ class OutputFunctions(CUDAFactory):
         return self.get_cached_output('save_summaries_function')
 
     @property
+    def compile_flags(self):
+        """Return the compile flags for the output functions."""
+        return self.compile_settings.compile_flags
+
+    @property
     def save_time(self):
         """Return whether time is being saved."""
         return self.compile_settings.save_time

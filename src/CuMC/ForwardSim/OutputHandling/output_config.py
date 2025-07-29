@@ -25,6 +25,13 @@ def _indices_validator(array, max_index):
         if len(duplicates) > 0:
             raise ValueError(f"Duplicate indices found: {duplicates.tolist()}")
 
+@attrs.define
+class OutputCompileFlags:
+    save_state: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
+    save_observables: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
+    summarise: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
+    summarise_observables: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
+    summarise_state: bool = attrs.field(default=False, validator=attrs.validators.instance_of(bool))
 
 @attrs.define
 class OutputConfig:
@@ -103,9 +110,6 @@ class OutputConfig:
 
     # ************************************ Getters/Setters *************************************** #
     # No setter implemented for flags - these can only be updated by the update_from_outputs_list method
-    @property
-    def save_state(self) -> bool:
-        return self._save_state and (len(self._saved_state_indices) > 0)
 
     @property
     def max_states(self):
@@ -134,12 +138,42 @@ class OutputConfig:
         self.__attrs_post_init__()
 
     @property
+    def save_state(self) -> bool:
+        return self._save_state and (len(self._saved_state_indices) > 0)
+
+    @property
     def save_observables(self):
         return self._save_observables and (len(self._saved_observable_indices) > 0)
 
     @property
     def save_time(self):
         return self._save_time
+
+    @property
+    def save_summaries(self) -> bool:
+        """Do we need to summarise anything at all?"""
+        return len(self._summary_types) > 0
+
+    @property
+    def summarise_state(self) -> bool:
+        """Will any states be summarised?"""
+        return self.save_summaries and self.n_summarised_states > 0
+
+    @property
+    def summarise_observables(self) -> bool:
+        """Will any observables be summarised?"""
+        return self.save_summaries and self.n_summarised_observables > 0
+
+    @property
+    def compile_flags(self) -> OutputCompileFlags:
+        """Return the compile flags for this output configuration."""
+        return OutputCompileFlags(
+                save_state=self.save_state,
+                save_observables=self.save_observables,
+                summarise=self.save_summaries,
+                summarise_observables=self.summarise_observables,
+                summarise_state=self.summarise_state
+                )
 
     @property
     def saved_state_indices(self):
@@ -186,30 +220,6 @@ class OutputConfig:
         self._check_for_no_outputs()
 
     @property
-    def summary_types(self):
-        return self._summary_types
-
-    @property
-    def summary_parameters(self):
-        """Get parameters for summary metrics from the metrics system."""
-        return summary_metrics.params(list(self._summary_types))
-
-    @property
-    def save_summaries(self) -> bool:
-        """Do we need to summarise anything at all?"""
-        return len(self._summary_types) > 0
-
-    @property
-    def summarise_states(self) -> bool:
-        """Will any states be summarised?"""
-        return self.save_summaries and self.n_summarised_states > 0
-
-    @property
-    def summarise_observables(self) -> bool:
-        """Will any observables be summarised?"""
-        return self.save_summaries and self.n_summarised_observables > 0
-
-    @property
     def n_saved_states(self) -> int:
         """Number of states that will be saved (time-domain), which will the length of saved_state_indices as long as
         "save_state" is True."""
@@ -230,6 +240,15 @@ class OutputConfig:
     def n_summarised_observables(self) -> int:
         """Number of observables that will actually be summarised."""
         return len(self._summarised_observable_indices) if self.save_summaries else 0
+
+    @property
+    def summary_types(self):
+        return self._summary_types
+
+    @property
+    def summary_parameters(self):
+        """Get parameters for summary metrics from the metrics system."""
+        return summary_metrics.params(list(self._summary_types))
 
     @property
     def summaries_buffer_height_per_var(self) -> int:

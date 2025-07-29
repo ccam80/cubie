@@ -18,6 +18,7 @@ class Euler(GenericIntegratorAlgorithm):
                  save_state_func,
                  update_summaries_func,
                  save_summaries_func,
+                 compile_flags=None,
                  **kwargs,
                  ):
         super().__init__(precision,
@@ -27,6 +28,7 @@ class Euler(GenericIntegratorAlgorithm):
                          save_state_func,
                          update_summaries_func,
                          save_summaries_func,
+                         compile_flags=compile_flags,
                          )
 
         self._threads_per_loop = 1
@@ -42,6 +44,11 @@ class Euler(GenericIntegratorAlgorithm):
         save_steps, summarise_steps, step_size = self.compile_settings.fixed_steps
 
         sizes = self.compile_settings.buffer_sizes
+        flags = self.compile_settings.compile_flags
+        save_observables_bool = flags.save_observables
+        save_state_bool = flags.save_state
+        summarise_observables_bool = flags.summarise_observables
+        summarise_state_bool = flags.summarise_state
 
         state_buffer_size = sizes.state
         observables_buffer_size = sizes.observables
@@ -51,6 +58,14 @@ class Euler(GenericIntegratorAlgorithm):
         drivers_buffer_size = sizes.drivers
         state_summary_buffer_size = sizes.state_summaries
         observables_summary_buffer_size = sizes.observable_summaries
+
+        #Generate indices into shared memory as compile-time constants
+        dxdt_start_index = state_buffer_size
+        observables_start_index = dxdt_start_index + dxdt_buffer_size
+        drivers_start_index = observables_start_index + observables_buffer_size
+        state_summaries_start_index = drivers_start_index + drivers_buffer_size
+        observable_summaries_start_index = state_summaries_start_index + state_summary_buffer_size
+        end_index = observable_summaries_start_index + observables_summary_buffer_size
 
         numba_precision = from_dtype(precision)
         @cuda.jit((numba_precision[:],
@@ -84,12 +99,6 @@ class Euler(GenericIntegratorAlgorithm):
 
             # Allocate shared memory slices
 
-            dxdt_start_index = state_buffer_size
-            observables_start_index = dxdt_start_index + dxdt_buffer_size
-            drivers_start_index = observables_start_index + observables_buffer_size
-            state_summaries_start_index = drivers_start_index + drivers_buffer_size
-            observable_summaries_start_index = state_summaries_start_index + state_summary_buffer_size
-            end_index = observable_summaries_start_index + observables_summary_buffer_size
 
             state_buffer = shared_memory[:dxdt_start_index]
             dxdt = shared_memory[dxdt_start_index:observables_start_index]
@@ -106,13 +115,6 @@ class Euler(GenericIntegratorAlgorithm):
             for i in range(state_buffer_size):
                 state_buffer[i] = inits[i]
 
-            # Feature: Consider offering user-togglable memory locations for these parameters; it will probably differ
-            #  based on system size. These toggles could allow for handling of the zero-parameter case more cleanly - if
-            #  size is zero, we relegate it to shared memory, where no one cares if we allocate a zero-length
-            #  slice
-
-            # If there's zero parameters, then the buffer size will be 1, but there'll be none provided, so use the
-            # potentially zero "parameters_actual" for the initialisation loop.
             l_parameters = cuda.local.array((parameter_buffer_size),
                                             dtype=numba_precision,
                                             )
@@ -130,11 +132,11 @@ class Euler(GenericIntegratorAlgorithm):
 
                     # Calculate derivative at sample
                     dxdt_function(state_buffer,
-                              parameters,
-                              drivers,
-                              observables_buffer,
-                              dxdt,
-                              )
+                                  parameters,
+                                  drivers,
+                                  observables_buffer,
+                                  dxdt,
+                                  )
 
                     # Forward-step state using euler
                     for k in range(state_buffer_size):
@@ -143,22 +145,21 @@ class Euler(GenericIntegratorAlgorithm):
                 # Start saving after the requested settling time has passed.
                 if i > (warmup_samples - 1):
                     output_sample = i - warmup_samples
-                    save_state_func(state_buffer, observables_buffer, state_output[output_sample, :],
-                                    observables_output[
-                                    output_sample, :],
+                    save_state_func(state_buffer, observables_buffer, state_output[output_sample * save_state_bool, :],
+                                    observables_output[output_sample * save_observables_bool, :],
                                     output_sample,
                                     )
                     update_summaries_func(state_buffer, observables_buffer, state_summary_buffer,
-                                        observable_summary_buffer, output_sample,
-                                        )
+                                          observable_summary_buffer, output_sample,
+                                          )
 
                     if (i + 1) % summarise_steps == 0:
                         summary_sample = (output_sample + 1) // summarise_steps - 1
                         save_summaries_func(state_summary_buffer, observable_summary_buffer,
-                                          state_summaries_output[summary_sample, :],
-                                          observables_summaries_output[summary_sample, :],
-                                          summarise_steps,
-                                          )
+                                            state_summaries_output[summary_sample * summarise_state_bool, :],
+                                            observables_summaries_output[summary_sample * summarise_observables_bool,:],
+                                            summarise_steps,
+                                            )
 
         return euler_loop
 

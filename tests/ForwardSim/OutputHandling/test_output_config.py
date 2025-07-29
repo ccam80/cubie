@@ -384,13 +384,13 @@ class TestUtilityProperties:
         assert config.save_summaries is False
 
     def test_summarise_states_property(self, config_with_summaries):
-        """Test summarise_states property."""
+        """Test summarise_state property."""
         config = config_with_summaries
-        assert config.summarise_states is True
+        assert config.summarise_state is True
 
         # Having summary types but no indices means no summarization
         config.summarised_state_indices = []
-        assert config.summarise_states is False
+        assert config.summarise_state is False
 
     def test_summarise_observables_property(self, config_with_summaries):
         """Test summarise_observables property."""

@@ -60,6 +60,21 @@ class SingleIntegratorRun:
                  output_types: list[str] = None,
                  ):
 
+        # Store the system
+        self._system = system
+        system_sizes = system.sizes
+
+        # Initialize output functions with shapes from system
+        self._output_functions = OutputFunctions(
+                max_states=system_sizes.states,
+                max_observables=system_sizes.observables,
+                output_types=output_types,
+                saved_states=saved_states,
+                saved_observables=saved_observables,
+                summarised_states=summarised_states,
+                summarised_observables=summarised_observables,
+                )
+
         compile_settings = IntegratorRunSettings(dt_min=dt_min,
                                                  dt_max=dt_max,
                                                  dt_save=dt_save,
@@ -75,22 +90,7 @@ class SingleIntegratorRun:
 
         self.config = compile_settings
 
-        # Store the system (already a CUDAFactory)
-        self._system = system
-        system_sizes = system.sizes
-
-        # Initialize output functions with proper system dimensions
-        self._output_functions = OutputFunctions(
-                max_states=system_sizes.states,
-                max_observables=system_sizes.observables,
-                output_types=output_types,
-                saved_states=saved_states,
-                saved_observables=saved_observables,
-                summarised_states=summarised_states,
-                summarised_observables=summarised_observables,
-                )
-
-        # Store algorithm parameters
+        # Instantiate algorithm with info from system and output functions
         self.algorithm_key = algorithm.lower()
         algorithm = ImplementedAlgorithms[self.algorithm_key]
         self._integrator_instance = algorithm.from_single_integrator_run(self)
@@ -181,7 +181,8 @@ class SingleIntegratorRun:
             'save_summaries_func':   self.save_summaries_func,
             'buffer_sizes':          self.loop_buffer_sizes,
             'loop_step_config':      self.loop_step_config,
-            'precision':             self.precision
+            'precision':             self.precision,
+            'compile_flags':         self.compile_flags
             }
 
         self.config.validate_settings()
@@ -271,3 +272,8 @@ class SingleIntegratorRun:
     def system_sizes(self) -> SystemSizes:
         """Get the sizes of the system."""
         return self._system.sizes
+
+    @property
+    def compile_flags(self):
+        """Get the compile flags for the output functions."""
+        return self._output_functions.compile_flags

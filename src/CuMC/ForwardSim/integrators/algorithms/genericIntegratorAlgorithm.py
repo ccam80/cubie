@@ -32,6 +32,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                  save_state_func,
                  update_summaries_func,
                  save_summaries_func,
+                 compile_flags,
                  ):
         super().__init__()
 
@@ -43,6 +44,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                 save_state_func=save_state_func,
                 update_summaries_func=update_summaries_func,
                 save_summaries_func=save_summaries_func,
+                compile_flags=compile_flags,
                 )
         self.setup_compile_settings(compile_settings)
 
@@ -183,4 +185,5 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                 save_state_func=run_object.save_state_func,
                 update_summaries_func=run_object.update_summaries_func,
                 save_summaries_func=run_object.save_summaries_func,
+                compile_flags=run_object.compile_flags
                 )
