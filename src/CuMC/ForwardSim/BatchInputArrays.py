@@ -5,7 +5,11 @@ import attrs.validators as val
 from numba import from_dtype
 from numpy import float32, array_equal, zeros, ndarray
 from numba.cuda import device_array_like, to_device
-from numba.cuda.cudadrv.devicearray import DeviceNDArray
+from os import environ
+if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
+    from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray as DeviceNDArray
+else:
+    from numba.cuda.cudadrv.devicearray import DeviceNDArray
 from CuMC.ForwardSim._utils import optional_cuda_array_validator, optional_cuda_array_validator_3d
 from numpy.typing import NDArray
 from typing import Optional
