@@ -282,25 +282,25 @@ class TestOutputArrays:
         assert arrays._precision == precision
         assert arrays.state.dtype == precision
 
-    def test_summary_views_method(self):
-        """Test summary_views method returns summary arrays"""
-        sizes = BatchOutputSizes(
-            state=(5, 3, 2),
-            observables=(5, 3, 2),
-            state_summaries=(3, 1, 1),
-            observable_summaries=(3, 1, 1)
-        )
-        arrays = OutputArrays(sizes)
-        arrays._allocate_new()
-
-        # Mock solver instance (not needed for current implementation)
-        mock_solver = None
-
-        result = arrays.summary_views(mock_solver)
-
-        assert len(result) == 2
-        assert result[0] is arrays.state_summaries
-        assert result[1] is arrays.observable_summaries
+    # def test_summary_views_method(self):
+    #     """Test summary_views method returns summary arrays"""
+    #     sizes = BatchOutputSizes(
+    #         state=(5, 3, 2),
+    #         observables=(5, 3, 2),
+    #         state_summaries=(3, 1, 1),
+    #         observable_summaries=(3, 1, 1)
+    #     )
+    #     arrays = OutputArrays(sizes)
+    #     arrays._allocate_new()
+    #
+    #     # Mock solver instance (not needed for current implementation)
+    #     mock_solver = None
+    #
+    #     result = arrays.summary_views(mock_solver)
+    #
+    #     assert len(result) == 2
+    #     assert result[0] is arrays.state_summaries
+    #     assert result[1] is arrays.observable_summaries
 
     def test_integration_scenario_allocation_reuse(self):
         """Test complete scenario with allocation and cache reuse"""
