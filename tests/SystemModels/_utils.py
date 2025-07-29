@@ -203,7 +203,7 @@ def instantiate_or_use_instance(obj, precision=np.float64):
         return obj, precision
 
 
-def generate_system_tests(SystemClass, log10_scalerange=(-6, 6), tests_per_category=5):
+def generate_system_tests(SystemClass, log10_scalerange=(-6, 6), tests_per_category=2):
     """Generate a list of tests checking correct input/output across a range of floating point scales and both
     float precision types. The tests include:
         - Random tests at scales spread across the given range.
@@ -226,7 +226,7 @@ def generate_system_tests(SystemClass, log10_scalerange=(-6, 6), tests_per_categ
 
 
     test_cases = []
-    samescales = np.arange(log10_scalerange[0], log10_scalerange[1] + 1, tests_per_category)
+    samescales = np.arange(log10_scalerange[0], log10_scalerange[1] + 1, int(log10_scalerange[1] - log10_scalerange[0]) / tests_per_category)
     for precision in (precisions):
         test_cases += [create_random_test_set(SystemClass, precision, 10.0 ** scale) for scale in samescales]
 

@@ -27,9 +27,11 @@ def mock_functions():
     def mock_update(value, buffer, current_index, customisable_variable):
         """Mock update function that does nothing."""
         pass
+
     def mock_save(buffer, output_array, summarise_every, customisable_variable):
         """Mock save function that does nothing."""
         pass
+
     return mock_update, mock_save
 
 

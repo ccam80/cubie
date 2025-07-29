@@ -5,7 +5,6 @@ from numpy.testing import assert_allclose
 from CuMC.SystemModels.Systems.decays import Decays
 
 from tests._utils import generate_test_array
-# from tests.SystemModels._utils import random_system_values
 
 
 # One-off modifications of _utils for this unique system:
