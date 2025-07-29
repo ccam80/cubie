@@ -356,10 +356,12 @@ def compare_input_output(output_functions_test_kernel,
         assert_allclose(expected_state_summaries, state_summaries_output, atol=atol, rtol=rtol,
                         err_msg=f"State summaries didn't match expected values. Shapes: expected"
                                 f"[{expected_state_summaries.shape}, actual[{state_summaries_output.shape}]",
+                        verbose=True,
                         )
     if output_functions.compile_settings.summarise_observables:
         assert_allclose(expected_observable_summaries, observable_summaries_output, atol=atol, rtol=rtol,
                         err_msg=f"Observable summaries didn't match expected values. Shapes: expected[{expected_observable_summaries.shape}, actual[{observable_summaries_output.shape}]",
+                        verbose=True,
                         )
 
 

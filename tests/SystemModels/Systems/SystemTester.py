@@ -124,7 +124,7 @@ class SystemTester:
         self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
 
         if precision == np.float32:
-            rtol = 1e-5  # float32 will underperform in fixed-precision land, and on big systems this error will stack
+            rtol = 1e-5 
         else:
             rtol = 1e-12
 
