@@ -61,46 +61,34 @@ jobs:
                         image=image)
           job.wait()
 
-          # local_artifacts_path = ""
-          # job.download_artifacts(local_path=local_artifacts_path)
-          
-          if job.status == Status.Success:
+          def _write_logs(log_obj, path="lightning-job.log"):
+          with open(path, "w", encoding="utf-8") as f:
+              if log_obj is None:
+                  return
+              # iterable logs (stream/chunks)
+              if hasattr(log_obj, "__iter__") and not isinstance(log_obj, (str, bytes)):
+                  for chunk in log_obj:
+                      if isinstance(chunk, bytes):
+                          chunk = chunk.decode("utf-8", "replace")
+                      f.write(str(chunk))
+              else:  # single blob
+                  if isinstance(log_obj, bytes):
+                      log_obj = log_obj.decode("utf-8", "replace")
+                  f.write(str(log_obj))
+
+          _write_logs(job.logs, "lightning-job.log")
+          pytest_output.log = job.logs
+          if job.status == Status.Completed:
               sys.exit(0) 
           else:
               # for any other phase (failed, cancelled, etc.), exit with a non-zero code
               sys.exit(1)
           PY
           
-      - name: Download pytest artifacts from Lightning Job
-        if: always()
-        shell: bash
-        env:
-          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
-          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
-          LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
-          # Ensure GITHUB_RUN_ID is available here as well
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: |
-          # Define the job name and teamspace from the previous step
-          JOB_NAME="ci-job-${{ env.GITHUB_RUN_ID }}"
-          TEAMSPACE="Vision-model"
-
-          echo "Attempting to download artifacts from job: $JOB_NAME in teamspace: $TEAMSPACE"
-
-          lightning download file "/teamspace/jobs/${JOB_NAME}/artifacts/pytest-results.xml" \
-            --teamspace "${TEAMSPACE}/${JOB_NAME}" \
-            --local_path "pytest-results.xml" || true
-
-          lightning download file "/teamspace/jobs/${JOB_NAME}/artifacts/pytest-output.log" \
-            --teamspace "${TEAMSPACE}/${JOB_NAME}" \
-            --local_path "pytest-output.log" || truelig
-
-          echo "Download attempts finished."
       - name: Upload pytest artefacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pytest-artifacts
           path: |
-            pytest-output.log
-            pytest-results.xml
+            lightning-job.log
