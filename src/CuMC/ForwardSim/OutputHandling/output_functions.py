@@ -21,8 +21,6 @@ from CuMC.ForwardSim.OutputHandling.update_summaries import update_summary_facto
 # feature: dxdt_max_peaks
 # feature: raw dxdt
 
-# TODO: Implement a "terminate" flag to communicate that a condition has been met - e.g. we have found a peak,
-# so stop integrating.
 
 @attrs.define
 class OutputFunctionCache:

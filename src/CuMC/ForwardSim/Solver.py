@@ -13,7 +13,6 @@ class Solver:
     def _get_saved_values(self, n_states):
         """Sanitise empty lists and None values - statse default to all, observables default to none."""
 
-        # TODO: add a routine to handle saved_state or saved_observables being given as strings - figure out at which level this should
         # happen and whether it can just call one of them fancy systemvalues functions.ar
         saved_states = self.compile_settings.saved_states
         saved_observables = self.compile_settings.saved_observables
