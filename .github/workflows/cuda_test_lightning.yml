@@ -21,37 +21,39 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: |
           python - <<'PY'
-          import os, shlex, subprocess, sys
-          image = f"ghcr.io/{os.environ['GITHUB_REPOSITORY_OWNER']}/ci-test-env:latest"
-
-           # The command executed inside the container:
-          # - clone current ref
-          # - install your package
-          # - run pytest with JUnit XML and tee logs into /artifacts
-          test_cmd = r'''
-            set -euo pipefail
-            mkdir -p /artifacts
-            git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://github.com/$GITHUB_REPOSITORY" repo
-            cd repo
-            python -m pip install -e .
-            pytest -vv -ra --junitxml=/artifacts/pytest-results.xml | tee /artifacts/pytest-output.log
-          '''
-          cmd = (
-              "lightning submit "
-              f"--name ci-test-job-{os.environ['GITHUB_RUN_ID']} "
-              f"--container {image} "
-              "--machine T4 "
-              f"--env GITHUB_REPOSITORY={os.environ['GITHUB_REPOSITORY']} "
-              f"--env GITHUB_REF_NAME={os.environ['GITHUB_REF_NAME']} "
-              f"--command {shlex.quote('bash -lc ' + shlex.quote(test_cmd))} "
-              # If your CLI supports artifact pulls, keep the lines below:
-              "--download-file /artifacts/pytest-results.xml "
-              "--download-file /artifacts/pytest-output.log "
+          import os, shlex, sys
+          from lightning_sdk import Studio, Machine
+      
+          repo   = os.environ["GITHUB_REPOSITORY"]
+          branch = os.environ["GITHUB_REF_NAME"]
+          image  = os.environ["IMAGE"]
+      
+          s = Studio(name=f"ci-studio-{os.environ['GITHUB_RUN_ID']}",
+                     user=os.environ["LIGHTNING_USERNAME"], create_ok=True)
+          s.start(Machine.T4)
+          s.install_plugin("jobs")
+          jobs = s.installed_plugins["jobs"]
+      
+          # the job will produce artifacts in /artifacts inside its FS
+          test_cmd = (
+              'bash -lc "'
+              f'git clone --depth 1 --branch {shlex.quote(branch)} https://github.com/{shlex.quote(repo)} repo && '
+              'cd repo && '
+              'python -m pip install -e . && '
+              'pytest -vv -ra --junitxml=/artifacts/pytest-results.xml | tee /artifacts/pytest-output.log"'
           )
-        
+      
+          kw = dict(command=test_cmd, name=f"ci-job-{os.environ['GITHUB_RUN_ID']}", machine=Machine.T4)
 
-          print("Submitting:", cmd)
-          sys.exit(subprocess.call(cmd, shell=True))          
+          job = jobs.run(container=image, **kw)      
+          job.wait() 
+      
+          # download artifacts from the job into the runner workspace
+          job.download_file("/artifacts/pytest-results.xml", "pytest-results.xml")
+          job.download_file("/artifacts/pytest-output.log",  "pytest-output.log")
+      
+          s.stop(); s.delete()
+          sys.exit(job.exit_code or 0)     
           PY
 
 
