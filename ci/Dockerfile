@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # System deps: Python 3.12, pip, git, build tools (helpful for wheels)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.12 python3.12-venv python3.12-distutils python3-pip \
+    python3.12 python3.12-venv python3-pip \
     git build-essential ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 
