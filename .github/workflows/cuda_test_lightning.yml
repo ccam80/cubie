@@ -1,65 +1,75 @@
 name: CUDA-enabled tests
 on: [create, workflow_dispatch]
-  
+
 jobs:
   cuda:
-    runs-on: ubuntu-latest      
+    permissions: 
+      contents: read
+      packages: read
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
-      - run: pip install lightning-sdk
-      - name: Run tests inside Lightning Job (CUDA T4)
+        with: { python-version: '3.12' }
+
+      - run: python -m pip install lightning-sdk
+
+      - name: Run tests in Lightning (T4, GHCR :latest)
         shell: bash
         env:
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
           LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
           LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_RUN_ID: ${{ github.run_id }}
+          GH_PAT: ${{ secrets.CUDA_PAT }}
         run: |
           python - <<'PY'
-          import os, shlex, subprocess, sys
-          image = f"ghcr.io/{os.environ['GITHUB_REPOSITORY_OWNER']}/ci-test-env:cuda12.2"
+          import os, sys
+          from lightning_sdk import Studio, Machine, Job, Status
 
-           # The command executed inside the container:
-          # - clone current ref
-          # - install your package
-          # - run pytest with JUnit XML and tee logs into /artifacts
-          test_cmd = r'''
-            set -euo pipefail
-            mkdir -p /artifacts
-            git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://github.com/$GITHUB_REPOSITORY" repo
-            cd repo
-            python -m pip install -e .
-            pytest -vv -ra --junitxml=/artifacts/pytest-results.xml | tee /artifacts/pytest-output.log
-          '''
+          owner  = os.environ["GITHUB_REPOSITORY_OWNER"]
+          repo   = os.environ["GITHUB_REPOSITORY"]
+          branch = os.environ.get("GITHUB_REF_NAME", "main")
+          run_id = os.environ.get("GITHUB_RUN_ID", "manual")
+          gh_pat = os.getenv("GH_PAT")
+          git_url = f"https://{gh_pat}@github.com/{repo}.git"
+          image  = f"ghcr.io/{owner}/ci-test-env:latest"
+
+
           cmd = (
-              "lightning submit "
-              f"--name ci-test-job-{os.environ['GITHUB_RUN_ID']} "
-              f"--container {image} "
-              "--machine T4 "
-              f"--env GITHUB_REPOSITORY={os.environ['GITHUB_REPOSITORY']} "
-              f"--env GITHUB_REF_NAME={os.environ['GITHUB_REF_NAME']} "
-              f"--command {shlex.quote('bash -lc ' + shlex.quote(test_cmd))} "
-              # If your CLI supports artifact pulls, keep the lines below:
-              "--download-file /artifacts/pytest-results.xml "
-              "--download-file /artifacts/pytest-output.log "
+              'bash -lc "'
+              f'git clone --depth 1 --branch {branch} {git_url} repo && '
+              'cd repo && '
+              'python -m pip install -e . && '
+              'mkdir -p /artifacts && '
+              'pytest -vv -ra --junitxml=/artifacts/pytest-results.xml | tee /artifacts/pytest-output.log"'
           )
-        
 
-          print("Submitting:", cmd)
-          sys.exit(subprocess.call(cmd, shell=True))          
+          job = Job.run(command=cmd, 
+                        user=os.environ["LIGHTNING_USERNAME"],
+                        name=f"ci-job-{run_id}", 
+                        machine=Machine.T4,
+                        teamspace="Vision-model",
+                        image=image)
+          job.wait()
+
+          path = "lightning-job.log"
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(job.logs)
+            
+          if job.status == Status.Completed:
+              sys.exit(0) 
+          else:
+              # for any other phase (failed, cancelled, etc.), exit with a non-zero code
+              sys.exit(1)
           PY
-
-
+          
       - name: Upload pytest artefacts
-        if: always()      
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pytest-artifacts
           path: |
-            pytest-output.log
-            pytest-results.xml
+            lightning-job.log
