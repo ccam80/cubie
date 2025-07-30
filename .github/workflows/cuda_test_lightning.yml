@@ -53,15 +53,20 @@ jobs:
               'echo \\"<testsuite/>\\" >/artifacts/pytest-results.xml"'
           )
 
-          job = Job.run(command=smoke, 
+          job = Job.run(command=cmd, 
                         user=os.environ["LIGHTNING_USERNAME"],
                         name=f"ci-job-{run_id}", 
                         machine=Machine.T4,
                         teamspace="Vision-model",
                         image=image)
           job.wait()
-          sys.exit(job.exit_code or 0)
+          if job.status.phase == "succeeded":
+              sys.exit(0) 
+          else:
+              # for any other phase (failed, cancelled, etc.), exit with a non-zero code
+              sys.exit(1)
           PY
+          
       - name: Download pytest artifacts from Lightning Job
         if: always()
         shell: bash
