@@ -7,7 +7,6 @@ def calculate_expected_summaries(state,
                                  summary_height_per_variable,
                                  precision,
                                  ):
-    #Improvement: Needs a rewrite once we add additional parametrized summary metrics
     """Helper function to calculate expected summary values from a given pair of state and observable arrays.
     Summarises the whole output state and observable array, select from within this if testing for selective
     summarisation.
@@ -257,6 +256,5 @@ def generate_test_array(precision, size, style, scale=None):
         return zero_array(precision, size)
     elif style == 'ones':
         return ones_array(precision, size)
-    #feature: a sin wave might be good to add here
     else:
         raise ValueError(f"Unknown array type: {style}. Use 'random', 'nan', 'zero', or 'ones'.")

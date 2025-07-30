@@ -65,7 +65,6 @@ class ThreeChamberModel(GenericODE):
         global global_constants
         global_constants = self.compile_settings.constants.values_array.astype(self.precision)
 
-        # Optimise: Check whether this is being compiled-in or passed as a numpy array
         numba_precision = from_dtype(self.precision)
 
         @cuda.jit((numba_precision[:],

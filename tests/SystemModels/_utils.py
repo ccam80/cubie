@@ -60,9 +60,6 @@ def random_system_values(SystemClass, precision=np.float64, randscale=1e6, axis=
     drivers = generate_test_array(precision, n_drivers, style='random', scale=randscale)
     return state, parameters, drivers, constants
 
-
-# Improvement: This whole scenario could be handled more elegantly by using Hypothesis - if we repeat this logic in testing,
-#  make the move.
 def create_random_test_set(SystemClass, precision=np.float64, randscale=1e6):
     """ Creates a random test_set for a given system class. The test set includes random initial values, parameters,
     drivers, and constants, sized to match the system's requirements.

@@ -11,17 +11,6 @@ from CuMC.ForwardSim.OutputHandling.save_summaries import save_summary_factory
 from CuMC.ForwardSim.OutputHandling.update_summaries import update_summary_factory
 
 
-# feature: max absolute
-# feature: running std deviation
-# feature: min
-# feature: neg_peak
-# feature: both_extrema
-# feature: dxdt_extrema
-# feature: d2xdt2 extrema
-# feature: dxdt_max_peaks
-# feature: raw dxdt
-
-
 @attrs.define
 class OutputFunctionCache:
     save_state_function: Callable = attrs.field(validator=attrs.validators.instance_of(Callable))

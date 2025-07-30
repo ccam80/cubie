@@ -10,8 +10,6 @@ class SystemTester:
     """Class to test common functionality of system models. Subclass this to add your model as self.system, and overload
     the "correct_answer" fixture to provide the expected output for a given input."""
 
-    #Improvement - this style of mass parametrization isn't very user friendly and generates many unnecessary tests.
-    # Re-do when feasible, potentially when implementing the SAN cell system.
     @pytest.fixture(scope="class")
     def system_class(self):
         return None
@@ -124,7 +122,7 @@ class SystemTester:
         self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
 
         if precision == np.float32:
-            rtol = 1e-5 
+            rtol = 1e-5
         else:
             rtol = 1e-12
 
