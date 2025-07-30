@@ -22,6 +22,8 @@ jobs:
           LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
           LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GH_PAT: ${{ secrets.CUDA_PAT }}
         run: |
           python - <<'PY'
           import os, sys
@@ -31,18 +33,14 @@ jobs:
           repo   = os.environ["GITHUB_REPOSITORY"]
           branch = os.environ.get("GITHUB_REF_NAME", "main")
           run_id = os.environ.get("GITHUB_RUN_ID", "manual")
-          git_token = os.environ["TOKEN"]
+          gh_pat = os.getenv("GH_PAT")
+          git_url = f"https://{gh_pat}@github.com/{repo}.git"
           image  = f"ghcr.io/{owner}/ci-test-env:latest"
 
-          # studio = Studio(name=f"ci-studio-{run_id}",
-          #                 teamspace="Vision-model",
-          #                 user=os.environ["LIGHTNING_USERNAME"],
-          #                 create_ok=True)
-          # studio.start(Machine.T4)
 
           cmd = (
               'bash -lc "'
-              f'git clone --depth 1 --branch {branch} https://github.com/{repo} repo && '
+              f'git clone --depth 1 --branch {branch} {git_url} repo && '
               'cd repo && '
               'python -m pip install -e . && '
               'mkdir -p /artifacts && '
@@ -50,6 +48,7 @@ jobs:
           )
           smoke = (
               'bash -lc "python -V; nvidia-smi || true; '
+              f'git clone --depth 1 --branch {branch} {git_url} repo && '
               'mkdir -p /artifacts; echo SMOKE >/artifacts/pytest-output.log; '
               'echo \\"<testsuite/>\\" >/artifacts/pytest-results.xml"'
           )
@@ -67,7 +66,31 @@ jobs:
           studio.stop(); studio.delete()
           sys.exit(job.exit_code or 0)
           PY
+      - name: Download pytest artifacts from Lightning Job
+        if: always()
+        shell: bash
+        env:
+          LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
+          LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
+          LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
+          # Ensure GITHUB_RUN_ID is available here as well
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          # Define the job name and teamspace from the previous step
+          JOB_NAME="ci-job-${{ env.GITHUB_RUN_ID }}"
+          TEAMSPACE="Vision-model"
 
+          echo "Attempting to download artifacts from job: $JOB_NAME in teamspace: $TEAMSPACE"
+
+          lightning download "/teamspace/jobs/${JOB_NAME}/artifacts/pytest-results.xml" \
+            --studio "${TEAMSPACE}/${JOB_NAME}" \
+            --local_path "pytest-results.xml" || true
+
+          lightning download "/teamspace/jobs/${JOB_NAME}/artifacts/pytest-output.log" \
+            --studio "${TEAMSPACE}/${JOB_NAME}" \
+            --local_path "pytest-output.log" || true
+
+          echo "Download attempts finished."
       - name: Upload pytest artefacts
         if: always()
         uses: actions/upload-artifact@v4
