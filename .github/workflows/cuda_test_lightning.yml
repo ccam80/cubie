@@ -46,12 +46,6 @@ jobs:
               'mkdir -p /artifacts && '
               'pytest -vv -ra --junitxml=/artifacts/pytest-results.xml | tee /artifacts/pytest-output.log"'
           )
-          smoke = (
-              'bash -lc "python -V; nvidia-smi || true; '
-              f'git clone --depth 1 --branch {branch} {git_url} repo && '
-              'mkdir -p /artifacts; echo SMOKE >/artifacts/pytest-output.log; '
-              'echo \\"<testsuite/>\\" >/artifacts/pytest-results.xml"'
-          )
 
           job = Job.run(command=cmd, 
                         user=os.environ["LIGHTNING_USERNAME"],
@@ -61,23 +55,10 @@ jobs:
                         image=image)
           job.wait()
 
-          def _write_logs(log_obj, path="lightning-job.log"):
-              with open(path, "w", encoding="utf-8") as f:
-                  if log_obj is None:
-                      return
-                  # iterable logs (stream/chunks)
-                  if hasattr(log_obj, "__iter__") and not isinstance(log_obj, (str, bytes)):
-                      for chunk in log_obj:
-                          if isinstance(chunk, bytes):
-                              chunk = chunk.decode("utf-8", "replace")
-                          f.write(str(chunk))
-                  else:  # single blob
-                      if isinstance(log_obj, bytes):
-                          log_obj = log_obj.decode("utf-8", "replace")
-                      f.write(str(log_obj))
-
-          _write_logs(job.logs, "lightning-job.log")
-          # pytest_output.log = job.logs
+          path = "lightning-job.log"
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(job.logs)
+            
           if job.status == Status.Completed:
               sys.exit(0) 
           else:
