@@ -5,4 +5,4 @@ pytest
 pytest-cov
 attrs
 scipy
-cupy-cu12x
+cupy-cuda12x
