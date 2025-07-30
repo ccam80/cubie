@@ -3,8 +3,8 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - tests/ci/Dockerfile
-      - requirements.ci.txt
+      - ci/Dockerfile
+      - ci/requirements.ci.txt
 
 jobs:
   build:
