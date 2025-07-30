@@ -54,8 +54,7 @@ jobs:
                         name=f"ci-job-{run_id}", 
                         machine=Machine.T4,
                         teamspace="Vision-model",
-                        image=image,
-                        image_credentials=git_token)
+                        image=image)
           job.wait()
           job.download_file("/artifacts/pytest-results.xml", "pytest-results.xml")
           job.download_file("/artifacts/pytest-output.log",  "pytest-output.log")
