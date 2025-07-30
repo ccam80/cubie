@@ -77,7 +77,7 @@ jobs:
                       f.write(str(log_obj))
 
           _write_logs(job.logs, "lightning-job.log")
-          pytest_output.log = job.logs
+          # pytest_output.log = job.logs
           if job.status == Status.Completed:
               sys.exit(0) 
           else:
