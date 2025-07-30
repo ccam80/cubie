@@ -49,7 +49,8 @@ addopts = [
     "--cov=CuMC",
     "--cov-report=html:htmlReport",
     "--cov-report=term-missing",
-    "--pytest-resultlog=pytest_report.jsonl"
+    "--json-report",
+    "--json-report-file=tests/pytest_report.json",
 ]
 filterwarnings = [
     "ignore::numba.core.errors.NumbaPerformanceWarning",

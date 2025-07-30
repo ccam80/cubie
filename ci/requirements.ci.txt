@@ -4,6 +4,7 @@ numba-cuda[cu12]
 pytest
 pytest-cov
 pytest-durations
+pytest-json-report
 attrs
 scipy
 cupy-cuda12x
