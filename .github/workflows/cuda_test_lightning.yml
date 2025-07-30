@@ -22,7 +22,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, shlex, subprocess, sys
-          image = f"ghcr.io/{os.environ['GITHUB_REPOSITORY_OWNER']}/ci-test-env:cuda12.2"
+          image = f"ghcr.io/{os.environ['GITHUB_REPOSITORY_OWNER']}/ci-test-env:latest"
 
            # The command executed inside the container:
           # - clone current ref
