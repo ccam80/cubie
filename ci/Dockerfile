@@ -11,19 +11,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git build-essential ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 
-# Set "python" to 3.12 and upgrade pip toolchain
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 \
- && python -m pip install --upgrade pip setuptools wheel
+ && python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+# Set "python" to 3.12 and upgrade pip toolchain
+RUN python -m pip install --upgrade pip setuptools wheel
 
-# --- Bake in heavy Python deps once (keeps per-run fast) ---
-# Pin numba/llvmlite/numpy for ABI stability; adjust to your project’s needs.
-# --- Bake in heavy Python deps once (keeps per-run fast) ---
-# Use a requirements file for cleaner updates + better layer caching.
+WORKDIR /workspace
 COPY ci/requirements.ci.txt /tmp/requirements.ci.txt
 RUN python -m pip install -r /tmp/requirements.ci.txt
 
 # Working directory for the job
-WORKDIR /workspace
 
 # Default shell
 CMD ["bash"]
