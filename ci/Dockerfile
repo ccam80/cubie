@@ -1,5 +1,5 @@
-# CUDA 12.2 on Ubuntu 22.04 (pin a specific patch for reproducibility)
-FROM nvidia/cuda:12.2.2-devel-ubuntu22.04
+# CUDA 12.9 on Ubuntu 24.04 (pin a specific patch for reproducibility)
+FROM nvidia/cuda:12.9.1-devel-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
