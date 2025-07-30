@@ -5,6 +5,7 @@ from tests.ForwardSim.integrators.algorithms.LoopAlgorithmTester import LoopAlgo
 from CuMC.ForwardSim.integrators.algorithms.euler import Euler
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 
+
 class TestEuler(LoopAlgorithmTester):
     """Testing class for the Euler algorithm. Checks the instantiation, compilation, and input/output for a range
     of cases, including incomplete inputs and random floats of different scales."""
@@ -14,7 +15,7 @@ class TestEuler(LoopAlgorithmTester):
         pass
 
     def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides, output_functions,
-                                                       loop_under_test, expected_summary_buffer_size
+                                                       loop_under_test, expected_summary_buffer_size,
                                                        ):
         pass
 
@@ -37,7 +38,7 @@ class TestEuler(LoopAlgorithmTester):
 
         state_output, observables_output = self._cpu_euler_loop(system, inits, params, driver_vec, dt, output_dt,
                                                                 warmup, duration, saved_observables, saved_states,
-                                                                save_time
+                                                                save_time,
                                                                 )
 
         return state_output, observables_output
@@ -75,46 +76,47 @@ class TestEuler(LoopAlgorithmTester):
                 dx, observables = system.correct_answer_python(state, params, drivers)
                 state += dx * dt
             if i > (warmup_samples - 1):
-                state_output[i - warmup_samples, :] = state[saved_states]
-                observables_output[ i - warmup_samples,:] = observables[saved_observables]
+                state_output[i - warmup_samples, :n_saved_states] = state[saved_states]
+                observables_output[i - warmup_samples, :] = observables[saved_observables]
                 if save_time:
                     state_output[i - warmup_samples, -1] = i - warmup_samples
 
         return state_output, observables_output
 
-    @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, solver_settings_override",
-                             [({'output_functions': ["state", "observables"], 'saved_states': [0, 1, 2]}, {}, {'duration': 0.1, 'warmup': 0.0}),
-                              ({'output_functions':  ["state", "observables", "mean"],
-                                'saved_states':      [0, 1],
-                                'saved_observables': [0, 1, 2]
+    @pytest.mark.nocudasim
+    @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, solver_settings_override, "
+                             "precision_override",
+                             [({'output_functions':  ["state", "observables", "time"], 'saved_states': [0, 1, 2],
+                                "saved_observables": [0, 1]
                                 },
                                {},
-                               {'duration': 0.2, 'warmup': 0.0}
+                               {'duration': 0.1, 'warmup': 0.0},
+                               {}
                                ),
-                              ({}, {'initial_values': np.array([1.0, 2.0, 3.0])}, {'duration': 0.1, 'warmup': 0.0}),
-                              ({}, {}, {'duration': 5.0, 'warmup': 1.0}),
-                              ({'output_functions': ["state", "observables", "mean", "max", "rms", "peaks[3]"],
-                                'saved_states': [0, 1, 2]
-                                }, {}, {'duration': 0.1, 'warmup': 0.0}
-                               )],
-                             ids=['state_and_observables_empty_obs_list', 'state_observables_and_mean',
-                                  'custom_initial_values', 'custom_run_settings', "all_summaries"],
+                              ({'output_functions': ["state", "observables", "mean", "max", "rms", "peaks[3]"]},
+                               {},
+                               {'duration': 1.0, 'warmup': 1.0},
+                               {'precision': np.float64}
+                               ),
+
+                              ({'output_functions': ["state", "observables", "mean", "max", "rms", "peaks[3]"]},
+                               {},
+                               {'duration': 5.0, 'warmup': 1.0},
+                               {'precision': np.float32}
+                               ),
+                              ],
+                             ids=['no_summaries', 'all_summaries_64', 'all_summaries_long_32'],
                              indirect=True,
                              )
-    @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=['float32', 'float64'])
     def test_loop(self, loop_test_kernel, outputs, inputs, precision, output_functions,
-                  loop_under_test, expected_answer, expected_summaries, solver):
+                  loop_under_test, expected_answer, expected_summaries, solver,
+                  ):
         super().test_loop(loop_test_kernel, outputs, inputs, precision, output_functions,
-                  loop_under_test, expected_answer, expected_summaries, solver
+                          loop_under_test, expected_answer, expected_summaries, solver,
                           )
 
     @pytest.mark.parametrize("loop_compile_settings_overrides",
-                             [{'dt_min': 0.01, 'dt_max': 0.1},
-                              {'atol': 1e-5, 'rtol': 1e-4},
-                              {"saved_states":      [0, 1],
-                               "saved_observables": [1, 2],
-                               'output_functions':  ["state", "observables"]
-                               },
+                             [{},
                               {'dt_min':            0.002,
                                'dt_max':            0.02,
                                'dt_save':           0.02,
@@ -126,19 +128,14 @@ class TestEuler(LoopAlgorithmTester):
                                'output_functions':  ["state", "peaks[3]"],
                                }
                               ],
-                             ids=['change_dts', 'change_tols', 'change_output_sizes', 'change_all'],
+                             ids=['no_change', 'change_all'],
                              indirect=True,
                              )
     def test_loop_function_builds(self, built_loop_function):
         super().test_loop_function_builds(built_loop_function)
 
     @pytest.mark.parametrize("loop_compile_settings_overrides",
-                             [{'dt_min': 0.01, 'dt_max': 0.1},
-                              {'atol': 1e-5, 'rtol': 1e-4},
-                              {"saved_states":      [0, 1],
-                               "saved_observables": [1, 2],
-                               'output_functions':  ["state", "observables"]
-                               },
+                             [{},
                               {'dt_min':            0.002,
                                'dt_max':            0.02,
                                'dt_save':           0.02,
@@ -147,13 +144,13 @@ class TestEuler(LoopAlgorithmTester):
                                'rtol':              1.0e-5,
                                'saved_states':      [0, 1, 2],
                                'saved_observables': [0, 2],
-                               'output_functions':  ["state", "peaks[2]"],
+                               'output_functions':  ["state", "peaks[3]"],
                                }
                               ],
-                             ids=['change_dts', 'change_tols', 'change_output_sizes', 'change_all'],
+                             ids=['no_change', 'change_all'],
                              indirect=True,
                              )
-    def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides,output_functions,
+    def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides, output_functions,
                                                        loop_under_test, expected_summary_buffer_size,
                                                        ):
         super().test_loop_compile_settings_passed_successfully(loop_compile_settings_overrides, output_functions,

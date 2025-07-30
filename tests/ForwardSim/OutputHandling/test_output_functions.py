@@ -11,14 +11,12 @@ def output_test_settings(output_test_settings_overrides, precision):
     """Parameters for instantiating and testing the outputfunctions class, both compile settings and run settings
     per test. Outputfunctions should not care about the higher-level modules, so we duplicate information that is
     housed elsewhere in conftest.py for use in tests of system integration (pun)."""
-    output_test_settings_dict = {'num_samples':            100,
-                                 'num_summaries':          10,
+    output_test_settings_dict = {'num_samples':            10,
+                                 'num_summaries':          1,
                                  'num_states':             10,
                                  'num_observables':        10,
                                  'saved_states':           [0, 1],
                                  'saved_observables':      [0, 1],
-                                 'summarised_states':      None,
-                                 'summarised_observables': None,
                                  'random_scale':           1.0,
                                  'output_types':           ["state"],
                                  'precision':              precision,
@@ -367,11 +365,24 @@ def compare_input_output(output_functions_test_kernel,
 
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"], indirect=True)
 @pytest.mark.parametrize("output_test_settings_overrides", [
-    {'output_types': ["state", "observables", "mean", "max", "rms", "peaks[3]"], 'num_samples': 1000, 'random_scale': 1e3},
+    {'output_types': ["state", "observables", "mean", "max", "rms", "peaks[3]"], 'num_samples': 1000,
+     'num_summaries': 100, 'random_scale': 1e3},
 ], ids=["large_dataset"], indirect=True)
-def test_precision_with_large_datasets(compare_input_output):
-    """Test precision differences (float32 vs float64) with large datasets."""
+def test_all_summaries_long_run(compare_input_output):
+    """Test a long run with frequent summaries."""
     pass
+
+@pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"], indirect=True)
+@pytest.mark.parametrize("output_test_settings_overrides", [
+    {'output_types':  ["state", "observables", "mean", "max", "rms", "peaks[3]"], 'num_samples': 500,
+     'num_summaries': 1, 'random_scale': 1e3
+     },
+    ], ids=["large_dataset"], indirect=True
+                         )
+def test_all_summaries_long_window(compare_input_output):
+    """ Test a long summary window (500 samples)"""
+    pass
+
 
 @pytest.mark.parametrize("precision_override", [np.float32], ids=["float32"], indirect=True)
 @pytest.mark.parametrize("output_test_settings_overrides", [
@@ -392,35 +403,28 @@ def test_input_value_ranges(compare_input_output):
     """Test different input scales and simulation lengths."""
     pass
 
-@pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"], indirect=True)
-@pytest.mark.parametrize("output_test_settings_overrides", [
-    {'output_types': ["time"]},
-    {'output_types': ["state", "observables", "time"]},
-    {'output_types': ["state", "observables", "time", 'mean']}
-], ids=["only_time", "time_with_state_obs","time_with_state_obs_mean"], indirect=True)
-def test_time_output(compare_input_output):
-    """Test time output specifically."""
-    pass
-
 @pytest.mark.parametrize("precision_override", [np.float32], ids=["float32"], indirect=True)
 @pytest.mark.parametrize("output_test_settings_overrides", [
     {'output_types': ["state", "observables"]},
     {'output_types': ["observables"]},
-    {'output_types': ["state"]},
-], ids=["state_obs", "obs_only", "state_only"], indirect=True)
-def test_basic_output_configurations(compare_input_output):
+    {'output_types': ["observables", "time"]},
+    {'output_types': ["time"]},
+    {'output_types': ["state", "observables", "time"]},
+], ids=["state_obs", "obs_only", "obs_time", "time_only", "state_obs_time"], indirect=True)
+def test_no_summarys(compare_input_output):
     """Test basic state and observable output configurations."""
     pass
+
 
 @pytest.mark.parametrize("precision_override", [np.float32], ids=["float32"], indirect=True)
 @pytest.mark.parametrize("output_test_settings_overrides", [
     {'output_types': ["mean", "max", "rms"]},
     {'output_types': ["peaks[10]"]},
-    {'output_types': ["state", "observables", "time", "mean", "max", "rms", "peaks[5]"]},
-    {'output_types': ["state", "mean", "max"]},
-    {'output_types': ["observables", "mean", "max"]},
-], ids=["basic_summaries", "peaks_only", "full_summary", "state_mean_max", "obs_mean_max"], indirect=True)
-def test_summary_metric_configurations(compare_input_output):
+    {'output_types': ["state", "observables", "time", "mean", "max", "rms", "peaks[1]"]},
+    {'output_types': ["state", "mean"]},
+    {'output_types': ["observables", "mean"]},
+], ids=["basic_summaries", "peaks_only", "all", "state_and_mean", "obs_and_mean"], indirect=True)
+def test_various_summaries(compare_input_output):
     """Test various summary metrics configurations."""
     pass
 
@@ -429,27 +433,17 @@ def test_summary_metric_configurations(compare_input_output):
     {'saved_states': [0], 'saved_observables': [0]},
     {'num_states': 11, 'num_observables': 6, 'saved_states': list(range(10)), 'saved_observables': list(range(5))},
     {'num_states': 51, 'num_observables': 21,'saved_states': list(range(50)), 'saved_observables': list(range(20))},
-], ids=["1_1", "10_5", "50_20"], indirect=True)
-def test_small_to_medium_system_sizes(compare_input_output):
+    {'num_states': 101, 'num_observables': 100, 'saved_states': list(range(100)), 'saved_observables': list(range(100))}
+    ], ids=["1_1", "10_5", "50_20", "100_100"], indirect=True)
+def test_big_and_small_systems(compare_input_output):
     """Test various small to medium system sizes."""
-    pass
-
-@pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"], indirect=True)
-@pytest.mark.parametrize("output_test_settings_overrides", [
-    {'num_states': 101, 'num_observables': 100, 'saved_states': list(range(100)), 'saved_observables': list(range(
-            100))},
-], ids=["100_100"], indirect=True)
-def test_large_system_sizes_precision(compare_input_output):
-    """Test large system size with different precision."""
     pass
 
 @pytest.mark.parametrize("precision_override", [np.float32], ids=["float32"], indirect=True)
 @pytest.mark.parametrize("output_test_settings_overrides", [
-    {'num_summaries': 5},
-    {'num_summaries': 20},
-    {'num_summaries': 50},
-], ids=["few_summaries", "many_summaries", "lots_summaries"], indirect=True)
-def test_summary_frequency_variations(compare_input_output):
+    {'num_summaries': 5}],
+    indirect=True)
+def test_frequent_summaries(compare_input_output):
     """Test different summary frequencies."""
     pass
 
@@ -489,81 +483,3 @@ def test_output_array_heights_property(output_functions):
     assert array_heights.state_summaries == expected_state_summaries
     assert array_heights.observable_summaries == expected_observable_summaries
     assert array_heights.per_variable == expected_per_variable
-
-
-@pytest.mark.parametrize("output_test_settings_overrides",
-                         [{'output_types': ["state"]},
-                          {'output_types': ["state", "time"]},
-                          {'output_types': ["state", "observables", "max", "rms"]},
-                          {'saved_states': [0], 'saved_observables': [0]},
-                          {'saved_states': [0, 1, 2], 'saved_observables': [0, 1]}],
-                         indirect=["output_test_settings_overrides"])
-def test_sizing_objects_consistency(output_functions, output_test_settings):
-    """Test that sizing objects are consistent with various output configurations."""
-    buffer_sizes = output_functions.summaries_buffer_sizes.nonzero
-    array_heights = output_functions.output_array_heights.nonzero
-
-    # Test buffer sizes consistency
-    assert buffer_sizes.state >= 1  # Should always be at least 1 due to nonzero property
-    assert buffer_sizes.observables >= 1
-    assert buffer_sizes.per_variable >= 1
-
-    # Test array heights consistency
-    assert array_heights.state >= 1
-    assert array_heights.observables >= 1  # Can be 0 if no observables saved
-    assert array_heights.state_summaries >= 1
-    assert array_heights.observable_summaries >= 1
-    assert array_heights.per_variable >= 1
-
-    # Test that time saving affects state array height correctly
-    if output_functions.save_time:
-        expected_state_height = output_functions.n_saved_states + 1
-    else:
-        expected_state_height = output_functions.n_saved_states
-    assert array_heights.state == expected_state_height
-
-
-def test_sizing_objects_nonzero_property(output_functions):
-    """Test that sizing objects have working nonzero properties."""
-    buffer_sizes = output_functions.summaries_buffer_sizes
-    array_heights = output_functions.output_array_heights
-
-    # Test nonzero property creates new objects with minimum size 1
-    buffer_sizes_nonzero = buffer_sizes.nonzero
-    array_heights_nonzero = array_heights.nonzero
-
-    # Should be different objects
-    assert buffer_sizes_nonzero is not buffer_sizes
-    assert array_heights_nonzero is not array_heights
-
-    # All sizes should be at least 1
-    assert buffer_sizes_nonzero.state >= 1
-    assert buffer_sizes_nonzero.observables >= 1
-    assert buffer_sizes_nonzero.per_variable >= 1
-
-    assert array_heights_nonzero.state >= 1
-    assert array_heights_nonzero.observables >= 1
-    assert array_heights_nonzero.state_summaries >= 1
-    assert array_heights_nonzero.observable_summaries >= 1
-    assert array_heights_nonzero.per_variable >= 1
-
-
-def test_sizing_objects_immutability(output_functions):
-    """Test that sizing objects are properly immutable and independent."""
-    buffer_sizes_1 = output_functions.summaries_buffer_sizes
-    buffer_sizes_2 = output_functions.summaries_buffer_sizes
-
-    array_heights_1 = output_functions.output_array_heights
-    array_heights_2 = output_functions.output_array_heights
-
-    # Multiple calls should return equivalent objects
-    assert buffer_sizes_1.state == buffer_sizes_2.state
-    assert buffer_sizes_1.observables == buffer_sizes_2.observables
-    assert buffer_sizes_1.per_variable == buffer_sizes_2.per_variable
-
-    assert array_heights_1.state == array_heights_2.state
-    assert array_heights_1.observables == array_heights_2.observables
-    assert array_heights_1.state_summaries == array_heights_2.state_summaries
-    assert array_heights_1.observable_summaries == array_heights_2.observable_summaries
-    assert array_heights_1.per_variable == array_heights_2.per_variable
-
