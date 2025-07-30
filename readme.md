@@ -1,5 +1,5 @@
 # As-yet-unnamed CuNODE derivative (Tentatively: MCHammer)
-[![docs](https://github.com/ccam80/smc/actions/workflows/documentation.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/documentation.yml)[![CUDA-enabled tests](https://github.com/ccam80/smc/actions/workflows/cuda_test_lightning.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/cuda_test_lightning.yml)[![Python Tests](https://github.com/ccam80/smc/actions/workflows/python-package.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/python-package.yml)
+[![docs](https://github.com/ccam80/smc/actions/workflows/documentation.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/documentation.yml) [![CUDA-enabled tests](https://github.com/ccam80/smc/actions/workflows/cuda_test_lightning.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/cuda_test_lightning.yml) [![Python Tests](https://github.com/ccam80/smc/actions/workflows/python-package.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/python-package.yml)
 
 A GPU-shaped hammer with which to hit likelihood-free Monte Carlo methods. Most components are written for execution on
 NVIDIA GPUs, using CUDA through Numba, so this library will not be very helpful on non-NVIDIA hardware.
@@ -20,5 +20,5 @@ past, including testing, CI/CD, and other helpful tactics I stumble upon. As suc
 be some clunky bits.
 
 The interface is not yet stable, and the documentation is in its infancy, so it will be hard to use, however some of the 
-CUDA components are functional if you're looking for a head start on a similar simulation projhect.
+CUDA components are functional if you're looking for a head start on a similar simulation project.
 
