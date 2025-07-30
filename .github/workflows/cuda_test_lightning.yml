@@ -48,11 +48,11 @@ jobs:
               'mkdir -p /artifacts && '
               'pytest -vv -ra --junitxml=/artifacts/pytest-results.xml | tee /artifacts/pytest-output.log"'
           )
-             smoke = (
-                'bash -lc "python -V; nvidia-smi || true; '
-                'mkdir -p /artifacts; echo SMOKE >/artifacts/pytest-output.log; '
-                'echo \\"<testsuite/>\\" >/artifacts/pytest-results.xml"'
-              )
+          smoke = (
+              'bash -lc "python -V; nvidia-smi || true; '
+              'mkdir -p /artifacts; echo SMOKE >/artifacts/pytest-output.log; '
+              'echo \\"<testsuite/>\\" >/artifacts/pytest-results.xml"'
+          )
 
           job = Job.run(command=smoke, 
                         user=os.environ["LIGHTNING_USERNAME"],
