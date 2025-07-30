@@ -9,42 +9,54 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: pip install lightning-sdk
-      - name: Run tests inside free T4 studio
-        run: |
-          python - <<'PY'
-          import os, re, subprocess, sys, uuid
-          from lightning_sdk import Studio, Machine
-
-          studio = Studio(
-              name=f"test-studio-{uuid.uuid4()}",
-              teamspace="Vision-model",
-              user=os.environ["LIGHTNING_USERNAME"]
-          )
-          studio.start(Machine.T4)          # ≈15 s spin-up
-          try:
-              repo = f"https://github.com/{os.environ['GITHUB_REPOSITORY']}.git"
-              branch = os.environ.get("GITHUB_REF_NAME", "main")
-              studio.run(f"git clone --depth 1 --branch {branch} {repo} src")
-              studio.run("cd src")
-              studio.run("pip install pytest pytest-cov numba 'numba-cuda[cu12]' numpy==1.26.4 attrs") 
-              studio.run("pip install -e src")
-              code = studio.run_with_exit_code("pytest -vv -ra --junitxml=pytest-results.xml | tee pytest-output.log")
-
-              studio.download_file("pytest-results.xml", "pytest-results.xml")
-              studio.download_file("pytest-output.log",  "pytest-output.log")
-              
-          finally:
-              studio.stop(); studio.delete()
-          sys.exit(code)
-          
-          PY
+      - name: Run tests inside Lightning Job (CUDA T4)
+        shell: bash
         env:
           LIGHTNING_API_KEY: ${{ secrets.LIGHTNING_API_KEY }}
           LIGHTNING_USER_ID: ${{ secrets.LIGHTNING_USER_ID }}
           LIGHTNING_USERNAME: ${{ secrets.LIGHTNING_USERNAME }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          python - <<'PY'
+          import os, shlex, subprocess, sys
+          image = f"ghcr.io/{os.environ['GITHUB_REPOSITORY_OWNER']}/ci-test-env:cuda12.2"
+
+           # The command executed inside the container:
+          # - clone current ref
+          # - install your package
+          # - run pytest with JUnit XML and tee logs into /artifacts
+          test_cmd = r'''
+            set -euo pipefail
+            mkdir -p /artifacts
+            git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://github.com/$GITHUB_REPOSITORY" repo
+            cd repo
+            python -m pip install -e .
+            pytest -vv -ra --junitxml=/artifacts/pytest-results.xml | tee /artifacts/pytest-output.log
+          '''
+          cmd = (
+              "lightning submit "
+              f"--name ci-test-job-{os.environ['GITHUB_RUN_ID']} "
+              f"--container {image} "
+              "--machine T4 "
+              f"--env GITHUB_REPOSITORY={os.environ['GITHUB_REPOSITORY']} "
+              f"--env GITHUB_REF_NAME={os.environ['GITHUB_REF_NAME']} "
+              f"--command {shlex.quote('bash -lc ' + shlex.quote(test_cmd))} "
+              # If your CLI supports artifact pulls, keep the lines below:
+              "--download-file /artifacts/pytest-results.xml "
+              "--download-file /artifacts/pytest-output.log "
+          )
+        
+
+          print("Submitting:", cmd)
+          sys.exit(subprocess.call(cmd, shell=True))          
+          PY
+
 
       - name: Upload pytest artefacts
-        if: always()       # ensure we keep logs even on failure
+        if: always()      
         uses: actions/upload-artifact@v4
         with:
           name: pytest-artifacts
