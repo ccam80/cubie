@@ -29,11 +29,11 @@ jobs:
           run_id = os.environ.get("GITHUB_RUN_ID", "manual")
           image  = f"ghcr.io/{owner}/ci-test-env:latest"
 
-          studio = Studio(name=f"ci-studio-{run_id}",
-                          teamspace="Vision-model",
-                          user=os.environ["LIGHTNING_USERNAME"],
-                          create_ok=True)
-          studio.start(Machine.T4)
+          # studio = Studio(name=f"ci-studio-{run_id}",
+          #                 teamspace="Vision-model",
+          #                 user=os.environ["LIGHTNING_USERNAME"],
+          #                 create_ok=True)
+          # studio.start(Machine.T4)
 
           cmd = (
               'bash -lc "'
@@ -44,8 +44,12 @@ jobs:
               'pytest -vv -ra --junitxml=/artifacts/pytest-results.xml | tee /artifacts/pytest-output.log"'
           )
 
-          job = Job.run(command=cmd, name=f"ci-job-{run_id}", machine=Machine.T4,
-                        studio=studio, container=image)
+          job = Job.run(command=cmd, 
+                        user=os.environ["LIGHTNING_USERNAME"],
+                        name=f"ci-job-{run_id}", 
+                        machine=Machine.T4,
+                        teamspace="Vision-model",
+                        image=image)
           job.wait()
           job.download_file("/artifacts/pytest-results.xml", "pytest-results.xml")
           job.download_file("/artifacts/pytest-output.log",  "pytest-output.log")
