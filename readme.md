@@ -21,4 +21,3 @@ be some clunky bits.
 
 The interface is not yet stable, and the documentation is in its infancy, so it will be hard to use, however some of the 
 CUDA components are functional if you're looking for a head start on a similar simulation project.
-
