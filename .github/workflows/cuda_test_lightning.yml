@@ -64,7 +64,7 @@ jobs:
           # local_artifacts_path = ""
           # job.download_artifacts(local_path=local_artifacts_path)
           
-          if job.status == Status.Success
+          if job.status == Status.Success:
               sys.exit(0) 
           else:
               # for any other phase (failed, cancelled, etc.), exit with a non-zero code
