@@ -32,6 +32,7 @@ Issues = "https://github.com/https://github.com/ccam80/smc/issues"
 dev = [
     "pytest",
     "pytest-cov",
+    "pytest-durations",
 ]
 
 [tool.pytest.ini_options]
@@ -47,7 +48,8 @@ addopts = [
     "-ra",
     "--cov=CuMC",
     "--cov-report=html:htmlReport",
-    "--cov-report=term-missing"
+    "--cov-report=term-missing",
+    "--pytest-resultlog=pytest_report.jsonl"
 ]
 filterwarnings = [
     "ignore::numba.core.errors.NumbaPerformanceWarning",

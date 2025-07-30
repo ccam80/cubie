@@ -3,6 +3,7 @@ numba
 numba-cuda[cu12]
 pytest
 pytest-cov
+pytest-durations
 attrs
 scipy
 cupy-cuda12x
