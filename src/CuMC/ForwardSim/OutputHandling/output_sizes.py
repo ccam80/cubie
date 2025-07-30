@@ -60,7 +60,7 @@ class LoopBufferSizes(ArraySizingClass):
     drivers: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
 
     @classmethod
-    def from_system_and_output_fns(cls, system: "GenericODE", output_fns: "OutputFunctions",
+    def from_system_and_output_fns(cls, system: "GenericODE", output_fns: "OutputFunctions", # noqa: F821
                                    ) -> "LoopBufferSizes":  # noqa: F821
         summary_sizes = SummariesBufferSizes.from_output_fns(output_fns)
         system_sizes = system.sizes
