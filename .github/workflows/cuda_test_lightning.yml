@@ -60,10 +60,6 @@ jobs:
                         teamspace="Vision-model",
                         image=image)
           job.wait()
-          job.download_file("/artifacts/pytest-results.xml", "pytest-results.xml")
-          job.download_file("/artifacts/pytest-output.log",  "pytest-output.log")
-
-          studio.stop(); studio.delete()
           sys.exit(job.exit_code or 0)
           PY
       - name: Download pytest artifacts from Lightning Job
