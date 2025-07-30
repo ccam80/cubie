@@ -27,7 +27,7 @@ jobs:
         run: |
           python - <<'PY'
           import os, sys
-          from lightning_sdk import Studio, Machine, Job
+          from lightning_sdk import Studio, Machine, Job, Status
 
           owner  = os.environ["GITHUB_REPOSITORY_OWNER"]
           repo   = os.environ["GITHUB_REPOSITORY"]
@@ -60,7 +60,11 @@ jobs:
                         teamspace="Vision-model",
                         image=image)
           job.wait()
-          if job.status.phase == "succeeded":
+
+          # local_artifacts_path = ""
+          # job.download_artifacts(local_path=local_artifacts_path)
+          
+          if job.status == Status.Success
               sys.exit(0) 
           else:
               # for any other phase (failed, cancelled, etc.), exit with a non-zero code
