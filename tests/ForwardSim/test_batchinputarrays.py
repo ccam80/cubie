@@ -9,9 +9,6 @@ def input_arrays():
     """Fixture to create a default InputArrays instance"""
     return InputArrays()
 
-#TODO: Bring in solver fixture in conftest, use to instantiate InputArrays
-# To properly test InputArrays as it's used, we should instantiate from a solver.
-
 class TestInputArrays:
     """Test InputArrays class for device memory management and caching behavior"""
 

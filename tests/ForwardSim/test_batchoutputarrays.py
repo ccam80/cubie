@@ -28,9 +28,6 @@ def run_settings(run_settings_override):
             setattr(default_settings, key, value)
     return default_settings
 
-#TODO: Bring in solver fixture in conftest, use to instantiate InputArrays
-# To properly test InputArrays as it's used, we should instantiate from a solver.
-
 class TestOutputArrays:
     """Test OutputArrays class for allocation, caching, and array management"""
 

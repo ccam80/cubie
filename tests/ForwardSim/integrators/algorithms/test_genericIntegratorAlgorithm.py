@@ -5,8 +5,6 @@ from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import Ge
 from tests.ForwardSim.integrators.algorithms.LoopAlgorithmTester import LoopAlgorithmTester
 
 
-#TODO: Reduce test burden by decreasing parameter combinations
-
 class TestGenericLoopAlgorithm(LoopAlgorithmTester):
     """Test class for the GenericIntegratorAlgorithm."""
 
