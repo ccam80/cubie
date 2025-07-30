@@ -1,0 +1,29 @@
+# CUDA 12.2 on Ubuntu 22.04 (pin a specific patch for reproducibility)
+FROM nvidia/cuda:12.2.2-devel-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# System deps: Python 3.12, pip, git, build tools (helpful for wheels)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3.12-venv python3.12-distutils python3-pip \
+    git build-essential ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# Set "python" to 3.12 and upgrade pip toolchain
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 \
+ && python -m pip install --upgrade pip setuptools wheel
+
+# --- Bake in heavy Python deps once (keeps per-run fast) ---
+# Pin numba/llvmlite/numpy for ABI stability; adjust to your project’s needs.
+# --- Bake in heavy Python deps once (keeps per-run fast) ---
+# Use a requirements file for cleaner updates + better layer caching.
+COPY ci/requirements.ci.txt /tmp/requirements.ci.txt
+RUN python -m pip install -r /tmp/requirements.ci.txt
+
+# Working directory for the job
+WORKDIR /workspace
+
+# Default shell
+CMD ["bash"]

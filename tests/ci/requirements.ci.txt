@@ -1,0 +1,6 @@
+numpy==1.26.4
+numba
+numba-cuda[cu12]
+pytest
+pytest-cov
+attrs
