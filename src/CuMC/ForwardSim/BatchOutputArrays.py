@@ -191,7 +191,7 @@ class OutputArrays:
             offset += h
         return state_splits, obs_splits
 
-    def legend(self, solver_instance: "BatchSolverKernel", which: str = "state_summaries"):
+    def legend(self, solver_instance: "BatchSolverKernel", which: str = "state_summaries"):  # noqa: F821
         """
         Return a dict mapping row index to variable name and summary type (if a summary).
         which: 'state_summaries' or 'observable_summaries'
