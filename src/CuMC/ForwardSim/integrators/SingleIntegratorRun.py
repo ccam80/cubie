@@ -142,8 +142,6 @@ class SingleIntegratorRun:
 
         all_unrecognized -= set(recognized)
 
-        # Update children
-
         unrecognized = self._system.update(silent=True, **kwargs)
         all_unrecognized -= set(kwargs.keys()) - set(unrecognized)
 

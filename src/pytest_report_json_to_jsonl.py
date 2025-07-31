@@ -20,7 +20,7 @@ def json_to_jsonl(input_file_path, output_file_path):
         if not isinstance(data, list):
             print("Warning: Input JSON is not a list of objects. Each object will be written as a line.")
             # If it's a single object, wrap it in a list for consistent processing
-            data = [data] 
+            data = [data]
 
         with open(output_file_path, 'w', encoding='utf-8') as outfile:
             for item in data:
