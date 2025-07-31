@@ -17,6 +17,12 @@ class SystemValues:
     You can index into this object like a dictionary or an array, i.e. values['key'] or values[index or slice].
 
     """
+    values_array: np.ndarray
+    indices_dict: dict
+    keys_by_index: dict
+    values_dict: dict
+    precision: np.dtype
+
 
     def __init__(self,
                  values_dict,
@@ -96,23 +102,24 @@ class SystemValues:
         self.indices_dict = {k: i for i, k in enumerate(keys)}
         self.keys_by_index = {i: k for i, k in enumerate(keys)}
 
-    def get_index_of_key(self, parameter_key):
+    def get_index_of_key(self, parameter_key, silent=False):
         """
         Retrieve the index of a given key in the values_array.
-        Accepts a single string.  Raises KeyError if a key is not found.
+        Accepts a single string.  Raises KeyError if a key is not found, unless silent is True.
         """
         if isinstance(parameter_key, str):
             if parameter_key in self.indices_dict:
                 return self.indices_dict[parameter_key]
             else:
-                raise KeyError(
-                        f"'{parameter_key}' not found in this SystemValues object. Double check that you're looking " +
-                        f"in the right place (i.e. states, or parameters, or constants)",
-                        )
+                if not silent:
+                    raise KeyError(
+                            f"'{parameter_key}' not found in this SystemValues object. Double check that you're looking " +
+                            f"in the right place (i.e. states, or parameters, or constants)",
+                            )
         else:
             raise TypeError(f"parameter_key must be a string, you submitted a {type(parameter_key)}.")
 
-    def get_indices(self, keys_or_indices):
+    def get_indices(self, keys_or_indices, silent=False):
         """ Convert from the many possible forms that a user might specify parameters (str, int, list of either, array of
          indices) into an array of indices that can be passed to the CUDA functions.
 
@@ -124,7 +131,7 @@ class SystemValues:
                 - List of string parameter names
                 - List of integer indices
                 - Numpy array of indices
-            systemvalues_object (SystemValues): Object containing parameter mapping information
+            silent (bool): Flag determining whether to raise KeyError if a key is not found
 
          Returns:
             numpy.ndarray: Array of parameter indices as np.int16 values
@@ -132,7 +139,7 @@ class SystemValues:
         if isinstance(keys_or_indices, list):
             if all(isinstance(item, str) for item in keys_or_indices):
                 # A list of strings
-                indices = np.asarray([self.get_index_of_key(state) for state in keys_or_indices],
+                indices = np.asarray([self.get_index_of_key(state, silent) for state in keys_or_indices],
                                      dtype=np.int16,
                                      )
             elif all(isinstance(item, int) for item in keys_or_indices):
@@ -236,24 +243,31 @@ class SystemValues:
             updates = {self.keys_by_index[index]: value for index, value in zip(indices, values)}
         self.update_from_dict(updates)
 
-    def update_from_dict(self, values_dict):
+    def update_from_dict(self, values_dict, silent=False):
         """
         Update dictionary and values_array with new values
         Updates both the values_dict and the values_array.
 
         Args:
-           values_dict: key-value pairs to update in the values_dict.
-
+            values_dict: dict
+                key-value pairs to update in the values_dict.
+            silent: bool, optional
+                If True, suppresses KeyError if a key is not found in the parameters dictionary.
         Raises:
-            KeyError: If the key is not found in the parameters dictionary
+            KeyError: If the key is not found in the parameters dictionary (if silent is False).
+            TypeError: If any value in the values_dict cannot be cast to the specified precision.
+        Returns:
+            recognised keys: set[str]
+                A set of keys that were successfully updated
         """
         # Update the dictionary
         missing = [k for k in values_dict.keys() if k not in self.indices_dict]
         if missing:
-            raise KeyError(
-                    f"Parameter key(s) {missing} not found in this SystemValues object. Double check that you're looking " +
-                    f"in the right place (i.e. states, or parameters, or constants)",
-                    )
+            if not silent:
+                raise KeyError(
+                        f"Parameter key(s) {missing} not found in this SystemValues object. Double check that you're looking " +
+                        f"in the right place (i.e. states, or parameters, or constants)",
+                        )
         if any(np.can_cast(value, self.precision) is False for value in values_dict.values()):
             raise TypeError(
                     f"One or more values in the provided dictionary cannot be cast to the specified precision {self.precision}. "
@@ -264,8 +278,14 @@ class SystemValues:
             self.values_dict.update(values_dict)
             # Update the values_array
             for key, value in values_dict.items():
-                index = self.get_index_of_key(key)
+                index = self.get_index_of_key(key, silent=silent)
                 self.values_array[index] = value
+
+        return set(values_dict.keys()) - set(missing)
+
+    @property
+    def names(self):
+        return list(self.values_dict.keys())
 
     def __getitem__(self, key):
         """
