@@ -158,9 +158,11 @@ def update_loop_compile_settings(system, **kwargs):
                                   'dt_save':           0.01,
                                   'dt_summarise':      0.1,
                                   'atol':              1e-6,
-                                  'rtol':              1e-3,
-                                  'saved_states':      [0, 1],
-                                  'saved_observables': [0, 1],
+                                  'rtol':                   1e-3,
+                                  'saved_states':           [0, 1],
+                                  'saved_observables':      [0, 1],
+                                  'summarised_states':      [0, 1],
+                                  'summarised_observables': [0, 1],
                                   'output_functions':  ["state"],
                                   }
     loop_compile_settings_dict.update(kwargs)

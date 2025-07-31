@@ -109,7 +109,10 @@ class BatchSolverKernel(CUDAFactory):
         """Run the solver kernel."""
         # Order currently VERY IMPORTANT - num_runs is updated in input_arrays, which is used in output_arrays.
         self.input_arrays(inits, params, forcing_vectors)
+        numruns = self.input_arrays.num_runs
+
         self.output_arrays(self)
+
         numruns = self.input_arrays.num_runs
 
         threads_per_loop = self.single_integrator.threads_per_loop
@@ -286,3 +289,8 @@ class BatchSolverKernel(CUDAFactory):
     def output_array_sizes_3d(self):
         """Returns the 3D output array sizes for a batch of runs."""
         return BatchOutputSizes.from_solver(self)
+
+    @property
+    def summary_types(self):
+        """Returns the output sizes for the solver."""
+        return self.summary_types

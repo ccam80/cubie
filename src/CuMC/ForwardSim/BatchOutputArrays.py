@@ -1,3 +1,5 @@
+from typing import List, Dict
+import numpy as np
 from warnings import warn
 
 import attrs
@@ -5,7 +7,7 @@ import attrs.validators as val
 from numba.cuda import mapped_array
 from numpy import float32
 
-from CuMC.ForwardSim.BatchConfigurator import SummarySplitter
+from CuMC import summary_metrics
 from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
 from CuMC.ForwardSim._utils import optional_cuda_array_validator_3d
 
@@ -171,13 +173,46 @@ class OutputArrays:
     def summary_views(self, solver_instance: "BatchSolverKernel"):  # noqa: F821
         """
         Return dicts of summary arrays split by metric type for states and observables.
+        # NEEDS REWORK DO NOT TEST
         """
-        # Fetch summary types from output functions
-        summary_types = solver_instance.single_integrator._output_functions.summary_types
-        splitter = SummarySplitter(summary_types)
-        state_splits = splitter.split_state_summaries(self.state_summaries)
-        obs_splits = splitter.split_observable_summaries(self.observable_summaries)
+        summary_types = solver_instance.single_integrator.summary_types
+        heights = summary_metrics.output_sizes(summary_types)
+        # Split state_summaries
+        state_splits = {}
+        offset = 0
+        for s_type, h in zip(summary_types, heights):
+            state_splits[s_type] = self.state_summaries[..., offset:offset + h]
+            offset += h
+        # Split observable_summaries
+        obs_splits = {}
+        offset = 0
+        for s_type, h in zip(summary_types, heights):
+            obs_splits[s_type] = self.observable_summaries[..., offset:offset + h]
+            offset += h
         return state_splits, obs_splits
+
+    def legend(self, solver_instance: "BatchSolverKernel", which: str = "state_summaries"):
+        """
+        Return a dict mapping row index to variable name and summary type (if a summary).
+        which: 'state_summaries' or 'observable_summaries'
+        #NEEDS REWORK DO NOT TEST
+        """
+        summary_types = solver_instance.single_integrator.summary_types
+        heights = summary_metrics.output_sizes(summary_types)
+        if which == "state_summaries":
+            var_names = solver_instance.system.state_names
+        elif which == "observable_summaries":
+            var_names = solver_instance.system.observable_names
+        else:
+            raise ValueError(f"Unknown summary array: {which}")
+        legend = {}
+        idx = 0
+        for s_type, h in zip(summary_types, heights):
+            for v in var_names:
+                for i in range(h):
+                    legend[idx] = {"variable": v, "summary_type": s_type}
+                    idx += 1
+        return legend
 
     @classmethod
     def from_solver(cls, solver_instance: "BatchSolverKernel") -> "OutputArrays":  # noqa: F821

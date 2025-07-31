@@ -384,5 +384,3 @@ class BatchConfigurator:
         initial_values_array, params_array = combine_grids(initial_values_array, params_array, kind=kind)
 
         return initial_values_array, params_array
-
-

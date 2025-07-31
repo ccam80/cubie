@@ -264,23 +264,6 @@ def test_shared_memory_bytes(single_integrator_run):
     assert isinstance(shared_mem, int)
     assert shared_mem >= 0
 
-
-def test_dynamic_memory_calculation(single_integrator_run):
-    """Test that _get_dynamic_memory_required returns correct memory amount."""
-    # Build the loop first
-    single_integrator_run.build()
-
-    # Get the dynamic memory required
-    dynamic_memory = single_integrator_run._get_dynamic_memory_required()
-
-    # Should be same as shared_memory_bytes property
-    assert dynamic_memory == single_integrator_run.shared_memory_bytes
-
-    # Should be a positive integer
-    assert isinstance(dynamic_memory, int)
-    assert dynamic_memory >= 0
-
-
 def test_error_handling_unrecognized_parameters(single_integrator_run):
     """Test error handling for unrecognized parameters."""
     # Test invalid parameter that no component recognizes

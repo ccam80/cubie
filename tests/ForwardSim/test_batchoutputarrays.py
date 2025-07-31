@@ -278,26 +278,75 @@ class TestOutputArrays:
 
         assert arrays._precision == precision
         assert arrays.state.dtype == precision
-
+    #
     # def test_summary_views_method(self):
-    #     """Test summary_views method returns summary arrays"""
+    #     """Test summary_views method returns summary arrays split by type"""
+    #     class DummySolver:
+    #         class SingleIntegrator:
+    #             summary_types = ['mean', 'max']
+    #         single_integrator = SingleIntegrator()
+    #     class DummySummaryMetrics:
+    #         @staticmethod
+    #         def output_sizes(types):
+    #             return [1 for _ in types]
+    #     # Patch summary_metrics in the OutputArrays module
+    #     import sys
+    #     mod = sys.modules[arrays.__class__.__module__]
+    #     setattr(mod, 'summary_metrics', DummySummaryMetrics)
+    #
     #     sizes = BatchOutputSizes(
     #         state=(5, 3, 2),
     #         observables=(5, 3, 2),
-    #         state_summaries=(3, 1, 1),
-    #         observable_summaries=(3, 1, 1)
+    #         state_summaries=(3, 1, 2),
+    #         observable_summaries=(3, 1, 2)
     #     )
     #     arrays = OutputArrays(sizes)
     #     arrays._allocate_new()
+    #     dummy_solver = DummySolver()
+    #     state_splits, obs_splits = arrays.summary_views(dummy_solver)
+    #     assert set(state_splits.keys()) == {'mean', 'max'}
+    #     assert set(obs_splits.keys()) == {'mean', 'max'}
+    #     assert state_splits['mean'].shape[-1] == 1
+    #     assert state_splits['max'].shape[-1] == 1
     #
-    #     # Mock solver instance (not needed for current implementation)
-    #     mock_solver = None
+    # def test_legend_method(self):
+    #     """Test legend method returns correct mapping for state and observable summaries"""
+    #     class DummySolver:
+    #         class SingleIntegrator:
+    #             summary_types = ['mean', 'max']
+    #         single_integrator = SingleIntegrator()
+    #         class System:
+    #             state_names = ['x', 'y']
+    #             observable_names = ['a', 'b']
+    #         system = System()
+    #     class DummySummaryMetrics:
+    #         @staticmethod
+    #         def output_sizes(types):
+    #             return [1 for _ in types]
+    #     # Patch summary_metrics in the OutputArrays module
+    #     import sys
+    #     mod = sys.modules[OutputArrays.__module__]
+    #     setattr(mod, 'summary_metrics', DummySummaryMetrics)
     #
-    #     result = arrays.summary_views(mock_solver)
-    #
-    #     assert len(result) == 2
-    #     assert result[0] is arrays.state_summaries
-    #     assert result[1] is arrays.observable_summaries
+    #     sizes = BatchOutputSizes(
+    #         state=(5, 3, 2),
+    #         observables=(5, 3, 2),
+    #         state_summaries=(3, 1, 2),
+    #         observable_summaries=(3, 1, 2)
+    #     )
+    #     arrays = OutputArrays(sizes)
+    #     arrays._allocate_new()
+    #     dummy_solver = DummySolver()
+    #     legend = arrays.legend(dummy_solver, which='state_summaries')
+    #     assert legend[0] == ('x', 'mean')
+    #     assert legend[1] == ('y', 'mean')
+    #     assert legend[2] == ('x', 'max')
+    #     assert legend[3] == ('y', 'max')
+    #     legend_obs = arrays.legend(dummy_solver, which='observable_summaries')
+    #     assert legend_obs[0] == ('a', 'mean')
+    #     assert legend_obs[1] == ('b', 'mean')
+    #     assert legend_obs[2] == ('a', 'max')
+    #     assert legend_obs[3] == ('b', 'max')
 
     def test_integration_scenario_allocation_reuse(self):
         """Test complete scenario with allocation and cache reuse"""

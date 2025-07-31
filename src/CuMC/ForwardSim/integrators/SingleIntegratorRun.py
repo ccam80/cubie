@@ -204,22 +204,20 @@ class SingleIntegratorRun:
         """Check if the compiled loop is current."""
         return self._loop_cache_valid
 
-    def _get_dynamic_memory_required(self):
-        """Returns the number of bytes of dynamic shared memory required for a single run of the integrator"""
-        # Ensure everything is built
+    @property
+    def shared_memory_elements(self):
+        """Get the number of elements of shared memory required for a single run of the integrator."""
         if not self.cache_valid:
             self.build()
-
-        datasize = self.precision(0.0).nbytes
-        summary_items = self._output_functions.total_summary_buffer_size
-        loop_items = self._integrator_instance.shared_memory_required
-        dynamic_sharedmem = (loop_items + summary_items) * datasize
-        return dynamic_sharedmem
+        return self._integrator_instance.shared_memory_required + self._output_functions.total_summary_buffer_size
 
     @property
     def shared_memory_bytes(self):
-        """Get the number of bytes of shared memory required for a single run of the integrator."""
-        return self._get_dynamic_memory_required()
+        """Returns the number of bytes of dynamic shared memory required for a single run of the integrator"""
+        if not self.cache_valid:
+            self.build()
+        datasize = self.precision(0.0).nbytes
+        return self.shared_memory_elements * datasize
 
     # Reach through this interface class to get lower level features:
     @property
@@ -276,3 +274,8 @@ class SingleIntegratorRun:
     def compile_flags(self):
         """Get the compile flags for the output functions."""
         return self._output_functions.compile_flags
+
+    @property
+    def summary_types(self):
+        """Expose summary_types from output functions for easier access."""
+        return self._output_functions.summary_types
