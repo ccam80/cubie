@@ -1,6 +1,7 @@
-import numpy as np
 from typing import Optional, Union, List
-from numpy.typing import NDArray, ArrayLike
+
+import numpy as np
+
 
 class Solver:
     """
@@ -10,6 +11,7 @@ class Solver:
     each integration. The only part of this machine that the user must configure themself before using is the system
     model, which contains the ODEs to be solved.
     """
+
     def __init__(self,
                  system,
                  algorithm: str = 'euler',
@@ -21,10 +23,10 @@ class Solver:
                  dt_summarise: float = 1.0,
                  atol: float = 1e-6,
                  rtol: float = 1e-6,
-                 saved_states: Optional[List[Union[str | int]]]= None,
-                 saved_observables: Optional[List[Union[str | int]]] = None,
-                 summarised_states:  Optional[List[Union[str | int]]] = None,
-                 summarised_observables: Optional[List[Union[str | int]]] = None,
+                 saved_state_indices: Optional[List[Union[str | int]]] = None,
+                 saved_observable_indices: Optional[List[Union[str | int]]] = None,
+                 summarised_state_indices: Optional[List[Union[str | int]]] = None,
+                 summarised_observable_indices: Optional[List[Union[str | int]]] = None,
                  output_types: list[str] = None,
                  precision: type = np.float63,
                  profileCUDA: bool = False,
@@ -36,7 +38,7 @@ class Solver:
         Enable CUDA profiling for the solver. This will allow you to profile the performance of the solver on the
         GPU, but will slow things down.
         """
-        #Consider disabling optimisation and enabling debug and line info for profiling
+        # Consider disabling optimisation and enabling debug and line info for profiling
         self.profileCUDA = True
 
     def disable_profiling(self):

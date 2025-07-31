@@ -32,12 +32,12 @@ class TestEuler(LoopAlgorithmTester):
         output_dt = loop_compile_settings['dt_save']
         warmup = solver.warmup
         duration = solver.duration
-        saved_observables = loop_compile_settings['saved_observables']
-        saved_states = loop_compile_settings['saved_states']
+        saved_observable_indices = loop_compile_settings['saved_observable_indices']
+        saved_state_indices = loop_compile_settings['saved_state_indices']
         save_time = "time" in loop_compile_settings['output_functions']
 
         state_output, observables_output = self._cpu_euler_loop(system, inits, params, driver_vec, dt, output_dt,
-                                                                warmup, duration, saved_observables, saved_states,
+                                                                warmup, duration, saved_observable_indices, saved_state_indices,
                                                                 save_time,
                                                                 )
 
@@ -52,8 +52,8 @@ class TestEuler(LoopAlgorithmTester):
                         output_dt,
                         warmup,
                         duration,
-                        saved_observables,
-                        saved_states,
+                        saved_observable_indices,
+                        saved_state_indices,
                         save_time,
                         ):
         """A simple CPU implementation of the Euler loop for testing."""
@@ -61,8 +61,8 @@ class TestEuler(LoopAlgorithmTester):
         save_every = int(round(output_dt / dt))
         output_length = int(duration / output_dt)
         warmup_samples = int(warmup / output_dt)
-        n_saved_states = len(saved_states)
-        n_saved_observables = len(saved_observables)
+        n_saved_states = len(saved_state_indices)
+        n_saved_observables = len(saved_observable_indices)
         total_samples = int((duration + warmup) / output_dt)
 
         state_output = np.zeros((output_length, n_saved_states + save_time * 1), dtype=inits.dtype)
@@ -76,8 +76,8 @@ class TestEuler(LoopAlgorithmTester):
                 dx, observables = system.correct_answer_python(state, params, drivers)
                 state += dx * dt
             if i > (warmup_samples - 1):
-                state_output[i - warmup_samples, :n_saved_states] = state[saved_states]
-                observables_output[i - warmup_samples, :] = observables[saved_observables]
+                state_output[i - warmup_samples, :n_saved_states] = state[saved_state_indices]
+                observables_output[i - warmup_samples, :] = observables[saved_observable_indices]
                 if save_time:
                     state_output[i - warmup_samples, -1] = i - warmup_samples
 
@@ -86,8 +86,8 @@ class TestEuler(LoopAlgorithmTester):
     @pytest.mark.nocudasim
     @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, solver_settings_override, "
                              "precision_override",
-                             [({'output_functions':  ["state", "observables", "time"], 'saved_states': [0, 1, 2],
-                                "saved_observables": [0, 1]
+                             [({'output_functions':  ["state", "observables", "time"], 'saved_state_indices': [0, 1, 2],
+                                "saved_observable_indices": [0, 1]
                                 },
                                {},
                                {'duration': 0.1, 'warmup': 0.0},
@@ -123,8 +123,8 @@ class TestEuler(LoopAlgorithmTester):
                                'dt_summarise':      0.2,
                                'atol':              1.0e-7,
                                'rtol':              1.0e-5,
-                               'saved_states':      [0, 1, 2],
-                               'saved_observables': [0, 2],
+                               'saved_state_indices':      [0, 1, 2],
+                               'saved_observable_indices': [0, 2],
                                'output_functions':  ["state", "peaks[3]"],
                                }
                               ],
@@ -142,8 +142,8 @@ class TestEuler(LoopAlgorithmTester):
                                'dt_summarise':      0.2,
                                'atol':              1.0e-7,
                                'rtol':              1.0e-5,
-                               'saved_states':      [0, 1, 2],
-                               'saved_observables': [0, 2],
+                               'saved_state_indices':      [0, 1, 2],
+                               'saved_observable_indices': [0, 2],
                                'output_functions':  ["state", "peaks[3]"],
                                }
                               ],

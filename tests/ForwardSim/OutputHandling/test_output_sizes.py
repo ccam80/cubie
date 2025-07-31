@@ -416,7 +416,7 @@ class TestIntegrationScenarios:
     """Test realistic integration scenarios"""
 
     @pytest.mark.parametrize("loop_compile_settings_overrides", [
-        {'dt_save': 0.01, 'dt_summarise': 0.1, 'saved_states': [0, 1, 2], 'saved_observables': [0, 1],
+        {'dt_save': 0.01, 'dt_summarise': 0.1, 'saved_state_indices': [0, 1, 2], 'saved_observable_indices': [0, 1],
          'output_functions': ["time", "state", "observables", "mean"]
          }
     ], indirect=True)
@@ -437,7 +437,7 @@ class TestIntegrationScenarios:
         assert batch.observables == (solver.output_length, numruns, output_functions.n_saved_observables)
 
     @pytest.mark.parametrize("loop_compile_settings_overrides", [
-        {'output_functions': ["time", "state", "observables", "mean"], 'saved_states': [], 'saved_observables': []}
+        {'output_functions': ["time", "state", "observables", "mean"], 'saved_state_indices': [], 'saved_observable_indices': []}
     ], indirect=True)
     @pytest.mark.parametrize("solver_settings_override", [{'duration': 0.0}], indirect=True)
     def test_edge_case_all_zeros_with_nonzero(self, system, solver, output_functions):

@@ -2,6 +2,7 @@
 Module to configure batch runs by building parameter and initial value grids,
 index generators for saved states/observables, and splitting summary outputs.
 """
+from itertools import product
 from typing import List, Union, Dict
 
 import numpy as np
@@ -9,7 +10,6 @@ from numpy.typing import ArrayLike
 
 from CuMC.SystemModels.SystemValues import SystemValues
 from CuMC.SystemModels.Systems.GenericODE import GenericODE
-from itertools import product
 
 
 def unique_cartesian_product(arrays: List[np.ndarray]):
@@ -40,9 +40,10 @@ def unique_cartesian_product(arrays: List[np.ndarray]):
     deduplicated_inputs = [list(dict.fromkeys(a)) for a in arrays]  # preserve order, remove dups
     return np.array([list(t) for t in product(*deduplicated_inputs)])
 
+
 def combinatorial_grid(request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
                        values_instance: SystemValues,
-                       silent: bool = False
+                       silent: bool = False,
                        ) -> tuple[np.ndarray, np.ndarray]:
     """
     Build a grid of all unique combinations of values based on a dictionary keyed by parameter name or index,
@@ -88,14 +89,14 @@ def combinatorial_grid(request: Dict[Union[str, int], Union[float, ArrayLike, np
     """
     indices = values_instance.get_indices(list(request.keys()), silent=silent)
     combos = unique_cartesian_product(
-            [np.asarray(v) for v in request.values()]
+            [np.asarray(v) for v in request.values()],
             )
     return indices, combos
 
 
 def verbatim_grid(request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
                   values_instance: SystemValues,
-                  silent: bool = False
+                  silent: bool = False,
                   ) -> tuple[np.ndarray, np.ndarray]:
     """ Build a grid of parameters for a batch of runs based on a dictionary keyed by parameter name or index,
     and values the entire set of parameter values. Parameters vary together, but not combinatorially. All values
@@ -137,10 +138,11 @@ def verbatim_grid(request: Dict[Union[str, int], Union[float, ArrayLike, np.ndar
     combos = np.asarray([item for item in request.values()]).T
     return indices, combos
 
+
 def generate_grid(request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
                   values_instance: SystemValues,
                   kind: str = 'combinatorial',
-                  silent: bool = False
+                  silent: bool = False,
                   ) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate a grid of parameters for a batch of runs based on a dictionary keyed by parameter name or index,
@@ -179,6 +181,7 @@ def generate_grid(request: Dict[Union[str, int], Union[float, ArrayLike, np.ndar
     else:
         raise ValueError(f"Unknown grid type '{kind}'. Use 'combinatorial' or 'verbatim'.")
 
+
 def combine_grids(grid1: np.ndarray, grid2: np.ndarray, kind: str = 'combinatorial') -> tuple[np.ndarray,
 np.ndarray]:
     """
@@ -210,6 +213,7 @@ np.ndarray]:
     else:
         raise ValueError(f"Unknown grid type '{kind}'. Use 'combinatorial' or 'verbatim'.")
 
+
 def extend_grid_to_array(grid: np.ndarray,
                          indices: np.ndarray,
                          default_values: np.ndarray,
@@ -237,9 +241,10 @@ def extend_grid_to_array(grid: np.ndarray,
         if grid.shape[1] != indices.shape[0]:
             raise ValueError("Grid shape does not match indices shape.")
         array = np.vstack([default_values] * grid.shape[0])
-        array[:,indices] = grid
+        array[:, indices] = grid
 
     return array
+
 
 def generate_array(request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
                    values_instance: SystemValues,
@@ -277,7 +282,7 @@ class BatchConfigurator:
     def __init__(self,
                  system_parameters: SystemValues,
                  system_inits: SystemValues,
-                 system_observables: SystemValues
+                 system_observables: SystemValues,
                  ):
 
         self.parameters = system_parameters
@@ -295,7 +300,7 @@ class BatchConfigurator:
 
         return cls(system_parameters=parameters,
                    system_inits=inits,
-                   system_observables=observables
+                   system_observables=observables,
                    )
 
     def update(self, updates=None, **kwargs):
@@ -325,7 +330,7 @@ class BatchConfigurator:
 
     def state_indices(self,
                       keys_or_indices: Union[List[Union[str, int]], str, int],
-                      silent: bool = False
+                      silent: bool = False,
                       ) -> np.ndarray:
         """
         Convert user-specified state names or indices to numpy array of int indices.
@@ -343,7 +348,7 @@ class BatchConfigurator:
 
     def parameter_indices(self,
                           keys_or_indices: Union[List[Union[str, int]], str, int],
-                          silent: bool = False
+                          silent: bool = False,
                           ) -> np.ndarray:
         """
         Convert user-specified parameter names or indices to numpy array of int indices.
@@ -363,7 +368,8 @@ class BatchConfigurator:
 
     def grid_arrays(self,
                     request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
-                    kind: str = 'combinatorial') -> tuple[np.ndarray, np.ndarray]:
+                    kind: str = 'combinatorial',
+                    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Build a grid of parameters for a batch of runs based on a dictionary keyed by parameter name or index,
         Parameters

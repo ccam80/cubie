@@ -21,10 +21,10 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
         save_time = "time" in loop_compile_settings['output_functions']
 
         if save_state:
-            saved_states = np.asarray(loop_compile_settings['saved_states'])
-            n_saved_states = len(saved_states)
+            saved_state_indices = np.asarray(loop_compile_settings['saved_state_indices'])
+            n_saved_states = len(saved_state_indices)
             expected_state_output = np.zeros((n_samples, n_saved_states + 1 * save_time), dtype=precision)
-            expected_state_output[:, :n_saved_states] = inputs['initial_values'][saved_states][np.newaxis, :]
+            expected_state_output[:, :n_saved_states] = inputs['initial_values'][saved_state_indices][np.newaxis, :]
             if save_time:
                 expected_state_output[:, -1] = np.arange(n_samples, dtype=precision)
         else:
@@ -32,11 +32,11 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
 
         if save_observables:
 
-            saved_observables = np.asarray(loop_compile_settings['saved_observables'])
-            n_saved_observables = len(saved_observables)
+            saved_observable_indices = np.asarray(loop_compile_settings['saved_observable_indices'])
+            n_saved_observables = len(saved_observable_indices)
             expected_observables = np.zeros((n_samples, n_saved_observables), dtype=precision)
             expected_observables[:, :] = inputs['initial_values'][np.newaxis,
-                (saved_observables % n_states_total)]
+                (saved_observable_indices % n_states_total)]
         else:
             expected_observables = np.zeros((1, 1), dtype=precision)
 
@@ -45,8 +45,8 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
     @pytest.mark.nocudasim
     @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, solver_settings_override, "
                              "precision_override",
-                             [({'output_functions':  ["state", "observables", "time"], 'saved_states': [0, 1, 2],
-                                "saved_observables": [0, 1]
+                             [({'output_functions':  ["state", "observables", "time"], 'saved_state_indices': [0, 1, 2],
+                                "saved_observable_indices": [0, 1]
                                 },
                                {},
                                {'duration': 0.1, 'warmup': 0.0},
@@ -82,8 +82,8 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
                                'dt_summarise':      0.2,
                                'atol':              1.0e-7,
                                'rtol':              1.0e-5,
-                               'saved_states':      [0, 1, 2],
-                               'saved_observables': [0, 2],
+                               'saved_state_indices':      [0, 1, 2],
+                               'saved_observable_indices': [0, 2],
                                'output_functions':  ["state", "peaks[3]"],
                                }
                               ],
@@ -101,8 +101,8 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
                                'dt_summarise':      0.2,
                                'atol':              1.0e-7,
                                'rtol':              1.0e-5,
-                               'saved_states':      [0, 1, 2],
-                               'saved_observables': [0, 2],
+                               'saved_state_indices':      [0, 1, 2],
+                               'saved_observable_indices': [0, 2],
                                'output_functions':  ["state", "peaks[3]"],
                                }
                               ],

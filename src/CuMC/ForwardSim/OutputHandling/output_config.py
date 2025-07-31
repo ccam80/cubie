@@ -2,11 +2,13 @@
 Output configuration management system for flexible, user-controlled output selection.
 """
 
-from typing import List, Tuple
+from typing import List, Tuple, Union, Optional
 from warnings import warn
 
 import attrs
 import numpy as np
+from numpy import array_equal
+from numpy.typing import NDArray
 
 from CuMC.ForwardSim.OutputHandling import summary_metrics
 
@@ -57,15 +59,22 @@ class OutputConfig:
     _save_observables: bool = attrs.field(default=True)
     _save_time: bool = attrs.field(default=False)
 
-    _saved_state_indices = attrs.field(default=attrs.Factory(list))
-    _saved_observable_indices = attrs.field(default=attrs.Factory(list))
-    _summarised_state_indices = attrs.field(default=attrs.Factory(list))
-    _summarised_observable_indices = attrs.field(default=attrs.Factory(list))
+    _saved_state_indices: Optional[Union[List | NDArray]] = attrs.field(default=attrs.Factory(list),
+                                                                        eq=attrs.cmp_using(eq=array_equal),
+                                                                        )
+    _saved_observable_indices: Optional[Union[List | NDArray]] = attrs.field(default=attrs.Factory(list),
+                                                                             eq=attrs.cmp_using(eq=array_equal),
+                                                                             )
+    _summarised_state_indices: Optional[Union[List | NDArray]] = attrs.field(default=attrs.Factory(list),
+                                                                             eq=attrs.cmp_using(eq=array_equal),
+                                                                             )
+    _summarised_observable_indices: Optional[Union[List | NDArray]] = attrs.field(default=attrs.Factory(list),
+                                                                                  eq=attrs.cmp_using(eq=array_equal),
+                                                                                  )
 
     _summary_types: Tuple[str] = attrs.field(default=attrs.Factory(tuple))
 
     # *********************************** post-init validators ***********************************
-
     def __attrs_post_init__(self):
         """Swap out None index arrays, check that all indices are within bounds, and check for a no-output request."""
         self._check_saved_indices()
@@ -323,10 +332,10 @@ class OutputConfig:
     @classmethod
     def from_loop_settings(cls,
                            output_types: List[str],
-                           saved_states=None,
-                           saved_observables=None,
-                           summarised_states=None,
-                           summarised_observables=None,
+                           saved_state_indices=None,
+                           saved_observable_indices=None,
+                           summarised_state_indices=None,
+                           summarised_observable_indices=None,
                            max_states: int = 0,
                            max_observables: int = 0,
                            ) -> "OutputConfig":
@@ -336,10 +345,10 @@ class OutputConfig:
         Args:
             output_types: List of strings specifying output types from ["state", "observables", "time", "max",
             "peaks", "mean", "rms", "min"]
-            saved_states: Indices of states to save
-            saved_observables: Indices of observables to save
-            summarised_states: Indices of states to summarise, if different from saved_states, otherwise None
-            summarised_observables: Indices of observables to summarise, if different from saved_observables, otherwise None
+            saved_state_indices: Indices of states to save
+            saved_observable_indices: Indices of observables to save
+            summarised_state_indices: Indices of states to summarise, if different from saved_state_indices, otherwise None
+            summarised_observable_indices: Indices of observables to summarise, if different from saved_observable_indices, otherwise None
             n_peaks: Number of peaks to detect
             max_states: Total number of states in system
             max_observables: Total number of observables in system
@@ -358,14 +367,14 @@ class OutputConfig:
             output_types.remove("time")
 
         # OutputConfig doesn't play as nicely with Nones as the rest of python does
-        if saved_states is None:
-            saved_states = np.asarray([], dtype=np.int_)
-        if saved_observables is None:
-            saved_observables = np.asarray([], dtype=np.int_)
-        if summarised_states is None:
-            summarised_states = np.asarray([], dtype=np.int_)
-        if summarised_observables is None:
-            summarised_observables = np.asarray([], dtype=np.int_)
+        if saved_state_indices is None:
+            saved_state_indices = np.asarray([], dtype=np.int_)
+        if saved_observable_indices is None:
+            saved_observable_indices = np.asarray([], dtype=np.int_)
+        if summarised_state_indices is None:
+            summarised_state_indices = np.asarray([], dtype=np.int_)
+        if summarised_observable_indices is None:
+            summarised_observable_indices = np.asarray([], dtype=np.int_)
 
         # Extract summary types
         summary_types = []
@@ -382,9 +391,9 @@ class OutputConfig:
                 save_state=save_state,
                 save_observables=save_observables,
                 save_time=save_time,
-                saved_state_indices=saved_states,
-                saved_observable_indices=saved_observables,
-                summarised_state_indices=summarised_states,
-                summarised_observable_indices=summarised_observables,
+                saved_state_indices=saved_state_indices,
+                saved_observable_indices=saved_observable_indices,
+                summarised_state_indices=summarised_state_indices,
+                summarised_observable_indices=summarised_observable_indices,
                 summary_types=summary_types,
                 )

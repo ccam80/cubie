@@ -92,14 +92,14 @@ def chain_metrics(
 
 def save_summary_factory(
         buffer_sizes: SummariesBufferSizes,
-        summarised_states: Sequence[int] | ArrayLike,
-        summarised_observables: Sequence[int] | ArrayLike,
+        summarised_state_indices: Sequence[int] | ArrayLike,
+        summarised_observable_indices: Sequence[int] | ArrayLike,
         summaries_list: Sequence[str],
         ):
     """Loop through the requested states and observables, applying the chained function to each. Return a device
     function which saves all requested summaries."""
-    num_summarised_states = len(summarised_states)
-    num_summarised_observables = len(summarised_observables)
+    num_summarised_states = len(summarised_state_indices)
+    num_summarised_observables = len(summarised_observable_indices)
 
     save_functions = summary_metrics.save_functions(summaries_list)
 

@@ -19,7 +19,8 @@ from attrs import fields, has
 
 def in_attr(name, attrs_class_instance):
     """Checks if a name is in the attributes of a class instance."""
-    return name in {field.name for field in fields(attrs_class_instance.__class__)}
+    field_names = {field.name for field in fields(attrs_class_instance.__class__)}
+    return name in field_names or ("_" + name) in field_names
 
 
 def is_attrs_class(putative_class_instance):

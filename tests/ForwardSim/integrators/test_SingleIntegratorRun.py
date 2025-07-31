@@ -12,10 +12,10 @@ def default_integrator_params(system, loop_compile_settings):
     return {
         'system':                   system,
         'algorithm':                'euler',
-        'saved_states':             loop_compile_settings['saved_states'],
-        'saved_observables':        loop_compile_settings['saved_observables'],
-        'summarised_states':        loop_compile_settings.get('summarised_states', None),
-        'summarised_observables':   loop_compile_settings.get('summarised_observables', None),
+        'saved_state_indices':             loop_compile_settings['saved_state_indices'],
+        'saved_observable_indices':        loop_compile_settings['saved_observable_indices'],
+        'summarised_state_indices':        loop_compile_settings.get('summarised_state_indices', None),
+        'summarised_observable_indices':   loop_compile_settings.get('summarised_observable_indices', None),
         'dt_min':                   loop_compile_settings['dt_min'],
         'dt_max':                   loop_compile_settings['dt_max'],
         'dt_save':                  loop_compile_settings['dt_save'],
@@ -52,10 +52,10 @@ def single_integrator_run(system, integrator_params):
         dt_summarise=integrator_params['dt_summarise'],
         atol=integrator_params['atol'],
         rtol=integrator_params['rtol'],
-        saved_states=integrator_params['saved_states'],
-        saved_observables=integrator_params['saved_observables'],
-        summarised_states=integrator_params['summarised_states'],
-        summarised_observables=integrator_params['summarised_observables'],
+        saved_state_indices=integrator_params['saved_state_indices'],
+        saved_observable_indices=integrator_params['saved_observable_indices'],
+        summarised_state_indices=integrator_params['summarised_state_indices'],
+        summarised_observable_indices=integrator_params['summarised_observable_indices'],
         output_types=integrator_params['output_types'],
     )
 
@@ -207,7 +207,7 @@ def test_parameter_updates_config_object(single_integrator_run):
     assert single_integrator_run.config.atol != original_atol
 
 
-def test_parameter_routing_to_children(single_integrator_run, system):
+def test_update_cache_invalidation(single_integrator_run, system):
     """Test that parameters are correctly routed to appropriate components."""
     # Test system parameter routing
     original_cache_valid = single_integrator_run.cache_valid
@@ -230,14 +230,14 @@ def test_algorithm_change(single_integrator_run):
     initial_instance = single_integrator_run._integrator_instance
 
     # Change algorithm
-    single_integrator_run.update(algorithm='euler')
+    single_integrator_run.update(algorithm='generic')
 
     # Should have new instance
     new_instance = single_integrator_run._integrator_instance
     assert new_instance is not initial_instance
 
     # Algorithm key should be updated
-    assert single_integrator_run.algorithm_key == 'euler'
+    assert single_integrator_run.algorithm_key == 'generic'
 
 
 def test_cache_valid_property(single_integrator_run):

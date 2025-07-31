@@ -1,5 +1,3 @@
-from typing import List, Dict
-import numpy as np
 from warnings import warn
 
 import attrs

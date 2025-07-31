@@ -3,7 +3,7 @@ from typing import Sequence
 from warnings import warn
 
 import attrs
-from numpy import ceil
+from numpy import ceil, array_equal
 from numpy.typing import NDArray
 
 from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
@@ -19,14 +19,14 @@ class IntegratorRunSettings:
     atol: float = attrs.field(default=1e-6, validator=attrs.validators.instance_of(float))
     rtol: float = attrs.field(default=1e-6, validator=attrs.validators.instance_of(float))
 
-    _requested_outputs: list[str] = attrs.field(
+    output_types: list[str] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.deep_iterable(
                     member_validator=attrs.validators.instance_of(str),
                     iterable_validator=attrs.validators.instance_of(list),
                     ),
             )
-    _saved_states: Optional[Sequence | NDArray[int]] = attrs.field(
+    saved_state_indices: Optional[Sequence | NDArray[int]] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.optional(
                     attrs.validators.deep_iterable(
@@ -34,8 +34,9 @@ class IntegratorRunSettings:
                             iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
                             ),
                     ),
+            eq=attrs.cmp_using(eq=array_equal),
             )
-    _saved_observables: Optional[Sequence | NDArray[int]] = attrs.field(
+    saved_observable_indices: Optional[Sequence | NDArray[int]] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.optional(
                     attrs.validators.deep_iterable(
@@ -43,8 +44,9 @@ class IntegratorRunSettings:
                             iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
                             ),
                     ),
+            eq=attrs.cmp_using(eq=array_equal),
             )
-    _summarised_states: Optional[Sequence | NDArray[int]] = attrs.field(
+    summarised_state_indices: Optional[Sequence | NDArray[int]] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.optional(
                     attrs.validators.deep_iterable(
@@ -52,8 +54,10 @@ class IntegratorRunSettings:
                             iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
                             ),
                     ),
+            eq=attrs.cmp_using(eq=array_equal),
             )
-    _summarised_observables: Optional[Sequence | NDArray[int]] = attrs.field(
+
+    summarised_observable_indices: Optional[Sequence | NDArray[int]] = attrs.field(
             default=attrs.Factory(list),
             validator=attrs.validators.optional(
                     attrs.validators.deep_iterable(
@@ -61,6 +65,7 @@ class IntegratorRunSettings:
                             iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
                             ),
                     ),
+            eq=attrs.cmp_using(eq=array_equal),
             )
 
     def __attrs_post_init__(self):

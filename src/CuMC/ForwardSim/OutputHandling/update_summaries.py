@@ -78,14 +78,14 @@ def chain_metrics(
 
 def update_summary_factory(
         buffer_sizes: SummariesBufferSizes,
-        summarised_states: Sequence[int] | ArrayLike,
-        summarised_observables: Sequence[int] | ArrayLike,
+        summarised_state_indices: Sequence[int] | ArrayLike,
+        summarised_observable_indices: Sequence[int] | ArrayLike,
         summaries_list: Sequence[str],
         ):
     """Loop through the requested states and observables, applying the chained function to each. Return a device
     function which updates all requested summaries."""
-    num_summarised_states = len(summarised_states)
-    num_summarised_observables = len(summarised_observables)
+    num_summarised_states = len(summarised_state_indices)
+    num_summarised_observables = len(summarised_observable_indices)
     total_buffer_size = buffer_sizes.per_variable  # Use from SummariesBufferSizes instead of manual calculation
     buffer_offsets = summary_metrics.buffer_offsets(summaries_list)
     num_metrics = len(buffer_offsets)
@@ -107,22 +107,22 @@ def update_summary_factory(
             current_step,
             ):
         if summarise_states:
-            for state in range(num_summarised_states):
-                single_variable_slice_start = state * total_buffer_size
-                single_variable_slice_end = single_variable_slice_start + total_buffer_size
+            for idx in range(num_summarised_states):
+                start = idx * total_buffer_size
+                end = start + total_buffer_size
                 chain_fn(
-                        current_state[summarised_states[state]],
-                        state_summary_buffer[single_variable_slice_start:single_variable_slice_end],
+                        current_state[summarised_state_indices[idx]],
+                        state_summary_buffer[start:end],
                         current_step,
                         )
 
         if summarise_observables:
-            for observable in range(num_summarised_observables):
-                single_variable_slice_start = observable * total_buffer_size
-                single_variable_slice_end = single_variable_slice_start + total_buffer_size
+            for idx in range(num_summarised_observables):
+                start = idx * total_buffer_size
+                end = start + total_buffer_size
                 chain_fn(
-                        current_observables[summarised_observables[observable]],
-                        observable_summary_buffer[single_variable_slice_start:single_variable_slice_end],
+                        current_observables[summarised_observable_indices[idx]],
+                        observable_summary_buffer[start:end],
                         current_step,
                         )
 

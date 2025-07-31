@@ -43,7 +43,7 @@ def test_update_compile_settings(factory_with_settings):
     factory_with_settings.update_compile_settings(manually_overwritten_1=True)
     assert factory_with_settings.compile_settings.manually_overwritten_1 is True, "compile settings were not updated correctly"
 
-    with pytest.warns(UserWarning):
+    with pytest.raises(KeyError):
         factory_with_settings.update_compile_settings(non_existent_key=True
                                                       ), "factory did not emit a warning for non-existent key"
 

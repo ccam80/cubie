@@ -1,36 +1,17 @@
 from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
+from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
 import pytest
+import numpy as np
 
-# Incorporate batch configurator
-@pytest.fixture(scope="function")
-def SolverKernel(system, loop_compile_settings, precision):
-    """Fixture to create a SolverKernel instance with a ThreeChamberModel."""
-    kernel = BatchSolverKernel(system=system,
-                               algorithm='euler',
-                               dt_min=loop_compile_settings['dt_min'],
-                               dt_max=loop_compile_settings['dt_max'],
-                               dt_save=loop_compile_settings['dt_save'],
-                               dt_summarise=loop_compile_settings['dt_summarise'],
-                               atol=loop_compile_settings['atol'],
-                               rtol=loop_compile_settings['rtol'],
-                               saved_states=loop_compile_settings['saved_states'],
-                               saved_observables=loop_compile_settings['saved_observables'],
-                               summarised_states=loop_compile_settings['summarised_states'],
-                               summarised_observables=loop_compile_settings['summarised_observables'],
-                               output_types=loop_compile_settings['output_functions'],
-                               precision=precision,
-                               profileCUDA=False,
-                               )
-    return kernel
 
-def test_kernel_builds(SolverKernel):
-    """Test that the SolverKernel builds without errors."""
-    kernelfunc = SolverKernel.kernel
+def test_kernel_builds(solver):
+    """Test that the solver builds without errors."""
+    kernelfunc = solver.kernel
 
-# def test_run(SolverKernel):
-#     """Test that the SolverKernel can run with the provided inputs and settings."""
-#     inputs = inputs_dict(SolverKernel.system, SolverKernel.system.precision)
-#     outputs = SolverKernel.run(inputs)
+# def test_run(solver):
+#     """Test that the solver can run with the provided inputs and settings."""
+#     inputs = inputs_dict(solver.system, solver.system.precision)
+#     outputs = solver.run(inputs)
 #
 #     # Check that outputs are as expected
 #     assert outputs is not None, "Outputs should not be None"
@@ -38,8 +19,43 @@ def test_kernel_builds(SolverKernel):
 #     assert 'states' in outputs, "Outputs should contain 'states'"
 #     assert 'observables' in outputs, "Outputs should contain 'observables'"
 
+def test_algorithm_change(solver):
+    solver.update({'algorithm': 'generic'})
+    assert solver.single_integrator._integrator_instance.shared_memory_required == 0
 
-# Test that edits made to the kernel class make it down to the furthest reaches of the children - check sizes,
-# output functions, loop step config, etc.
+def test_all_lower_plumbing(system, solver):
+    """Big plumbing integration check - check that config classes match exactly between an updated solver and one
+    instantiated with the update settings."""
+    new_settings = {
+        'duration': 1.0,
+        'dt_min': 0.0001,
+        'dt_max': 0.01,
+        'dt_save': 0.01,
+        'dt_summarise': 0.1,
+        'atol': 1e-2,
+        'rtol': 1e-1,
+        'saved_state_indices': [0,1,2],
+        'saved_observable_indices': [0,1,2],
+        'summarised_state_indices': [0,],
+        'summarised_observable_indices': [0,],
+        'output_types': ["state", "observables", "mean", "max", "rms", "peaks[3]"],
+        'precision': np.float64,
+    }
+    solver.update(new_settings)
+    freshsolver = BatchSolverKernel(system,
+                                          algorithm='euler',
+                                          **new_settings)
 
-#Run one each euler and generic algorithms to check that we get the same results as loop tests.
+    assert freshsolver.compile_settings == solver.compile_settings, "BatchSolverConfig mismatch"
+    assert freshsolver.single_integrator.config == solver.single_integrator.config, "IntegratorRunSettings mismatch"
+    assert freshsolver.single_integrator._output_functions.compile_settings == \
+        solver.single_integrator._output_functions.compile_settings, "OutputFunctions mismatch"
+    assert freshsolver.single_integrator._system.compile_settings == \
+        solver.single_integrator._system.compile_settings, "SystemCompileSettings mismatch"
+    assert BatchOutputSizes.from_solver(freshsolver) == BatchOutputSizes.from_solver(solver), \
+        "BatchOutputSizes mismatch"
+
+def test_bogus_update_fails(solver):
+    solver.update(dt_min=0.0001)
+    with pytest.raises(KeyError):
+        solver.update(obviously_bogus_key="this should not work")

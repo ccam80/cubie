@@ -27,10 +27,10 @@ class OutputFunctions(CUDAFactory):
                  max_states: int,
                  max_observables: int,
                  output_types: list[str] = None,
-                 saved_states: Sequence[int] | ArrayLike = None,
-                 saved_observables: Sequence[int] | ArrayLike = None,
-                 summarised_states: Sequence[int] | ArrayLike = None,
-                 summarised_observables: Sequence[int] | ArrayLike = None,
+                 saved_state_indices: Sequence[int] | ArrayLike = None,
+                 saved_observable_indices: Sequence[int] | ArrayLike = None,
+                 summarised_state_indices: Sequence[int] | ArrayLike = None,
+                 summarised_observable_indices: Sequence[int] | ArrayLike = None,
                  ):
         super().__init__()
 
@@ -42,14 +42,14 @@ class OutputFunctions(CUDAFactory):
                 output_types=output_types,
                 max_states=max_states,
                 max_observables=max_observables,
-                saved_states=saved_states,
-                saved_observables=saved_observables,
-                summarised_states=summarised_states,
-                summarised_observables=summarised_observables,
+                saved_state_indices=saved_state_indices,
+                saved_observable_indices=saved_observable_indices,
+                summarised_state_indices=summarised_state_indices,
+                summarised_observable_indices=summarised_observable_indices,
                 )
         self.setup_compile_settings(config)
 
-    def update(self, silent=False, **kwargs):
+    def update(self, updates_dict=None, silent=False, **kwargs):
         """        Pass updates to compile settings through the CUDAFactory interface, which will invalidate cache if an update
         is successful. Pass silent=True if doing a bulk update with other component's params to suppress warnings
         about keys not found.
@@ -59,11 +59,29 @@ class OutputFunctions(CUDAFactory):
             **kwargs: Parameter updates to apply
 
         Returns:
-            list: unrecognized_params
+            list: recognized_params
             """
-        if 'output_types' in kwargs:
-            self.compile_settings.update_from_outputs_tuple(kwargs.pop('output_types'))
-        return self.update_compile_settings(silent=silent, **kwargs)
+        if updates_dict is None:
+            updates_dict = {}
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return []
+        unrecognised = set(updates_dict.keys())
+
+        recognised_params = set()
+        if 'output_types' in updates_dict:
+            self.compile_settings.update_from_outputs_tuple(updates_dict['output_types'])
+            recognised_params |= {'output_types'}
+
+        recognised_params |= self.update_compile_settings(updates_dict, silent=True)
+        unrecognised -= recognised_params
+
+        if not silent and unrecognised:
+            raise KeyError(f"Unrecognized parameters in update: {unrecognised}. "
+                           "These parameters were not updated.",
+                           )
+        return set(recognised_params)
 
     def build(self) -> OutputFunctionCache:
         """Compile three functions: Save state, update summaries metrics, and save summaries.

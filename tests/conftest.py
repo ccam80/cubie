@@ -145,8 +145,8 @@ def output_functions(loop_compile_settings, system):
 
     outputfunctions = OutputFunctions(system.sizes.states, system.sizes.parameters,
                                       loop_compile_settings['output_functions'],
-                                      loop_compile_settings['saved_states'],
-                                      loop_compile_settings['saved_observables'],
+                                      loop_compile_settings['saved_state_indices'],
+                                      loop_compile_settings['saved_observable_indices'],
                                       )
     return outputfunctions
 
@@ -159,15 +159,14 @@ def update_loop_compile_settings(system, **kwargs):
                                   'dt_summarise':      0.1,
                                   'atol':              1e-6,
                                   'rtol':                   1e-3,
-                                  'saved_states':           [0, 1],
-                                  'saved_observables':      [0, 1],
-                                  'summarised_states':      [0, 1],
-                                  'summarised_observables': [0, 1],
+                                  'saved_state_indices':           [0, 1],
+                                  'saved_observable_indices':      [0, 1],
+                                  'summarised_state_indices':      [0, 1],
+                                  'summarised_observable_indices': [0, 1],
                                   'output_functions':  ["state"],
                                   }
     loop_compile_settings_dict.update(kwargs)
     return loop_compile_settings_dict
-
 
 @pytest.fixture(scope='function')
 def loop_compile_settings_overrides(request):
@@ -193,8 +192,8 @@ def solver_settings(loop_compile_settings, solver_settings_override, precision):
         'dt_summarise':      loop_compile_settings['dt_summarise'],
         'atol':              loop_compile_settings['atol'],
         'rtol':              loop_compile_settings['rtol'],
-        'saved_states':      loop_compile_settings['saved_states'],
-        'saved_observables': loop_compile_settings['saved_observables'],
+        'saved_state_indices':      loop_compile_settings['saved_state_indices'],
+        'saved_observable_indices': loop_compile_settings['saved_observable_indices'],
         'output_types':      loop_compile_settings['output_functions'],
         'precision':         precision,
         'profileCUDA':       False,

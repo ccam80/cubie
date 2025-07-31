@@ -5,8 +5,6 @@ Created on Wed May 28 10:36:56 2025
 @author: cca79
 """
 
-from warnings import warn
-
 import numpy as np
 from numba import cuda, from_dtype
 
@@ -149,17 +147,6 @@ class GenericODE(CUDAFactory):
     def dxdt_function(self):
         return self.device_function
 
-    def set_constants(self, updates_dict):
-        """Update the constants of the system. Does not relabel parameters to constants, just updates values already
-        compiled as constants and forces a rebuild with new compile-time constants.
-
-        Args:
-            updates_dict (dict): A dictionary of constant names and their new values.
-        """
-        const = self.compile_settings.constants
-        const.update_from_dict(updates_dict)
-        self.update_compile_settings(constants=const)
-
     def build(self):
         """Compile the dxdt system as a CUDA device function."""
         # Optimisation: Check whether this is being compiled-in already - we haven't declared anything global in the
@@ -270,7 +257,7 @@ class GenericODE(CUDAFactory):
 
         return dxdt, observables
 
-    def update(self, silent=False, **kwargs):
+    def update(self, updates_dict, silent=False, **kwargs):
         """
         Pass updates to compile settings through the CUDAFactory interface, which will invalidate cache if an update
         is successful. Pass silent=True if doing a bulk update with other component's params to suppress warnings
@@ -283,30 +270,30 @@ class GenericODE(CUDAFactory):
         Returns:
             list: unrecognized_params
         """
-        return self.update_compile_settings(silent=silent, **kwargs)
+        return self.set_constants(updates_dict, silent=silent, **kwargs)
 
-    def update_compile_settings(self, silent=False, **kwargs):
-        """Overrides the CUDAFactory's update function due to the awkward nature of constants being hidden in a
-        SystemValues object in this module only. Awkward; a good refactor target.
+    def set_constants(self, updates_dict=None, silent=False, **kwargs):
+        """Update the constants of the system. Does not relabel parameters to constants, just updates values already
+        compiled as constants and forces a rebuild with new compile-time constants.
+
+        Args:
+            updates_dict (dict): A dictionary of constant names and their new values.
         """
-        if self._compile_settings is None:
-            raise ValueError("Compile settings must be set up using self.setup_compile_settings before updating.")
+        if updates_dict is None:
+            updates_dict = {}
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return []
 
-        update_successful = False
-        unrecognized_params = []
+        const = self.compile_settings.constants
+        recognised = const.update_from_dict(updates_dict, silent=True)
+        unrecognised = set(updates_dict.keys()) - recognised
+        self.update_compile_settings(constants=const, silent=True)
 
-        for key, value in kwargs.items():
-            if key in self._compile_settings.constants.values_dict:  # Only this line changes to look in constants
-                self._compile_settings.constants.values_dict[key] = value
-                update_successful = True
-            else:
-                unrecognized_params.append(key)
-                if not silent:
-                    warn(f"'{key}' is not a valid compile setting for this object, and so was not updated.",
-                         stacklevel=2,
-                         )
+        if not silent and unrecognised:
+            raise KeyError(f"Unrecognized parameters in update: {unrecognised}. "
+                           "These parameters were not updated.",
+                           )
 
-        if update_successful:
-            self._invalidate_cache()
-
-        return unrecognized_params
+        return recognised

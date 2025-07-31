@@ -5,7 +5,7 @@ from numpy import float32
 @attrs.define
 class BatchSolverConfig:
     """Configuration for the solver kernel."""
-    _precision: type = attrs.field(default=float32, validator=attrs.validators.instance_of(type))
+    precision: type = attrs.field(default=float32, validator=attrs.validators.instance_of(type))
     algorithm: str = 'euler'
     duration: float = 1.0
     warmup: float = 0.0

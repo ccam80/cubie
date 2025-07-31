@@ -45,10 +45,10 @@ class BatchSolverKernel(CUDAFactory):
                  dt_summarise: float = 1.0,
                  atol: float = 1e-6,
                  rtol: float = 1e-6,
-                 saved_states: NDArray[np.int_] = None,
-                 saved_observables: NDArray[np.int_] = None,
-                 summarised_states: Optional[ArrayLike] = None,
-                 summarised_observables: Optional[ArrayLike] = None,
+                 saved_state_indices: NDArray[np.int_] = None,
+                 saved_observable_indices: NDArray[np.int_] = None,
+                 summarised_state_indices: Optional[ArrayLike] = None,
+                 summarised_observable_indices: Optional[ArrayLike] = None,
                  output_types: list[str] = None,
                  precision: type = np.float64,
                  profileCUDA: bool = False,
@@ -74,10 +74,10 @@ class BatchSolverKernel(CUDAFactory):
                 dt_summarise=dt_summarise,
                 atol=atol,
                 rtol=rtol,
-                saved_states=saved_states,
-                saved_observables=saved_observables,
-                summarised_states=summarised_states,
-                summarised_observables=summarised_observables,
+                saved_state_indices=saved_state_indices,
+                saved_observable_indices=saved_observable_indices,
+                summarised_state_indices=summarised_state_indices,
+                summarised_observable_indices=summarised_observable_indices,
                 output_types=output_types,
                 )
 
@@ -214,6 +214,24 @@ class BatchSolverKernel(CUDAFactory):
             return None
 
         return integration_kernel
+
+    def update(self, updates_dict=None, silent=False, **kwargs):
+        if updates_dict is None:
+            updates_dict = {}
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return set()
+
+        all_unrecognized = set(updates_dict.keys())
+        all_unrecognized -= self.update_compile_settings(updates_dict, silent=True)
+        all_unrecognized -= self.single_integrator.update(updates_dict, silent=True)
+        recognised = set(updates_dict.keys()) - all_unrecognized
+
+        if all_unrecognized:
+            if not silent:
+                raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
+        return recognised
 
     @property
     def shared_memory_bytes_per_run(self):

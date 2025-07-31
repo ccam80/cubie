@@ -1,4 +1,4 @@
-from warnings import warn
+from typing import Set
 
 import attrs
 
@@ -109,36 +109,44 @@ class CUDAFactory:
         """
         return self._compile_settings
 
-    def update_compile_settings(self, silent=False, **kwargs):
+    def update_compile_settings(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
         """
         Update the compile settings with new values, specified as keyword arguments.
         This method should be called before building the system to ensure that the latest settings are used.
 
         Args:
+            updates_dict (dict): A dictionary of compile settings to update with
             silent (bool): If True, suppress warnings about unrecognized parameters
-            **kwargs: Parameter updates to apply
+            **kwargs: keywpord arguments to supplement or replace updates_dict
         """
+        if updates_dict is None:
+            updates_dict = {}
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return set()
+
         if self._compile_settings is None:
             raise ValueError("Compile settings must be set up using self.setup_compile_settings before updating.")
 
         update_successful = False
-        unrecognized_params = []
+        recognized_params = []
 
-        for key, value in kwargs.items():
+        for key, value in updates_dict.items():
             if in_attr(key, self._compile_settings):
                 setattr(self._compile_settings, key, value)
                 update_successful = True
-            else:
-                unrecognized_params.append(key)
-                if not silent:
-                    warn(f"'{key}' is not a valid compile setting for this object, and so was not updated.",
-                         stacklevel=2,
-                         )
+                recognized_params.append(key)
 
-        if update_successful:
+        unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
+
+        if unrecognised_params and not silent:
+            raise KeyError(f"'{key}' is not a valid compile setting for this object, and so was not updated.",
+                           )
+        if recognized_params != []:
             self._invalidate_cache()
 
-        return unrecognized_params
+        return set(recognized_params)
 
     def _invalidate_cache(self):
         self._cache_valid = False

@@ -14,6 +14,7 @@ from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 from CuMC.ForwardSim.integrators.IntegratorRunSettings import IntegratorRunSettings
 from CuMC.ForwardSim.integrators.algorithms import ImplementedAlgorithms
 from CuMC.SystemModels.Systems.ODEData import SystemSizes
+from CuMC._utils import in_attr
 
 
 class SingleIntegratorRun:
@@ -53,10 +54,10 @@ class SingleIntegratorRun:
                  dt_summarise: float = 1.0,
                  atol: float = 1e-6,
                  rtol: float = 1e-6,
-                 saved_states: Optional[ArrayLike] = None,
-                 saved_observables: Optional[ArrayLike] = None,
-                 summarised_states: Optional[ArrayLike] = None,
-                 summarised_observables: Optional[ArrayLike] = None,
+                 saved_state_indices: Optional[ArrayLike] = None,
+                 saved_observable_indices: Optional[ArrayLike] = None,
+                 summarised_state_indices: Optional[ArrayLike] = None,
+                 summarised_observable_indices: Optional[ArrayLike] = None,
                  output_types: list[str] = None,
                  ):
 
@@ -69,10 +70,10 @@ class SingleIntegratorRun:
                 max_states=system_sizes.states,
                 max_observables=system_sizes.observables,
                 output_types=output_types,
-                saved_states=saved_states,
-                saved_observables=saved_observables,
-                summarised_states=summarised_states,
-                summarised_observables=summarised_observables,
+                saved_state_indices=saved_state_indices,
+                saved_observable_indices=saved_observable_indices,
+                summarised_state_indices=summarised_state_indices,
+                summarised_observable_indices=summarised_observable_indices,
                 )
 
         compile_settings = IntegratorRunSettings(dt_min=dt_min,
@@ -81,11 +82,11 @@ class SingleIntegratorRun:
                                                  dt_summarise=dt_summarise,
                                                  atol=atol,
                                                  rtol=rtol,
-                                                 requested_outputs=output_types,
-                                                 saved_states=saved_states,
-                                                 saved_observables=saved_observables,
-                                                 summarised_states=summarised_states,
-                                                 summarised_observables=summarised_observables,
+                                                 output_types=output_types,
+                                                 saved_state_indices=saved_state_indices,
+                                                 saved_observable_indices=saved_observable_indices,
+                                                 summarised_state_indices=summarised_state_indices,
+                                                 summarised_observable_indices=summarised_observable_indices,
                                                  )
 
         self.config = compile_settings
@@ -112,7 +113,7 @@ class SingleIntegratorRun:
         """Get the sizes of the buffers used for summaries."""
         return self._output_functions.summaries_buffer_sizes
 
-    def update(self, **kwargs):
+    def update(self, updates_dict=None, silent=False, **kwargs):
         """
         Update parameters across all components..
 
@@ -121,59 +122,40 @@ class SingleIntegratorRun:
         recognized by any component.
 
         Args:
+            update_dict (dict): Dictionary of parameters to update
+            silent (bool): If True, suppress warnings about unrecognized parameters
             **kwargs: Parameter updates to apply
 
         Raises:
             ValueError: If no parameters are recognized by any component
         """
-        if not kwargs:
-            return
+        if updates_dict == None:
+            updates_dict = {}
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return set()
 
-        all_unrecognized = set(kwargs.keys())
+        all_unrecognized = set(updates_dict.keys())
+        recognized = set()
+
         # Update anything held in the config object (step sizes, etc)
-        recognized = []
-        for key, value in kwargs.items():
-            if hasattr(self.config, key):
+        for key, value in updates_dict.items():
+            if in_attr(key, self.config):
                 setattr(self.config, key, value)
-                recognized.append(key)
-            if hasattr(self.config.loop_step_config, key):
-                setattr(self.config.loop_step_config, key, value)
-                recognized.append(key)
+                recognized.add(key)
 
-        all_unrecognized -= set(recognized)
-
-        unrecognized = self._system.update(silent=True, **kwargs)
-        all_unrecognized -= set(kwargs.keys()) - set(unrecognized)
-
-        unrecognized = self._output_functions.update(silent=True, **kwargs)
-        all_unrecognized -= set(kwargs.keys()) - set(unrecognized)
-
-        if 'algorithm' in kwargs.keys():
+        if 'algorithm' in updates_dict.keys():
             # If the algorithm is being updated, we need to reset the integrator instance
-            self.algorithm_key = kwargs['algorithm'].lower()
+            self.algorithm_key = updates_dict['algorithm'].lower()
             algorithm = ImplementedAlgorithms[self.algorithm_key]
             self._integrator_instance = algorithm.from_single_integrator_run(self)
-            all_unrecognized.discard('algorithm')
+            recognized.add('algorithm')
 
-        # Check if any parameters were unrecognized (indicating an entry error)
-        if all_unrecognized:
-            unrecognized_list = sorted(all_unrecognized)
-            raise KeyError(f"The following updates were not recognized by any component. Was this a typo?:"
-                           f" {unrecognized_list}",
-                           )
+        recognized |= self._system.update(updates_dict, silent=True)
+        recognized |= self._output_functions.update(updates_dict, silent=True)
 
-        self._invalidate_cache()
-
-    def _invalidate_cache(self):
-        """Invalidate the compiled loop cache."""
-        self._loop_cache_valid = False
-        self._compiled_loop = None
-
-    def build(self):
-        """Build the complete integrator loop."""
-
-        # Update with latest function references
-        updates = {
+        cached_loop_updates = {
             'dxdt_function':         self.dxdt_function,
             'save_state_func':       self.save_state_func,
             'update_summaries_func': self.update_summaries_func,
@@ -184,8 +166,28 @@ class SingleIntegratorRun:
             'compile_flags':         self.compile_flags
             }
 
+        recognized |= self._integrator_instance.update(cached_loop_updates, silent=True)
+        all_unrecognized -= recognized
+
+        if all_unrecognized:
+            if not silent:
+                raise KeyError(f"The following updates were not recognized by any component:"
+                               f" {all_unrecognized}",
+                               )
+
         self.config.validate_settings()
-        self._integrator_instance.update(**updates)
+        self._invalidate_cache()
+        return recognized
+
+    def _invalidate_cache(self):
+        """Invalidate the compiled loop cache."""
+        self._loop_cache_valid = False
+        self._compiled_loop = None
+
+    def build(self):
+        """Build the complete integrator loop."""
+
+        # Update with latest function references
 
         self._compiled_loop = self._integrator_instance.device_function
         self._loop_cache_valid = True

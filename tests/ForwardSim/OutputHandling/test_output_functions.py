@@ -15,8 +15,8 @@ def output_test_settings(output_test_settings_overrides, precision):
                                  'num_summaries':          1,
                                  'num_states':             10,
                                  'num_observables':        10,
-                                 'saved_states':           [0, 1],
-                                 'saved_observables':      [0, 1],
+                                 'saved_state_indices':           [0, 1],
+                                 'saved_observable_indices':      [0, 1],
                                  'random_scale':           1.0,
                                  'output_types':           ["state"],
                                  'precision':              precision,
@@ -37,8 +37,8 @@ def output_functions(output_test_settings):
     return OutputFunctions(output_test_settings['num_states'],
                            output_test_settings['num_observables'],
                            output_test_settings['output_types'],
-                           output_test_settings['saved_states'],
-                           output_test_settings['saved_observables'],
+                           output_test_settings['saved_state_indices'],
+                           output_test_settings['saved_observable_indices'],
                            )
 
 @pytest.mark.parametrize("output_test_settings_overrides",
@@ -52,9 +52,9 @@ def test_save_time(output_functions, output_test_settings):
 @pytest.mark.parametrize("output_test_settings_overrides, fails",
                          [({'output_types': ["state", "observables"]}, False),
                           ({'output_types': ["state", "observables", "max", "rms", "peaks[3]"]}, False),
-                          ({'saved_states': [0], 'saved_observables': [0]}, False),
-                          ({'saved_states':[20]}, True),
-                          ({'saved_states': [], 'saved_observables': []}, False),
+                          ({'saved_state_indices': [0], 'saved_observable_indices': [0]}, False),
+                          ({'saved_state_indices':[20]}, True),
+                          ({'saved_state_indices': [], 'saved_observable_indices': []}, False),
                           ({'output_types': []}, True)],
                          ids=["no_summaries", "all_summaries", "single_saved", "saved_index_out_of_bounds",
                               "saved_empty", "no_output_types"],
@@ -68,16 +68,16 @@ def test_output_functions_build(output_test_settings, fails):
             OutputFunctions(output_test_settings['num_states'],
                             output_test_settings['num_observables'],
                             output_test_settings['output_types'],
-                            output_test_settings['saved_states'],
-                            output_test_settings['saved_observables'],
+                            output_test_settings['saved_state_indices'],
+                            output_test_settings['saved_observable_indices'],
                             )
 
     else:
         output_functions = OutputFunctions(output_test_settings['num_states'],
                                            output_test_settings['num_observables'],
                                            output_test_settings['output_types'],
-                                           output_test_settings['saved_states'],
-                                           output_test_settings['saved_observables'],
+                                           output_test_settings['saved_state_indices'],
+                                           output_test_settings['saved_observable_indices'],
                                            )
         save_state = output_functions.save_state_func
         update_summaries = output_functions.update_summaries_func
@@ -137,8 +137,8 @@ def expected_outputs(output_test_settings, input_arrays, precision):
     """Selected portions of input arrays - should match what the test kernel does."""
     num_samples = output_test_settings['num_samples']
     state_in, observables_in = input_arrays
-    state_out = state_in[:, output_test_settings['saved_states']]
-    observable_out = observables_in[:, output_test_settings['saved_observables']]
+    state_out = state_in[:, output_test_settings['saved_state_indices']]
+    observable_out = observables_in[:, output_test_settings['saved_observable_indices']]
     save_time = 'time' in output_test_settings['output_types']
 
     if save_time:
@@ -430,10 +430,10 @@ def test_various_summaries(compare_input_output):
 
 @pytest.mark.parametrize("precision_override", [np.float32], ids=["float32"], indirect=True)
 @pytest.mark.parametrize("output_test_settings_overrides", [
-    {'saved_states': [0], 'saved_observables': [0]},
-    {'num_states': 11, 'num_observables': 6, 'saved_states': list(range(10)), 'saved_observables': list(range(5))},
-    {'num_states': 51, 'num_observables': 21,'saved_states': list(range(50)), 'saved_observables': list(range(20))},
-    {'num_states': 101, 'num_observables': 100, 'saved_states': list(range(100)), 'saved_observables': list(range(100))}
+    {'saved_state_indices': [0], 'saved_observable_indices': [0]},
+    {'num_states': 11, 'num_observables': 6, 'saved_state_indices': list(range(10)), 'saved_observable_indices': list(range(5))},
+    {'num_states': 51, 'num_observables': 21,'saved_state_indices': list(range(50)), 'saved_observable_indices': list(range(20))},
+    {'num_states': 101, 'num_observables': 100, 'saved_state_indices': list(range(100)), 'saved_observable_indices': list(range(100))}
     ], ids=["1_1", "10_5", "50_20", "100_100"], indirect=True)
 def test_big_and_small_systems(compare_input_output):
     """Test various small to medium system sizes."""

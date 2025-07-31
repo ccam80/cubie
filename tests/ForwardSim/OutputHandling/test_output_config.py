@@ -313,7 +313,7 @@ class TestFromLoopSettings:
         """Test creation with specified indices."""
         config = OutputConfig.from_loop_settings(
             output_types=["state"],
-            saved_states=[1, 3],
+            saved_state_indices=[1, 3],
             max_states=10,
             max_observables=5
         )
@@ -326,8 +326,8 @@ class TestFromLoopSettings:
         """Test creation with summary metrics."""
         config = OutputConfig.from_loop_settings(
             output_types=["mean", "max", "state"],
-            saved_states=[0, 1],
-            summarised_states=[1],
+            saved_state_indices=[0, 1],
+            summarised_state_indices=[1],
             max_states=10,
             max_observables=5
         )
@@ -351,8 +351,8 @@ class TestFromLoopSettings:
         """Test that summarised indices default to saved indices."""
         config = OutputConfig.from_loop_settings(
             output_types=["mean"],
-            saved_states=np.array([0, 1], dtype=np.int_),
-            saved_observables=np.array([0], dtype=np.int_),
+            saved_state_indices=np.array([0, 1], dtype=np.int_),
+            saved_observable_indices=np.array([0], dtype=np.int_),
             max_states=10,
             max_observables=5
         )

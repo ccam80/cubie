@@ -101,12 +101,12 @@ class LoopAlgorithmTester:
         compile_settings = loop_under_test.compile_settings
 
         for key, value in loop_compile_settings_overrides.items():
-            if key == "saved_states":
+            if key == "saved_state_indices":
                 assert compile_settings.buffer_sizes.state >= len(value), \
-                    f"saved_states buffer size does not accommodate expected value {len(value)}"
-            elif key == "saved_observables":
+                    f"saved_state_indices buffer size does not accommodate expected value {len(value)}"
+            elif key == "saved_observable_indices":
                 assert compile_settings.buffer_sizes.observables >= len(value), \
-                    f"saved_observables buffer size does not accommodate expected value {len(value)}"
+                    f"saved_observable_indices buffer size does not accommodate expected value {len(value)}"
             elif key == "output_functions" or key == "n_peaks":
                 # Check that summary buffer sizes match expectations
                 assert compile_settings.buffer_sizes.state_summaries == output_functions.state_summaries_buffer_height, \

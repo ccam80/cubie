@@ -2,6 +2,7 @@ from numba import cuda, int32, from_dtype
 
 from CuMC.CUDAFactory import CUDAFactory
 from CuMC.ForwardSim.integrators.algorithms.IntegratorLoopSettings import IntegratorLoopSettings
+from CuMC._utils import in_attr
 
 
 class GenericIntegratorAlgorithm(CUDAFactory):
@@ -91,11 +92,6 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         loop_states = loop_sizes.state
         loop_obs = loop_sizes.observables
 
-        # summaries_output = summary_buffer_size > 0 # Without this toggle, the compiler will try to compile in empty
-        # functions. If it succeeds, that's a boon, it's just optimised out the calls. If it fails, we need to
-        # propagate this flag across from output_functions
-
-        # noinspection PyTypeChecker
         numba_precision = from_dtype(precision)
 
         @cuda.jit((numba_precision[:],
@@ -155,7 +151,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
         return dummy_loop
 
-    def update(self, silent=False, **kwargs):
+    def update(self, updates_dict=None, silent=False, **kwargs):
         """
         Pass updates to compile settings through the CUDAFactory interface, which will invalidate cache if an update
         is successful. Pass silent=True if doing a bulk update with other component's params to suppress warnings
@@ -166,8 +162,26 @@ class GenericIntegratorAlgorithm(CUDAFactory):
             **kwargs: Parameter updates to apply
 
         Returns:
-            list: unrecognized_params"""
-        return self.update_compile_settings(silent=silent, **kwargs)
+            list: recognized_params"""
+        if updates_dict is None:
+            updates_dict = {}
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return set()
+
+        recognised = self.update_compile_settings(updates_dict, silent=True)
+        for key, value in updates_dict.items():
+            if in_attr(key, self.compile_settings.loop_step_config):
+                setattr(self.compile_settings, key, value)
+                recognised.add(key)
+
+        unrecognised = set(updates_dict.keys()) - recognised
+        if not silent and unrecognised:
+            raise KeyError(f"Unrecognized parameters in update: {unrecognised}. "
+                           "These parameters were not updated.",
+                           )
+        return recognised
 
     @property
     def shared_memory_required(self):

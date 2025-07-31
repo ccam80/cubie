@@ -23,7 +23,6 @@ class SystemValues:
     values_dict: dict
     precision: np.dtype
 
-
     def __init__(self,
                  values_dict,
                  precision,
@@ -243,7 +242,7 @@ class SystemValues:
             updates = {self.keys_by_index[index]: value for index, value in zip(indices, values)}
         self.update_from_dict(updates)
 
-    def update_from_dict(self, values_dict, silent=False):
+    def update_from_dict(self, values_dict, silent=False, **kwargs):
         """
         Update dictionary and values_array with new values
         Updates both the values_dict and the values_array.
@@ -260,15 +259,24 @@ class SystemValues:
             recognised keys: set[str]
                 A set of keys that were successfully updated
         """
+        if values_dict is None:
+            values_dict = {}
+        if kwargs:
+            values_dict.update(kwargs)
+        if values_dict == {}:
+            return set()
+
         # Update the dictionary
-        missing = [k for k in values_dict.keys() if k not in self.indices_dict]
-        if missing:
+        unrecognised = [k for k in values_dict.keys() if k not in self.indices_dict]
+        recognised = {k: v for k, v in values_dict.items() if k in self.indices_dict}
+        if unrecognised:
             if not silent:
                 raise KeyError(
-                        f"Parameter key(s) {missing} not found in this SystemValues object. Double check that you're looking " +
+                        f"Parameter key(s) {unrecognised} not found in this SystemValues object. Double check that "
+                        f"you're looking " +
                         f"in the right place (i.e. states, or parameters, or constants)",
                         )
-        if any(np.can_cast(value, self.precision) is False for value in values_dict.values()):
+        if any(np.can_cast(value, self.precision) is False for value in recognised.values()):
             raise TypeError(
                     f"One or more values in the provided dictionary cannot be cast to the specified precision {self.precision}. "
                     f"Please ensure all values are compatible with this precision.",
@@ -277,11 +285,11 @@ class SystemValues:
             # Update the dictionary
             self.values_dict.update(values_dict)
             # Update the values_array
-            for key, value in values_dict.items():
+            for key, value in recognised.items():
                 index = self.get_index_of_key(key, silent=silent)
                 self.values_array[index] = value
 
-        return set(values_dict.keys()) - set(missing)
+        return set(values_dict.keys()) - set(unrecognised)
 
     @property
     def names(self):
