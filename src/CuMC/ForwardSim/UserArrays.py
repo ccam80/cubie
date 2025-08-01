@@ -20,7 +20,7 @@ class UserArrays:
         validator=attrs.validators.optional(attrs.validators.instance_of(dict)))
 
     @classmethod
-    def from_solver(cls, solver: BatchSolverKernel) -> "UserArrays": #noqa: F821
+    def from_solver(cls, solver: BatchSolverKernel) -> "UserArrays":  # noqa: F821
         """
         Create UserArrays from a BatchSolverKernel instance.
 
@@ -45,7 +45,7 @@ class UserArrays:
 
 
 
-def summary_legend_from_solver(solver: "Solver") -> dict[int, str]: #noqa: F821
+def summary_legend_from_solver(solver: "Solver") -> dict[int, str]:  # noqa: F821
     """
     Get the summary array legend from a Solver instance.
 
