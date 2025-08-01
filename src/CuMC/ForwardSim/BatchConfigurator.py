@@ -3,7 +3,7 @@ Module to configure batch runs by building parameter and initial value grids,
 index generators for saved states/observables, and splitting summary outputs.
 """
 from itertools import product
-from typing import List, Union, Dict
+from typing import List, Union, Dict, Optional
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -390,3 +390,69 @@ class BatchConfigurator:
         initial_values_array, params_array = combine_grids(initial_values_array, params_array, kind=kind)
 
         return initial_values_array, params_array
+
+    def get_labels(self, values_object, indices: np.ndarray) -> List[str]:
+        """
+        Get the labels of the states corresponding to the provided indices.
+        Parameters
+        ----------
+        indices : np.ndarray
+            A 1D array of state indices.
+
+        Returns
+        -------
+        List[str]
+            A list of state labels corresponding to the provided indices.
+        """
+        return values_object.get_labels(indices)
+
+    def state_labels(self, indices: Optional[np.ndarray]) -> List[str]:
+        """
+        Get the labels of the states corresponding to the provided indices.
+        Parameters
+        ----------
+        indices : np.ndarray
+            A 1D array of state indices. If None, return all state labels.
+
+        Returns
+        -------
+        List[str]
+            A list of state labels corresponding to the provided indices.
+        """
+        if indices is None:
+            return self.states.names
+        return self.get_labels(self.states, indices)
+
+    def observable_labels(self, indices: Optional[np.ndarray]) -> List[str]:
+        """
+        Get the labels of the observables corresponding to the provided indices.
+        Parameters
+        ----------
+        indices : np.ndarray
+            A 1D array of observable indices. If None, return all observable labels.
+
+        Returns
+        -------
+        List[str]
+            A list of observable labels corresponding to the provided indices.
+        """
+        if indices is None:
+            return self.observables.names
+        return self.get_labels(self.observables, indices)
+
+    def parameter_labels(self, indices: Optional[np.ndarray]) -> List[str]:
+        """
+        Get the labels of the parameters corresponding to the provided indices.
+        Parameters
+        ----------
+        indices : np.ndarray
+            A 1D array of parameter indices. If None, return all parameter labels.
+
+        Returns
+        -------
+        List[str]
+            A list of parameter labels corresponding to the provided indices.
+        """
+        if indices is None:
+            return self.parameters.names
+        return self.get_labels(self.parameters, indices)

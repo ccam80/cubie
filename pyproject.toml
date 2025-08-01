@@ -47,7 +47,7 @@ addopts = [
     "--import-mode=importlib",
     "-ra",
     "--cov=CuMC",
-    "--cov-report=html:htmlReport",
+    "--cov-report=xml:coverage.xml",
     "--cov-report=term-missing",
     "--json-report",
     "--json-report-file=tests/pytest_report.json",

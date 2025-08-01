@@ -83,10 +83,10 @@ class SingleIntegratorRun:
                                                  atol=atol,
                                                  rtol=rtol,
                                                  output_types=output_types,
-                                                 saved_state_indices=saved_state_indices,
-                                                 saved_observable_indices=saved_observable_indices,
-                                                 summarised_state_indices=summarised_state_indices,
-                                                 summarised_observable_indices=summarised_observable_indices,
+                                                 # saved_state_indices=saved_state_indices,
+                                                 # saved_observable_indices=saved_observable_indices,
+                                                 # summarised_state_indices=summarised_state_indices,
+                                                 # summarised_observable_indices=summarised_observable_indices,
                                                  )
 
         self.config = compile_settings
@@ -278,6 +278,31 @@ class SingleIntegratorRun:
         return self._output_functions.compile_flags
 
     @property
-    def summary_types(self):
+    def output_types(self):
         """Expose summary_types from output functions for easier access."""
-        return self._output_functions.summary_types
+        return self._output_functions.output_types
+
+    @property
+    def summary_legend_per_variable(self):
+        """Get the summary legend per variable."""
+        return self._output_functions.summary_legend_per_variable
+
+    @property
+    def saved_state_indices(self):
+        """Get the indices of the saved states."""
+        return self._output_functions.saved_state_indices
+
+    @property
+    def saved_observable_indices(self):
+        """Get the indices of the saved observables."""
+        return self._output_functions.saved_observable_indices
+
+    @property
+    def summarised_state_indices(self):
+        """Get the indices of the summarised states."""
+        return self._output_functions.summarised_state_indices
+
+    @property
+    def summarised_observable_indices(self):
+        """Get the indices of the summarised observables."""
+        return self._output_functions.summarised_observable_indices

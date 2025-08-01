@@ -26,47 +26,47 @@ class IntegratorRunSettings:
                     iterable_validator=attrs.validators.instance_of(list),
                     ),
             )
-    saved_state_indices: Optional[Sequence | NDArray[int]] = attrs.field(
-            default=attrs.Factory(list),
-            validator=attrs.validators.optional(
-                    attrs.validators.deep_iterable(
-                            member_validator=attrs.validators.instance_of(int),
-                            iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
-                            ),
-                    ),
-            eq=attrs.cmp_using(eq=array_equal),
-            )
-    saved_observable_indices: Optional[Sequence | NDArray[int]] = attrs.field(
-            default=attrs.Factory(list),
-            validator=attrs.validators.optional(
-                    attrs.validators.deep_iterable(
-                            member_validator=attrs.validators.instance_of(int),
-                            iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
-                            ),
-                    ),
-            eq=attrs.cmp_using(eq=array_equal),
-            )
-    summarised_state_indices: Optional[Sequence | NDArray[int]] = attrs.field(
-            default=attrs.Factory(list),
-            validator=attrs.validators.optional(
-                    attrs.validators.deep_iterable(
-                            member_validator=attrs.validators.instance_of(int),
-                            iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
-                            ),
-                    ),
-            eq=attrs.cmp_using(eq=array_equal),
-            )
-
-    summarised_observable_indices: Optional[Sequence | NDArray[int]] = attrs.field(
-            default=attrs.Factory(list),
-            validator=attrs.validators.optional(
-                    attrs.validators.deep_iterable(
-                            member_validator=attrs.validators.instance_of(int),
-                            iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
-                            ),
-                    ),
-            eq=attrs.cmp_using(eq=array_equal),
-            )
+    # saved_state_indices: Optional[Sequence | NDArray[int]] = attrs.field(
+    #         default=attrs.Factory(list),
+    #         validator=attrs.validators.optional(
+    #                 attrs.validators.deep_iterable(
+    #                         member_validator=attrs.validators.instance_of(int),
+    #                         iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
+    #                         ),
+    #                 ),
+    #         eq=attrs.cmp_using(eq=array_equal),
+    #         )
+    # saved_observable_indices: Optional[Sequence | NDArray[int]] = attrs.field(
+    #         default=attrs.Factory(list),
+    #         validator=attrs.validators.optional(
+    #                 attrs.validators.deep_iterable(
+    #                         member_validator=attrs.validators.instance_of(int),
+    #                         iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
+    #                         ),
+    #                 ),
+    #         eq=attrs.cmp_using(eq=array_equal),
+    #         )
+    # summarised_state_indices: Optional[Sequence | NDArray[int]] = attrs.field(
+    #         default=attrs.Factory(list),
+    #         validator=attrs.validators.optional(
+    #                 attrs.validators.deep_iterable(
+    #                         member_validator=attrs.validators.instance_of(int),
+    #                         iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
+    #                         ),
+    #                 ),
+    #         eq=attrs.cmp_using(eq=array_equal),
+    #         )
+    #
+    # summarised_observable_indices: Optional[Sequence | NDArray[int]] = attrs.field(
+    #         default=attrs.Factory(list),
+    #         validator=attrs.validators.optional(
+    #                 attrs.validators.deep_iterable(
+    #                         member_validator=attrs.validators.instance_of(int),
+    #                         iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),
+    #                         ),
+    #                 ),
+    #         eq=attrs.cmp_using(eq=array_equal),
+    #         )
 
     def __attrs_post_init__(self):
         """Validate timing relationships."""

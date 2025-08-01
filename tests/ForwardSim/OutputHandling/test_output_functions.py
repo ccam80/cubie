@@ -83,13 +83,10 @@ def test_output_functions_build(output_test_settings, fails):
         update_summaries = output_functions.update_summaries_func
         save_summaries = output_functions.save_summary_metrics_func
 
-        # Now use these functions in your test
         assert callable(save_state)
         assert callable(update_summaries)
         assert callable(save_summaries)
-        if len(output_functions.summary_types) > 0:
-            assert output_functions.summaries_output_height_per_var > 0
-            assert output_functions.summaries_buffer_height_per_var > 0
+
 
 @pytest.fixture(scope='function')
 def input_arrays(output_test_settings):

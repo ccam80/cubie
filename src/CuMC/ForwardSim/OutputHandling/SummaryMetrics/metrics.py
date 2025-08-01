@@ -185,6 +185,26 @@ class SummaryMetrics:
             offset += size
         return tuple(offsets_dict[metric] for metric in parsed_request)
 
+    def output_offsets_dict(self, output_types_requested):
+        """
+        Returns a dictionary of output array starting offsets for the requested summary metrics.
+
+        Args:
+            output_types_requested: A list of metric names to generate offsets for.
+
+        Returns:
+            A dictionary with metric names as keys and their offsets as values.
+        """
+        parsed_request = self.preprocess_request(output_types_requested)
+
+        offset = 0
+        offsets_dict = {}
+        for metric in parsed_request:
+            offsets_dict[metric] = offset
+            size = self._get_size(metric, self._output_sizes)
+            offset += size
+        return offsets_dict
+
     def summaries_output_height(self, output_types_requested):
         """
         Returns the total output size for the requested summaries metrics.
@@ -216,7 +236,7 @@ class SummaryMetrics:
 
         return size
 
-    def column_headings(self, output_types_requested):
+    def legend(self, output_types_requested):
         """
         Returns a list of column headings for the requested summary metrics.
 

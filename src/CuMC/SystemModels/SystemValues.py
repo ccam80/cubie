@@ -295,6 +295,22 @@ class SystemValues:
     def names(self):
         return list(self.values_dict.keys())
 
+    def get_labels(self, indices):
+        """
+        Get the labels (keys) corresponding to the provided indices.
+
+        Args:
+            indices: list or array of indices
+
+        Returns:
+            list of labels corresponding to the provided indices
+        """
+        if isinstance(indices, (list, np.ndarray)):
+            return [self.keys_by_index[i] for i in indices]
+        else:
+            raise TypeError(f"indices must be a list or numpy array, you provided a {type(indices)}.")
+
+
     def __getitem__(self, key):
         """
         Allow dictionary-like and array-like access to the values. Any indexing method will return a value or values only.

@@ -134,9 +134,9 @@ class OutputFunctions(CUDAFactory):
         return self.get_cached_output('update_summaries_function')
 
     @property
-    def summary_types(self):
+    def output_types(self):
         """Return a set of the summaries requested/compiled into the functions"""
-        return self.compile_settings.summary_types
+        return self.compile_settings.output_types
 
     @property
     def save_summary_metrics_func(self):
@@ -239,3 +239,8 @@ class OutputFunctions(CUDAFactory):
     def output_array_heights(self) -> OutputArrayHeights:
         """Return the heights of the output arrays for states and observables."""
         return OutputArrayHeights.from_output_fns(self)
+
+    @property
+    def summary_legend_per_variable(self) -> dict[str, int]:
+        """Return a dictionary mapping summary names to their heights per variable."""
+        return self.compile_settings.summary_legend_per_variable()

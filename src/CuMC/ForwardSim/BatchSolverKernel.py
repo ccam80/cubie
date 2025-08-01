@@ -65,6 +65,9 @@ class BatchSolverKernel(CUDAFactory):
         # Setup compile settings for the kernel
         self.setup_compile_settings(config)
 
+        if output_types is None:
+            output_types = ["state"]
+
         self.single_integrator = SingleIntegratorRun(
                 system,
                 algorithm=algorithm,
@@ -309,6 +312,26 @@ class BatchSolverKernel(CUDAFactory):
         return BatchOutputSizes.from_solver(self)
 
     @property
-    def summary_types(self):
-        """Returns the output sizes for the solver."""
-        return self.summary_types
+    def summary_legend_per_variable(self):
+        """Returns the summary legend per variable."""
+        return self.single_integrator.summary_legend_per_variable
+
+    @property
+    def saved_state_indices(self):
+        """Returns the saved state indices."""
+        return self.single_integrator.saved_state_indices
+
+    @property
+    def saved_observable_indices(self):
+        """Returns the saved observable indices."""
+        return self.single_integrator.saved_observable_indices
+
+    @property
+    def summarised_state_indices(self):
+        """Returns the summarised state indices."""
+        return self.single_integrator.summarised_state_indices
+
+    @property
+    def summarised_observable_indices(self):
+        """Returns the summarised observable indices."""
+        return self.single_integrator.summarised_observable_indices

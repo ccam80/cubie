@@ -4,11 +4,24 @@ import attrs
 import attrs.validators as val
 from numba.cuda import mapped_array
 from numpy import float32
-
+import numpy as np
 from CuMC import summary_metrics
 from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
 from CuMC.ForwardSim._utils import optional_cuda_array_validator_3d
 
+@attrs.define
+class ActiveOutputs:
+    state: bool = attrs.field(default=False, validator=val.instance_of(bool))
+    observables: bool = attrs.field(default=False, validator=val.instance_of(bool))
+    state_summaries: bool = attrs.field(default=False, validator=val.instance_of(bool))
+    observable_summaries: bool = attrs.field(default=False, validator=val.instance_of(bool))
+
+    def update_from_outputarrays(self, output_arrays: "OutputArrays"):
+        """Update the active outputs based on the provided OutputArrays instance."""
+        self.state = output_arrays.state is not None and output_arrays.state.size > 1
+        self.observables = output_arrays.observables is not None and output_arrays.observables.size > 1
+        self.state_summaries = output_arrays.state_summaries is not None and output_arrays.state_summaries.size > 1
+        self.observable_summaries = output_arrays.observable_summaries is not None and output_arrays.observable_summaries.size > 1
 
 @attrs.define
 class OutputArrays:
@@ -24,9 +37,11 @@ class OutputArrays:
     observables = attrs.field(default=None, validator=val.optional(optional_cuda_array_validator_3d))
     state_summaries = attrs.field(default=None, validator=val.optional(optional_cuda_array_validator_3d))
     observable_summaries = attrs.field(default=None, validator=val.optional(optional_cuda_array_validator_3d))
+    _active_outputs: ActiveOutputs = attrs.field(default=ActiveOutputs(), validator=val.instance_of(ActiveOutputs))
 
     def __call__(self, solver_instance):
         self.update_from_solver(solver_instance)
+        self._active_outputs.update_from_outputarrays(self)
         self.allocate()
 
     def update_from_solver(self, solver_instance: "BatchSolverKernel"):  # noqa: F821
@@ -44,6 +59,12 @@ class OutputArrays:
         self.observables = mapped_array(self._sizes.observables, self._precision)
         self.state_summaries = mapped_array(self._sizes.state_summaries, self._precision)
         self.observable_summaries = mapped_array(self._sizes.observable_summaries, self._precision)
+
+    @property
+    def active_outputs(self) -> ActiveOutputs:
+        """ Check which outputs are requested, treating size-1 arrays as an artefact of the default allocation."""
+        self._active_outputs.update_from_outputarrays(self)
+        return self._active_outputs
 
     def _clear_cache(self):
         if self.state is not None:
@@ -168,49 +189,96 @@ class OutputArrays:
         self.state_summaries[:, :, :] = self._precision(0.0)
         self.observable_summaries[:, :, :] = self._precision(0.0)
 
-    def summary_views(self, solver_instance: "BatchSolverKernel"):  # noqa: F821
+    def output_arrays(self) -> dict[str, np.ndarray]:
         """
-        Return dicts of summary arrays split by metric type for states and observables.
-        # NEEDS REWORK DO NOT TEST
-        """
-        summary_types = solver_instance.single_integrator.summary_types
-        heights = summary_metrics.output_sizes(summary_types)
-        # Split state_summaries
-        state_splits = {}
-        offset = 0
-        for s_type, h in zip(summary_types, heights):
-            state_splits[s_type] = self.state_summaries[..., offset:offset + h]
-            offset += h
-        # Split observable_summaries
-        obs_splits = {}
-        offset = 0
-        for s_type, h in zip(summary_types, heights):
-            obs_splits[s_type] = self.observable_summaries[..., offset:offset + h]
-            offset += h
-        return state_splits, obs_splits
+        Return a dictionary of host-device output arrays
 
-    def legend(self, solver_instance: "BatchSolverKernel", which: str = "state_summaries"):  # noqa: F821
+        Returns
+        -------
+        array_dict: dict[str, np.ndarray]
+            A dictionary with keys 'state', 'observables', 'state_summaries', 'observable_summaries',
         """
-        Return a dict mapping row index to variable name and summary type (if a summary).
-        which: 'state_summaries' or 'observable_summaries'
-        #NEEDS REWORK DO NOT TEST
+        return {
+            'state': self.state,
+            'observables': self.observables,
+            'state_summaries': self.state_summaries,
+            'observable_summaries': self.observable_summaries
+        }
+        
+    def output_arrays_with_legend(self, solver_instance: "BatchSolverKernel") -> dict:
         """
-        summary_types = solver_instance.single_integrator.summary_types
-        heights = summary_metrics.output_sizes(summary_types)
-        if which == "state_summaries":
-            var_names = solver_instance.system.state_names
-        elif which == "observable_summaries":
-            var_names = solver_instance.system.observable_names
-        else:
-            raise ValueError(f"Unknown summary array: {which}")
-        legend = {}
-        idx = 0
-        for s_type, h in zip(summary_types, heights):
-            for v in var_names:
-                for i in range(h):
-                    legend[idx] = {"variable": v, "summary_type": s_type}
-                    idx += 1
-        return legend
+        Return a dictionary of output arrays with legends attached as SolverResult objects
+        
+        Args:
+            solver_instance: The solver instance containing system and integrator information
+            
+        Returns:
+            A dictionary with keys 'state', 'observables', 'state_summaries', 'observable_summaries',
+            'time_domain', and 'summaries', each containing a SolverResult object with the
+            corresponding array data and legend attached.
+        """
+        # Get the legend
+        legend_dict = self.legend(solver_instance)
+        
+        # Create SolverResult objects with legends attached
+        result = {}
+        
+        # Handle state array
+        if self.state is not None and self.state.size > 1:
+            result['state'] = SolverResult(self.state, legend_dict['state'])
+            
+        # Handle observables array
+        if self.observables is not None and self.observables.size > 1:
+            result['observables'] = SolverResult(self.observables, legend_dict['observables'])
+            
+        # Handle state_summaries array
+        if self.state_summaries is not None and self.state_summaries.size > 1:
+            result['state_summaries'] = SolverResult(self.state_summaries, legend_dict['state_summaries'])
+            
+        # Handle observable_summaries array
+        if self.observable_summaries is not None and self.observable_summaries.size > 1:
+            result['observable_summaries'] = SolverResult(self.observable_summaries, legend_dict['observable_summaries'])
+            
+        # Handle time_domain array
+        time_domain = self.time_domain_array()
+        if time_domain.size > 0:
+            # Combine state and observables legends
+            time_domain_legend = {}
+            state_legend = legend_dict['state']
+            obs_legend = legend_dict['observables']
+            
+            # Add state legend entries
+            for idx, entry in state_legend.items():
+                time_domain_legend[idx] = entry
+                
+            # Add observables legend entries with offset
+            state_size = len(state_legend)
+            for idx, entry in obs_legend.items():
+                time_domain_legend[idx + state_size] = entry
+                
+            result['time_domain'] = SolverResult(time_domain, time_domain_legend)
+            
+        # Handle summaries array
+        summaries = self.summaries_array()
+        if summaries.size > 0:
+            # Combine state_summaries and observable_summaries legends
+            summaries_legend = {}
+            state_summaries_legend = legend_dict['state_summaries']
+            obs_summaries_legend = legend_dict['observable_summaries']
+
+            # Add state_summaries legend entries
+            for idx, entry in state_summaries_legend.items():
+                summaries_legend[idx] = entry
+
+            # Add observable_summaries legend entries with offset
+            state_summaries_size = len(state_summaries_legend)
+            for idx, entry in obs_summaries_legend.items():
+                summaries_legend[idx + state_summaries_size] = entry
+
+            result['summaries'] = SolverResult(summaries, summaries_legend)
+
+        return result
+
 
     @classmethod
     def from_solver(cls, solver_instance: "BatchSolverKernel") -> "OutputArrays":  # noqa: F821

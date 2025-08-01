@@ -523,28 +523,28 @@ def test_column_headings(real_metrics):
     """Test that column_headings returns correctly formatted headers for metrics."""
     # Test with single output metrics
     single_metrics = ["mean", "max", "rms"]
-    headings = real_metrics.column_headings(single_metrics)
+    headings = real_metrics.legend(single_metrics)
 
     # For single output metrics, headings should be identical to metric names
     assert headings == single_metrics
 
     # Test with a multi-output metric (peaks)
     peak_request = ["peaks[3]"]
-    peak_headings = real_metrics.column_headings(peak_request)
+    peak_headings = real_metrics.legend(peak_request)
 
     # Should have 3 column headers: peaks_1, peaks_2, peaks_3
     assert peak_headings == ["peaks_1", "peaks_2", "peaks_3"]
 
     # Test with a mix of single and multi-output metrics
     mixed_request = ["mean", "peaks[2]", "max"]
-    mixed_headings = real_metrics.column_headings(mixed_request)
+    mixed_headings = real_metrics.legend(mixed_request)
 
     # Should have 4 column headers: mean, peaks_1, peaks_2, max
     assert mixed_headings == ["mean", "peaks_1", "peaks_2", "max"]
 
     # Test with invalid metric name
     with warnings.catch_warnings(record=True) as w:
-        invalid_headings = real_metrics.column_headings(["not_a_metric"])
+        invalid_headings = real_metrics.legend(["not_a_metric"])
         assert len(w) == 1
         assert "not registered" in str(w[0].message)
         assert invalid_headings == []

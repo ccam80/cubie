@@ -259,9 +259,42 @@ class OutputConfig:
         return self._summary_types
 
     @property
+    def summmary_legend_per_state(self):
+        """Returna a dict of index number to summary type for each variable saved."""
+        if not self._summary_types:
+            return {}
+        legend_tuple = summary_metrics.legend(self._summary_types)
+        legend_dict = dict(zip(range(len(self._summary_types)), legend_tuple))
+        return legend_dict
+
+    # @property
+    # def state_summary_legend(self):
+    #     """Assemble a legend dict keyed by array index, with values a tuple of the variable index and the summary type.
+    #     An intermediate step to to provide the output-functions-level legend information, with string labels to be
+    #     applied in place of the variable-index by a label-aware module elsewhere."""
+    #     if not self._summary_types:
+    #         return {}
+    #     for i, summary_type in enumerate(self._summary_types):
+    #         legend[i] = summary_type
+    #     return legend
+    #
+    # @property
+    # def observable_summary_legend(self):
+    #     """Assemble a legend dict keyed by array index, with values a tuple of the variable index and the summary type.
+    #     An intermediate step to to provide the output-functions-level legend information, with string labels to be
+    #     applied in place of the variable-index by a label-aware module elsewhere."""
+    #     if not self._summary_types:
+    #         return {}
+    #
+    #     for i, summary_type in enumerate(self._summary_types):
+    #         legend[i] = summary_type
+    #     return legend
+    #
+    @property
     def summary_parameters(self):
         """Get parameters for summary metrics from the metrics system."""
         return summary_metrics.params(list(self._summary_types))
+
 
     @property
     def summaries_buffer_height_per_var(self) -> int:
