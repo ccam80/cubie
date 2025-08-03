@@ -89,7 +89,7 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def output_heights(self):
-        """Returns the heights of the output arrays."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.output_array_heights` from the child SingleIntegratorRun object."""
         return self.single_integrator.output_array_heights
 
     @property
@@ -238,22 +238,22 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def shared_memory_bytes_per_run(self):
-        """Returns the number of bytes of shared memory required for each run."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.shared_memory_bytes` from the child SingleIntegratorRun object."""
         return self.single_integrator.shared_memory_bytes
 
     @property
     def shared_memory_elements_per_run(self):
-        """Returns the number of elements in shared memory required for each run."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.shared_memory_elements` from the child SingleIntegratorRun object."""
         return self.single_integrator.shared_memory_elements
 
     @property
     def precision(self):
-        """Returns the precision (numba data type) used by the solver kernel."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.precision` from the child SingleIntegratorRun object."""
         return self.single_integrator.precision
 
     @property
     def threads_per_loop(self):
-        """Returns the number of threads per loop."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.threads_per_loop` from the child SingleIntegratorRun object."""
         return self.single_integrator.threads_per_loop
 
     @property
@@ -268,12 +268,12 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def num_runs(self):
-        """Returns the number of runs in the input arrays."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchInputArrays.InputArrays.num_runs` from the child InputArrays object."""
         return self.input_arrays.num_runs
 
     @property
     def system(self):
-        """Returns the system model used by the solver kernel."""
+        """Exposes the child system object from the SingleIntegratorRun instance."""
         return self.single_integrator._system
 
     @property
@@ -288,17 +288,17 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def dt_save(self):
-        """Returns the save time step."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.dt_save` from the child SingleIntegratorRun object."""
         return self.single_integrator.dt_save
 
     @property
     def dt_summarise(self):
-        """Returns the summary time step."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.dt_summarise` from the child SingleIntegratorRun object."""
         return self.single_integrator.dt_summarise
 
     @property
     def system_sizes(self):
-        """Returns the sizes of the system model."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.system_sizes` from the child SingleIntegratorRun object."""
         return self.single_integrator.system_sizes
 
     @property
@@ -313,25 +313,54 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def summary_legend_per_variable(self):
-        """Returns the summary legend per variable."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.summary_legend_per_variable` from the child SingleIntegratorRun object."""
         return self.single_integrator.summary_legend_per_variable
 
     @property
     def saved_state_indices(self):
-        """Returns the saved state indices."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.saved_state_indices` from the child SingleIntegratorRun object."""
         return self.single_integrator.saved_state_indices
 
     @property
     def saved_observable_indices(self):
-        """Returns the saved observable indices."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.saved_observable_indices` from the child SingleIntegratorRun object."""
         return self.single_integrator.saved_observable_indices
 
     @property
     def summarised_state_indices(self):
-        """Returns the summarised state indices."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.summarised_state_indices` from the child SingleIntegratorRun object."""
         return self.single_integrator.summarised_state_indices
 
     @property
     def summarised_observable_indices(self):
-        """Returns the summarised observable indices."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.summarised_observable_indices` from the child SingleIntegratorRun object."""
         return self.single_integrator.summarised_observable_indices
+
+    @property
+    def active_output_arrays(self) -> "ActiveOutputs":
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.active_outputs` from the child OutputArrays object."""
+        return self.output_arrays.active_outputs
+
+    @property
+    def state_dev_array(self):
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.state` from the child OutputArrays object."""
+        return self.output_arrays.state
+
+    @property
+    def observables_dev_array(self):
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.observables` from the child OutputArrays object."""
+        return self.output_arrays.observables
+
+    @property
+    def state_summaries_dev_array(self):
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.state_summaries` from the child OutputArrays object."""
+        return self.output_arrays.state_summaries
+
+    @property
+    def observable_summaries_dev_array(self):
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.observable_summaries` from the child OutputArrays object."""
+        return self.output_arrays.observable_summaries
+
+    def save_time(self):
+        """Returns save_time flag from output_functions, True if time was saved onto the end of the state array."""
+        return self.single_integrator.save_time

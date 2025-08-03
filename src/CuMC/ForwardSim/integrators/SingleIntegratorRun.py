@@ -105,12 +105,12 @@ class SingleIntegratorRun:
 
     @property
     def output_array_heights(self):
-        """Get the heights of the output arrays used for saving states and observables."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.output_array_heights` from the child OutputFunctions object."""
         return self._output_functions.output_array_heights
 
     @property
     def summaries_buffer_sizes(self):
-        """Get the sizes of the buffers used for summaries."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.summaries_buffer_sizes` from the child OutputFunctions object."""
         return self._output_functions.summaries_buffer_sizes
 
     def update(self, updates_dict=None, silent=False, **kwargs):
@@ -224,32 +224,32 @@ class SingleIntegratorRun:
     # Reach through this interface class to get lower level features:
     @property
     def precision(self):
-        "Numpy-format floating-point datatype from the system model."
+        """Exposes :attr:`~CuMC.SystemModels.Systems.GenericODE.GenericODE.precision` from the child GenericODE object."""
         return self._system.precision
 
     @property
     def threads_per_loop(self):
-        """Number of threads per loop iteration."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm.GenericIntegratorAlgorithm.threads_per_loop` from the child GenericIntegratorAlgorithm object."""
         return self._integrator_instance.threads_per_loop
 
     @property
     def dxdt_function(self):
-        """Get the dxdt function used by the integrator."""
+        """Exposes :attr:`~CuMC.SystemModels.Systems.GenericODE.GenericODE.dxdt_function` from the child GenericODE object."""
         return self._system.dxdt_function
 
     @property
     def save_state_func(self):
-        """Get the save_state function used by the integrator."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctionCache.save_state_function` from the child OutputFunctionCache object."""
         return self._output_functions.save_state_func
 
     @property
     def update_summaries_func(self):
-        """Get the update_summary_metrics function used by the integrator."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctionCache.update_summaries_function` from the child OutputFunctionCache object."""
         return self._output_functions.update_summaries_func
 
     @property
     def save_summaries_func(self):
-        """Get the save_summary_metrics function used by the integrator."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctionCache.save_summaries_function` from the child OutputFunctionCache object."""
         return self._output_functions.save_summary_metrics_func
 
     @property
@@ -269,40 +269,45 @@ class SingleIntegratorRun:
 
     @property
     def system_sizes(self) -> SystemSizes:
-        """Get the sizes of the system."""
+        """Exposes :attr:`~CuMC.SystemModels.Systems.GenericODE.GenericODE.sizes` from the child GenericODE object."""
         return self._system.sizes
 
     @property
     def compile_flags(self):
-        """Get the compile flags for the output functions."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.compile_flags` from the child OutputFunctions object."""
         return self._output_functions.compile_flags
 
     @property
     def output_types(self):
-        """Expose summary_types from output functions for easier access."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.output_types` from the child OutputFunctions object."""
         return self._output_functions.output_types
 
     @property
     def summary_legend_per_variable(self):
-        """Get the summary legend per variable."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.summary_legend_per_variable` from the child OutputFunctions object."""
         return self._output_functions.summary_legend_per_variable
 
     @property
     def saved_state_indices(self):
-        """Get the indices of the saved states."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.saved_state_indices` from the child OutputFunctions object."""
         return self._output_functions.saved_state_indices
 
     @property
     def saved_observable_indices(self):
-        """Get the indices of the saved observables."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.saved_observable_indices` from the child OutputFunctions object."""
         return self._output_functions.saved_observable_indices
 
     @property
     def summarised_state_indices(self):
-        """Get the indices of the summarised states."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.summarised_state_indices` from the child OutputFunctions object."""
         return self._output_functions.summarised_state_indices
 
     @property
     def summarised_observable_indices(self):
-        """Get the indices of the summarised observables."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.summarised_observable_indices` from the child OutputFunctionCache object."""
         return self._output_functions.summarised_observable_indices
+
+    @property
+    def save_time(self):
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.save_time` from the child OutputFunctions object."""
+        return self._output_functions.save_time

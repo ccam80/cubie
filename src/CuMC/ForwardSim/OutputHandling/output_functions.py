@@ -125,12 +125,12 @@ class OutputFunctions(CUDAFactory):
 
     @property
     def save_state_func(self):
-        """Return the save_state function. Will rebuild if necessary."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctionCache.save_state_function` from the child OutputFunctionCache object."""
         return self.get_cached_output('save_state_function')
 
     @property
     def update_summaries_func(self):
-        """Return the update_summary_metrics function. Will rebuild if necessary."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctionCache.update_summaries_function` from the child OutputFunctionCache object."""
         return self.get_cached_output('update_summaries_function')
 
     @property
@@ -140,7 +140,7 @@ class OutputFunctions(CUDAFactory):
 
     @property
     def save_summary_metrics_func(self):
-        """Return the save_summary_metrics function. Will rebuild if necessary."""
+        """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctionCache.save_summaries_function` from the child OutputFunctionCache object."""
         return self.get_cached_output('save_summaries_function')
 
     @property
@@ -232,12 +232,12 @@ class OutputFunctions(CUDAFactory):
 
     @property
     def summaries_buffer_sizes(self) -> SummariesBufferSizes:
-        """Return the buffer sizes for summaries."""
+        """Exposes :class:`~CuMC.ForwardSim.OutputHandling.output_sizes.SummariesBufferSizes` from the child SummariesBufferSizes object."""
         return SummariesBufferSizes.from_output_fns(self)
 
     @property
     def output_array_heights(self) -> OutputArrayHeights:
-        """Return the heights of the output arrays for states and observables."""
+        """Exposes :class:`~CuMC.ForwardSim.OutputHandling.output_sizes.OutputArrayHeights` from the child OutputArrayHeights object."""
         return OutputArrayHeights.from_output_fns(self)
 
     @property

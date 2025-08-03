@@ -31,7 +31,7 @@ class Solver:
                  summarised_state_indices: Optional[List[Union[str | int]]] = None,
                  summarised_observable_indices: Optional[List[Union[str | int]]] = None,
                  output_types: list[str] = None,
-                 precision: type = np.float63,
+                 precision: type = np.float64,
                  profileCUDA: bool = False,
                  ):
         super().__init__()
@@ -73,34 +73,55 @@ class Solver:
 
     @property
     def precision(self) -> type:
-        """
-        Return the precision of the solver.
-        """
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.precision` from the child BatchSolverKernel object."""
         return self.kernel.precision
 
     @property
     def summary_legend_per_variable(self) -> dict[int, str]:
-        """
-        Return a dictionary mapping variable names to their summary legends.
-        """
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.summary_legend_per_variable` from the child BatchSolverKernel object."""
         return self.kernel.summary_legend_per_variable
 
     @property
     def saved_state_indices(self):
-        """Returns the saved state indices."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.saved_state_indices` from the child BatchSolverKernel object."""
         return self.kernel.saved_state_indices
 
     @property
     def saved_observable_indices(self):
-        """Returns the saved observable indices."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.saved_observable_indices` from the child BatchSolverKernel object."""
         return self.kernel.saved_observable_indices
 
     @property
     def summarised_state_indices(self):
-        """Returns the summarised state indices."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.summarised_state_indices` from the child BatchSolverKernel object."""
         return self.kernel.summarised_state_indices
 
     @property
     def summarised_observable_indices(self):
-        """Returns the summarised observable indices."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.summarised_observable_indices` from the child BatchSolverKernel object."""
         return self.kernel.summarised_observable_indices
+
+    @property
+    def active_output_arrays(self) -> 'ActiveOutputs':
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.active_output_arrays` from the child BatchSolverKernel object."""
+        return self.kernel.active_output_arrays
+
+    @property
+    def state_dev_array(self) -> 'MappedArray':
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.state_dev_array` from the child BatchSolverKernel object."""
+        return self.kernel.state_dev_array
+
+    @property
+    def observables_dev_array(self) -> 'MappedArray':
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.observables_dev_array` from the child BatchSolverKernel object."""
+        return self.kernel.observables_dev_array
+
+    @property
+    def state_summaries_dev_array(self) -> 'MappedArray':
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.state_summaries_dev_array` from the child BatchSolverKernel object."""
+        return self.kernel.state_summaries_dev_array
+
+    @property
+    def observable_summaries_dev_array(self) -> 'MappedArray':
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.observable_summaries_dev_array` from the child BatchSolverKernel object."""
+        return self.kernel.observable_summaries_dev_array
