@@ -15,7 +15,7 @@ from numpy.typing import NDArray, ArrayLike
 
 from CuMC.CUDAFactory import CUDAFactory
 from CuMC.ForwardSim.BatchInputArrays import InputArrays
-from CuMC.ForwardSim.BatchOutputArrays import OutputArrays
+from CuMC.ForwardSim.BatchOutputArrays import OutputArrays, ActiveOutputs
 from CuMC.ForwardSim.BatchSolverConfig import BatchSolverConfig
 from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes, SingleRunOutputSizes
 from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
@@ -337,7 +337,7 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.summarised_observable_indices
 
     @property
-    def active_output_arrays(self) -> "ActiveOutputs":  # noqa: F821
+    def active_output_arrays(self) -> "ActiveOutputs":
         """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.active_outputs` from the child OutputArrays object."""
         self.output_arrays.allocate()
         return self.output_arrays.active_outputs

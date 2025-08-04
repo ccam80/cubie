@@ -12,7 +12,9 @@ else:
     from numba.cuda.cudadrv.devicearray import DeviceNDArray
 from CuMC.ForwardSim._utils import optional_cuda_array_validator, optional_cuda_array_validator_3d
 from numpy.typing import NDArray
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 
 
@@ -181,7 +183,7 @@ class InputArrays:
         return init_runs * param_runs
 
     @classmethod
-    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "InputArrays":  # noqa: F821
+    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "InputArrays":
         """
         Create an empty instance from a solver instance, importing the heights of the parameters, initial values,
         and driver arrays from the ODE system for checking inputs against. Does not allocate host or device arrays.

@@ -1,4 +1,8 @@
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, TYPE_CHECKING
+if TYPE_CHECKING:
+    from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
+    from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
+    from CuMC.SystemModels.Systems.GenericODE import GenericODE
 
 import attrs
 
@@ -40,7 +44,7 @@ class SummariesBufferSizes(ArraySizingClass):
     per_variable: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
 
     @classmethod
-    def from_output_fns(cls, output_fns: "OutputFunctions") -> "SummariesBufferSizes":  # noqa: F821
+    def from_output_fns(cls, output_fns: "OutputFunctions") -> "SummariesBufferSizes":
         return cls(output_fns.state_summaries_buffer_height,
                    output_fns.observable_summaries_buffer_height,
                    output_fns.summaries_buffer_height_per_var,
@@ -60,8 +64,8 @@ class LoopBufferSizes(ArraySizingClass):
     drivers: Optional[int] = attrs.field(default=1, validator=attrs.validators.instance_of(int))
 
     @classmethod
-    def from_system_and_output_fns(cls, system: "GenericODE", output_fns: "OutputFunctions",  # noqa: F821
-                                   ) -> "LoopBufferSizes":  # noqa: F821
+    def from_system_and_output_fns(cls, system: "GenericODE", output_fns: "OutputFunctions",
+                                   ) -> "LoopBufferSizes":
         summary_sizes = SummariesBufferSizes.from_output_fns(output_fns)
         system_sizes = system.sizes
         obj = cls(summary_sizes.state,
@@ -75,7 +79,7 @@ class LoopBufferSizes(ArraySizingClass):
         return obj
 
     @classmethod
-    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "LoopBufferSizes":  # noqa: F821
+    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "LoopBufferSizes":
         """
         Create a LoopBufferSizes instance from a BatchSolverKernel object.
         """
@@ -100,7 +104,7 @@ class OutputArrayHeights(ArraySizingClass):
     per_variable: int = attrs.field(default=1, validator=attrs.validators.instance_of(int))
 
     @classmethod
-    def from_output_fns(cls, output_fns: "OutputFunctions") -> "OutputArrayHeights":  # noqa: F821
+    def from_output_fns(cls, output_fns: "OutputFunctions") -> "OutputArrayHeights":
         state = output_fns.n_saved_states + 1 * output_fns.save_time
         observables = output_fns.n_saved_observables
         state_summaries = output_fns.state_summaries_output_height
@@ -124,7 +128,7 @@ class SingleRunOutputSizes(ArraySizingClass):
     observable_summaries: Tuple[int, int] = attrs.field(default=(1, 1), validator=attrs.validators.instance_of(Tuple))
 
     @classmethod
-    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "SingleRunOutputSizes":  # noqa: F821
+    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "SingleRunOutputSizes":
         """
         Create a SingleRunOutputSizes instance from a BatchSolverKernel object.
         """
@@ -178,7 +182,7 @@ class BatchOutputSizes(ArraySizingClass):
                                                              )
 
     @classmethod
-    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "BatchOutputSizes":  # noqa: F821
+    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "BatchOutputSizes":
         """
         Create a BatchOutputSizes instance from a SingleIntegratorRun object.
         """

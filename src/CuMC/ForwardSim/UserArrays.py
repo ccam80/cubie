@@ -1,11 +1,12 @@
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    from CuMC.ForwardSim.Solver import Solver
 
 import attrs
 import numpy as np
 from numpy.typing import NDArray
 
 from CuMC.ForwardSim.BatchOutputArrays import ActiveOutputs
-from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
 
 
 @attrs.define
@@ -30,7 +31,7 @@ class UserArrays:
     _active_outputs: Optional[ActiveOutputs] = attrs.field(default=attrs.Factory(lambda: ActiveOutputs()))
 
     @classmethod
-    def from_solver(cls, solver: BatchSolverKernel) -> "UserArrays":  # noqa: F821
+    def from_solver(cls, solver: "Solver") -> "UserArrays":
         """
         Create UserArrays from a BatchSolverKernel instance.
 
@@ -64,7 +65,7 @@ class UserArrays:
 
         return user_arrays
 
-    def update_from_solver(self, solver: BatchSolverKernel) -> "UserArrays":  # noqa: F821
+    def update_from_solver(self, solver: "Solver") -> "UserArrays":
         """
         Create UserArrays from a BatchSolverKernel instance.
 
@@ -202,7 +203,7 @@ class UserArrays:
             return np.array([])
 
     @staticmethod
-    def summary_legend_from_solver(solver: "Solver") -> dict[int, str]:  # noqa: F821
+    def summary_legend_from_solver(solver: "Solver") -> dict[int, str]:
         """
         Get the summary array legend from a Solver instance.
 
@@ -233,7 +234,7 @@ class UserArrays:
         return summaries_legend
 
     @staticmethod
-    def time_domain_legend_from_solver(solver: "Solver") -> dict[int, str]:  # noqa: F821
+    def time_domain_legend_from_solver(solver: "Solver") -> dict[int, str]:
         """
         Get the time domain legend from a Solver instance.
         Returns a dict mapping time domain indices to labels, including time if saved.

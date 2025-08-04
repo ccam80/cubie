@@ -1,9 +1,13 @@
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
 from warnings import warn
 
 import attrs
 import attrs.validators as val
 from numba.cuda import mapped_array
 from numpy import float32
+
 
 from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
 from CuMC.ForwardSim._utils import optional_cuda_array_validator_3d
@@ -45,7 +49,7 @@ class OutputArrays:
         self._active_outputs.update_from_outputarrays(self)
         self.allocate()
 
-    def update_from_solver(self, solver_instance: "BatchSolverKernel"):  # noqa: F821
+    def update_from_solver(self, solver_instance: "BatchSolverKernel"):
         """
         Update the sizes and precision of the OutputArrays instance from a solver instance.
         This is useful if the solver instance has changed and we need to update the output arrays accordingly.
@@ -191,7 +195,7 @@ class OutputArrays:
         self.observable_summaries[:, :, :] = self._precision(0.0)
 
     @classmethod
-    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "OutputArrays":  # noqa: F821
+    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "OutputArrays":
         """
         Create a OutputArrays instance from a solver instance. Does not allocate, just sets up sizes
         """
