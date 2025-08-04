@@ -13,7 +13,7 @@ from CuMC.ForwardSim import summary_metrics
 @pytest.fixture
 def basic_config():
     """Basic OutputConfig with minimal parameters."""
-    return OutputConfig(max_states=10, max_observables=5)
+    return OutputConfig(max_states=10, max_observables=5, output_types=("state", "observables"))
 
 
 @pytest.fixture
@@ -22,24 +22,21 @@ def config_with_summaries():
     return OutputConfig(
         max_states=10,
         max_observables=5,
-        summary_types=("mean", "max")
+        output_types=("state", "observables", "time", "mean", "max")
     )
 
 
 @pytest.fixture
 def full_config():
-    """Fully specified OutputConfig with all parameters."""
+    """Fully specified OutputConfig."""
     return OutputConfig(
         max_states=20,
         max_observables=10,
-        save_state=True,
-        save_observables=True,
-        save_time=True,
         saved_state_indices=[0, 1, 2],
         saved_observable_indices=[0, 1],
         summarised_state_indices=[0, 1],
         summarised_observable_indices=[0],
-        summary_types=("mean", "max")
+        output_types=["state", "observables", "time", "mean", "max"]
     )
 
 
@@ -78,9 +75,7 @@ class TestInitialization:
             OutputConfig(
                 max_states=10,
                 max_observables=5,
-                save_state=False,
-                save_observables=False,
-                save_time=False
+                output_types=[]
             )
 
     def test_out_of_bounds_indices_raise_error(self):
@@ -153,7 +148,8 @@ class TestProperties:
             max_states=10,
             max_observables=5,
             saved_state_indices=[0, 1, 2],
-            saved_observable_indices=[0, 1]
+            saved_observable_indices=[0, 1],
+            output_types = ["state", "observables"]
         )
         assert isinstance(config.saved_state_indices, np.ndarray)
         assert isinstance(config.saved_observable_indices, np.ndarray)
@@ -162,7 +158,7 @@ class TestProperties:
 
     def test_none_indices_conversion(self):
         """Test that empty indices lists are converted to full range arrays."""
-        config = OutputConfig(max_states=3, max_observables=2, save_state=True, save_observables=True)
+        config = OutputConfig(max_states=3, max_observables=2, output_types=["state", "observables"])
         np.testing.assert_array_equal(config.saved_state_indices, np.array([0, 1, 2]))
         np.testing.assert_array_equal(config.saved_observable_indices, np.array([0, 1]))
 
@@ -175,10 +171,9 @@ class TestFlagBehavior:
         config = OutputConfig(
             max_states=5,
             max_observables=3,
-            save_state=True,
-            save_observables=True,
             saved_state_indices=[0, 1, 2],
-            saved_observable_indices=[0, 1]
+            saved_observable_indices=[0, 1],
+            output_types = ["state", "observables"]
         )
 
         # When flag is true, see real indices
@@ -199,9 +194,7 @@ class TestFlagBehavior:
             max_observables=2,
             saved_state_indices=[0, 1, 2],
             saved_observable_indices=[0, 1],
-            save_state=False,
-            save_observables=False,
-            save_time=True
+            output_types = ["time"]
         )
         np.testing.assert_array_equal(config.saved_state_indices, np.array([]))
         np.testing.assert_array_equal(config.saved_observable_indices, np.array([]))
@@ -213,17 +206,17 @@ class TestSummaryMetrics:
     def test_valid_summary_types(self):
         """Test that valid summary types are accepted."""
         for summary_type in summary_metrics.implemented_metrics:
-            config = OutputConfig(max_states=10, max_observables=5, summary_types=(summary_type,))
+            config = OutputConfig(max_states=10, max_observables=5, output_types=[summary_type,])
             assert summary_type in config.summary_types
 
     def test_multiple_summary_types(self):
         """Test multiple summary types."""
-        config = OutputConfig(max_states=10, max_observables=5, summary_types=("mean", "max", "rms"))
+        config = OutputConfig(max_states=10, max_observables=5, output_types=["mean", "max", "rms"])
         assert config.summary_types == ("mean", "max", "rms")
 
     def test_empty_summary_types(self):
         """Test empty summary types."""
-        config = OutputConfig(max_states=10, max_observables=5, summary_types=())
+        config = OutputConfig(max_states=10, max_observables=5, output_types=["state", "observables"])
         assert len(config.summary_types) == 0
         assert config.save_summaries is False
 

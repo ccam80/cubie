@@ -328,7 +328,7 @@ class OutputConfig:
         """Update bools and summary types from a list of output types. Run the post_init validators to empty indices
         if not requested."""
         if not output_types:
-            self.summary_types = ()
+            self._summary_types = tuple()
             self._save_state = False
             self._save_observables = False
             self._save_time = False
@@ -403,6 +403,5 @@ class OutputConfig:
                 saved_observable_indices=saved_observable_indices,
                 summarised_state_indices=summarised_state_indices,
                 summarised_observable_indices=summarised_observable_indices,
-                summary_types=summary_types,
                 output_types = output_types
                 )
