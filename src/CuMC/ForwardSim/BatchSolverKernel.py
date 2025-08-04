@@ -104,24 +104,23 @@ class BatchSolverKernel(CUDAFactory):
             params,
             inits,
             forcing_vectors,
-            output_arrays=None,
             blocksize=128,
             stream=0,
             warmup=0.0,
             ):
         """Run the solver kernel."""
-        # Order currently VERY IMPORTANT - num_runs is updated in input_arrays, which is used in output_arrays.
+        # Order currently IMPORTANT - num_runs is updated in input_arrays, which is used in output_arrays.
         self.input_arrays(inits, params, forcing_vectors)
-        numruns = self.input_arrays.num_runs
-
         self.output_arrays(self)
 
+        output_length = int(duration // self.dt_save)
+        warmup_length = int(warmup // self.dt_save)
         numruns = self.input_arrays.num_runs
 
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
         BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
-        dynamic_sharedmem = self.shared_memory_bytes_per_run * numruns
+        dynamic_sharedmem = int(self.shared_memory_bytes_per_run * numruns)
 
         if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self.compile_settings.profileCUDA:
             cuda.profile_start()
@@ -134,16 +133,17 @@ class BatchSolverKernel(CUDAFactory):
                 self.output_arrays.observables,
                 self.output_arrays.state_summaries,
                 self.output_arrays.observable_summaries,
-                self.compile_settings.duration,
-                self.compile_settings.warmup,
+                output_length,
+                warmup_length,
                 numruns,
                 )
         cuda.synchronize()
 
-        if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self.profileCUDA:
+        if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self.compile_settings.profileCUDA:
             cuda.profile_stop()
 
-        return self.output_arrays
+        # return self.output_arrays # Should this be returned? do we want the user's dirty fingers in here or is it
+        # required to keep the higher algorithms spinning around?
 
     def build_kernel(self):
         """Build the integration kernel."""
@@ -180,7 +180,7 @@ class BatchSolverKernel(CUDAFactory):
 
             block_index = int32(cuda.blockIdx.x)
             runs_per_block = cuda.blockDim.y
-            run_index = int32(runs_per_block * block_index + tx)
+            run_index = int32(runs_per_block * block_index + ty)
 
             if run_index >= n_runs:
                 return None
@@ -266,6 +266,9 @@ class BatchSolverKernel(CUDAFactory):
         """Returns the number of summary samples per run."""
         return int(np.ceil(self.compile_settings.duration / self.single_integrator.dt_summarise))
 
+    @property
+    def warmup_length(self):
+        return int(np.ceil(self.compile_settings.warmup / self.single_integrator.dt_save))
     @property
     def num_runs(self):
         """Exposes :attr:`~CuMC.ForwardSim.BatchInputArrays.InputArrays.num_runs` from the child InputArrays object."""

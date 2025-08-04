@@ -87,9 +87,10 @@ def combinatorial_grid(request: Dict[Union[str, int], Union[float, ArrayLike, np
            [ 0.3, 20. ]]),
          array([0, 1]))
     """
-    indices = values_instance.get_indices(list(request.keys()), silent=silent)
+    cleaned_request = {k: v for k, v in request.items() if np.asarray(v).size > 0}
+    indices = values_instance.get_indices(list(cleaned_request.keys()), silent=silent)
     combos = unique_cartesian_product(
-            [np.asarray(v) for v in request.values()],
+            [np.asarray(v) for v in cleaned_request.values()],
             )
     return indices, combos
 
@@ -134,8 +135,9 @@ def verbatim_grid(request: Dict[Union[str, int], Union[float, ArrayLike, np.ndar
 
     ```
     """
-    indices = values_instance.get_indices(list(request.keys()), silent=silent)
-    combos = np.asarray([item for item in request.values()]).T
+    cleaned_request = {k: v for k, v in request.items() if np.asarray(v).size > 0}
+    indices = values_instance.get_indices(list(cleaned_request.keys()), silent=silent)
+    combos = np.asarray([item for item in cleaned_request.values()]).T
     return indices, combos
 
 

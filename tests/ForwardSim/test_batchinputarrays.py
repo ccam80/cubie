@@ -129,13 +129,13 @@ class TestInputArrays:
 
         # Correct dimensions
         result = arrays._check_dims_vs_system(
-            ones((2, 3, 4)), ones((2, 3, 5)), ones((2, 3, 6))
+            ones((3, 4)), ones((5, 5)), ones((4, 6))
         )
         assert result
 
         # Incorrect dimensions
         result = arrays._check_dims_vs_system(
-            ones((2, 3, 999)), ones((2, 3, 5)), ones((2, 3, 6))
+            ones((2, 6)), ones((2, 5)), ones((2, 4))
         )
         assert not result
 
@@ -143,11 +143,11 @@ class TestInputArrays:
         """Test num_runs property calculation"""
         arrays = InputArrays(
             precision=float32,
-            initial_values=ones((2, 3, 4), dtype=float32),
-            parameters=ones((5, 6, 7), dtype=float32)
+            initial_values=ones((2, 3), dtype=float32),
+            parameters=ones((2, 5), dtype=float32)
         )
 
-        assert arrays.num_runs == 2 * 5  # init_runs * param_runs
+        assert arrays.num_runs == 2  # init_runs * param_runs
 
     def test_num_runs_property_none_arrays(self):
         """Test num_runs property with None arrays"""
@@ -252,3 +252,12 @@ class TestInputArrays:
         assert array_equal(arrays._device_inits.copy_to_host(), init)
         assert array_equal(arrays._device_parameters.copy_to_host(), params)
         assert array_equal(arrays._device_forcing.copy_to_host(), forcing)
+
+def test_zero_size_handling():
+    """Test zero size arrays are overwritten with size 1"""
+    arrays = InputArrays()
+    arrays(zeros((0, 2, 3)), zeros((4, 0, 6)), zeros((0,)))
+
+    assert arrays._initial_values.shape == (1,1,1)
+    assert arrays._parameters.shape == (1,1,1)
+    assert arrays._forcing_vectors.shape == (1, 1, 1)

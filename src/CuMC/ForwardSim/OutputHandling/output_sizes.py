@@ -5,7 +5,7 @@ if TYPE_CHECKING:
     from CuMC.SystemModels.Systems.GenericODE import GenericODE
 
 import attrs
-
+from CuMC.ForwardSim._utils import ensure_nonzero_size
 
 @attrs.define
 class ArraySizingClass:
@@ -18,20 +18,10 @@ class ArraySizingClass:
         for field in attrs.fields(self.__class__):
             value = getattr(new_obj, field.name)
             if isinstance(value, (int, tuple)):
-                setattr(new_obj, field.name, self._ensure_nonzero_size(value))
+                setattr(new_obj, field.name, ensure_nonzero_size(value))
         return new_obj
 
-    def _ensure_nonzero_size(self, value: Union[int, Tuple[int, ...]]) -> Union[int, Tuple[int, ...]]:
-        """Helper function to replace zeros with ones"""
-        if isinstance(value, int):
-            return max(1, value)
-        elif isinstance(value, tuple):
-            if any(v == 0 for v in value):
-                return tuple(1 for v in value)
-            else:
-                return value
-        else:
-            return value
+
 
 
 @attrs.define

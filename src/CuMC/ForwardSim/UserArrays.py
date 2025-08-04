@@ -1,4 +1,4 @@
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Union
 if TYPE_CHECKING:
     from CuMC.ForwardSim.Solver import Solver
 
@@ -31,9 +31,9 @@ class UserArrays:
     _active_outputs: Optional[ActiveOutputs] = attrs.field(default=attrs.Factory(lambda: ActiveOutputs()))
 
     @classmethod
-    def from_solver(cls, solver: "Solver") -> "UserArrays":
+    def from_solver(cls, solver: Union["Solver", "BatchSolverKernel"]) -> "UserArrays":
         """
-        Create UserArrays from a BatchSolverKernel instance.
+        Create UserArrays from a Solver instance.
 
         Args:
             solver (BatchSolverKernel): The solver instance to extract user arrays from.

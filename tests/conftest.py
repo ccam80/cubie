@@ -187,6 +187,8 @@ def solver_settings(loop_compile_settings, solver_settings_override, precision):
         'saved_observable_indices': loop_compile_settings['saved_observable_indices'],
         'output_types':      loop_compile_settings['output_functions'],
         'precision':         precision,
+        'blocksize':        32,
+        'stream': 0,
         'profileCUDA':       False,
     }
 
@@ -199,11 +201,39 @@ def solver_settings(loop_compile_settings, solver_settings_override, precision):
 
 @pytest.fixture(scope='function')
 def solverkernel(solver_settings, system):
-    return BatchSolverKernel(system, **solver_settings)
+    return BatchSolverKernel(system,
+                             algorithm=solver_settings['algorithm'],
+                            duration=solver_settings['duration'],
+                            warmup=solver_settings['warmup'],
+                            dt_min=solver_settings['dt_min'],
+                            dt_max=solver_settings['dt_max'],
+                            dt_save=solver_settings['dt_save'],
+                            dt_summarise=solver_settings['dt_summarise'],
+                            atol=solver_settings['atol'],
+                            rtol=solver_settings['rtol'],
+                            saved_state_indices=solver_settings['saved_state_indices'],
+                            saved_observable_indices=solver_settings['saved_observable_indices'],
+                            output_types=solver_settings['output_types'],
+                            precision=solver_settings['precision'],
+                            profileCUDA=solver_settings.get('profileCUDA', False))
 
 @pytest.fixture(scope='function')
 def solver(system, solver_settings):
-    return Solver(system, **solver_settings)
+    return Solver(system,
+                             algorithm=solver_settings['algorithm'],
+                            duration=solver_settings['duration'],
+                            warmup=solver_settings['warmup'],
+                            dt_min=solver_settings['dt_min'],
+                            dt_max=solver_settings['dt_max'],
+                            dt_save=solver_settings['dt_save'],
+                            dt_summarise=solver_settings['dt_summarise'],
+                            atol=solver_settings['atol'],
+                            rtol=solver_settings['rtol'],
+                            saved_state_indices=solver_settings['saved_state_indices'],
+                            saved_observable_indices=solver_settings['saved_observable_indices'],
+                            output_types=solver_settings['output_types'],
+                            precision=solver_settings['precision'],
+                            profileCUDA=solver_settings.get('profileCUDA', False))
 
 
 @pytest.fixture(scope='function')

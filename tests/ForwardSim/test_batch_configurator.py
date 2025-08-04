@@ -157,7 +157,7 @@ def test_extend_grid_to_array(system):
     assert np.all(arr[:,2] == param.values_array[2])
 
 
-def test_generate_array(system, batch_settings):
+def test_generate_array(system, batch_settings, batch_request):
     # Test the generate_array utility function
     param = system.parameters
     numvals = batch_settings['num_param_vals']
@@ -285,6 +285,40 @@ def test_grid_arrays_verbatim_mismatch(system, batch_configurator, batch_setting
     kind = batch_settings['kind']
     with pytest.raises(ValueError):
         initial_values_array, params_array = batch_configurator.grid_arrays(request, kind=kind)
+
+
+
+@pytest.mark.parametrize("batch_settings", [
+    {'num_state_vals': 3, 'num_param_vals': 2, 'kind': 'combinatorial'},
+    {'num_state_vals': 3, 'num_param_vals': 3, 'kind': 'verbatim'},
+    ], indirect=True
+                         )
+def test_grid_arrays_empty_inputs(system, batch_configurator, batch_settings):
+    state = system.initial_values
+    param = system.parameters
+    numinits = batch_settings['num_state_vals']
+    numparams = batch_settings['num_param_vals']
+    a = np.arange(numinits)
+    b = np.arange(numparams)
+    request = {state.names[0]: a,
+               state.names[1]: [],
+               param.names[0]: b,
+               param.names[1]: np.asarray([]),
+               }
+    kind = batch_settings['kind']
+
+    initial_values_array, params_array = batch_configurator.grid_arrays(request, kind=kind)
+
+    assert initial_values_array.shape[1] == batch_configurator.states.values_array.shape[0]
+    assert params_array.shape[1] == batch_configurator.parameters.values_array.shape[0]
+
+    if kind == 'combinatorial':
+        assert initial_values_array.shape[0] == numinits * numparams
+    elif kind == 'verbatim':
+        assert initial_values_array.shape[0] == numinits
+
+
+
 
 
 

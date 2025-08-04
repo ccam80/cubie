@@ -5,11 +5,13 @@ import attrs
 import attrs.validators as val
 from numba.cuda import to_device
 from numpy import float32, array_equal, zeros, ndarray
+import numpy as np
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray as DeviceNDArray
 else:
     from numba.cuda.cudadrv.devicearray import DeviceNDArray
+
 from CuMC.ForwardSim._utils import optional_cuda_array_validator, optional_cuda_array_validator_3d
 from numpy.typing import NDArray
 from typing import Optional, TYPE_CHECKING
@@ -120,11 +122,11 @@ class InputArrays:
             return True
 
         match = True
-        if initial_values.shape[2] != self._sizes.state:
+        if initial_values.shape[1] != self._sizes.state:
             match = False
-        if parameters.shape[2] != self._sizes.parameters:
+        if parameters.shape[1] != self._sizes.parameters:
             match = False
-        if forcing_vectors.shape[2] != self._sizes.drivers:
+        if forcing_vectors.shape[1] != self._sizes.drivers:
             match = False
         return match
 
@@ -168,6 +170,8 @@ class InputArrays:
         if not self._arrays_equal(new_array, current_array):
             if current_array.shape != new_array.shape:
                 self._needs_reallocation.append(label)
+                if 0 in new_array.shape:
+                    return np.zeros((1,1,1), dtype=self._precision)
             else:
                 self._needs_overwrite.append(label)
             return new_array
@@ -179,8 +183,7 @@ class InputArrays:
         arrays. This feels like a bit of unnecessary coupling, but as it's determined by the inputs, it may end up
         being the best place for it."""
         init_runs = self._initial_values.shape[0] if self._initial_values is not None else 0
-        param_runs = self._parameters.shape[0] if self._parameters is not None else 0
-        return init_runs * param_runs
+        return init_runs
 
     @classmethod
     def from_solver(cls, solver_instance: "BatchSolverKernel") -> "InputArrays":
