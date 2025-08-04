@@ -1,6 +1,7 @@
 from typing import Optional, TYPE_CHECKING, Union
 if TYPE_CHECKING:
     from CuMC.ForwardSim.Solver import Solver
+    from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
 
 import attrs
 import numpy as np
