@@ -1,10 +1,7 @@
-from typing import Optional
-from typing import Sequence
 from warnings import warn
 
 import attrs
-from numpy import ceil, array_equal
-from numpy.typing import NDArray
+from numpy import ceil
 
 from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
 
@@ -26,6 +23,7 @@ class IntegratorRunSettings:
                     iterable_validator=attrs.validators.instance_of(list),
                     ),
             )
+
     # saved_state_indices: Optional[Sequence | NDArray[int]] = attrs.field(
     #         default=attrs.Factory(list),
     #         validator=attrs.validators.optional(

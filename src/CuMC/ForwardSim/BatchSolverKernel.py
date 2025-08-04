@@ -337,7 +337,7 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.summarised_observable_indices
 
     @property
-    def active_output_arrays(self) -> "ActiveOutputs": # noqa: F821
+    def active_output_arrays(self) -> "ActiveOutputs":  # noqa: F821
         """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.active_outputs` from the child OutputArrays object."""
         self.output_arrays.allocate()
         return self.output_arrays.active_outputs
@@ -380,7 +380,7 @@ class BatchSolverKernel(CUDAFactory):
         Disable CUDA profiling for the solver. This will stop profiling the performance of the solver on the GPU,
         but will speed things up.
         """
-        self.compile_settings.profileCUDA  = False
+        self.compile_settings.profileCUDA = False
 
     @property
     def output_types(self):

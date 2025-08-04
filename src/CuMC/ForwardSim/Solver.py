@@ -1,15 +1,16 @@
 from typing import Optional, Union, List
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from CuMC.ForwardSim.BatchConfigurator import BatchConfigurator
 from CuMC.ForwardSim.BatchOutputArrays import ActiveOutputs
 from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
 from CuMC.ForwardSim.UserArrays import UserArrays
-import numpy as np
-from typing import TYPE_CHECKING
-
 
 if TYPE_CHECKING:
     from numba.cuda.cudadrv import MappedNDArray
+
 
 class Solver:
     """
@@ -41,22 +42,22 @@ class Solver:
                  ):
         super().__init__()
         self.kernel = BatchSolverKernel(system,
-                                       algorithm=algorithm,
-                                       duration=duration,
-                                       warmup=warmup,
-                                       dt_min=dt_min,
-                                       dt_max=dt_max,
-                                       dt_save=dt_save,
-                                       dt_summarise=dt_summarise,
-                                       atol=atol,
-                                       rtol=rtol,
-                                       saved_state_indices=saved_state_indices,
-                                       saved_observable_indices=saved_observable_indices,
-                                       summarised_state_indices=summarised_state_indices,
-                                       summarised_observable_indices=summarised_observable_indices,
-                                       output_types=output_types,
-                                       precision=precision,
-                                       profileCUDA=profileCUDA)
+                                        algorithm=algorithm,
+                                        duration=duration,
+                                        warmup=warmup,
+                                        dt_min=dt_min,
+                                        dt_max=dt_max,
+                                        dt_save=dt_save,
+                                        dt_summarise=dt_summarise,
+                                        atol=atol,
+                                        rtol=rtol,
+                                        saved_state_indices=saved_state_indices,
+                                        saved_observable_indices=saved_observable_indices,
+                                        summarised_state_indices=summarised_state_indices,
+                                        summarised_observable_indices=summarised_observable_indices,
+                                        output_types=output_types,
+                                        precision=precision,
+                                        profileCUDA=profileCUDA)
 
         self.batch_config = BatchConfigurator.from_system(system)
         self.UserArrays = UserArrays()

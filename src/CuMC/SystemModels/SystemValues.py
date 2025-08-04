@@ -310,7 +310,6 @@ class SystemValues:
         else:
             raise TypeError(f"indices must be a list or numpy array, you provided a {type(indices)}.")
 
-
     def __getitem__(self, key):
         """
         Allow dictionary-like and array-like access to the values. Any indexing method will return a value or values only.
