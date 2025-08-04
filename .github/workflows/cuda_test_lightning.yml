@@ -3,7 +3,7 @@ on:
   create:
   workflow_dispatch:
   schedule:
-    - cron: "0 3 * * *"
+    - cron: "0 16 * * *"
   # We're limited to 15 "credits" per month using the Lightning AI runner. One run on one image costs ~0.12 credits at 31/07/2025, including machine spinup, giving us about 120 runs per month.
   # Running CUDA tests daily at 3am and occasionally on dispatch gives us room to add two more images to test different CUDA toolkit versions.
 
