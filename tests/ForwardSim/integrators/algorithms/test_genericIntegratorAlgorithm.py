@@ -13,11 +13,11 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
         return GenericIntegratorAlgorithm
 
     @pytest.fixture(scope="function")
-    def expected_answer(self, system, loop_compile_settings, run_settings, solver, inputs, precision):
+    def expected_answer(self, system, loop_compile_settings, run_settings, solverkernel, inputs, precision):
         save_state = "state" in loop_compile_settings['output_functions']
         save_observables = "observables" in loop_compile_settings['output_functions']
         n_states_total = inputs['initial_values'].shape[0]
-        n_samples = solver.output_length
+        n_samples = solverkernel.output_length
         save_time = "time" in loop_compile_settings['output_functions']
 
         if save_state:
@@ -68,10 +68,10 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
                              indirect=True,
                              )
     def test_loop(self, loop_test_kernel, outputs, inputs, precision, output_functions,
-                  loop_under_test, expected_answer, expected_summaries, solver,
+                  loop_under_test, expected_answer, expected_summaries, solverkernel,
                   ):
         super().test_loop(loop_test_kernel, outputs, inputs, precision, output_functions,
-                          loop_under_test, expected_answer, expected_summaries, solver,
+                          loop_under_test, expected_answer, expected_summaries, solverkernel,
                           )
 
     @pytest.mark.parametrize("loop_compile_settings_overrides",

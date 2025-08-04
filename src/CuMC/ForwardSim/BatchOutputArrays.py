@@ -4,10 +4,10 @@ import attrs
 import attrs.validators as val
 from numba.cuda import mapped_array
 from numpy import float32
-import numpy as np
-from CuMC import summary_metrics
+
 from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
 from CuMC.ForwardSim._utils import optional_cuda_array_validator_3d
+
 
 @attrs.define
 class ActiveOutputs:
@@ -22,6 +22,7 @@ class ActiveOutputs:
         self.observables = output_arrays.observables is not None and output_arrays.observables.size > 1
         self.state_summaries = output_arrays.state_summaries is not None and output_arrays.state_summaries.size > 1
         self.observable_summaries = output_arrays.observable_summaries is not None and output_arrays.observable_summaries.size > 1
+
 
 @attrs.define
 class OutputArrays:
@@ -49,7 +50,7 @@ class OutputArrays:
         Update the sizes and precision of the OutputArrays instance from a solver instance.
         This is useful if the solver instance has changed and we need to update the output arrays accordingly.
         """
-        self._sizes = BatchOutputSizes.from_solver(solver_instance)
+        self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
         self._clear_cache()
         self._allocate_new()
@@ -189,27 +190,10 @@ class OutputArrays:
         self.state_summaries[:, :, :] = self._precision(0.0)
         self.observable_summaries[:, :, :] = self._precision(0.0)
 
-    def output_arrays(self) -> dict[str, np.ndarray]:
-        """
-        Return a dictionary of host-device output arrays
-
-        Returns
-        -------
-        array_dict: dict[str, np.ndarray]
-            A dictionary with keys 'state', 'observables', 'state_summaries', 'observable_summaries',
-        """
-        return {
-            'state': self.state,
-            'observables': self.observables,
-            'state_summaries': self.state_summaries,
-            'observable_summaries': self.observable_summaries
-        }
-
-
     @classmethod
     def from_solver(cls, solver_instance: "BatchSolverKernel") -> "OutputArrays":  # noqa: F821
         """
         Create a OutputArrays instance from a solver instance. Does not allocate, just sets up sizes
         """
-        sizes = BatchOutputSizes.from_solver(solver_instance)
+        sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         return cls(sizes, precision=solver_instance.precision)

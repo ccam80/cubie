@@ -4,9 +4,9 @@ import pytest
 import numpy as np
 
 
-def test_kernel_builds(solver):
+def test_kernel_builds(solverkernel):
     """Test that the solver builds without errors."""
-    kernelfunc = solver.kernel
+    kernelfunc = solverkernel.kernel
 
 # def test_run(solver):
 #     """Test that the solver can run with the provided inputs and settings."""
@@ -19,11 +19,11 @@ def test_kernel_builds(solver):
 #     assert 'states' in outputs, "Outputs should contain 'states'"
 #     assert 'observables' in outputs, "Outputs should contain 'observables'"
 
-def test_algorithm_change(solver):
-    solver.update({'algorithm': 'generic'})
-    assert solver.single_integrator._integrator_instance.shared_memory_required == 0
+def test_algorithm_change(solverkernel):
+    solverkernel.update({'algorithm': 'generic'})
+    assert solverkernel.single_integrator._integrator_instance.shared_memory_required == 0
 
-def test_all_lower_plumbing(system, solver):
+def test_all_lower_plumbing(system, solverkernel):
     """Big plumbing integration check - check that config classes match exactly between an updated solver and one
     instantiated with the update settings."""
     new_settings = {
@@ -41,21 +41,21 @@ def test_all_lower_plumbing(system, solver):
         'output_types': ["state", "observables", "mean", "max", "rms", "peaks[3]"],
         'precision': np.float64,
     }
-    solver.update(new_settings)
+    solverkernel.update(new_settings)
     freshsolver = BatchSolverKernel(system,
                                           algorithm='euler',
                                           **new_settings)
 
-    assert freshsolver.compile_settings == solver.compile_settings, "BatchSolverConfig mismatch"
-    assert freshsolver.single_integrator.config == solver.single_integrator.config, "IntegratorRunSettings mismatch"
+    assert freshsolver.compile_settings == solverkernel.compile_settings, "BatchSolverConfig mismatch"
+    assert freshsolver.single_integrator.config == solverkernel.single_integrator.config, "IntegratorRunSettings mismatch"
     assert freshsolver.single_integrator._output_functions.compile_settings == \
-        solver.single_integrator._output_functions.compile_settings, "OutputFunctions mismatch"
+           solverkernel.single_integrator._output_functions.compile_settings, "OutputFunctions mismatch"
     assert freshsolver.single_integrator._system.compile_settings == \
-        solver.single_integrator._system.compile_settings, "SystemCompileSettings mismatch"
-    assert BatchOutputSizes.from_solver(freshsolver) == BatchOutputSizes.from_solver(solver), \
+           solverkernel.single_integrator._system.compile_settings, "SystemCompileSettings mismatch"
+    assert BatchOutputSizes.from_solver(freshsolver) == BatchOutputSizes.from_solver(solverkernel), \
         "BatchOutputSizes mismatch"
 
-def test_bogus_update_fails(solver):
-    solver.update(dt_min=0.0001)
+def test_bogus_update_fails(solverkernel):
+    solverkernel.update(dt_min=0.0001)
     with pytest.raises(KeyError):
-        solver.update(obviously_bogus_key="this should not work")
+        solverkernel.update(obviously_bogus_key="this should not work")

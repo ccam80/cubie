@@ -1,10 +1,15 @@
 from typing import Optional, Union, List
 
 from CuMC.ForwardSim.BatchConfigurator import BatchConfigurator
+from CuMC.ForwardSim.BatchOutputArrays import ActiveOutputs
 from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
 from CuMC.ForwardSim.UserArrays import UserArrays
 import numpy as np
+from typing import TYPE_CHECKING
 
+
+if TYPE_CHECKING:
+    from numba.cuda.cudadrv import MappedNDArray
 
 class Solver:
     """
@@ -54,22 +59,22 @@ class Solver:
                                        profileCUDA=profileCUDA)
 
         self.batch_config = BatchConfigurator.from_system(system)
-
         self.UserArrays = UserArrays()
+
     def enable_profiling(self):
         """
         Enable CUDA profiling for the solver. This will allow you to profile the performance of the solver on the
         GPU, but will slow things down.
         """
         # Consider disabling optimisation and enabling debug and line info for profiling
-        self.profileCUDA = True
+        self.kernel.enable_profiling()
 
     def disable_profiling(self):
         """
         Disable CUDA profiling for the solver. This will stop profiling the performance of the solver on the GPU,
         but will speed things up.
         """
-        self.profileCUDA = False
+        self.kernel.disable_profiling()
 
     @property
     def precision(self) -> type:
@@ -102,26 +107,36 @@ class Solver:
         return self.kernel.summarised_observable_indices
 
     @property
-    def active_output_arrays(self) -> 'ActiveOutputs':
+    def active_output_arrays(self) -> ActiveOutputs:
         """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.active_output_arrays` from the child BatchSolverKernel object."""
         return self.kernel.active_output_arrays
 
     @property
-    def state_dev_array(self) -> 'MappedArray':
+    def state_dev_array(self) -> 'MappedNDArray':
         """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.state_dev_array` from the child BatchSolverKernel object."""
         return self.kernel.state_dev_array
 
     @property
-    def observables_dev_array(self) -> 'MappedArray':
+    def observables_dev_array(self) -> 'MappedNDArray':
         """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.observables_dev_array` from the child BatchSolverKernel object."""
         return self.kernel.observables_dev_array
 
     @property
-    def state_summaries_dev_array(self) -> 'MappedArray':
+    def state_summaries_dev_array(self) -> 'MappedNDArray':
         """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.state_summaries_dev_array` from the child BatchSolverKernel object."""
         return self.kernel.state_summaries_dev_array
 
     @property
-    def observable_summaries_dev_array(self) -> 'MappedArray':
+    def observable_summaries_dev_array(self) -> 'MappedNDArray':
         """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.observable_summaries_dev_array` from the child BatchSolverKernel object."""
         return self.kernel.observable_summaries_dev_array
+
+    @property
+    def save_time(self) -> bool:
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.save_time` from the child BatchSolverKernel object."""
+        return self.kernel.save_time
+
+    @property
+    def output_types(self) -> list[str]:
+        """Exposes :attr:`~CuMC.ForwardSim.BatchSolverKernel.output_types` from the child BatchSolverKernel object."""
+        return self.kernel.output_types

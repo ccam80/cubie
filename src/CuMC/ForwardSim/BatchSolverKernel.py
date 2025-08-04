@@ -337,8 +337,9 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.summarised_observable_indices
 
     @property
-    def active_output_arrays(self) -> "ActiveOutputs":
+    def active_output_arrays(self) -> "ActiveOutputs": # noqa: F821
         """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.active_outputs` from the child OutputArrays object."""
+        self.output_arrays.allocate()
         return self.output_arrays.active_outputs
 
     @property
@@ -361,6 +362,27 @@ class BatchSolverKernel(CUDAFactory):
         """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.observable_summaries` from the child OutputArrays object."""
         return self.output_arrays.observable_summaries
 
+    @property
     def save_time(self):
-        """Returns save_time flag from output_functions, True if time was saved onto the end of the state array."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.save_time` from the child SingleIntegratorRun object."""
         return self.single_integrator.save_time
+
+    def enable_profiling(self):
+        """
+        Enable CUDA profiling for the solver. This will allow you to profile the performance of the solver on the
+        GPU, but will slow things down.
+        """
+        # Consider disabling optimisation and enabling debug and line info for profiling
+        self.compile_settings.profileCUDA = True
+
+    def disable_profiling(self):
+        """
+        Disable CUDA profiling for the solver. This will stop profiling the performance of the solver on the GPU,
+        but will speed things up.
+        """
+        self.compile_settings.profileCUDA  = False
+
+    @property
+    def output_types(self):
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.output_types` from the child SingleIntegratorRun object."""
+        return self.single_integrator.output_types

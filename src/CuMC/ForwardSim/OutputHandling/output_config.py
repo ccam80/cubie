@@ -2,7 +2,7 @@
 Output configuration management system for flexible, user-controlled output selection.
 """
 
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Sequence
 from warnings import warn
 
 import attrs
@@ -55,10 +55,6 @@ class OutputConfig:
     _max_states: int = attrs.field(validator=attrs.validators.instance_of(int))
     _max_observables: int = attrs.field(validator=attrs.validators.instance_of(int))
 
-    _save_state: bool = attrs.field(default=True)
-    _save_observables: bool = attrs.field(default=True)
-    _save_time: bool = attrs.field(default=False)
-
     _saved_state_indices: Optional[Union[List | NDArray]] = attrs.field(default=attrs.Factory(list),
                                                                         eq=attrs.cmp_using(eq=array_equal),
                                                                         )
@@ -72,11 +68,16 @@ class OutputConfig:
                                                                                   eq=attrs.cmp_using(eq=array_equal),
                                                                                   )
 
-    _summary_types: Tuple[str] = attrs.field(default=attrs.Factory(tuple))
+    _output_types: List[str] = attrs.field(default=attrs.Factory(list))
+    _save_state: bool = attrs.field(default=True, init=False)
+    _save_observables: bool = attrs.field(default=True, init=False)
+    _save_time: bool = attrs.field(default=False, init=False)
+    _summary_types: Tuple[str] = attrs.field(default=attrs.Factory(tuple), init=False)
 
     # *********************************** post-init validators ***********************************
     def __attrs_post_init__(self):
         """Swap out None index arrays, check that all indices are within bounds, and check for a no-output request."""
+        self.update_from_outputs_list(self._output_types)
         self._check_saved_indices()
         self._check_summarised_indices()
         self._validate_index_arrays()
@@ -122,8 +123,6 @@ class OutputConfig:
             self._summarised_observable_indices = np.asarray(self._summarised_observable_indices, dtype=np.int_)
 
     # ************************************ Getters/Setters *************************************** #
-    # No setter implemented for flags - these can only be updated by the update_from_outputs_list method
-
     @property
     def max_states(self):
         return self._max_states
@@ -259,7 +258,7 @@ class OutputConfig:
         return self._summary_types
 
     @property
-    def summmary_legend_per_state(self):
+    def summary_legend_per_variable(self):
         """Returna a dict of index number to summary type for each variable saved."""
         if not self._summary_types:
             return {}
@@ -267,34 +266,10 @@ class OutputConfig:
         legend_dict = dict(zip(range(len(self._summary_types)), legend_tuple))
         return legend_dict
 
-    # @property
-    # def state_summary_legend(self):
-    #     """Assemble a legend dict keyed by array index, with values a tuple of the variable index and the summary type.
-    #     An intermediate step to to provide the output-functions-level legend information, with string labels to be
-    #     applied in place of the variable-index by a label-aware module elsewhere."""
-    #     if not self._summary_types:
-    #         return {}
-    #     for i, summary_type in enumerate(self._summary_types):
-    #         legend[i] = summary_type
-    #     return legend
-    #
-    # @property
-    # def observable_summary_legend(self):
-    #     """Assemble a legend dict keyed by array index, with values a tuple of the variable index and the summary type.
-    #     An intermediate step to to provide the output-functions-level legend information, with string labels to be
-    #     applied in place of the variable-index by a label-aware module elsewhere."""
-    #     if not self._summary_types:
-    #         return {}
-    #
-    #     for i, summary_type in enumerate(self._summary_types):
-    #         legend[i] = summary_type
-    #     return legend
-    #
     @property
     def summary_parameters(self):
         """Get parameters for summary metrics from the metrics system."""
         return summary_metrics.params(list(self._summary_types))
-
 
     @property
     def summaries_buffer_height_per_var(self) -> int:
@@ -341,26 +316,53 @@ class OutputConfig:
         """Calculate the height of the observable summary output."""
         return self.summaries_output_height_per_var * self.n_summarised_observables
 
+    @property
+    def output_types(self) -> List[str]:
+        """Get the list of output types requested."""
+        return self._output_types
+
+    @output_types.setter
+    def output_types(self, value: Sequence[str]):
+        """Set the output types and update the compile flags accordingly."""
+        if isinstance(value, tuple):
+            value = list(value)
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            raise TypeError(f"Output types must be a list or tuple of strings, or a single string. Got {type(value)}")
+
+        self.update_from_outputs_list(value)
+        self._check_for_no_outputs()
+
     # ***************************** Custom init methods for adapting to other components ***************************** #
-    def update_from_outputs_tuple(self,
-                                  output_types: tuple[str],
-                                  ):
+    def update_from_outputs_list(self,
+                                 output_types: list[str],
+                                 ):
         """Update bools and summary types from a list of output types. Run the post_init validators to empty indices
         if not requested."""
-        self._save_state = "state" in output_types
-        self._save_observables = "observables" in output_types
-        self._save_time = "time" in output_types
+        if not output_types:
+            self._output_types = []
+            self._summary_types = tuple()
+            self._save_state = False
+            self._save_observables = False
+            self._save_time = False
 
-        summary_types = []
-        for output_type in output_types:
-            if any((output_type.startswith(name) for name in summary_metrics.implemented_metrics)):
-                summary_types.append(output_type)
-            else:
-                warn(f"Summary type '{output_type}' is not implemented. Ignoring.")
+        else:
+            self._output_types = output_types
+            self._save_state = "state" in output_types
+            self._save_observables = "observables" in output_types
+            self._save_time = "time" in output_types
 
-        self._summary_types = tuple(summary_types)
+            summary_types = []
+            for output_type in output_types:
+                if any((output_type.startswith(name) for name in summary_metrics.implemented_metrics)):
+                    summary_types.append(output_type)
+                else:
+                    warn(f"Summary type '{output_type}' is not implemented. Ignoring.")
 
-        self._check_for_no_outputs()
+            self._summary_types = tuple(summary_types)
+
+            self._check_for_no_outputs()
 
     @classmethod
     def from_loop_settings(cls,
@@ -388,16 +390,6 @@ class OutputConfig:
         """
         # Set boolean compile flags for output types
         output_types = output_types.copy()
-        save_state = "state" in output_types
-        save_observables = "observables" in output_types
-        save_time = "time" in output_types
-
-        if save_state:
-            output_types.remove("state")
-        if save_observables:
-            output_types.remove("observables")
-        if save_time:
-            output_types.remove("time")
 
         # OutputConfig doesn't play as nicely with Nones as the rest of python does
         if saved_state_indices is None:
@@ -421,12 +413,9 @@ class OutputConfig:
         return cls(
                 max_states=max_states,
                 max_observables=max_observables,
-                save_state=save_state,
-                save_observables=save_observables,
-                save_time=save_time,
                 saved_state_indices=saved_state_indices,
                 saved_observable_indices=saved_observable_indices,
                 summarised_state_indices=summarised_state_indices,
                 summarised_observable_indices=summarised_observable_indices,
-                summary_types=summary_types,
+                output_types=output_types,
                 )
