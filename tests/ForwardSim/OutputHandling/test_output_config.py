@@ -235,7 +235,7 @@ class TestSummaryMetrics:
         assert config.summaries_output_height_per_var > 0
 
         # No summaries should mean no memory needed
-        config.update_from_outputs_tuple(("state",))
+        config.output_types = ["state",]
         assert config.summaries_buffer_height_per_var == 0
         assert config.summaries_output_height_per_var == 0
 
@@ -247,7 +247,7 @@ class TestUpdateMethods:
         """Test setting basic output types."""
         config = basic_config
 
-        config.update_from_outputs_tuple(("state", "time"))
+        config.output_types = ("state", "time")
         assert config._save_state is True
         assert config._save_observables is False
         assert config._save_time is True
@@ -257,7 +257,7 @@ class TestUpdateMethods:
         """Test setting summary metrics."""
         config = basic_config
 
-        config.update_from_outputs_tuple(("mean", "max"))
+        config.output_types = ("mean", "max")
         assert config._save_state is False
         assert config._save_observables is False
         assert config._save_time is False
@@ -267,7 +267,7 @@ class TestUpdateMethods:
         """Test setting mixed output types."""
         config = basic_config
 
-        config.update_from_outputs_tuple(("state", "mean", "time"))
+        config.output_types = ("state", "mean", "time")
         assert config._save_state is True
         assert config._save_observables is False
         assert config._save_time is True
@@ -278,7 +278,7 @@ class TestUpdateMethods:
         config = basic_config
 
         with catch_warnings(record=True) as w:
-            config.update_from_outputs_tuple(("unknown_metric", "mean"))
+            config.output_types = ("unknown_metric", "mean")
             assert len(w) >= 1
             assert "is not implemented" in str(w[0].message)
 
@@ -373,7 +373,7 @@ class TestUtilityProperties:
         config = config_with_summaries
         assert config.save_summaries is True
 
-        config.update_from_outputs_tuple(("state",))
+        config.output_types = ("state",)
         assert config.save_summaries is False
 
     def test_summarise_states_property(self, config_with_summaries):
@@ -391,7 +391,7 @@ class TestUtilityProperties:
         assert config.summarise_observables is True
 
         # No summary types means no summarization
-        config.update_from_outputs_tuple(("state",))
+        config.output_types = ("state",)
         assert config.summarise_observables is False
 
     def test_n_saved_states_property(self, basic_config):
@@ -399,10 +399,10 @@ class TestUtilityProperties:
         config = basic_config
         assert config.n_saved_states == 10
 
-        config.update_from_outputs_tuple(("mean",))
+        config.output_types = ("mean",)
         assert config.n_saved_states == 0
 
-        config.update_from_outputs_tuple(("state",))
+        config.output_types = ("state",)
         config.saved_state_indices = np.array([0, 1, 2], dtype=np.int_)
         assert config.n_saved_states == 3
 
@@ -411,10 +411,10 @@ class TestUtilityProperties:
         config = basic_config
         assert config.n_saved_observables == 5
 
-        config.update_from_outputs_tuple(("mean",))
+        config.output_types = ("mean",)
         assert config.n_saved_observables == 0
 
-        config.update_from_outputs_tuple(("mean", "observables"))
+        config.output_types = ("mean", "observables")
         config.saved_observable_indices = np.array([0, 1], dtype=np.int_)
         assert config.n_saved_observables == 2
 
@@ -423,10 +423,10 @@ class TestUtilityProperties:
         config = config_with_summaries
         assert config.n_summarised_states == 10
 
-        config.update_from_outputs_tuple(("time", "state"))
+        config.output_types = ("time", "state")
         assert config.n_summarised_states == 0
 
-        config.update_from_outputs_tuple(("mean",))
+        config.output_types = ("mean",)
         config.summarised_state_indices = np.array([0, 1], dtype=np.int_)
         assert config.n_summarised_states == 2
 
@@ -435,10 +435,10 @@ class TestUtilityProperties:
         config = config_with_summaries
         assert config.n_summarised_observables == 5
 
-        config.update_from_outputs_tuple(("time",))
+        config.output_types = ("time",)
         assert config.n_summarised_observables == 0
 
-        config.update_from_outputs_tuple(("mean",))
+        config.output_types = ("mean",)
         config.summarised_observable_indices = np.array([0], dtype=np.int_)
         assert config.n_summarised_observables == 1
 

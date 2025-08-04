@@ -2,7 +2,7 @@
 Output configuration management system for flexible, user-controlled output selection.
 """
 
-from typing import List, Tuple, Union, Optional
+from typing import List, Tuple, Union, Optional, Sequence
 from warnings import warn
 
 import attrs
@@ -55,7 +55,6 @@ class OutputConfig:
     _max_states: int = attrs.field(validator=attrs.validators.instance_of(int))
     _max_observables: int = attrs.field(validator=attrs.validators.instance_of(int))
 
-
     _saved_state_indices: Optional[Union[List | NDArray]] = attrs.field(default=attrs.Factory(list),
                                                                         eq=attrs.cmp_using(eq=array_equal),
                                                                         )
@@ -78,12 +77,11 @@ class OutputConfig:
     # *********************************** post-init validators ***********************************
     def __attrs_post_init__(self):
         """Swap out None index arrays, check that all indices are within bounds, and check for a no-output request."""
-        self.update_from_outputs_tuple(self._output_types)
+        self.update_from_outputs_list(self._output_types)
         self._check_saved_indices()
         self._check_summarised_indices()
         self._validate_index_arrays()
         self._check_for_no_outputs()
-
 
     def _validate_index_arrays(self):
         """Ensure that saved indices arrays are valid and in bounds. This is called post-init to allow None arrays to be
@@ -125,8 +123,6 @@ class OutputConfig:
             self._summarised_observable_indices = np.asarray(self._summarised_observable_indices, dtype=np.int_)
 
     # ************************************ Getters/Setters *************************************** #
-    # No setter implemented for flags - these can only be updated by the update_from_outputs_list method
-
     @property
     def max_states(self):
         return self._max_states
@@ -275,7 +271,6 @@ class OutputConfig:
         """Get parameters for summary metrics from the metrics system."""
         return summary_metrics.params(list(self._summary_types))
 
-
     @property
     def summaries_buffer_height_per_var(self) -> int:
         """Calculate buffer size per variable using SummaryMetrics system."""
@@ -321,13 +316,32 @@ class OutputConfig:
         """Calculate the height of the observable summary output."""
         return self.summaries_output_height_per_var * self.n_summarised_observables
 
+    @property
+    def output_types(self) -> List[str]:
+        """Get the list of output types requested."""
+        return self._output_types
+
+    @output_types.setter
+    def output_types(self, value: Sequence[str]):
+        """Set the output types and update the compile flags accordingly."""
+        if isinstance(value, tuple):
+            value = list(value)
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list):
+            raise TypeError(f"Output types must be a list or tuple of strings, or a single string. Got {type(value)}")
+
+        self.update_from_outputs_list(value)
+        self._check_for_no_outputs()
+
     # ***************************** Custom init methods for adapting to other components ***************************** #
-    def update_from_outputs_tuple(self,
-                                  output_types: tuple[str],
-                                  ):
+    def update_from_outputs_list(self,
+                                 output_types: list[str],
+                                 ):
         """Update bools and summary types from a list of output types. Run the post_init validators to empty indices
         if not requested."""
         if not output_types:
+            self._output_types = []
             self._summary_types = tuple()
             self._save_state = False
             self._save_observables = False
@@ -403,5 +417,5 @@ class OutputConfig:
                 saved_observable_indices=saved_observable_indices,
                 summarised_state_indices=summarised_state_indices,
                 summarised_observable_indices=summarised_observable_indices,
-                output_types = output_types
+                output_types=output_types,
                 )

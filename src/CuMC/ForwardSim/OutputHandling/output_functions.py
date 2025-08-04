@@ -70,10 +70,6 @@ class OutputFunctions(CUDAFactory):
         unrecognised = set(updates_dict.keys())
 
         recognised_params = set()
-        if 'output_types' in updates_dict:
-            self.compile_settings.update_from_outputs_tuple(updates_dict['output_types'])
-            recognised_params |= {'output_types'}
-
         recognised_params |= self.update_compile_settings(updates_dict, silent=True)
         unrecognised -= recognised_params
 
