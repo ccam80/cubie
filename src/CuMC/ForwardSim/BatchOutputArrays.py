@@ -49,7 +49,7 @@ class OutputArrays:
         Update the sizes and precision of the OutputArrays instance from a solver instance.
         This is useful if the solver instance has changed and we need to update the output arrays accordingly.
         """
-        self._sizes = BatchOutputSizes.from_solver(solver_instance)
+        self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
         self._clear_cache()
         self._allocate_new()
@@ -188,23 +188,6 @@ class OutputArrays:
         self.observables[:, :, :] = self._precision(0.0)
         self.state_summaries[:, :, :] = self._precision(0.0)
         self.observable_summaries[:, :, :] = self._precision(0.0)
-
-    def output_arrays(self) -> dict[str, np.ndarray]:
-        """
-        Return a dictionary of host-device output arrays
-
-        Returns
-        -------
-        array_dict: dict[str, np.ndarray]
-            A dictionary with keys 'state', 'observables', 'state_summaries', 'observable_summaries',
-        """
-        return {
-            'state': self.state,
-            'observables': self.observables,
-            'state_summaries': self.state_summaries,
-            'observable_summaries': self.observable_summaries
-        }
-
 
     @classmethod
     def from_solver(cls, solver_instance: "BatchSolverKernel") -> "OutputArrays":  # noqa: F821

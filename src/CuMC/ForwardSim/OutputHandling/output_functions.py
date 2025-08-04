@@ -243,4 +243,4 @@ class OutputFunctions(CUDAFactory):
     @property
     def summary_legend_per_variable(self) -> dict[str, int]:
         """Return a dictionary mapping summary names to their heights per variable."""
-        return self.compile_settings.summary_legend_per_variable()
+        return self.compile_settings.summary_legend_per_variable

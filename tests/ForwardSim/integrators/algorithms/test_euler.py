@@ -24,14 +24,14 @@ class TestEuler(LoopAlgorithmTester):
         return Euler
 
     @pytest.fixture(scope="function")
-    def expected_answer(self, system, loop_compile_settings, run_settings, solver, inputs, precision):
+    def expected_answer(self, system, loop_compile_settings, run_settings, solverkernel, inputs, precision):
         inits = inputs['initial_values']
         params = inputs['parameters']
         driver_vec = inputs['forcing_vectors']
         dt = loop_compile_settings['dt_min']
         output_dt = loop_compile_settings['dt_save']
-        warmup = solver.warmup
-        duration = solver.duration
+        warmup = solverkernel.warmup
+        duration = solverkernel.duration
         saved_observable_indices = loop_compile_settings['saved_observable_indices']
         saved_state_indices = loop_compile_settings['saved_state_indices']
         save_time = "time" in loop_compile_settings['output_functions']
@@ -109,10 +109,10 @@ class TestEuler(LoopAlgorithmTester):
                              indirect=True,
                              )
     def test_loop(self, loop_test_kernel, outputs, inputs, precision, output_functions,
-                  loop_under_test, expected_answer, expected_summaries, solver,
+                  loop_under_test, expected_answer, expected_summaries, solverkernel,
                   ):
         super().test_loop(loop_test_kernel, outputs, inputs, precision, output_functions,
-                          loop_under_test, expected_answer, expected_summaries, solver,
+                          loop_under_test, expected_answer, expected_summaries, solverkernel,
                           )
 
     @pytest.mark.parametrize("loop_compile_settings_overrides",

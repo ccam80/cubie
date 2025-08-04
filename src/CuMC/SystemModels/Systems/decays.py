@@ -34,12 +34,11 @@ class Decays(GenericODE):
                  precision=np.float64,
                  **kwargs,
                  ):
-        # let the user specify if we need a unified template for testing - so it looks the same as a real system.
 
         coefficients = kwargs["coefficients"]
 
         nterms = len(coefficients)
-        observables = [f'x{i}' for i in range(nterms)]
+        observables = [f'o{i}' for i in range(nterms)]
         initial_values = {f'x{i}': 1.0 for i in range(nterms)}
         parameters = {f'p{i}': coefficients[i] for i in range(nterms)}
         constants = {f'c{i}': i for i in range(nterms)}

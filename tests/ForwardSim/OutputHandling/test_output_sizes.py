@@ -323,17 +323,17 @@ class TestSingleRunOutputSizes:
     @pytest.mark.parametrize("loop_compile_settings_overrides",
                              [{'output_functions': ["time", "state", "observables", "mean"]}]
                              , indirect=True)
-    def test_from_output_fns_and_run_settings_default(self, output_functions, run_settings, solver):
+    def test_from_output_fns_and_run_settings_default(self, output_functions, run_settings, solverkernel):
         """Test creating SingleRunOutputSizes from output_functions and run_settings"""
-        sizes = SingleRunOutputSizes.from_solver(solver)
+        sizes = SingleRunOutputSizes.from_solver(solverkernel)
 
         expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
 
-        assert sizes.state == (solver.output_length, expected_state_height)
-        assert sizes.observables == (solver.output_length, output_functions.n_saved_observables)
-        assert sizes.state_summaries == (solver.summaries_length,
+        assert sizes.state == (solverkernel.output_length, expected_state_height)
+        assert sizes.observables == (solverkernel.output_length, output_functions.n_saved_observables)
+        assert sizes.state_summaries == (solverkernel.summaries_length,
                                          output_functions.state_summaries_output_height)
-        assert sizes.observable_summaries == (solver.summaries_length,
+        assert sizes.observable_summaries == (solverkernel.summaries_length,
                                               output_functions.observable_summaries_output_height
                                               )
 
@@ -341,9 +341,9 @@ class TestSingleRunOutputSizes:
                              [{'output_functions': ["time", "state", "observables", "mean"]}]
                              , indirect=True)
     @pytest.mark.parametrize("solver_settings_override", [{'duration': 0.0}], indirect=True)
-    def test_from_solver_with_nonzero(self, solver):
+    def test_from_solver_with_nonzero(self, solverkernel):
         """Test creating SingleRunOutputSizes and using nonzero property"""
-        sizes = SingleRunOutputSizes.from_solver(solver)
+        sizes = SingleRunOutputSizes.from_solver(solverkernel)
         nonzero_sizes = sizes.nonzero
 
         # All tuple values should have elements >= 1
@@ -355,17 +355,17 @@ class TestSingleRunOutputSizes:
     @pytest.mark.parametrize("loop_compile_settings_overrides",
                              [{'output_functions': ["time", "state", "observables", "mean"]}]
                              , indirect=True)
-    def test_explicit_vs_from_solver(self, output_functions, run_settings, solver):
+    def test_explicit_vs_from_solver(self, output_functions, run_settings, solverkernel):
         """Test that explicit initialization matches from_output_fns_and_run_settings result"""
-        from_fns = SingleRunOutputSizes.from_solver(solver)
+        from_fns = SingleRunOutputSizes.from_solver(solverkernel)
 
         expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
         explicit = SingleRunOutputSizes(
-                state=(solver.output_length, expected_state_height),
-                observables=(solver.output_length, output_functions.n_saved_observables),
-                state_summaries=(solver.summaries_length, output_functions.state_summaries_output_height),
-                observable_summaries=(solver.summaries_length,
-                                  output_functions.observable_summaries_output_height
+                state=(solverkernel.output_length, expected_state_height),
+                observables=(solverkernel.output_length, output_functions.n_saved_observables),
+                state_summaries=(solverkernel.summaries_length, output_functions.state_summaries_output_height),
+                observable_summaries=(solverkernel.summaries_length,
+                                      output_functions.observable_summaries_output_height
                                       ),
                 )
 
@@ -420,33 +420,33 @@ class TestIntegrationScenarios:
          'output_functions': ["time", "state", "observables", "mean"]
          }
     ], indirect=True)
-    def test_realistic_scenario_no_zeros(self, output_functions, run_settings, solver):
+    def test_realistic_scenario_no_zeros(self, output_functions, run_settings, solverkernel):
         """Test a realistic scenario with typical non-zero values"""
         numruns = 1
 
         # Test the full chain
-        single_run = SingleRunOutputSizes.from_solver(solver)
-        batch = BatchOutputSizes.from_solver(solver)
+        single_run = SingleRunOutputSizes.from_solver(solverkernel)
+        batch = BatchOutputSizes.from_solver(solverkernel)
 
         expected_state_height = output_functions.n_saved_states + (1 if output_functions.save_time else 0)
 
-        assert single_run.state == (solver.output_length, expected_state_height)
-        assert single_run.observables == (solver.output_length, output_functions.n_saved_observables)
+        assert single_run.state == (solverkernel.output_length, expected_state_height)
+        assert single_run.observables == (solverkernel.output_length, output_functions.n_saved_observables)
 
-        assert batch.state == (solver.output_length, numruns, expected_state_height)
-        assert batch.observables == (solver.output_length, numruns, output_functions.n_saved_observables)
+        assert batch.state == (solverkernel.output_length, numruns, expected_state_height)
+        assert batch.observables == (solverkernel.output_length, numruns, output_functions.n_saved_observables)
 
     @pytest.mark.parametrize("loop_compile_settings_overrides", [
         {'output_functions': ["time", "state", "observables", "mean"], 'saved_state_indices': [], 'saved_observable_indices': []}
     ], indirect=True)
     @pytest.mark.parametrize("solver_settings_override", [{'duration': 0.0}], indirect=True)
-    def test_edge_case_all_zeros_with_nonzero(self, system, solver, output_functions):
+    def test_edge_case_all_zeros_with_nonzero(self, system, solverkernel, output_functions):
         """Test edge case where everything is zero but using nonzero property"""
         numruns = 0
 
         # Test with nonzero property - everything should become at least 1
-        single_run = SingleRunOutputSizes.from_solver(solver)
-        batch = BatchOutputSizes.from_solver(solver)
+        single_run = SingleRunOutputSizes.from_solver(solverkernel)
+        batch = BatchOutputSizes.from_solver(solverkernel)
         loop_buffer = LoopBufferSizes.from_system_and_output_fns(system, output_functions)
 
         # Use nonzero property to get nonzero versions

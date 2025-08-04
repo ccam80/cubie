@@ -4,27 +4,18 @@ in tests/_utils.py"""
 import pytest
 import numpy as np
 from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
+from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
+from CuMC.ForwardSim.Solver import Solver
 
 """Fixtures for instantiating lower-level components with default values that can be overriden through
 indirect parametrization of the "override" fixture."""
 
 
-@pytest.fixture(scope="function")
-def expected_warning(request):
-    """Tuple of (Warning type, warning message)"""
-    return request.param if hasattr(request, "param") else None
-
-
-@pytest.fixture(scope="function")
-def expected_error(request):
-    """Tuple of (Error type, error message)"""
-    return request.param if hasattr(request, "param") else None
 
 
 @pytest.fixture(scope="function")
 def precision_override(request):
     return request.param if hasattr(request, 'param') else None
-
 
 @pytest.fixture(scope="function")
 def precision(precision_override):
@@ -206,11 +197,14 @@ def solver_settings(loop_compile_settings, solver_settings_override, precision):
                 defaults[key] = value
     return defaults
 
-@pytest.fixture
-def solver(solver_settings, system):
-    """Create a solver instance with the provided settings."""
-    from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
+@pytest.fixture(scope='function')
+def solverkernel(solver_settings, system):
     return BatchSolverKernel(system, **solver_settings)
+
+@pytest.fixture(scope='function')
+def solver(system, solver_settings):
+    return Solver(system, **solver_settings)
+
 
 @pytest.fixture(scope='function')
 def loop_compile_settings(request, system, loop_compile_settings_overrides):

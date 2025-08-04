@@ -24,7 +24,7 @@ class LoopAlgorithmTester:
         pass
 
     @pytest.fixture(scope='function')
-    def expected_answer(self, system, loop_compile_settings, run_settings, solver, inputs, precision):
+    def expected_answer(self, system, loop_compile_settings, run_settings, solverkernel, inputs, precision):
         """OVERRIDE THIS FIXTURE with a python version of what your integrator loop should return - a scipy integrator
         or homebrew CPU loop should be able to provide an answer that matches the output of a given loop to within
         floating-point precision."""
@@ -123,11 +123,11 @@ class LoopAlgorithmTester:
 
     #Don't call it test_kernel, as that is a reserved name in pytest
     @pytest.fixture(scope='function')
-    def loop_test_kernel(self, precision, built_loop_function, solver):
+    def loop_test_kernel(self, precision, built_loop_function, solverkernel):
         loop_func = built_loop_function
 
-        output_samples = solver.output_length
-        warmup_samples = int(solver.warmup / solver.dt_save)
+        output_samples = solverkernel.output_length
+        warmup_samples = int(solverkernel.warmup / solverkernel.dt_save)
         numba_precision = from_dtype(precision)
 
         @cuda.jit()
@@ -187,8 +187,8 @@ class LoopAlgorithmTester:
         return output_size
 
     @pytest.fixture(scope='function')
-    def outputs(self, output_functions, precision, solver):
-        output_shapes = SingleRunOutputSizes.from_solver(solver).nonzero
+    def outputs(self, output_functions, precision, solverkernel):
+        output_shapes = SingleRunOutputSizes.from_solver(solverkernel).nonzero
         state_output = cuda.pinned_array(output_shapes.state, dtype=precision)
         observables_output = cuda.pinned_array(output_shapes.observables, dtype=precision)
         state_summary_output = cuda.pinned_array(output_shapes.state_summaries, dtype=precision)
