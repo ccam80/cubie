@@ -217,8 +217,8 @@ class UserArrays:
         singlevar_legend = solver.summary_legend_per_variable
         saved_states = solver.saved_state_indices
         saved_observables = solver.saved_observable_indices
-        state_labels = solver.batch_config.state_labels(saved_states)
-        obs_labels = solver.batch_config.observable_labels(saved_observables)
+        state_labels = solver.batch_configurator.state_labels(saved_states)
+        obs_labels = solver.batch_configurator.observable_labels(saved_observables)
         summaries_legend = {}
         # state summaries
         for i, label in enumerate(state_labels):
@@ -248,8 +248,8 @@ class UserArrays:
         time_domain_legend = {}
         saved_states = solver.saved_state_indices
         saved_observables = solver.saved_observable_indices
-        state_labels = solver.batch_config.state_labels(saved_states)
-        obs_labels = solver.batch_config.observable_labels(saved_observables)  # hoik up into solver
+        state_labels = solver.batch_configurator.state_labels(saved_states)
+        obs_labels = solver.batch_configurator.observable_labels(saved_observables)  # hoik up into solver
         offset = 0
 
         for i, label in enumerate(state_labels):

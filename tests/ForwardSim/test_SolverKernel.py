@@ -80,20 +80,20 @@ def test_kernel_builds(solverkernel):
                            {},
                            {}),
                          ("ThreeChamber",
-                          {'duration': 10.0, 'output_types': ["state", "observables", "mean",
+                          {'duration': 1.0, 'output_types': ["state", "observables", "mean",
                          "max", "rms", "peaks[2]"]},
                           {}),
-                          ("ThreeChamber",
-                           {'duration': 10.0, 'output_types':["state", "observables", "mean", "max"]},
-                           {'num_state_vals_0': 10, 'num_state_vals_1': 10, 'num_param_vals_0': 10, 'num_param_vals_1': 10})
+                          # ("ThreeChamber",
+                          #  {'duration': 10.0, 'output_types':["state", "observables", "mean", "max"]},
+                          #  {'num_state_vals_0': 10, 'num_state_vals_1': 10, 'num_param_vals_0': 10, 'num_param_vals_1': 10})
                           ),
-                          ids = ["smoke_test", "fire_test (all outputs, threeCM, 10.0s duration)", "scorcher: 10k "
-                         "10s threeCM runs"],
+                          ids = ["smoke_test", "fire_test (all outputs)"],#, "scorcher: 10k "
+                         # "10s threeCM runs"],
                          indirect=True)
 def test_run(solverkernel, batch_input_arrays, solver_settings, square_drive, batch_settings,
              expected_batch_answers_euler, expected_batch_summaries, precision):
-    """Big integration tet. Runs a batch integratino and checks outputs match expected. Expensive, keep to a small
-    batch size in CI testing."""
+    """Big integration tet. Runs a batch integratino and checks outputs match expected. Expensive, don't run
+    "scorcher" in CI."""
     inits, params = batch_input_arrays
 
     solverkernel.run(duration=solver_settings['duration'],

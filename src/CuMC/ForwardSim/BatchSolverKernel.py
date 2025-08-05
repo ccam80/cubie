@@ -162,6 +162,12 @@ class BatchSolverKernel(CUDAFactory):
         loopfunction = self.single_integrator.device_function
         shared_elements_per_run = self.shared_memory_elements_per_run
 
+        output_flags = self.active_output_arrays
+        save_state = output_flags.state
+        save_observables = output_flags.observables
+        save_state_summaries = output_flags.state_summaries
+        save_observable_summaries = output_flags.observable_summaries
+
         @cuda.jit((precision[:, :],
                    precision[:, :],
                    precision[:, :],
@@ -203,10 +209,10 @@ class BatchSolverKernel(CUDAFactory):
             rx_shared_memory = shared_memory[ty * shared_elements_per_run:(ty + 1) * shared_elements_per_run]
             rx_inits = inits[run_index, :]
             rx_params = params[run_index, :]
-            rx_state = state_output[:, run_index, :]
-            rx_observables = observables_output[:, run_index, :]
-            rx_state_summaries = state_summaries_output[:, run_index, :]
-            rx_observables_summaries = observables_summaries_output[:, run_index, :]
+            rx_state = state_output[:, run_index * save_state, :]
+            rx_observables = observables_output[:, run_index * save_observables, :]
+            rx_state_summaries = state_summaries_output[:, run_index * save_state_summaries, :]
+            rx_observables_summaries = observables_summaries_output[:, run_index * save_observable_summaries, :]
 
             loopfunction(
                     rx_inits,
