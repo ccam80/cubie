@@ -120,14 +120,14 @@ class BatchSolverKernel(CUDAFactory):
         warmup_length = self.warmup_length
         numruns = self.input_arrays.num_runs
 
-        dynamic_sharedmem = int(self.shared_memory_bytes_per_run * np.min(numruns, blocksize))
+        dynamic_sharedmem = int(self.shared_memory_bytes_per_run * min(numruns, blocksize))
         while dynamic_sharedmem > 32768:
             if blocksize < 32:
                 warn("Block size has been reduced to less than 32 threads, which means your code will suffer a "
                      "performance hit. This is due to your problem requiring too much shared memory - try casting "
                      "some parameters to constants, or trying a different solving algorithm.")
             blocksize = blocksize/2
-            dynamic_sharedmem = int(self.shared_memory_bytes_per_run * np.min(numruns, blocksize))
+            dynamic_sharedmem = int(self.shared_memory_bytes_per_run * min(numruns, blocksize))
 
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
