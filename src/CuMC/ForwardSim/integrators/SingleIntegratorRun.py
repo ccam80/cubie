@@ -258,6 +258,11 @@ class SingleIntegratorRun:
         return self.config.loop_step_config
 
     @property
+    def fixed_step_size(self):
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm.GenericIntegratorAlgorithm.step_size` from the child GenericIntegratorAlgorithm object."""
+        return self._integrator_instance.fixed_step_size
+
+    @property
     def dt_save(self):
         """Get the time step size for saving states and observables."""
         return self.config.dt_save
@@ -311,3 +316,9 @@ class SingleIntegratorRun:
     def save_time(self):
         """Exposes :attr:`~CuMC.ForwardSim.OutputHandling.output_functions.OutputFunctions.save_time` from the child OutputFunctions object."""
         return self._output_functions.save_time
+
+    @property
+    def system(self):
+        """Exposes child :attr:`~CuMC.SystemModels.Systems.GenericODE.GenericODE` object
+        object."""
+        return self._system

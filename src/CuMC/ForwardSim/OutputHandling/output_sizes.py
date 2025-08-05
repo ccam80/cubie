@@ -6,6 +6,7 @@ if TYPE_CHECKING:
 
 import attrs
 from CuMC.ForwardSim._utils import ensure_nonzero_size
+from numpy import ceil
 
 @attrs.define
 class ArraySizingClass:
@@ -142,8 +143,8 @@ class SingleRunOutputSizes(ArraySizingClass):
     def from_output_fns_and_run_settings(cls, output_fns, run_settings):
         """Only used for testing, otherwise the higher-level from_solver method is used"""
         heights = OutputArrayHeights.from_output_fns(output_fns)
-        output_samples = int(run_settings.duration // run_settings.dt_save)
-        summarise_samples = int(run_settings.duration // run_settings.dt_summarise)
+        output_samples = int(ceil(run_settings.duration / run_settings.dt_save))
+        summarise_samples = int(ceil(run_settings.duration / run_settings.dt_summarise))
 
         state = (output_samples, heights.state)
         observables = (output_samples, heights.observables)

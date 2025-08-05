@@ -94,7 +94,6 @@ def genericODE_model(precision, genericODE_model_override):
 @pytest.fixture(scope="function")
 def system_override(request):
     """Override for system model type, if provided."""
-    print(request.param if hasattr(request, 'param') else {})
     return request.param if hasattr(request, 'param') else {}
 
 

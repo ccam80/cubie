@@ -43,7 +43,7 @@ class LoopAlgorithmTester:
         """
         _, summarise_every, _ = loop_under_test.compile_settings.fixed_steps
 
-        state, obs =  calculate_expected_summaries(
+        state, obs = calculate_expected_summaries(
                 *expected_answer,
                 summarise_every,
                 loop_compile_settings['output_functions'],
@@ -262,7 +262,6 @@ class LoopAlgorithmTester:
         # Calculate expected summaries
         expected_state_summaries = expected_summaries['state']
         expected_obs_summaries = expected_summaries['observables']
-
 
         # Set tolerance based on precision
         if precision == np.float32:

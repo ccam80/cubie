@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from tests.ForwardSim.integrators.algorithms.LoopAlgorithmTester import LoopAlgorithmTester
-
+from tests._utils import cpu_euler_loop
 from CuMC.ForwardSim.integrators.algorithms.euler import Euler
 from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
 
@@ -36,52 +36,13 @@ class TestEuler(LoopAlgorithmTester):
         saved_state_indices = loop_compile_settings['saved_state_indices']
         save_time = "time" in loop_compile_settings['output_functions']
 
-        state_output, observables_output = self._cpu_euler_loop(system, inits, params, driver_vec, dt, output_dt,
-                                                                warmup, duration, saved_observable_indices, saved_state_indices,
-                                                                save_time,
-                                                                )
+        state_output, observables_output = cpu_euler_loop(system, inits, params, driver_vec, dt, output_dt,
+                                                          warmup, duration, saved_observable_indices, saved_state_indices,
+                                                          save_time,
+                                                          )
 
         return state_output, observables_output
 
-    def _cpu_euler_loop(self,
-                        system,
-                        inits,
-                        params,
-                        driver_vec,
-                        dt,
-                        output_dt,
-                        warmup,
-                        duration,
-                        saved_observable_indices,
-                        saved_state_indices,
-                        save_time,
-                        ):
-        """A simple CPU implementation of the Euler loop for testing."""
-        t = 0.0
-        save_every = int(round(output_dt / dt))
-        output_length = int(duration / output_dt)
-        warmup_samples = int(warmup / output_dt)
-        n_saved_states = len(saved_state_indices)
-        n_saved_observables = len(saved_observable_indices)
-        total_samples = int((duration + warmup) / output_dt)
-
-        state_output = np.zeros((output_length, n_saved_states + save_time * 1), dtype=inits.dtype)
-        observables_output = np.zeros((output_length, n_saved_observables), dtype=inits.dtype)
-        state = inits.copy()
-
-        for i in range(total_samples):
-            for j in range(save_every):
-                drivers = driver_vec[:, (i * save_every + j) % len(driver_vec)]
-                t += dt
-                dx, observables = system.correct_answer_python(state, params, drivers)
-                state += dx * dt
-            if i > (warmup_samples - 1):
-                state_output[i - warmup_samples, :n_saved_states] = state[saved_state_indices]
-                observables_output[i - warmup_samples, :] = observables[saved_observable_indices]
-                if save_time:
-                    state_output[i - warmup_samples, -1] = i - warmup_samples
-
-        return state_output, observables_output
 
     @pytest.mark.nocudasim
     @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, solver_settings_override, "

@@ -196,17 +196,13 @@ class BatchSolverKernel(CUDAFactory):
             if run_index >= n_runs:
                 return None
 
-            n_init_sets = inits.shape[0]
-            init_index = run_index % n_init_sets
-            param_index = run_index // n_init_sets
-
             shared_memory = cuda.shared.array(0, dtype=precision)
             c_forcing_vector = cuda.const.array_like(forcing_vector)
 
             # Run-indexed slices of shared and output memory
             rx_shared_memory = shared_memory[ty * shared_elements_per_run:(ty + 1) * shared_elements_per_run]
-            rx_inits = inits[init_index, :]
-            rx_params = params[param_index, :]
+            rx_inits = inits[run_index, :]
+            rx_params = params[run_index, :]
             rx_state = state_output[:, run_index, :]
             rx_observables = observables_output[:, run_index, :]
             rx_state_summaries = state_summaries_output[:, run_index, :]

@@ -201,3 +201,8 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                 save_summaries_func=run_object.save_summaries_func,
                 compile_flags=run_object.compile_flags,
                 )
+
+    @property
+    def fixed_step_size(self):
+        """Return the fixed step size used in the loop."""
+        return self.compile_settings.fixed_step_size

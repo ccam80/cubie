@@ -105,7 +105,7 @@ class Euler(GenericIntegratorAlgorithm):
             observables_buffer = shared_memory[observables_start_index:drivers_start_index]
             drivers = shared_memory[drivers_start_index: state_summaries_start_index]
             state_summary_buffer = shared_memory[
-                                   state_summaries_start_index:observable_summaries_start_index]  # Alias for drivers[-1] if no summaries.
+                                   state_summaries_start_index:observable_summaries_start_index]
             observable_summary_buffer = shared_memory[observable_summaries_start_index: end_index]
 
             driver_length = forcing_vec.shape[0]

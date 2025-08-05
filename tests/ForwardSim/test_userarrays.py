@@ -128,7 +128,6 @@ def test_from_solver_active_flags(loop_compile_settings, solver_settings, solver
     # time_domain should reflect flags
     td = ua.time_domain
     if expect_state and expect_obs:
-        # feature dimension should sum
         assert td.shape[2] == solver.state_dev_array.shape[2] + solver.observables_dev_array.shape[2]
     elif expect_state:
         assert td.shape == solver.state_dev_array.shape

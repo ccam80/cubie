@@ -43,6 +43,11 @@ class IntegratorLoopSettings:
         return self.loop_step_config.fixed_steps
 
     @property
+    def fixed_step_size(self) -> float:
+        """Return the step size used in the loop."""
+        return self.loop_step_config.fixed_steps[-1]
+
+    @property
     def dt_min(self) -> float:
         return self.loop_step_config.dt_min
 

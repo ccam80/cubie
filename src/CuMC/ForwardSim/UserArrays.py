@@ -9,7 +9,6 @@ from numpy.typing import NDArray
 
 from CuMC.ForwardSim.BatchOutputArrays import ActiveOutputs
 
-
 @attrs.define
 class UserArrays:
     time_domain: Optional[NDArray] = attrs.field(
