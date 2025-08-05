@@ -12,7 +12,7 @@ import numpy as np
 from numba import cuda
 from numba import int32, int16, from_dtype
 from numpy.typing import NDArray, ArrayLike
-
+from warnings import warn
 from CuMC.CUDAFactory import CUDAFactory
 from CuMC.ForwardSim.BatchInputArrays import InputArrays
 from CuMC.ForwardSim.BatchOutputArrays import OutputArrays, ActiveOutputs
@@ -25,7 +25,7 @@ class BatchSolverKernel(CUDAFactory):
     """Class which builds and holds the integrating kernel and interfaces with lower-level modules: loop
     algorithms, ODE systems, and output functions
     The kernel function accepts single or batched sets of inputs, and distributes those amongst the threads on the
-    GPU. It runs the loop device function on a given slice of it's allocated memory, and serves as the distributor
+    GPU. It runs the loop device function on a given slice of its allocated memory, and serves as the distributor
     of work amongst the individual runs of the integrators.
     This class is one level down from the user, managing sanitised inputs and handling the machinery of batching and
     running integrators. It does not handle:
@@ -104,23 +104,34 @@ class BatchSolverKernel(CUDAFactory):
             params,
             inits,
             forcing_vectors,
-            blocksize=128,
+            blocksize=256,
             stream=0,
             warmup=0.0,
             ):
         """Run the solver kernel."""
         # Order currently IMPORTANT - num_runs is updated in input_arrays, which is used in output_arrays.
+        self.duration = duration
+        self.warmup = warmup
+
         self.input_arrays(inits, params, forcing_vectors)
         self.output_arrays(self)
 
-        output_length = int(duration // self.dt_save)
-        warmup_length = int(warmup // self.dt_save)
+        output_length = self.output_length
+        warmup_length = self.warmup_length
         numruns = self.input_arrays.num_runs
+
+        dynamic_sharedmem = int(self.shared_memory_bytes_per_run * np.min(numruns, blocksize))
+        while dynamic_sharedmem > 32768:
+            if blocksize < 32:
+                warn("Block size has been reduced to less than 32 threads, which means your code will suffer a "
+                     "performance hit. This is due to your problem requiring too much shared memory - try casting "
+                     "some parameters to constants, or trying a different solving algorithm.")
+            blocksize = blocksize/2
+            dynamic_sharedmem = int(self.shared_memory_bytes_per_run * np.min(numruns, blocksize))
 
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
         BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
-        dynamic_sharedmem = int(self.shared_memory_bytes_per_run * numruns)
 
         if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self.compile_settings.profileCUDA:
             cuda.profile_start()
@@ -257,6 +268,26 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.threads_per_loop
 
     @property
+    def duration(self):
+        """Returns the duration of the simulation."""
+        return self.compile_settings.duration
+
+    @duration.setter
+    def duration(self, value):
+        """Sets the duration of the simulation."""
+        self.compile_settings.duration = value
+
+    @property
+    def warmup(self):
+        """Returns the warmup time of the simulation."""
+        return self.compile_settings.warmup
+
+    @warmup.setter
+    def warmup(self, value):
+        """Sets the warmup time of the simulation."""
+        self.compile_settings.warmup = value
+
+    @property
     def output_length(self):
         """Returns the number of output samples per run."""
         return int(np.ceil(self.compile_settings.duration / self.single_integrator.dt_save))
@@ -269,6 +300,7 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def warmup_length(self):
         return int(np.ceil(self.compile_settings.warmup / self.single_integrator.dt_save))
+
     @property
     def num_runs(self):
         """Exposes :attr:`~CuMC.ForwardSim.BatchInputArrays.InputArrays.num_runs` from the child InputArrays object."""
@@ -276,18 +308,14 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def system(self):
-        """Exposes the child system object from the SingleIntegratorRun instance."""
-        return self.single_integrator._system
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.dt_save` from the SingleIntegratorRun
+        instance."""
+        return self.single_integrator.system
 
     @property
-    def duration(self):
-        """Returns the duration of the simulation."""
-        return self.compile_settings.duration
-
-    @property
-    def warmup(self):
-        """Returns the warmup time of the simulation."""
-        return self.compile_settings.warmup
+    def fixed_step_size(self):
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.step_size` from the child SingleIntegratorRun object."""
+        return self.single_integrator.fixed_step_size
 
     @property
     def dt_save(self):
