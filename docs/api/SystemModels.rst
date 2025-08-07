@@ -3,7 +3,7 @@ SystemModels Module
 
 The SystemModels module provides pre-built and customizable system models for ODE simulation.
 
-.. automodule:: CuMC.SystemModels
+.. automodule:: cubie.SystemModels
    :members:
    :undoc-members:
    :show-inheritance:
@@ -11,7 +11,7 @@ The SystemModels module provides pre-built and customizable system models for OD
 Core Modules
 ------------
 
-.. automodule:: CuMC.SystemModels.SystemValues
+.. automodule:: cubie.SystemModels.SystemValues
    :members:
    :undoc-members:
    :show-inheritance:
@@ -19,22 +19,22 @@ Core Modules
 System Implementations
 ----------------------
 
-.. automodule:: CuMC.SystemModels.Systems
+.. automodule:: cubie.SystemModels.Systems
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.SystemModels.Systems.GenericODE
+.. automodule:: cubie.SystemModels.Systems.GenericODE
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.SystemModels.Systems.decays
+.. automodule:: cubie.SystemModels.Systems.decays
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.SystemModels.Systems.threeCM
+.. automodule:: cubie.SystemModels.Systems.threeCM
    :members:
    :undoc-members:
    :show-inheritance:

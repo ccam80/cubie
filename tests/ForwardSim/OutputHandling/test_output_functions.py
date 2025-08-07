@@ -3,7 +3,7 @@ import numpy as np
 from numpy.testing import assert_allclose
 from numba import cuda, from_dtype
 
-from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
+from cubie.outputhandling import OutputFunctions
 from tests._utils import generate_test_array, calculate_expected_summaries
 
 @pytest.fixture(scope='function')
@@ -33,7 +33,7 @@ def output_test_settings_overrides(request):
 
 @pytest.fixture(scope='function')
 def output_functions(output_test_settings):
-    """OutputHandling object under test"""
+    """outputhandling object under test"""
     return OutputFunctions(output_test_settings['num_states'],
                            output_test_settings['num_observables'],
                            output_test_settings['output_types'],
@@ -45,7 +45,7 @@ def output_functions(output_test_settings):
                          [{'output_types': ["state", "observables"]},
                           {'output_types': ["time"]}])
 def test_save_time(output_functions, output_test_settings):
-    """Test that the save_time setting is correctly set in the OutputHandling object."""
+    """Test that the save_time setting is correctly set in the outputhandling object."""
     assert output_functions.save_time == ("time" in output_test_settings['output_types'])
 
 
@@ -446,7 +446,7 @@ def test_frequent_summaries(compare_input_output):
 
 def test_summaries_buffer_sizes_property(output_functions):
     """Test that summaries_buffer_sizes property returns correct SummariesBufferSizes object."""
-    from CuMC.ForwardSim.OutputHandling.output_sizes import SummariesBufferSizes
+    from cubie.outputhandling.output_sizes import SummariesBufferSizes
 
     buffer_sizes = output_functions.summaries_buffer_sizes
 
@@ -461,7 +461,7 @@ def test_summaries_buffer_sizes_property(output_functions):
 
 def test_output_array_heights_property(output_functions):
     """Test that output_array_heights property returns correct OutputArrayHeights object."""
-    from CuMC.ForwardSim.OutputHandling.output_sizes import OutputArrayHeights
+    from cubie.outputhandling.output_sizes import OutputArrayHeights
 
     array_heights = output_functions.output_array_heights
 

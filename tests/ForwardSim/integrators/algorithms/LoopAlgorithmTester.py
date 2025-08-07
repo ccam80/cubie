@@ -2,9 +2,8 @@ import pytest
 import numpy as np
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
-from CuMC.ForwardSim.OutputHandling import summary_metrics
-from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes, SingleRunOutputSizes
-from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
+from cubie.outputhandling import summary_metrics
+from cubie.outputhandling.output_sizes import LoopBufferSizes, SingleRunOutputSizes
 from tests._utils import calculate_expected_summaries
 
 class LoopAlgorithmTester:

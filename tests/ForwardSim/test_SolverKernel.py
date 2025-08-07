@@ -1,11 +1,10 @@
-from CuMC.ForwardSim.BatchConfigurator import BatchConfigurator
-from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
-from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
-from CuMC.ForwardSim._utils import ensure_nonzero_size
-from CuMC.ForwardSim.BatchOutputArrays import OutputArrays
+from cubie.batchsolving.BatchConfigurator import BatchConfigurator
+from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
+from cubie.outputhandling.output_sizes import BatchOutputSizes
+from cubie.batchsolving._utils import ensure_nonzero_size
 import pytest
 import numpy as np
-from numpy.testing import assert_equal, assert_array_equal, assert_allclose
+from numpy.testing import assert_array_equal, assert_allclose
 from tests._utils import cpu_euler_loop, calculate_expected_summaries
 
 

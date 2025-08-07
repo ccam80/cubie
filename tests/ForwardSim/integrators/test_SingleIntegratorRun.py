@@ -1,9 +1,8 @@
 import pytest
-import numpy as np
 
-from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
-from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
-from CuMC.ForwardSim.integrators.IntegratorRunSettings import IntegratorRunSettings
+from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
+from cubie.outputhandling import OutputFunctions
+from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 
 
 @pytest.fixture(scope="function")

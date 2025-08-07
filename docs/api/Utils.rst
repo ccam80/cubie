@@ -1,14 +1,14 @@
 Utils Module
 ============
 
-The Utils module provides utility functions and helpers for CuMC operations.
+The Utils module provides utility functions and helpers for cubie operations.
 
-.. automodule:: CuMC._utils
+.. automodule:: cubie._utils
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.CUDAFactory
+.. automodule:: cubie.CUDAFactory
    :members:
    :undoc-members:
    :show-inheritance:

@@ -1,5 +1,5 @@
 import pytest
-from CuMC.ForwardSim.integrators.IntegratorRunSettings import IntegratorRunSettings
+from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 @pytest.mark.parametrize("dt_min, dt_save, dt_summarise, should_warn", [
     (0.01, 0.1, 0.5, False),  # Valid configuration
     (0.01, 0.055, 0.11, True),  # dt_save not multiple of dt_min

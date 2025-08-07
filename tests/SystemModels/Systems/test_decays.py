@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 from tests.SystemModels.Systems.SystemTester import SystemTester
 from numpy.testing import assert_allclose
-from CuMC.SystemModels.Systems.decays import Decays
+from cubie.systemmodels.systems.decays import Decays
 
 from tests._utils import generate_test_array
 

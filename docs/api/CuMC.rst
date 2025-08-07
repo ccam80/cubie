@@ -1,9 +1,9 @@
-CuMC Package
+cubie Package
 ============
 
-The main CuMC package provides the core functionality for GPU-accelerated Monte Carlo simulations and parameter estimation.
+The main cubie package provides the core functionality for GPU-accelerated Monte Carlo simulations and parameter estimation.
 
-.. automodule:: CuMC
+.. automodule:: cubie
    :members:
    :undoc-members:
    :show-inheritance:

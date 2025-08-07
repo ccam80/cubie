@@ -1,13 +1,12 @@
 """
-Comprehensive tests for OutputConfig class in the OutputHandling module.
+Comprehensive tests for OutputConfig class in the outputhandling module.
 """
 
 import pytest
 import numpy as np
 from warnings import catch_warnings
-from typing import Set, Tuple, List
-from CuMC.ForwardSim.OutputHandling.output_config import OutputConfig
-from CuMC.ForwardSim import summary_metrics
+from cubie.outputhandling.output_config import OutputConfig
+from cubie.batchsolving import summary_metrics
 
 
 @pytest.fixture

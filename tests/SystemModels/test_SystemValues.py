@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 
-from CuMC.SystemModels.SystemValues import SystemValues
+from cubie.systemmodels.SystemValues import SystemValues
 
 def test_init_edge_cases():
     """Test edge cases for the __init__ method."""

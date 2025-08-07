@@ -1,13 +1,11 @@
 import pytest
 import numpy as np
-from numba import float32, float64
-from warnings import warn
 
-from CuMC.ForwardSim.integrators.algorithms.IntegratorLoopSettings import (
+from cubie.integrators.algorithms.IntegratorLoopSettings import (
     IntegratorLoopSettings
 )
-from CuMC.ForwardSim.integrators.algorithms.LoopStepConfig import LoopStepConfig
-from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
+from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
+from cubie.outputhandling.output_sizes import LoopBufferSizes
 
 
 class TestLoopStepConfig:

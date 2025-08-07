@@ -1,8 +1,8 @@
 import pytest
 import numpy as np
 from numpy import float32, float64, zeros, ones, array_equal
-from CuMC.ForwardSim.BatchInputArrays import InputArrays
-from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
+from cubie.batchsolving.BatchInputArrays import InputArrays
+from cubie.outputhandling.output_sizes import LoopBufferSizes
 
 @pytest.fixture(scope="function")
 def input_arrays():

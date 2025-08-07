@@ -2,8 +2,8 @@ import pytest
 import numpy as np
 from tests.ForwardSim.integrators.algorithms.LoopAlgorithmTester import LoopAlgorithmTester
 from tests._utils import cpu_euler_loop
-from CuMC.ForwardSim.integrators.algorithms.euler import Euler
-from CuMC.ForwardSim.OutputHandling.output_sizes import LoopBufferSizes
+from cubie.integrators.algorithms import Euler
+from cubie.outputhandling.output_sizes import LoopBufferSizes
 
 
 class TestEuler(LoopAlgorithmTester):

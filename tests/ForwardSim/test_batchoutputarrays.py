@@ -2,8 +2,8 @@ import pytest
 import numpy as np
 from numpy import float32, float64
 from numba.cuda import mapped_array
-from CuMC.ForwardSim.BatchOutputArrays import OutputArrays
-from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
+from cubie.batchsolving.BatchOutputArrays import OutputArrays
+from cubie.outputhandling.output_sizes import BatchOutputSizes
 from warnings import catch_warnings
 import attrs
 

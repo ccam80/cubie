@@ -1,10 +1,10 @@
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal
-from CuMC.ForwardSim.BatchConfigurator import BatchConfigurator
-from CuMC.ForwardSim import BatchConfigurator as BC
+from cubie.batchsolving.BatchConfigurator import BatchConfigurator
+from cubie.batchsolving import BatchConfigurator as BC
 import itertools
-from CuMC.SystemModels.Systems.decays import Decays
+from cubie.systemmodels.systems.decays import Decays
 
 
 @pytest.fixture(scope="function")

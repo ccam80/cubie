@@ -1,7 +1,7 @@
 import attrs
 import pytest
 
-from CuMC.CUDAFactory import CUDAFactory
+from cubie.CUDAFactory import CUDAFactory
 
 
 def dict_to_attrs_class(dictionary):

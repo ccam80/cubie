@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from warnings import warn
-from CuMC.ForwardSim.integrators.IntegratorRunSettings import IntegratorRunSettings
+from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 
 @pytest.fixture(scope='function')
 def run_settings_override(request):

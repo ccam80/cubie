@@ -1,13 +1,13 @@
 API Reference
 =============
 
-This section contains the complete API reference for CuMC.
+This section contains the complete API reference for cubie.
 
 .. toctree::
    :maxdepth: 2
    :caption: Modules:
 
-   CuMC
+   cubie
    ForwardSim
    MonteCarlo
    Sampling

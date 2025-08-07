@@ -1,6 +1,6 @@
 import numpy as np
 from numba import float32, float64
-from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
+from cubie.systemmodels.systems.threeCM import ThreeChamberModel
 from tests._utils import generate_test_array
 
 def get_observables_list(SystemClass):

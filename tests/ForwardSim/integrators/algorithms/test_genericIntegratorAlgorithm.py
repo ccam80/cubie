@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 
-from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import GenericIntegratorAlgorithm
+from cubie.integrators.algorithms import GenericIntegratorAlgorithm
 from tests.ForwardSim.integrators.algorithms.LoopAlgorithmTester import LoopAlgorithmTester
 
 

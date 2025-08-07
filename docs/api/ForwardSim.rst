@@ -3,7 +3,7 @@ ForwardSim Module
 
 The ForwardSim module provides GPU-accelerated forward simulation capabilities for ODE systems.
 
-.. automodule:: CuMC.ForwardSim
+.. automodule:: cubie.ForwardSim
    :members:
    :undoc-members:
    :show-inheritance:
@@ -11,7 +11,7 @@ The ForwardSim module provides GPU-accelerated forward simulation capabilities f
 Core Modules
 ------------
 
-.. automodule:: CuMC.ForwardSim.Solver
+.. automodule:: cubie.ForwardSim.Solver
    :members:
    :undoc-members:
    :show-inheritance:
@@ -19,12 +19,12 @@ Core Modules
 Integrators
 -----------
 
-.. automodule:: CuMC.ForwardSim.integrators
+.. automodule:: cubie.ForwardSim.integrators
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.ForwardSim.integrators._utils
+.. automodule:: cubie.ForwardSim.integrators._utils
    :members:
    :undoc-members:
    :show-inheritance:
@@ -32,22 +32,22 @@ Integrators
 Integration Algorithms
 ~~~~~~~~~~~~~~~~~~~~~~
 
-.. automodule:: CuMC.ForwardSim.integrators.algorithms
+.. automodule:: cubie.ForwardSim.integrators.algorithms
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.ForwardSim.integrators.algorithms.euler
+.. automodule:: cubie.ForwardSim.integrators.algorithms.euler
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.ForwardSim.integrators.algorithms.euler_maruyama
+.. automodule:: cubie.ForwardSim.integrators.algorithms.euler_maruyama
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm
+.. automodule:: cubie.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm
    :members:
    :undoc-members:
    :show-inheritance:
@@ -55,22 +55,22 @@ Integration Algorithms
 Output Functions
 ----------------
 
-.. automodule:: CuMC.ForwardSim.OutputFunctions
+.. automodule:: cubie.ForwardSim.OutputFunctions
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.ForwardSim.OutputFunctions.save_state
+.. automodule:: cubie.ForwardSim.OutputFunctions.save_state
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.ForwardSim.OutputFunctions.save_summaries
+.. automodule:: cubie.ForwardSim.OutputFunctions.save_summaries
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. automodule:: CuMC.ForwardSim.OutputFunctions.summary_calculations
+.. automodule:: cubie.ForwardSim.OutputFunctions.summary_calculations
    :members:
    :undoc-members:
    :show-inheritance:

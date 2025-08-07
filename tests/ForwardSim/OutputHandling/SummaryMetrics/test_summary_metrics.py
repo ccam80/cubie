@@ -1,17 +1,17 @@
 """
-Tests for the SummaryMetrics class in the CuMC integrator system.
+Tests for the summarymetrics class in the cubie integrator system.
 Tests tuple return values, parameter parsing, error handling, and tuple ordering.
 """
 
 import pytest
 import warnings
-from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetrics, SummaryMetric
-from CuMC.ForwardSim.OutputHandling import summary_metrics
+from cubie.outputhandling.summarymetrics.metrics import SummaryMetrics, SummaryMetric
+from cubie.outputhandling import summary_metrics
 
 
 @pytest.fixture(scope="function")
 def empty_metrics():
-    """Create an empty SummaryMetrics instance for testing."""
+    """Create an empty summarymetrics instance for testing."""
     return SummaryMetrics()
 
 
@@ -86,14 +86,14 @@ def mock_parametrized_metric(mock_functions, mock_metric_settings):
 
 @pytest.fixture(scope="function")
 def mock_metrics(empty_metrics, mock_metric, mock_parametrized_metric):
-    """Create a SummaryMetrics instance with mock metrics registered."""
+    """Create a summarymetrics instance with mock metrics registered."""
     empty_metrics.register_metric(mock_metric)
     empty_metrics.register_metric(mock_parametrized_metric)
     return empty_metrics
 
 
 def test_register_metrics_success(empty_metrics, mock_metric, mock_parametrized_metric):
-    """Create a SummaryMetrics instance with sample metrics registered."""
+    """Create a summarymetrics instance with sample metrics registered."""
     empty_metrics.register_metric(mock_metric)
     empty_metrics.register_metric(mock_parametrized_metric)
 

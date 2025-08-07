@@ -1,4 +1,4 @@
-# Testing idioms and strategies for CuMC
+# Testing idioms and strategies for cubie
 
 ## Strategy
 While learning Pytest, I have cycled through a number of strategies. The lowest-level components in this project are
@@ -75,7 +75,7 @@ Each device function has an associated test_kernel that runs it with given input
 assertions.
 
 ## Test structure
-The test directory is structured to match the CuMC package structure. A test for a given module should be in the same relative
+The test directory is structured to match the cubie package structure. A test for a given module should be in the same relative
 directory as the module itself. To make it easier to create tests for new sublclasses (i.e. different integration algorithms,
 different ODE systems), the common tests for a given class type are in a \*Tester class, which is ignored by pytest.
 When creating a test set for a new subclass, you subclass the relevant \*tester class, and override the methods that are

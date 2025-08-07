@@ -1,9 +1,9 @@
 import pytest
 import numpy as np
 import pandas as pd
-from CuMC.ForwardSim.UserArrays import UserArrays
-from CuMC.ForwardSim.BatchOutputArrays import ActiveOutputs
-from CuMC.ForwardSim import summary_metrics
+from cubie.batchsolving.UserArrays import UserArrays
+from cubie.batchsolving.BatchOutputArrays import ActiveOutputs
+from cubie.batchsolving import summary_metrics
 
 @pytest.mark.parametrize("state_flag, obs_flag, expected",
                          [ (True, True, lambda s, o: np.concatenate((s, o), axis=-1)),

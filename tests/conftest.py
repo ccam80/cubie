@@ -3,9 +3,9 @@ in tests/_utils.py"""
 
 import pytest
 import numpy as np
-from CuMC.ForwardSim.OutputHandling.output_functions import OutputFunctions
-from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
-from CuMC.ForwardSim.Solver import Solver
+from cubie.outputhandling.output_functions import OutputFunctions
+from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
+from cubie.batchsolving.Solver import Solver
 
 """Fixtures for instantiating lower-level components with default values that can be overriden through
 indirect parametrization of the "override" fixture."""
@@ -32,7 +32,7 @@ def precision(precision_override):
 
 @pytest.fixture(scope="function")
 def threecm_model(precision):
-    from CuMC.SystemModels.Systems.threeCM import ThreeChamberModel
+    from cubie.systemmodels.systems.threeCM import ThreeChamberModel
     threeCM = ThreeChamberModel(precision=precision)
     threeCM.build()
     return threeCM
@@ -40,7 +40,7 @@ def threecm_model(precision):
 
 @pytest.fixture(scope="function")
 def decays_123_model(precision):
-    from CuMC.SystemModels.Systems.decays import Decays
+    from cubie.systemmodels.systems.decays import Decays
     decays3 = Decays(coefficients=[precision(1.0), precision(2.0), precision(3.0)], precision=precision)
     decays3.build()
     return decays3
@@ -48,7 +48,7 @@ def decays_123_model(precision):
 
 @pytest.fixture(scope="function")
 def decays_1_100_model(precision):
-    from CuMC.SystemModels.Systems.decays import Decays
+    from cubie.systemmodels.systems.decays import Decays
     decays100 = Decays(coefficients=np.arange(1, 101, dtype=precision), precision=precision)
     decays100.build()
     return decays100
@@ -85,7 +85,7 @@ def genericODE_model_override(request):
 
 @pytest.fixture(scope="function")
 def genericODE_model(precision, genericODE_model_override):
-    from CuMC.SystemModels.Systems.GenericODE import GenericODE
+    from cubie.systemmodels.systems.GenericODE import GenericODE
     generic = GenericODE(precision=precision, **genericODE_settings(**genericODE_model_override))
     generic.build()
     return generic

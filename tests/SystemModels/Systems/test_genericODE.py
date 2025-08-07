@@ -1,6 +1,6 @@
 import pytest
 from tests.SystemModels.Systems.SystemTester import SystemTester
-from CuMC.SystemModels.Systems.GenericODE import GenericODE
+from cubie.systemmodels.systems.GenericODE import GenericODE
 import numpy as np
 
 testsets = [

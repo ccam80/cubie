@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, os.path.abspath('../src'))
 
 # -- Project information -----------------------------------------------------
-project = 'CuMC'
+project = 'cubie'
 copyright = '2024, Chris Cameron'
 author = 'Chris Cameron'
 release = '0.0.1'

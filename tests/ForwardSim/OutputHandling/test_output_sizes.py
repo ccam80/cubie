@@ -4,10 +4,9 @@ Tests the nonzero functionality and size calculation classes using fixtures.
 """
 
 import pytest
-from numba import float32, float64
 import attrs
 
-from CuMC.ForwardSim.OutputHandling.output_sizes import (
+from cubie.outputhandling.output_sizes import (
     SummariesBufferSizes,
     LoopBufferSizes,
     OutputArrayHeights,

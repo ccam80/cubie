@@ -1,25 +1,25 @@
-Using CuMC
+Using cubie
 ==========
 
-CuMC is a Python library designed to provide an easy entry point for users to perform likelihood-free Monte Carlo parameter estimation. To facilitate this, the library includes a set of forward-simulating ODE solvers designed to integrate large batches of IVPs from different initial values or with different parameters.
+cubie is a Python library designed to provide an easy entry point for users to perform likelihood-free Monte Carlo parameter estimation. To facilitate this, the library includes a set of forward-simulating ODE solvers designed to integrate large batches of IVPs from different initial values or with different parameters.
 
 Installation
 ------------
 
-Install CuMC using pip:
+Install cubie using pip:
 
 .. code-block:: bash
 
-   pip install CC_CuMC
+   pip install CC_cubie
 
 Basic Usage
 -----------
 
-Here's a simple example of how to use CuMC:
+Here's a simple example of how to use cubie:
 
 .. code-block:: python
 
-   import CuMC
+   import cubie
 
    # Example usage will be added as the API develops
    # The library provides GPU-accelerated Monte Carlo simulations
@@ -47,7 +47,7 @@ Requirements
 GPU Requirements
 ~~~~~~~~~~~~~~~~
 
-CuMC requires a CUDA-compatible GPU for optimal performance. The library uses:
+cubie requires a CUDA-compatible GPU for optimal performance. The library uses:
 
 * Numba-CUDA for GPU kernel compilation
 * CuPy for GPU array operations

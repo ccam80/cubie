@@ -7,9 +7,9 @@ where    = ["src"]
 exclude  = ["tests*"]
 
 [project]
-name = "CC_CuMC"
+name = "cubie"
 version = "0.0.1"
-description = "GPU-native (ish - compiled using Numba in Python) forward-integration and monte-carlo analysis of ODE systems."
+description = "CUDA Batch Integration Engine - for doing a lot at once."
 authors = [
     { name="Chris Cameron" }
 ]
@@ -25,8 +25,8 @@ dependencies = [
     "scipy",
 ]
 [project.urls]
-Homepage = "https://github.com/ccam80/smc.git"
-Issues = "https://github.com/https://github.com/ccam80/smc/issues"
+Homepage = "https://github.com/ccam80/cubie.git"
+Issues = "https://github.com/https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
 dev = [
@@ -46,7 +46,7 @@ markers = [
 addopts = [
     "--import-mode=importlib",
     "-ra",
-    "--cov=CuMC",
+    "--cov=cubie",
     "--cov-report=xml:coverage.xml",
     "--cov-report=term-missing",
     "--json-report",
@@ -57,7 +57,7 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-#source = ["CuMC"]
+#source = ["cubie"]
 omit = [
     "*/tests/*",
     "*/__pycache__/*"
