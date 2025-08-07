@@ -1,5 +1,6 @@
 # def parse_string_with_value(text: str) -> Tuple[str, Optional[int]]:
-#     """For a string of the form "text[int]", return ("text", int) or ("text",None) for a string without square
+#     """For a string of the form "text[int]", return ("text", int) or (
+#     "text",None) for a string without square
 #     brackets."""
 #     m = re.search(r'\[(\d+)]', text)
 #     number = int(m.group(1)) if m else None

@@ -1,7 +1,8 @@
 from attrs import define
 
 from CuMC.ForwardSim.integrators.algorithms.euler import Euler
-from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import GenericIntegratorAlgorithm
+from CuMC.ForwardSim.integrators.algorithms.genericIntegratorAlgorithm import \
+    GenericIntegratorAlgorithm
 
 
 @define

@@ -7,7 +7,8 @@ from CuMC._utils import in_attr, is_attrs_class
 
 class CUDAFactory:
     """
-    Factory class for creating CUDA device functions and kernels in Numba. This parent class has common cache
+    Factory class for creating CUDA device functions and kernels in Numba.
+    This parent class has common cache
     invalidation and update functionality for parameters that affect the compiled CUDA functions.
 
     Each CUDAFactory subclass should implement a "build()" factory method that declares and returns the CUDA function.
@@ -84,7 +85,8 @@ class CUDAFactory:
         existing instance will overwrite any previously set compile settings.
         """
         if not attrs.has(compile_settings):
-            raise TypeError("Compile settings must be an attrs class instance.")
+            raise TypeError(
+                    "Compile settings must be an attrs class instance.")
         self._compile_settings = compile_settings
         self._invalidate_cache()
 
@@ -109,7 +111,8 @@ class CUDAFactory:
         """
         return self._compile_settings
 
-    def update_compile_settings(self, updates_dict=None, silent=False, **kwargs) -> Set[str]:
+    def update_compile_settings(self, updates_dict=None, silent=False,
+                                **kwargs) -> Set[str]:
         """
         Update the compile settings with new values, specified as keyword arguments.
         This method should be called before building the system to ensure that the latest settings are used.
@@ -127,7 +130,8 @@ class CUDAFactory:
             return set()
 
         if self._compile_settings is None:
-            raise ValueError("Compile settings must be set up using self.setup_compile_settings before updating.")
+            raise ValueError(
+                    "Compile settings must be set up using self.setup_compile_settings before updating.")
 
         update_successful = False
         recognized_params = []
@@ -141,8 +145,8 @@ class CUDAFactory:
         unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
 
         if unrecognised_params and not silent:
-            raise KeyError(f"'{key}' is not a valid compile setting for this object, and so was not updated.",
-                           )
+            raise KeyError(
+                    f"'{key}' is not a valid compile setting for this object, and so was not updated.", )
         if recognized_params != []:
             self._invalidate_cache()
 
@@ -177,5 +181,6 @@ class CUDAFactory:
             return self._device_function
         else:
             if not in_attr(output_name, self._cache):
-                raise KeyError(f"Output '{output_name}' not found in cached outputs.")
+                raise KeyError(
+                        f"Output '{output_name}' not found in cached outputs.")
             return getattr(self._cache, output_name)

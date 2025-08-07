@@ -5,48 +5,49 @@ from numpy.typing import ArrayLike
 
 from CuMC.CUDAFactory import CUDAFactory
 from CuMC.ForwardSim.OutputHandling.output_config import OutputConfig
-from CuMC.ForwardSim.OutputHandling.output_sizes import SummariesBufferSizes, OutputArrayHeights
+from CuMC.ForwardSim.OutputHandling.output_sizes import SummariesBufferSizes, \
+    OutputArrayHeights
 from CuMC.ForwardSim.OutputHandling.save_state import save_state_factory
 from CuMC.ForwardSim.OutputHandling.save_summaries import save_summary_factory
-from CuMC.ForwardSim.OutputHandling.update_summaries import update_summary_factory
+from CuMC.ForwardSim.OutputHandling.update_summaries import \
+    update_summary_factory
 
 
 @attrs.define
 class OutputFunctionCache:
-    save_state_function: Callable = attrs.field(validator=attrs.validators.instance_of(Callable))
-    update_summaries_function: Callable = attrs.field(validator=attrs.validators.instance_of(Callable))
-    save_summaries_function: Callable = attrs.field(validator=attrs.validators.instance_of(Callable))
+    save_state_function: Callable = attrs.field(
+            validator=attrs.validators.instance_of(Callable))
+    update_summaries_function: Callable = attrs.field(
+            validator=attrs.validators.instance_of(Callable))
+    save_summaries_function: Callable = attrs.field(
+            validator=attrs.validators.instance_of(Callable))
 
 
 class OutputFunctions(CUDAFactory):
-    """Class to hold output functions and associated data, with automatic caching of built functions provided by the
+    """Class to hold output functions and associated data, with automatic
+    caching of built functions provided by the
     CUDAFactory base class.
     """
 
-    def __init__(self,
-                 max_states: int,
-                 max_observables: int,
+    def __init__(self, max_states: int, max_observables: int,
                  output_types: list[str] = None,
                  saved_state_indices: Sequence[int] | ArrayLike = None,
                  saved_observable_indices: Sequence[int] | ArrayLike = None,
                  summarised_state_indices: Sequence[int] | ArrayLike = None,
-                 summarised_observable_indices: Sequence[int] | ArrayLike = None,
-                 ):
+                 summarised_observable_indices: Sequence[
+                                                    int] | ArrayLike = None, ):
         super().__init__()
 
         if output_types is None:
             output_types = ["state"]
 
         # Create and setup output configuration as compile settings
-        config = OutputConfig.from_loop_settings(
-                output_types=output_types,
-                max_states=max_states,
-                max_observables=max_observables,
+        config = OutputConfig.from_loop_settings(output_types=output_types,
+                max_states=max_states, max_observables=max_observables,
                 saved_state_indices=saved_state_indices,
                 saved_observable_indices=saved_observable_indices,
                 summarised_state_indices=summarised_state_indices,
-                summarised_observable_indices=summarised_observable_indices,
-                )
+                summarised_observable_indices=summarised_observable_indices, )
         self.setup_compile_settings(config)
 
     def update(self, updates_dict=None, silent=False, **kwargs):
@@ -70,13 +71,14 @@ class OutputFunctions(CUDAFactory):
         unrecognised = set(updates_dict.keys())
 
         recognised_params = set()
-        recognised_params |= self.update_compile_settings(updates_dict, silent=True)
+        recognised_params |= self.update_compile_settings(updates_dict,
+                                                          silent=True)
         unrecognised -= recognised_params
 
         if not silent and unrecognised:
-            raise KeyError(f"Unrecognized parameters in update: {unrecognised}. "
-                           "These parameters were not updated.",
-                           )
+            raise KeyError(
+                    f"Unrecognized parameters in update: {unrecognised}. "
+                    "These parameters were not updated.", )
         return set(recognised_params)
 
     def build(self) -> OutputFunctionCache:
@@ -91,33 +93,21 @@ class OutputFunctions(CUDAFactory):
         buffer_sizes = self.summaries_buffer_sizes
 
         # Build functions using output sizes objects
-        save_state_func = save_state_factory(
-                config.saved_state_indices,
-                config.saved_observable_indices,
-                config.save_state,
-                config.save_observables,
-                config.save_time,
-                )
+        save_state_func = save_state_factory(config.saved_state_indices,
+                config.saved_observable_indices, config.save_state,
+                config.save_observables, config.save_time, )
 
-        update_summary_metrics_func = update_summary_factory(
-                buffer_sizes,
+        update_summary_metrics_func = update_summary_factory(buffer_sizes,
                 config.summarised_state_indices,
-                config.summarised_observable_indices,
-                config.summary_types,
-                )
+                config.summarised_observable_indices, config.summary_types, )
 
-        save_summary_metrics_func = save_summary_factory(
-                buffer_sizes,
+        save_summary_metrics_func = save_summary_factory(buffer_sizes,
                 config.summarised_state_indices,
-                config.summarised_observable_indices,
-                config.summary_types,
-                )
+                config.summarised_observable_indices, config.summary_types, )
 
-        return OutputFunctionCache(
-                save_state_function=save_state_func,
+        return OutputFunctionCache(save_state_function=save_state_func,
                 update_summaries_function=update_summary_metrics_func,
-                save_summaries_function=save_summary_metrics_func,
-                )
+                save_summaries_function=save_summary_metrics_func, )
 
     @property
     def save_state_func(self):

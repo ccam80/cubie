@@ -4,13 +4,17 @@ from attrs import define, field, validators
 @define
 class LoopStepConfig:
     """
-    Step timing and exit conditions for an integrator loop. Convenience class for grouping and passing around loop
+    Step timing and exit conditions for an integrator loop. Convenience
+    class for grouping and passing around loop
     step information.
     """
-    dt_min: float = field(default=1e-6, validator=validators.instance_of(float))
+    dt_min: float = field(default=1e-6,
+                          validator=validators.instance_of(float))
     dt_max: float = field(default=1.0, validator=validators.instance_of(float))
-    dt_save: float = field(default=0.1, validator=validators.instance_of(float))
-    dt_summarise: float = field(default=0.1, validator=validators.instance_of(float))
+    dt_save: float = field(default=0.1,
+                           validator=validators.instance_of(float))
+    dt_summarise: float = field(default=0.1,
+                                validator=validators.instance_of(float))
     atol: float = field(default=1e-6, validator=validators.instance_of(float))
     rtol: float = field(default=1e-6, validator=validators.instance_of(float))
 

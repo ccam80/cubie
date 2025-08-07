@@ -1,4 +1,5 @@
 from typing import Optional, TYPE_CHECKING, Union
+
 if TYPE_CHECKING:
     from CuMC.ForwardSim.Solver import Solver
     from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
@@ -9,59 +10,62 @@ from numpy.typing import NDArray
 
 from CuMC.ForwardSim.BatchOutputArrays import ActiveOutputs
 
+
 @attrs.define
 class UserArrays:
     time_domain: Optional[NDArray] = attrs.field(
             default=attrs.Factory(lambda: np.array([])),
-            validator=attrs.validators.optional(attrs.validators.instance_of(np.ndarray)),
+            validator=attrs.validators.optional(
+                    attrs.validators.instance_of(np.ndarray)),
             eq=attrs.cmp_using(eq=np.array_equal))
     summaries: Optional[NDArray] = attrs.field(
             default=attrs.Factory(lambda: np.array([])),
-            validator=attrs.validators.optional(attrs.validators.instance_of(np.ndarray)),
+            validator=attrs.validators.optional(
+                    attrs.validators.instance_of(np.ndarray)),
             eq=attrs.cmp_using(eq=np.array_equal))
-    time_domain_legend: Optional[dict[int, str]] = attrs.field(default=attrs.Factory(dict),
-                                                               validator=attrs.validators.optional(
-                                                                       attrs.validators.instance_of(dict)))
-    summaries_legend: Optional[dict[int, str]] = attrs.field(default=attrs.Factory(dict),
-                                                             validator=attrs.validators.optional(
-                                                                     attrs.validators.instance_of(dict)))
-    _singlevar_summary_legend: Optional[dict[int, str]] = attrs.field(default=attrs.Factory(dict),
-                                                                      validator=attrs.validators.optional(
-                                                                              attrs.validators.instance_of(dict)))
-    _active_outputs: Optional[ActiveOutputs] = attrs.field(default=attrs.Factory(lambda: ActiveOutputs()))
+    time_domain_legend: Optional[dict[int, str]] = attrs.field(
+            default=attrs.Factory(dict), validator=attrs.validators.optional(
+                    attrs.validators.instance_of(dict)))
+    summaries_legend: Optional[dict[int, str]] = attrs.field(
+            default=attrs.Factory(dict), validator=attrs.validators.optional(
+                    attrs.validators.instance_of(dict)))
+    _singlevar_summary_legend: Optional[dict[int, str]] = attrs.field(
+            default=attrs.Factory(dict), validator=attrs.validators.optional(
+                    attrs.validators.instance_of(dict)))
+    _active_outputs: Optional[ActiveOutputs] = attrs.field(
+            default=attrs.Factory(lambda: ActiveOutputs()))
 
     @classmethod
-    def from_solver(cls, solver: Union["Solver", "BatchSolverKernel"]) -> "UserArrays":
+    def from_solver(cls, solver: Union[
+        "Solver", "BatchSolverKernel"]) -> "UserArrays":
         """
         Create UserArrays from a Solver instance.
 
         Args:
-            solver (BatchSolverKernel): The solver instance to extract user arrays from.
+            solver (BatchSolverKernel): The solver instance to extract user
+            arrays from.
 
         Returns:
-            UserArrays: An instance of UserArrays containing the data from the solver.
+            UserArrays: An instance of UserArrays containing the data from
+            the solver.
         """
         active_outputs = solver.active_output_arrays
         time_domain_array = cls.time_domain_array(active_outputs,
                                                   solver.state_dev_array,
-                                                  solver.observables_dev_array,
-                                                  )
+                                                  solver.observables_dev_array, )
         summaries_array = cls.summaries_array(active_outputs,
                                               solver.state_summaries_dev_array,
-                                              solver.observable_summaries_dev_array,
-                                              )
+                                              solver.observable_summaries_dev_array, )
         time_domain_legend = cls.time_domain_legend_from_solver(solver)
         summaries_legend = cls.summary_legend_from_solver(solver)
         _singlevar_summary_legend = solver.summary_legend_per_variable
 
-        user_arrays = cls(
-                time_domain=time_domain_array,
+        user_arrays = cls(time_domain=time_domain_array,
                 summaries=summaries_array,
                 time_domain_legend=time_domain_legend,
                 summaries_legend=summaries_legend,
                 active_outputs=active_outputs,
-                singlevar_summary_legend=_singlevar_summary_legend,
-                )
+                singlevar_summary_legend=_singlevar_summary_legend, )
 
         return user_arrays
 
@@ -70,22 +74,23 @@ class UserArrays:
         Create UserArrays from a BatchSolverKernel instance.
 
         Args:
-            solver (BatchSolverKernel): The solver instance to extract user arrays from.
+            solver (BatchSolverKernel): The solver instance to extract user
+            arrays from.
 
         Returns:
-            UserArrays: An instance of UserArrays containing the data from the solver.
+            UserArrays: An instance of UserArrays containing the data from
+            the solver.
         """
         self._active_outputs = solver.active_output_arrays
         self.time_domain = UserArrays.time_domain_array(self.active_outputs,
                                                         solver.state_dev_array,
-                                                        solver.observables_dev_array,
-                                                        )
+                                                        solver.observables_dev_array, )
         self.summaries = UserArrays.summaries_array(self.active_outputs,
                                                     solver.state_summaries_dev_array,
-                                                    solver.observable_summaries_dev_array,
-                                                    )
+                                                    solver.observable_summaries_dev_array, )
         self._singlevar_summary_legend = solver.summary_legend_per_variable
-        self.time_domain_legend = UserArrays.time_domain_legend_from_solver(solver)
+        self.time_domain_legend = UserArrays.time_domain_legend_from_solver(
+                solver)
         self.summaries_legend = UserArrays.summary_legend_from_solver(solver)
 
     @property
@@ -94,14 +99,18 @@ class UserArrays:
             import pandas as pd
         except ImportError:
             raise ImportError(
-                    "Pandas is required to convert UserArrays to DataFrames. To keep the dependencies list low, Pandas isn’t included. Install Pandas to use this feature.")
+                    "Pandas is required to convert UserArrays to DataFrames. "
+                    "To keep the dependencies list low, Pandas isn’t "
+                    "included. Install Pandas to use this feature.")
 
-        # Construct multi-indexed DataFrame for time domain where each slice [:, i, :] is stacked under run index i
+        # Construct multi-indexed DataFrame for time domain where each slice
+        # [:, i, :] is stacked under run index i
         time_dfs = []
         n_runs = self.time_domain.shape[1] if self.time_domain.ndim == 3 else 1
         for run_idx in range(n_runs):
             slice_array = self.time_domain[:, run_idx, :]
-            df = pd.DataFrame(slice_array, columns=list(self.time_domain_legend.values()))
+            df = pd.DataFrame(slice_array,
+                              columns=list(self.time_domain_legend.values()))
             if "time" in df.index:
                 new_columns = df.loc["time"].tolist()
                 df = df.drop("time")
@@ -110,12 +119,15 @@ class UserArrays:
             time_dfs.append(df)
         time_domain_df = pd.concat(time_dfs)
 
-        # Construct multi-indexed DataFrame for summaries by stacking each 2d slice [:, i, :]
+        # Construct multi-indexed DataFrame for summaries by stacking each
+        # 2d slice [:, i, :]
         summaries_dfs = []
-        n_runs_summaries = self.summaries.shape[1] if self.summaries.ndim == 3 else 1
+        n_runs_summaries = self.summaries.shape[
+            1] if self.summaries.ndim == 3 else 1
         for run_idx in range(n_runs_summaries):
             slice_array = self.summaries[:, run_idx, :]
-            df = pd.DataFrame(slice_array, columns=list(self.summaries_legend.values()))
+            df = pd.DataFrame(slice_array,
+                              columns=list(self.summaries_legend.values()))
             summaries_dfs.append(df)
         summaries_df = pd.concat(summaries_dfs, keys=range(n_runs_summaries))
 
@@ -127,14 +139,13 @@ class UserArrays:
         Returns the arrays instance as a dictionary of NumPy arrays.
 
         Returns:
-            dict[str, NDArray]: A dictionary containing the time domain and summaries arrays.
+            dict[str, NDArray]: A dictionary containing the time domain and
+            summaries arrays.
         """
-        return {
-            "time_domain":        self.time_domain,
-            "summaries":          self.summaries,
+        return {"time_domain"   : self.time_domain,
+            "summaries"         : self.summaries,
             "time_domain_legend": self.time_domain_legend,
-            "summaries_legend":   self.summaries_legend,
-            }
+            "summaries_legend"  : self.summaries_legend, }
 
     @property
     def per_summary_arrays(self) -> dict[str, NDArray]:
@@ -142,8 +153,10 @@ class UserArrays:
         Returns each summary as a separate array, keyed by summary type.
 
         Returns:
-            dict[str, NDArray]: A dictionary containing one array for each summary type. If a summary type has
-            multiple entries, such as multiple peaks, then each entry is returned as a separate array.
+            dict[str, NDArray]: A dictionary containing one array for each
+            summary type. If a summary type has
+            multiple entries, such as multiple peaks, then each entry is
+            returned as a separate array.
         """
         if self.summaries.size == 0:
             return {}
@@ -154,12 +167,16 @@ class UserArrays:
         indices_per_var = np.max([k for k in singlevar_legend.keys()]) + 1
 
         if "time" in variable_legend.values():
-            time_key = next((k for k, v in variable_legend.items() if v == "time"), None)
-            variable_legend = {(k - 1 if k > time_key else k): v for k, v in variable_legend.items() if v != "time"}
+            time_key = next(
+                    (k for k, v in variable_legend.items() if v == "time"),
+                    None)
+            variable_legend = {(k - 1 if k > time_key else k): v for k, v in
+                               variable_legend.items() if v != "time"}
 
         per_summary_arrays = {}
         for offset, label in singlevar_legend.items():
-            per_summary_arrays[label] = self.summaries[:, :, offset::indices_per_var]
+            per_summary_arrays[label] = self.summaries[:, :,
+                                        offset::indices_per_var]
 
         per_summary_arrays["legend"] = variable_legend
 
@@ -189,12 +206,14 @@ class UserArrays:
             return np.array([])
 
     @staticmethod
-    def summaries_array(active_outputs, state_summaries, observable_summaries) -> np.ndarray:
+    def summaries_array(active_outputs, state_summaries,
+                        observable_summaries) -> np.ndarray:
         include_state = active_outputs.state_summaries
         include_observables = active_outputs.observable_summaries
 
         if include_state and include_observables:
-            return np.concatenate((state_summaries, observable_summaries), axis=-1)
+            return np.concatenate((state_summaries, observable_summaries),
+                                  axis=-1)
         elif include_state:
             return state_summaries
         elif include_observables:
@@ -209,7 +228,8 @@ class UserArrays:
 
 
         Args:
-            solver (BatchSolverKernel): The solver instance to extract the time domain legend from.
+            solver (BatchSolverKernel): The solver instance to extract the
+            time domain legend from.
 
         Returns:
             dict[int, str]: A dictionary mapping indices to time domain labels.
@@ -218,7 +238,8 @@ class UserArrays:
         saved_states = solver.saved_state_indices
         saved_observables = solver.saved_observable_indices
         state_labels = solver.batch_configurator.state_labels(saved_states)
-        obs_labels = solver.batch_configurator.observable_labels(saved_observables)
+        obs_labels = solver.batch_configurator.observable_labels(
+                saved_observables)
         summaries_legend = {}
         # state summaries
         for i, label in enumerate(state_labels):
@@ -237,10 +258,12 @@ class UserArrays:
     def time_domain_legend_from_solver(solver: "Solver") -> dict[int, str]:
         """
         Get the time domain legend from a Solver instance.
-        Returns a dict mapping time domain indices to labels, including time if saved.
+        Returns a dict mapping time domain indices to labels, including time
+        if saved.
 
         Args:
-            solver (BatchSolverKernel): The solver instance to extract the time domain legend from.
+            solver (BatchSolverKernel): The solver instance to extract the
+            time domain legend from.
 
         Returns:
             dict[int, str]: A dictionary mapping indices to time domain labels.
@@ -249,7 +272,8 @@ class UserArrays:
         saved_states = solver.saved_state_indices
         saved_observables = solver.saved_observable_indices
         state_labels = solver.batch_configurator.state_labels(saved_states)
-        obs_labels = solver.batch_configurator.observable_labels(saved_observables)  # hoik up into solver
+        obs_labels = solver.batch_configurator.observable_labels(
+                saved_observables)  # hoik up into solver
         offset = 0
 
         for i, label in enumerate(state_labels):

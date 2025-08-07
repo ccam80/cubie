@@ -1,4 +1,5 @@
-from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetrics, register_metric
+from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import \
+    SummaryMetrics, register_metric
 
 summary_metrics = SummaryMetrics()
 

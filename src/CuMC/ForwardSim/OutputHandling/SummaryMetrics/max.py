@@ -1,7 +1,8 @@
 from numba import cuda
 
 from CuMC.ForwardSim.OutputHandling.SummaryMetrics import summary_metrics
-from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetric, register_metric
+from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import \
+    SummaryMetric, register_metric
 
 
 @register_metric(summary_metrics)
@@ -13,16 +14,14 @@ class Max(SummaryMetric):
     def __init__(self):
         update_func, save_func = self.CUDA_factory()
 
-        super().__init__(name="max",
-                         buffer_size=1,
-                         output_size=1,
+        super().__init__(name="max", buffer_size=1, output_size=1,
                          update_device_func=update_func,
-                         save_device_func=save_func,
-                         )
+                         save_device_func=save_func, )
 
     def CUDA_factory(self):
         """
-        Generate the CUDA functions to calculate the metric. The signatures of the functions are fixed:
+        Generate the CUDA functions to calculate the metric. The signatures
+        of the functions are fixed:
 
         - update(value, buffer, current_index, customisable_variable)
             Perform math required to maintain a running prerequisite for the metric, like a sum or a count.
@@ -47,31 +46,21 @@ class Max(SummaryMetric):
         """
 
         @cuda.jit(["float32, float32[::1], int64, int64",
-                   "float64, float64[::1], int64, int64"],
-                  device=True,
-                  inline=True,
-                  )
-        def update(value,
-                   buffer,
-                   current_index,
-                   customisable_variable,
-                   ):
+                   "float64, float64[::1], int64, int64"], device=True,
+                  inline=True, )
+        def update(value, buffer, current_index, customisable_variable, ):
             """Update running sum - 1 buffer memory slot required per state"""
             if value > buffer[0]:
                 buffer[0] = value
 
         @cuda.jit(["float32[::1], float32[::1], int64, int64",
-                   "float64[::1], float64[::1], int64, int64"],
-                  device=True,
-                  inline=True,
-                  )
-        def save(buffer,
-                 output_array,
-                 summarise_every,
-                 customisable_variable,
-                 ):
+                   "float64[::1], float64[::1], int64, int64"], device=True,
+                  inline=True, )
+        def save(buffer, output_array, summarise_every,
+                 customisable_variable, ):
             """Calculate mean from running sum - 1 output memory slot required per state"""
             output_array[0] = buffer[0]
-            buffer[0] = -1.0e30  # A very negative number, to allow us to capture max values greater than this
+            buffer[
+                0] = -1.0e30  # A very negative number, to allow us to capture max values greater than this
 
         return update, save

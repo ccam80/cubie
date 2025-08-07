@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from CuMC.ForwardSim.BatchSolverKernel import BatchSolverKernel
 from warnings import warn
@@ -8,7 +9,6 @@ import attrs.validators as val
 from numba.cuda import mapped_array
 from numpy import float32
 
-
 from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes
 from CuMC.ForwardSim._utils import optional_cuda_array_validator_3d
 
@@ -16,33 +16,55 @@ from CuMC.ForwardSim._utils import optional_cuda_array_validator_3d
 @attrs.define
 class ActiveOutputs:
     state: bool = attrs.field(default=False, validator=val.instance_of(bool))
-    observables: bool = attrs.field(default=False, validator=val.instance_of(bool))
-    state_summaries: bool = attrs.field(default=False, validator=val.instance_of(bool))
-    observable_summaries: bool = attrs.field(default=False, validator=val.instance_of(bool))
+    observables: bool = attrs.field(default=False,
+                                    validator=val.instance_of(bool))
+    state_summaries: bool = attrs.field(default=False,
+                                        validator=val.instance_of(bool))
+    observable_summaries: bool = attrs.field(default=False,
+                                             validator=val.instance_of(bool))
 
     def update_from_outputarrays(self, output_arrays: "OutputArrays"):
-        """Update the active outputs based on the provided OutputArrays instance."""
-        self.state = output_arrays.state is not None and output_arrays.state.size > 1
-        self.observables = output_arrays.observables is not None and output_arrays.observables.size > 1
-        self.state_summaries = output_arrays.state_summaries is not None and output_arrays.state_summaries.size > 1
-        self.observable_summaries = output_arrays.observable_summaries is not None and output_arrays.observable_summaries.size > 1
+        """Update the active outputs based on the provided OutputArrays
+        instance."""
+        self.state = (output_arrays.state is not None and
+                      output_arrays.state.size > 1)
+        self.observables = (output_arrays.observables is not None and
+                            output_arrays.observables.size > 1)
+        self.state_summaries = (output_arrays.state_summaries is not None and
+                                output_arrays.state_summaries.size > 1)
+        self.observable_summaries = (output_arrays.observable_summaries is
+                                     not None and
+                                     output_arrays.observable_summaries.size
+                                     > 1)
 
 
 @attrs.define
 class OutputArrays:
-    """ Manages batch integration output arrays between the host and device. This class is initialised with a
-    BatchOutputSizes instance (which is drawn from a solver instance using the from_solver factory method),
-    which sets the allowable 3d array sizes from the ODE system's data and run settings. Once initialised,
-    the object can be called with a solver instance to update the expected sizes, check the cache, and allocate if
+    """ Manages batch integration output arrays between the host and device.
+    This class is initialised with a
+    BatchOutputSizes instance (which is drawn from a solver instance using
+    the from_solver factory method),
+    which sets the allowable 3d array sizes from the ODE system's data and
+    run settings. Once initialised,
+    the object can be called with a solver instance to update the expected
+    sizes, check the cache, and allocate if
     required.
     """
-    _sizes: BatchOutputSizes = attrs.field(validator=val.instance_of(BatchOutputSizes))
-    _precision: type = attrs.field(default=float32, validator=val.instance_of(type))
-    state = attrs.field(default=None, validator=val.optional(optional_cuda_array_validator_3d))
-    observables = attrs.field(default=None, validator=val.optional(optional_cuda_array_validator_3d))
-    state_summaries = attrs.field(default=None, validator=val.optional(optional_cuda_array_validator_3d))
-    observable_summaries = attrs.field(default=None, validator=val.optional(optional_cuda_array_validator_3d))
-    _active_outputs: ActiveOutputs = attrs.field(default=ActiveOutputs(), validator=val.instance_of(ActiveOutputs))
+    _sizes: BatchOutputSizes = attrs.field(
+            validator=val.instance_of(BatchOutputSizes))
+    _precision: type = attrs.field(default=float32,
+                                   validator=val.instance_of(type))
+    state = attrs.field(default=None, validator=val.optional(
+            optional_cuda_array_validator_3d))
+    observables = attrs.field(default=None, validator=val.optional(
+            optional_cuda_array_validator_3d))
+    state_summaries = attrs.field(default=None, validator=val.optional(
+            optional_cuda_array_validator_3d))
+    observable_summaries = attrs.field(default=None, validator=val.optional(
+            optional_cuda_array_validator_3d))
+    _active_outputs: ActiveOutputs = attrs.field(default=ActiveOutputs(),
+                                                 validator=val.instance_of(
+                                                         ActiveOutputs))
 
     def __call__(self, solver_instance):
         self.update_from_solver(solver_instance)
@@ -51,8 +73,10 @@ class OutputArrays:
 
     def update_from_solver(self, solver_instance: "BatchSolverKernel"):
         """
-        Update the sizes and precision of the OutputArrays instance from a solver instance.
-        This is useful if the solver instance has changed and we need to update the output arrays accordingly.
+        Update the sizes and precision of the OutputArrays instance from a
+        solver instance.
+        This is useful if the solver instance has changed and we need to
+        update the output arrays accordingly.
         """
         self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
@@ -61,13 +85,17 @@ class OutputArrays:
 
     def _allocate_new(self):
         self.state = mapped_array(self._sizes.state, self._precision)
-        self.observables = mapped_array(self._sizes.observables, self._precision)
-        self.state_summaries = mapped_array(self._sizes.state_summaries, self._precision)
-        self.observable_summaries = mapped_array(self._sizes.observable_summaries, self._precision)
+        self.observables = mapped_array(self._sizes.observables,
+                                        self._precision)
+        self.state_summaries = mapped_array(self._sizes.state_summaries,
+                                            self._precision)
+        self.observable_summaries = mapped_array(
+                self._sizes.observable_summaries, self._precision)
 
     @property
     def active_outputs(self) -> ActiveOutputs:
-        """ Check which outputs are requested, treating size-1 arrays as an artefact of the default allocation."""
+        """ Check which outputs are requested, treating size-1 arrays as an
+        artefact of the default allocation."""
         self._active_outputs.update_from_outputarrays(self)
         return self._active_outputs
 
@@ -81,17 +109,14 @@ class OutputArrays:
         if self.observable_summaries is not None:
             del self.observable_summaries
 
-    def _check_dims(self,
-                    state,
-                    observables,
-                    state_summaries,
-                    observable_summaries,
-                    sizes: BatchOutputSizes,
-                    ):
+    def _check_dims(self, state, observables, state_summaries,
+                    observable_summaries, sizes: BatchOutputSizes, ):
         """
-        Check dimensions of provided arrays match the expected sizes. Return True if sizes match.
+        Check dimensions of provided arrays match the expected sizes. Return
+        True if sizes match.
         """
-        if any(array is None for array in (state, observables, state_summaries, observable_summaries)):
+        if any(array is None for array in
+               (state, observables, state_summaries, observable_summaries)):
             return False
 
         match = True
@@ -105,17 +130,14 @@ class OutputArrays:
             match = False
         return match
 
-    def _check_type(self,
-                    state,
-                    observables,
-                    state_summaries,
-                    observable_summaries,
-                    precision,
-                    ):
+    def _check_type(self, state, observables, state_summaries,
+                    observable_summaries, precision, ):
         """
-        Check types of provided arrays match the expected precision. Return True if types match.
+        Check types of provided arrays match the expected precision. Return
+        True if types match.
         """
-        if any(array is None for array in (state, observables, state_summaries, observable_summaries)):
+        if any(array is None for array in
+               (state, observables, state_summaries, observable_summaries)):
             return False
 
         match = True
@@ -134,50 +156,54 @@ class OutputArrays:
     def cache_valid(self):
         """
         Check dimensions of cached arrays match the expected sizes.
-        Raises ValueError if any of the arrays are not allocated or have incorrect dimensions.
+        Raises ValueError if any of the arrays are not allocated or have
+        incorrect dimensions.
         """
-        size_match = self._check_dims(self.state,
-                                      self.observables,
+        size_match = self._check_dims(self.state, self.observables,
+                                      self.state_summaries,
+                                      self.observable_summaries, self._sizes, )
+        type_match = self._check_type(self.state, self.observables,
                                       self.state_summaries,
                                       self.observable_summaries,
-                                      self._sizes,
-                                      )
-        type_match = self._check_type(self.state,
-                                      self.observables,
-                                      self.state_summaries,
-                                      self.observable_summaries,
-                                      self._precision,
-                                      )
+                                      self._precision, )
 
         return size_match and type_match
 
-    def check_external_arrays(self, state, observables, state_summaries, observable_summaries):
+    def check_external_arrays(self, state, observables, state_summaries,
+                              observable_summaries):
         """
-        Check dimensions and dtype of provided arrays match the expected sizes. Returns True if they all match.
+        Check dimensions and dtype of provided arrays match the expected
+        sizes. Returns True if they all match.
         """
-        dims_ok = self._check_dims(state, observables, state_summaries, observable_summaries, self._sizes)
-        type_ok = self._check_type(state, observables, state_summaries, observable_summaries, self._precision)
+        dims_ok = self._check_dims(state, observables, state_summaries,
+                                   observable_summaries, self._sizes)
+        type_ok = self._check_type(state, observables, state_summaries,
+                                   observable_summaries, self._precision)
         return dims_ok and type_ok
 
-    def attach(self, state, observables, state_summaries, observable_summaries):
+    def attach(self, state, observables, state_summaries,
+               observable_summaries):
         """
-        Attach existing arrays to the BatchArrays instance. This is useful for reusing already allocated arrays.
+        Attach existing arrays to the BatchArrays instance. This is useful
+        for reusing already allocated arrays.
         """
-        if self.check_external_arrays(state, observables, state_summaries, observable_summaries):
+        if self.check_external_arrays(state, observables, state_summaries,
+                                      observable_summaries):
             self.state = state
             self.observables = observables
             self.state_summaries = state_summaries
             self.observable_summaries = observable_summaries
 
         else:
-            warn("Provided arrays do not match the expected sizes or types, allocating new ones instead.",
-                 UserWarning,
-                 )
+            warn("Provided arrays do not match the expected sizes or types, "
+                 "allocating new ones instead.",
+                    UserWarning, )
             self._allocate_new()
 
     def allocate(self):
         """
-        Allocate the arrays for the batch of runs, using the sizes provided in the BatchOutputSizes object.
+        Allocate the arrays for the batch of runs, using the sizes provided
+        in the BatchOutputSizes object.
         """
         if not self.cache_valid():
             self._clear_cache()
@@ -186,7 +212,8 @@ class OutputArrays:
 
     def initialize_zeros(self):
         """
-        Initialize the arrays for the batch of runs, using the sizes provided in the BatchOutputSizes object.
+        Initialize the arrays for the batch of runs, using the sizes
+        provided in the BatchOutputSizes object.
         If the arrays are already allocated and valid, this does nothing.
         """
         self.state[:, :, :] = self._precision(0.0)
@@ -195,9 +222,11 @@ class OutputArrays:
         self.observable_summaries[:, :, :] = self._precision(0.0)
 
     @classmethod
-    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "OutputArrays":
+    def from_solver(cls,
+                    solver_instance: "BatchSolverKernel") -> "OutputArrays":
         """
-        Create a OutputArrays instance from a solver instance. Does not allocate, just sets up sizes
+        Create a OutputArrays instance from a solver instance. Does not
+        allocate, just sets up sizes
         """
         sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         return cls(sizes, precision=solver_instance.precision)

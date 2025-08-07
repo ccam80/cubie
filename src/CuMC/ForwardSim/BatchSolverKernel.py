@@ -7,60 +7,57 @@ Created on Tue May 27 17:45:03 2025
 
 import os
 from typing import Optional
+from warnings import warn
 
 import numpy as np
 from numba import cuda
 from numba import int32, int16, from_dtype
 from numpy.typing import NDArray, ArrayLike
-from warnings import warn
+
 from CuMC.CUDAFactory import CUDAFactory
 from CuMC.ForwardSim.BatchInputArrays import InputArrays
 from CuMC.ForwardSim.BatchOutputArrays import OutputArrays, ActiveOutputs
 from CuMC.ForwardSim.BatchSolverConfig import BatchSolverConfig
-from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes, SingleRunOutputSizes
+from CuMC.ForwardSim.OutputHandling.output_sizes import BatchOutputSizes, \
+    SingleRunOutputSizes
 from CuMC.ForwardSim.integrators.SingleIntegratorRun import SingleIntegratorRun
 
 
 class BatchSolverKernel(CUDAFactory):
-    """Class which builds and holds the integrating kernel and interfaces with lower-level modules: loop
+    """Class which builds and holds the integrating kernel and interfaces
+    with lower-level modules: loop
     algorithms, ODE systems, and output functions
-    The kernel function accepts single or batched sets of inputs, and distributes those amongst the threads on the
-    GPU. It runs the loop device function on a given slice of its allocated memory, and serves as the distributor
+    The kernel function accepts single or batched sets of inputs,
+    and distributes those amongst the threads on the
+    GPU. It runs the loop device function on a given slice of its allocated
+    memory, and serves as the distributor
     of work amongst the individual runs of the integrators.
-    This class is one level down from the user, managing sanitised inputs and handling the machinery of batching and
+    This class is one level down from the user, managing sanitised inputs
+    and handling the machinery of batching and
     running integrators. It does not handle:
-     - Integration logic/algorithms - these are handled in SingleIntegratorRun, and below
-     - Input sanitisation / batch construction - this is handled in the solver api.
+     - Integration logic/algorithms - these are handled in
+     SingleIntegratorRun, and below
+     - Input sanitisation / batch construction - this is handled in the
+     solver api.
      - System equations - these are handled in the system model classes.
     """
 
-    def __init__(self,
-                 system,
-                 algorithm: str = 'euler',
-                 duration: float = 1.0,
-                 warmup: float = 0.0,
-                 dt_min: float = 0.01,
-                 dt_max: float = 0.1,
-                 dt_save: float = 0.1,
-                 dt_summarise: float = 1.0,
-                 atol: float = 1e-6,
+    def __init__(self, system, algorithm: str = 'euler', duration: float = 1.0,
+                 warmup: float = 0.0, dt_min: float = 0.01,
+                 dt_max: float = 0.1, dt_save: float = 0.1,
+                 dt_summarise: float = 1.0, atol: float = 1e-6,
                  rtol: float = 1e-6,
                  saved_state_indices: NDArray[np.int_] = None,
                  saved_observable_indices: NDArray[np.int_] = None,
                  summarised_state_indices: Optional[ArrayLike] = None,
                  summarised_observable_indices: Optional[ArrayLike] = None,
-                 output_types: list[str] = None,
-                 precision: type = np.float64,
-                 profileCUDA: bool = False,
-                 ):
+                 output_types: list[str] = None, precision: type = np.float64,
+                 profileCUDA: bool = False, ):
         super().__init__()
 
-        config = BatchSolverConfig(precision=precision,
-                                   algorithm=algorithm,
-                                   duration=duration,
-                                   warmup=warmup,
-                                   profileCUDA=profileCUDA,
-                                   )
+        config = BatchSolverConfig(precision=precision, algorithm=algorithm,
+                                   duration=duration, warmup=warmup,
+                                   profileCUDA=profileCUDA, )
 
         # Setup compile settings for the kernel
         self.setup_compile_settings(config)
@@ -68,28 +65,22 @@ class BatchSolverKernel(CUDAFactory):
         if output_types is None:
             output_types = ["state"]
 
-        self.single_integrator = SingleIntegratorRun(
-                system,
-                algorithm=algorithm,
-                dt_min=dt_min,
-                dt_max=dt_max,
-                dt_save=dt_save,
-                dt_summarise=dt_summarise,
-                atol=atol,
-                rtol=rtol,
-                saved_state_indices=saved_state_indices,
+        self.single_integrator = SingleIntegratorRun(system,
+                algorithm=algorithm, dt_min=dt_min, dt_max=dt_max,
+                dt_save=dt_save, dt_summarise=dt_summarise, atol=atol,
+                rtol=rtol, saved_state_indices=saved_state_indices,
                 saved_observable_indices=saved_observable_indices,
                 summarised_state_indices=summarised_state_indices,
                 summarised_observable_indices=summarised_observable_indices,
-                output_types=output_types,
-                )
+                output_types=output_types, )
 
         self.input_arrays = InputArrays.from_solver(self)
         self.output_arrays = OutputArrays.from_solver(self)
 
     @property
     def output_heights(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.output_array_heights` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .output_array_heights` from the child SingleIntegratorRun object."""
         return self.single_integrator.output_array_heights
 
     @property
@@ -99,17 +90,11 @@ class BatchSolverKernel(CUDAFactory):
     def build(self):
         return self.build_kernel()
 
-    def run(self,
-            duration,
-            params,
-            inits,
-            forcing_vectors,
-            blocksize=256,
-            stream=0,
-            warmup=0.0,
-            ):
+    def run(self, duration, params, inits, forcing_vectors, blocksize=256,
+            stream=0, warmup=0.0, ):
         """Run the solver kernel."""
-        # Order currently IMPORTANT - num_runs is updated in input_arrays, which is used in output_arrays.
+        # Order currently IMPORTANT - num_runs is updated in input_arrays,
+        # which is used in output_arrays.
         self.duration = duration
         self.warmup = warmup
 
@@ -120,41 +105,49 @@ class BatchSolverKernel(CUDAFactory):
         warmup_length = self.warmup_length
         numruns = self.input_arrays.num_runs
 
-        dynamic_sharedmem = int(self.shared_memory_bytes_per_run * min(numruns, blocksize))
+        dynamic_sharedmem = int(
+                self.shared_memory_bytes_per_run * min(numruns, blocksize))
         while dynamic_sharedmem > 32768:
             if blocksize < 32:
-                warn("Block size has been reduced to less than 32 threads, which means your code will suffer a "
-                     "performance hit. This is due to your problem requiring too much shared memory - try casting "
-                     "some parameters to constants, or trying a different solving algorithm.")
-            blocksize = blocksize/2
-            dynamic_sharedmem = int(self.shared_memory_bytes_per_run * min(numruns, blocksize))
+                warn("Block size has been reduced to less than 32 threads, "
+                     "which means your code will suffer a "
+                     "performance hit. This is due to your problem requiring "
+                     "too much shared memory - try casting "
+                     "some parameters to constants, or trying a different "
+                     "solving algorithm.")
+            blocksize = blocksize / 2
+            dynamic_sharedmem = int(
+                    self.shared_memory_bytes_per_run * min(numruns, blocksize))
 
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
         BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
 
-        if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self.compile_settings.profileCUDA:
+        if (os.environ.get(
+                "NUMBA_ENABLE_CUDASIM") != "1" and
+                self.compile_settings.profileCUDA):
             cuda.profile_start()
 
-        self.device_function[BLOCKSPERGRID, (threads_per_loop, runsperblock), stream, dynamic_sharedmem](
+        self.device_function[BLOCKSPERGRID, (threads_per_loop,
+                                             runsperblock), stream,
+        dynamic_sharedmem](
                 self.input_arrays.device_initial_values,
                 self.input_arrays.device_parameters,
                 self.input_arrays.device_forcing_vectors,
-                self.output_arrays.state,
-                self.output_arrays.observables,
+                self.output_arrays.state, self.output_arrays.observables,
                 self.output_arrays.state_summaries,
-                self.output_arrays.observable_summaries,
-                output_length,
-                warmup_length,
-                numruns,
-                )
+                self.output_arrays.observable_summaries, output_length,
+                warmup_length, numruns, )
         cuda.synchronize()
 
-        if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1" and self.compile_settings.profileCUDA:
+        if (os.environ.get(
+                "NUMBA_ENABLE_CUDASIM") != "1" and
+                self.compile_settings.profileCUDA):
             cuda.profile_stop()
 
-        # return self.output_arrays # Should this be returned? do we want the user's dirty fingers in here or is it
-        # required to keep the higher algorithms spinning around?
+        # return self.output_arrays # Should this be returned? do we want
+        # the user's dirty fingers in here or is it  # required to keep the
+        # higher algorithms spinning around?
 
     def build_kernel(self):
         """Build the integration kernel."""
@@ -168,30 +161,15 @@ class BatchSolverKernel(CUDAFactory):
         save_state_summaries = output_flags.state_summaries
         save_observable_summaries = output_flags.observable_summaries
 
-        @cuda.jit((precision[:, :],
-                   precision[:, :],
-                   precision[:, :],
-                   precision[:, :, :],
-                   precision[:, :, :],
-                   precision[:, :, :],
-                   precision[:, :, :],
-                   int32,
-                   int32,
-                   int32
-                   ),
-                  )
-        def integration_kernel(inits,
-                               params,
-                               forcing_vector,
-                               state_output,
-                               observables_output,
-                               state_summaries_output,
-                               observables_summaries_output,
-                               duration_samples,
-                               warmup_samples=0,
-                               n_runs=1,
-                               ):
-            """Master integration kernel - calls integratorLoop and dxdt device functions."""
+        @cuda.jit((precision[:, :], precision[:, :], precision[:, :],
+                   precision[:, :, :], precision[:, :, :], precision[:, :, :],
+                   precision[:, :, :], int32, int32, int32), )
+        def integration_kernel(inits, params, forcing_vector, state_output,
+                               observables_output, state_summaries_output,
+                               observables_summaries_output, duration_samples,
+                               warmup_samples=0, n_runs=1, ):
+            """Master integration kernel - calls integratorLoop and dxdt
+            device functions."""
             tx = int16(cuda.threadIdx.x)
             ty = int16(cuda.threadIdx.y)
 
@@ -206,26 +184,23 @@ class BatchSolverKernel(CUDAFactory):
             c_forcing_vector = cuda.const.array_like(forcing_vector)
 
             # Run-indexed slices of shared and output memory
-            rx_shared_memory = shared_memory[ty * shared_elements_per_run:(ty + 1) * shared_elements_per_run]
+            rx_shared_memory = shared_memory[ty * shared_elements_per_run:(
+                                                                                  ty + 1) * shared_elements_per_run]
             rx_inits = inits[run_index, :]
             rx_params = params[run_index, :]
             rx_state = state_output[:, run_index * save_state, :]
-            rx_observables = observables_output[:, run_index * save_observables, :]
-            rx_state_summaries = state_summaries_output[:, run_index * save_state_summaries, :]
-            rx_observables_summaries = observables_summaries_output[:, run_index * save_observable_summaries, :]
+            rx_observables = observables_output[:,
+                             run_index * save_observables, :]
+            rx_state_summaries = state_summaries_output[:,
+                                 run_index * save_state_summaries, :]
+            rx_observables_summaries = observables_summaries_output[:,
+                                       run_index * save_observable_summaries,
+                                       :]
 
-            loopfunction(
-                    rx_inits,
-                    rx_params,
-                    c_forcing_vector,
-                    rx_shared_memory,
-                    rx_state,
-                    rx_observables,
-                    rx_state_summaries,
-                    rx_observables_summaries,
-                    duration_samples,
-                    warmup_samples,
-                    )
+            loopfunction(rx_inits, rx_params, c_forcing_vector,
+                    rx_shared_memory, rx_state, rx_observables,
+                    rx_state_summaries, rx_observables_summaries,
+                    duration_samples, warmup_samples, )
 
             return None
 
@@ -240,8 +215,10 @@ class BatchSolverKernel(CUDAFactory):
             return set()
 
         all_unrecognized = set(updates_dict.keys())
-        all_unrecognized -= self.update_compile_settings(updates_dict, silent=True)
-        all_unrecognized -= self.single_integrator.update(updates_dict, silent=True)
+        all_unrecognized -= self.update_compile_settings(updates_dict,
+                                                         silent=True)
+        all_unrecognized -= self.single_integrator.update(updates_dict,
+                                                          silent=True)
         recognised = set(updates_dict.keys()) - all_unrecognized
 
         if all_unrecognized:
@@ -251,22 +228,26 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def shared_memory_bytes_per_run(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.shared_memory_bytes` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .shared_memory_bytes` from the child SingleIntegratorRun object."""
         return self.single_integrator.shared_memory_bytes
 
     @property
     def shared_memory_elements_per_run(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.shared_memory_elements` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .shared_memory_elements` from the child SingleIntegratorRun object."""
         return self.single_integrator.shared_memory_elements
 
     @property
     def precision(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.precision` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .precision` from the child SingleIntegratorRun object."""
         return self.single_integrator.precision
 
     @property
     def threads_per_loop(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.threads_per_loop` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .threads_per_loop` from the child SingleIntegratorRun object."""
         return self.single_integrator.threads_per_loop
 
     @property
@@ -292,46 +273,58 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def output_length(self):
         """Returns the number of output samples per run."""
-        return int(np.ceil(self.compile_settings.duration / self.single_integrator.dt_save))
+        return int(
+                np.ceil(self.compile_settings.duration /
+                        self.single_integrator.dt_save))
 
     @property
     def summaries_length(self):
         """Returns the number of summary samples per run."""
-        return int(np.ceil(self.compile_settings.duration / self.single_integrator.dt_summarise))
+        return int(
+                np.ceil(self.compile_settings.duration /
+                        self.single_integrator.dt_summarise))
 
     @property
     def warmup_length(self):
-        return int(np.ceil(self.compile_settings.warmup / self.single_integrator.dt_save))
+        return int(
+                np.ceil(self.compile_settings.warmup /
+                        self.single_integrator.dt_save))
 
     @property
     def num_runs(self):
-        """Exposes :attr:`~CuMC.ForwardSim.BatchInputArrays.InputArrays.num_runs` from the child InputArrays object."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchInputArrays.InputArrays
+        .num_runs` from the child InputArrays object."""
         return self.input_arrays.num_runs
 
     @property
     def system(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.dt_save` from the SingleIntegratorRun
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .dt_save` from the SingleIntegratorRun
         instance."""
         return self.single_integrator.system
 
     @property
     def fixed_step_size(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.step_size` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .step_size` from the child SingleIntegratorRun object."""
         return self.single_integrator.fixed_step_size
 
     @property
     def dt_save(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.dt_save` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .dt_save` from the child SingleIntegratorRun object."""
         return self.single_integrator.dt_save
 
     @property
     def dt_summarise(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.dt_summarise` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .dt_summarise` from the child SingleIntegratorRun object."""
         return self.single_integrator.dt_summarise
 
     @property
     def system_sizes(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.system_sizes` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .system_sizes` from the child SingleIntegratorRun object."""
         return self.single_integrator.system_sizes
 
     @property
@@ -346,76 +339,95 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def summary_legend_per_variable(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.summary_legend_per_variable` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .summary_legend_per_variable` from the child SingleIntegratorRun
+        object."""
         return self.single_integrator.summary_legend_per_variable
 
     @property
     def saved_state_indices(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.saved_state_indices` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .saved_state_indices` from the child SingleIntegratorRun object."""
         return self.single_integrator.saved_state_indices
 
     @property
     def saved_observable_indices(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.saved_observable_indices` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .saved_observable_indices` from the child SingleIntegratorRun
+        object."""
         return self.single_integrator.saved_observable_indices
 
     @property
     def summarised_state_indices(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.summarised_state_indices` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .summarised_state_indices` from the child SingleIntegratorRun
+        object."""
         return self.single_integrator.summarised_state_indices
 
     @property
     def summarised_observable_indices(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.summarised_observable_indices` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .summarised_observable_indices` from the child SingleIntegratorRun
+        object."""
         return self.single_integrator.summarised_observable_indices
 
     @property
     def active_output_arrays(self) -> "ActiveOutputs":
-        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.active_outputs` from the child OutputArrays object."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays
+        .active_outputs` from the child OutputArrays object."""
         self.output_arrays.allocate()
         return self.output_arrays.active_outputs
 
     @property
     def state_dev_array(self):
-        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.state` from the child OutputArrays object."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays
+        .state` from the child OutputArrays object."""
         return self.output_arrays.state
 
     @property
     def observables_dev_array(self):
-        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.observables` from the child OutputArrays object."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays
+        .observables` from the child OutputArrays object."""
         return self.output_arrays.observables
 
     @property
     def state_summaries_dev_array(self):
-        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.state_summaries` from the child OutputArrays object."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays
+        .state_summaries` from the child OutputArrays object."""
         return self.output_arrays.state_summaries
 
     @property
     def observable_summaries_dev_array(self):
-        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays.observable_summaries` from the child OutputArrays object."""
+        """Exposes :attr:`~CuMC.ForwardSim.BatchOutputArrays.OutputArrays
+        .observable_summaries` from the child OutputArrays object."""
         return self.output_arrays.observable_summaries
 
     @property
     def save_time(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.save_time` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .save_time` from the child SingleIntegratorRun object."""
         return self.single_integrator.save_time
 
     def enable_profiling(self):
         """
-        Enable CUDA profiling for the solver. This will allow you to profile the performance of the solver on the
+        Enable CUDA profiling for the solver. This will allow you to profile
+        the performance of the solver on the
         GPU, but will slow things down.
         """
-        # Consider disabling optimisation and enabling debug and line info for profiling
+        # Consider disabling optimisation and enabling debug and line info
+        # for profiling
         self.compile_settings.profileCUDA = True
 
     def disable_profiling(self):
         """
-        Disable CUDA profiling for the solver. This will stop profiling the performance of the solver on the GPU,
+        Disable CUDA profiling for the solver. This will stop profiling the
+        performance of the solver on the GPU,
         but will speed things up.
         """
         self.compile_settings.profileCUDA = False
 
     @property
     def output_types(self):
-        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun.output_types` from the child SingleIntegratorRun object."""
+        """Exposes :attr:`~CuMC.ForwardSim.integrators.SingleIntegratorRun
+        .output_types` from the child SingleIntegratorRun object."""
         return self.single_integrator.output_types

@@ -1,7 +1,8 @@
 from numba import cuda
 
 from CuMC.ForwardSim.OutputHandling.SummaryMetrics import summary_metrics
-from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetric, register_metric
+from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import \
+    SummaryMetric, register_metric
 
 
 @register_metric(summary_metrics)
@@ -13,7 +14,8 @@ class Peaks(SummaryMetric):
     def __init__(self):
         update_func, save_func = self.CUDA_factory()
 
-        # For metrics with a variable number of outputs, define sizes as functions of a parameter to be passed when
+        # For metrics with a variable number of outputs, define sizes as
+        # functions of a parameter to be passed when
         # requesting sizes.
 
         def buffer_size_func(n):
@@ -22,12 +24,10 @@ class Peaks(SummaryMetric):
         def output_size_func(n):
             return n
 
-        super().__init__(name="peaks",
-                         buffer_size=buffer_size_func,
+        super().__init__(name="peaks", buffer_size=buffer_size_func,
                          output_size=output_size_func,
                          update_device_func=update_func,
-                         save_device_func=save_func,
-                         )
+                         save_device_func=save_func, )
 
     def CUDA_factory(self):
         """
@@ -57,15 +57,9 @@ class Peaks(SummaryMetric):
         """
 
         @cuda.jit(["float32, float32[::1], int64, int64",
-                   "float64, float64[::1], int64, int64"],
-                  device=True,
-                  inline=True,
-                  )
-        def update(value,
-                   buffer,
-                   current_index,
-                   customisable_variable,
-                   ):
+                   "float64, float64[::1], int64, int64"], device=True,
+                  inline=True, )
+        def update(value, buffer, current_index, customisable_variable, ):
             """Update running sum - 1 buffer memory slot required per state"""
             npeaks = customisable_variable
             prev = buffer[0]
@@ -76,7 +70,8 @@ class Peaks(SummaryMetric):
             # with
             # a 0.0 value (at the start of the run, for example). This assumes no natural 0.0 values, which seems realistic
             # for many systems. A more robust implementation would check if we're within 3 samples of summarise_every, probably.
-            if (current_index >= 2) and (peak_counter < npeaks) and (prev_prev != 0.0):
+            if (current_index >= 2) and (peak_counter < npeaks) and (
+                    prev_prev != 0.0):
                 if prev > value and prev_prev < prev:
                     # Bingo
                     buffer[3 + peak_counter] = float(current_index - 1)
@@ -85,15 +80,10 @@ class Peaks(SummaryMetric):
             buffer[1] = prev  # Update previous previous value
 
         @cuda.jit(["float32[::1], float32[::1], int64, int64",
-                   "float64[::1], float64[::1], int64, int64"],
-                  device=True,
-                  inline=True,
-                  )
-        def save(buffer,
-                 output_array,
-                 summarise_every,
-                 customisable_variable,
-                 ):
+                   "float64[::1], float64[::1], int64, int64"], device=True,
+                  inline=True, )
+        def save(buffer, output_array, summarise_every,
+                 customisable_variable, ):
             """Calculate mean from running sum - 1 output memory slot required per state"""
             n_peaks = customisable_variable
             for p in range(n_peaks):

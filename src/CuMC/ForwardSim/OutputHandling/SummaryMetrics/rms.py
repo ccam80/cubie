@@ -3,7 +3,8 @@ from math import sqrt
 from numba import cuda
 
 from CuMC.ForwardSim.OutputHandling.SummaryMetrics import summary_metrics
-from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import SummaryMetric, register_metric
+from CuMC.ForwardSim.OutputHandling.SummaryMetrics.metrics import \
+    SummaryMetric, register_metric
 
 
 @register_metric(summary_metrics)
@@ -15,16 +16,14 @@ class RMS(SummaryMetric):
     def __init__(self):
         update_func, save_func = self.CUDA_factory()
 
-        super().__init__(name="rms",
-                         buffer_size=1,
-                         output_size=1,
+        super().__init__(name="rms", buffer_size=1, output_size=1,
                          update_device_func=update_func,
-                         save_device_func=save_func,
-                         )
+                         save_device_func=save_func, )
 
     def CUDA_factory(self):
         """
-        Generate the CUDA functions to calculate the metric. The signatures of the functions are fixed:
+        Generate the CUDA functions to calculate the metric. The signatures
+        of the functions are fixed:
 
         - update(value, buffer, current_index, customisable_variable)
             Perform math required to maintain a running prerequisite for the metric, like a sum or a count.
@@ -49,15 +48,9 @@ class RMS(SummaryMetric):
         """
 
         @cuda.jit(["float32, float32[::1], int64, int64",
-                   "float64, float64[::1], int64, int64"],
-                  device=True,
-                  inline=True,
-                  )
-        def update(value,
-                   buffer,
-                   current_index,
-                   customisable_variable,
-                   ):
+                   "float64, float64[::1], int64, int64"], device=True,
+                  inline=True, )
+        def update(value, buffer, current_index, customisable_variable, ):
             """Update running sum - 1 buffer slot required per state"""
             sum_of_squares = buffer[0]
             if current_index == 0:
@@ -66,15 +59,10 @@ class RMS(SummaryMetric):
             buffer[0] = sum_of_squares
 
         @cuda.jit(["float32[::1], float32[::1], int64, int64",
-                   "float64[::1], float64[::1], int64, int64"],
-                  device=True,
-                  inline=True,
-                  )
-        def save(buffer,
-                 output_array,
-                 summarise_every,
-                 customisable_variable,
-                 ):
+                   "float64[::1], float64[::1], int64, int64"], device=True,
+                  inline=True, )
+        def save(buffer, output_array, summarise_every,
+                 customisable_variable, ):
             """Calculate mean from running sum - 1 output memory slot required per state"""
             output_array[0] = sqrt(buffer[0] / summarise_every)
             buffer[0] = 0.0

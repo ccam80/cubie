@@ -16,24 +16,29 @@ def register_metric(registry):
 @attrs.define
 class SummaryMetric:
     """
-    Base class for summary metrics in the CuMC integrator system. Holds memory requirements in buffer and output
+    Base class for summary metrics in the CuMC integrator system. Holds
+    memory requirements in buffer and output
     arrays, as well as dispatchers for the update and save functions. Not intended to be mutable or even instantiated
     by the user, but as a dataclass to provide compile-critical information with less boilerplate.
     """
 
-    buffer_size: Union[int, Callable] = attrs.field(default=0, validator=attrs.validators.instance_of(Union[int,
-    Callable],
-                                                                                                      ),
-                                                    )
+    buffer_size: Union[int, Callable] = attrs.field(default=0,
+                                                    validator=attrs.validators.instance_of(
+                                                            Union[
+                                                                int, Callable], ), )
     output_size: Union[int, Callable] = attrs.field(default=0,
-                                                    validator=attrs.validators.instance_of(Union[int, Callable]),
-                                                    )
-    update_device_func: Callable = attrs.field(validator=attrs.validators.instance_of(Callable), default=None)
-    save_device_func: Callable = attrs.field(validator=attrs.validators.instance_of(Callable), default=None)
-    name: str = attrs.field(validator=attrs.validators.instance_of(str), default="")
-    input_variable: Optional[dict[str, int]] = attrs.field(validator=attrs.validators.instance_of(Optional[dict]),
-                                                           default=None,
-                                                           )
+                                                    validator=attrs.validators.instance_of(
+                                                            Union[
+                                                                int, Callable]), )
+    update_device_func: Callable = attrs.field(
+            validator=attrs.validators.instance_of(Callable), default=None)
+    save_device_func: Callable = attrs.field(
+            validator=attrs.validators.instance_of(Callable), default=None)
+    name: str = attrs.field(validator=attrs.validators.instance_of(str),
+                            default="")
+    input_variable: Optional[dict[str, int]] = attrs.field(
+            validator=attrs.validators.instance_of(Optional[dict]),
+            default=None, )
 
 
 @attrs.define
@@ -53,23 +58,26 @@ class SummaryMetrics:
 
     All methods consistently return data only for the requested metrics, not for all implemented metrics.
     """
-    _names: list[str] = attrs.field(validator=attrs.validators.instance_of(list), factory=list, init=False)
-    _buffer_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict),
-                                                                 factory=dict, init=False,
-                                                                 )
-    _output_sizes: dict[str, Union[int, Callable]] = attrs.field(validator=attrs.validators.instance_of(dict),
-                                                                 factory=dict, init=False,
-                                                                 )
-    _save_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict,
-                                                       init=False,
-                                                       )
-    _update_functions: dict[str, Callable] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict,
-                                                         init=False,
-                                                         )
-    _metric_objects = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict, init=False)
-    _params: dict[str, Optional[Any]] = attrs.field(validator=attrs.validators.instance_of(dict), factory=dict,
-                                                    init=False,
-                                                    )
+    _names: list[str] = attrs.field(
+            validator=attrs.validators.instance_of(list), factory=list,
+            init=False)
+    _buffer_sizes: dict[str, Union[int, Callable]] = attrs.field(
+            validator=attrs.validators.instance_of(dict), factory=dict,
+            init=False, )
+    _output_sizes: dict[str, Union[int, Callable]] = attrs.field(
+            validator=attrs.validators.instance_of(dict), factory=dict,
+            init=False, )
+    _save_functions: dict[str, Callable] = attrs.field(
+            validator=attrs.validators.instance_of(dict), factory=dict,
+            init=False, )
+    _update_functions: dict[str, Callable] = attrs.field(
+            validator=attrs.validators.instance_of(dict), factory=dict,
+            init=False, )
+    _metric_objects = attrs.field(validator=attrs.validators.instance_of(dict),
+                                  factory=dict, init=False)
+    _params: dict[str, Optional[Any]] = attrs.field(
+            validator=attrs.validators.instance_of(dict), factory=dict,
+            init=False, )
 
     def __attrs_post_init__(self):
         self._params = {}
@@ -102,7 +110,8 @@ class SummaryMetrics:
         validated_request = []
         for metric in clean_request:
             if metric not in self._names:
-                warn(f"Metric '{metric}' is not registered. Skipping.", stacklevel=2)
+                warn(f"Metric '{metric}' is not registered. Skipping.",
+                     stacklevel=2)
             else:
                 validated_request.append(metric)
         return validated_request
@@ -163,7 +172,8 @@ class SummaryMetrics:
             A tuple with metric sizes in the buffer.
         """
         parsed_request = self.preprocess_request(output_types_requested)
-        return tuple(self._get_size(metric, self._buffer_sizes) for metric in parsed_request)
+        return tuple(self._get_size(metric, self._buffer_sizes) for metric in
+                     parsed_request)
 
     def output_offsets(self, output_types_requested):
         """
@@ -230,8 +240,8 @@ class SummaryMetrics:
             param = self._params.get(metric_name)
             if param == 0:
                 warn(f"Metric '{metric_name}' has a callable size but parameter is set to 0. This resuts in a size"
-                     "of 0, which is likely not what you want", UserWarning, stacklevel=2,
-                     )
+                     "of 0, which is likely not what you want", UserWarning,
+                        stacklevel=2, )
             return size(param)
 
         return size
@@ -274,7 +284,8 @@ class SummaryMetrics:
             A tuple with metric sizes in the output array.
         """
         parsed_request = self.preprocess_request(output_types_requested)
-        return tuple(self._get_size(metric, self._output_sizes) for metric in parsed_request)
+        return tuple(self._get_size(metric, self._output_sizes) for metric in
+                     parsed_request)
 
     def save_functions(self, output_types_requested):
         """
@@ -300,7 +311,8 @@ class SummaryMetrics:
             A tuple with update functions for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
-        return tuple(self._update_functions[metric] for metric in parsed_request)
+        return tuple(
+                self._update_functions[metric] for metric in parsed_request)
 
     def params(self, output_types_requested: list[str]):
         """
@@ -322,7 +334,8 @@ class SummaryMetrics:
                 try:
                     param_value = int(param_str)
                 except ValueError:
-                    raise ValueError(f"Parameter in '{string}' must be an integer.")
+                    raise ValueError(
+                            f"Parameter in '{string}' must be an integer.")
 
                 self._params[name] = param_value
                 clean_request.append(name)
