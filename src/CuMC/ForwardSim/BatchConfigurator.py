@@ -1,12 +1,161 @@
 """
-Module to configure batch runs by building parameter and initial value grids,
-index generators for saved states/observables, and splitting summary outputs.
+Interprets user inputs and generates initial value and parameter arrays.
+
+Processes user input provided as dictionaries of parameter and state names
+mapped to sequences of values, arrays of ordered values, or sequences of
+values. Constructs 2D arrays for initial values and parameters for use by a
+Solver object. The user primarily interacts with this class through the
+Solver class, unless they have very specific needs. Interaction with the
+BatchConfigurator is primarily through the `__call__` method, which accepts
+four arguments:
+- `request`: A dictionary of (potentially mixed) parameter and state names
+mapped to sequences of values. Says: "Integrate from combinations of
+these named variables"
+- 'params': A dictionary of purely parameter variable names, a 1D sequence to
+set one set of values for every integration, or a 2D array of all
+combinations to integrate from.
+- 'states': A dictionary of purely state variable names, a 1D sequence to
+set one set of values for every integration, or a 2D array of all
+combinations to integrate from.
+- 'kind': A string indicating how to combine the parameters and states.
+  - 'combinatorial' constructs a grid of all combinations of the values
+  provided
+  - 'verbatim' constructs a grid of [[all variables[0]],[all variables[1]],...]
+  when the conbinations have been intentionally constructed already.
+
+Examples
+--------
+''''
+import numpy as np
+from CuMC.ForwardSim.BatchConfigurator import BatchConfigurator
+from CuMC.SystemModels.Systems.decays import Decays
+systm = Decays(coefficients=[1.0, 2.0])
+batch_configurator = BatchConfigurator.from_system(system)
+params = {'p0': [0.1, 0.2], 'p1': [10, 20]}
+states = {'x0': [1.0, 2.0], 'x1': [0.5, 1.5]}
+inits, params = batch_configurator(params=params, states=states,
+                                                kind='combinatorial')
+'''
+>>>print(inits.shape)
+(16, 2)
+>>>print(inits)
+[[1.  0.5]
+ [1.  0.5]
+ [1.  0.5]
+ [1.  0.5]
+ [1.  1.5]
+ [1.  1.5]
+ [1.  1.5]
+ [1.  1.5]
+ [2.  0.5]
+ [2.  0.5]
+ [2.  0.5]
+ [2.  0.5]
+ [2.  1.5]
+ [2.  1.5]
+ [2.  1.5]
+ [2.  1.5]]
+>>>print(params.shape)
+(16, 2)
+>>>print(params)
+[[ 0.1 10. ]
+ [ 0.1 20. ]
+ [ 0.2 10. ]
+ [ 0.2 20. ]
+ [ 0.1 10. ]
+ [ 0.1 20. ]
+ [ 0.2 10. ]
+ [ 0.2 20. ]
+ [ 0.1 10. ]
+ [ 0.1 20. ]
+ [ 0.2 10. ]
+ [ 0.2 20. ]
+ [ 0.1 10. ]
+ [ 0.1 20. ]
+ [ 0.2 10. ]
+ [ 0.2 20. ]]
+
+ '''
+ # Example 2: verbatim arrays
+params = np.array([[0.1, 0.2], [10, 20]])
+states = np.array([[1.0, 2.0], [0.5, 1.5]])
+inits, params = batch_configurator(params=params, states=states,
+                                                kind='verbatim')
+'''
+>>>print(inits.shape)
+(2, 2)
+>>>print(inits)
+[[1.  2. ]
+ [0.5 1.5]]
+>>>print(params.shape)
+(2, 2)
+>>>print(params)
+[[ 0.1  0.2]
+ [10.  20. ]]
+
+
+>>>inits, params = batch_configurator(params=params, states=states,
+                                                kind='combinatorial')
+
+>>>print(inits.shape)
+(4, 2)
+>>>print(inits)
+[[1.  2. ]
+ [1.  2. ]
+ [0.5 1.5]
+ [0.5 1.5]]
+>>>print(params.shape)
+(4, 2)
+>>>print(params)
+[[ 0.1  0.2]
+ [10.  20. ]
+ [ 0.1  0.2]
+ [10.  20. ]]
+
+#Same as individual dictionaries
+>>>request = {'p0': [0.1, 0.2], 'p1': [10, 20], 'x0': [1.0, 2.0],
+           'x1': [0.5, 1.5]}
+>>>inits, params = batch_configurator(request=request,
+                                                kind='combinatorial')
+>>>print(inits.shape)
+(16, 2)
+>>>print(params.shape)
+(16, 2)
+
+>>>request = {'p0': [0.1, 0.2]}
+>>>inits, params = batch_configurator(request=request,
+                                                kind='combinatorial')
+>>>print(inits.shape)
+(2, 2)
+>>>print(inits)  # unspecified variables are filled with defaults from system
+[[1. 1.]
+ [1. 1.]]
+>>>print(params.shape)
+(2, 2)
+>>>print(params)
+[[0.1 2. ]
+ [0.2 2. ]]
+
+Notes
+-----
+There is a subtle difference between a 'combinatorial' combination of two input arrays the same values given
+as per-variable arrays in a dict, as demonstrated in the examples above. If the user provides arrays as an
+argument, it is assumed that all within-array combinations have already been constructed. When the user
+provides a dict, it is assumed that they want a combinatorial combination of the values. In the array case,
+the method will return arrays which contain all combinations of the crows of the arrays (i.e. nrows x
+nrows combinations). The dictionary case first constructs combinations of values, resulting in an array of
+height nvals1 * nvals2 * ... * nvalsk for k variables, then combines these in the same fashion as the array
+case.
+
+For more fine-grained control, you can call the grid_arrays and combine_grids methods directly, or construct
+the full arrays outside of this method and let them pass through verbatim.
 """
 from itertools import product
 from typing import List, Union, Dict, Optional
+from warnings import warn
 
 import numpy as np
-from numpy.typing import ArrayLike
+from numpy.typing import ArrayLike, NDArray
 
 from CuMC.SystemModels.SystemValues import SystemValues
 from CuMC.SystemModels.Systems.GenericODE import GenericODE
@@ -124,11 +273,11 @@ def verbatim_grid(request: Dict[Union[str, int], Union[float, ArrayLike, np.ndar
     Examples
     --------
     ```
-    verbatim_grid({
+    >>>verbatim_grid({
         'param1': [0.1, 0.2, 0.3],
         'param2': [10, 20, 30]
     }, system.parameters)
-    >>> (array([[ 0.1, 10. ],
+    (array([[ 0.1, 10. ],
            [ 0.2, 20. ],
            [ 0.3, 30. ]]),
            array([0, 1]))
@@ -393,6 +542,142 @@ class BatchConfigurator:
 
         return initial_values_array, params_array
 
+    def __call__(self,
+                 request: Optional[Dict[str, Union[float, ArrayLike, np.ndarray]]] = None,
+                 params: Optional[Union[Dict, ArrayLike]] = None,
+                 states: Optional[Union[Dict, ArrayLike]] = None,
+                 kind: str = 'combinatorial',
+                 ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Processes user input to generate parameter and state arrays for a batch run.
+
+        This method acts as the main entry point for the user. It accepts parameters and initial states in various
+        formats (dictionaries or arrays), processes them, and returns two 2D arrays: one for initial states and one
+        for parameters, ready to be used in a simulation.
+
+        Parameters
+        ----------
+        request: Optional[Dict[str, Union[float, ArrayLike, np.ndarray]]], optional
+            A dictionary keyed by variable name containing a combined
+            request for parameters and initial values.
+        params : Optional[Union[Dict, ArrayLike]], optional
+            The parameters to be varied in the batch run. Can be a dictionary mapping parameter names to values
+            or an array-like object. Defaults to None. If a 1d sequence or
+            array is given, this is assumed to be a set of parameters to
+            override the defaults for every run.
+        states : Optional[Union[Dict, ArrayLike]], optional
+            The initial states to be varied in the batch run. Can be a dictionary mapping state names to values
+            or an array-like object. Defaults to None. If a 1d sequence or
+            array is given, this is assumed to be a set of parameters to
+            override the defaults for every run.
+        kind : str, optional
+            The method for generating the grid of runs. Can be 'combinatorial' or 'verbatim'.
+            - 'combinatorial': Creates a run for every combination of the provided parameter and state values.
+            - 'verbatim': Creates runs based on a direct pairing of values. All value arrays must have the same length.
+            Defaults to 'combinatorial'.
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray]
+            A tuple containing two 2D numpy arrays:
+            1. The initial state values for each run.
+            2. The parameter values for each run.
+
+        Examples
+        --------
+        See BatchConfigurator module docstring for examples.
+        """
+        parray = None
+        sarray = None
+        if request is not None:
+            if states is not None or params is not None:
+                raise TypeError("If a mixed request dictionary is provided, "
+                                 "states and params requests must be None."
+                                 "Check that you've input your arguments "
+                                 "correctly, using keywords for params and "
+                                 "inits, if you were not trying to provide a "
+                                 "mixed request dictionary.")
+            if not isinstance(request, dict):
+                raise TypeError(
+                    "If provided, a combined request must be provided "
+                    f"as a dictionary, got {type(request)}.")
+            return self.grid_arrays(request, kind=kind)
+        else:
+            request = {}
+            if isinstance(params, dict):
+                request.update(params)
+            elif isinstance(params, (list, tuple, np.ndarray)):
+                parray = self._sanitise_arraylike(params, self.parameters)
+            elif params is not None:
+                raise TypeError("Parameters must be provided as a dictionary, "
+                                "or a 1D or 2D array-like object.")
+            if isinstance(states, dict):
+                request.update(states)
+            elif isinstance(states, (list, tuple, np.ndarray)):
+                sarray = self._sanitise_arraylike(states, self.states)
+            elif states is not None:
+                raise TypeError(
+                        "Initial states must be provided as a dictionary, "
+                        "or a 1D or 2D array-like object.")
+
+            if parray is not None and sarray is not None:
+                return combine_grids(sarray, parray, kind=kind)
+            elif request:
+                if parray is not None:
+                    sarray = generate_array(request, self.states, kind=kind)
+                    return combine_grids(sarray, parray, kind=kind)
+                elif sarray is not None:
+                    parray = generate_array(request, self.parameters, kind=kind)
+                    return combine_grids(sarray, parray, kind=kind)
+                else:
+                    return self.grid_arrays(request, kind=kind)
+            elif parray is not None:
+                sarray = np.full((parray.shape[0], self.states.n), self.states.values_array)
+                return sarray, parray
+            elif sarray is not None:
+                parray = np.full((sarray.shape[0], self.parameters.n),
+                                 self.parameters.values_array)
+                return sarray, parray
+
+            else:
+                return (self.states.values_array[np.newaxis, :],
+                        self.parameters.values_array[np.newaxis, :])
+
+
+    def _trim_or_extend(self, arr: NDArray, values_object: SystemValues):
+        """ Extends an incomplete array with defaults or trims extra values."""
+        if arr.shape[1] < values_object.n:
+            # If the array is shorter than the number of values, extend it with default values
+            arr = np.pad(arr, ((0, 0), (0, values_object.n - arr.shape[1])),
+                         mode='constant',
+                         constant_values=values_object.values_array[
+                             arr.shape[1]:])
+        elif arr.shape[1] > values_object.n:
+            arr = arr[:values_object.n]
+        return arr
+
+    def _sanitise_arraylike(self, arr, values_object: SystemValues):
+        """Converts to 2D array if <2D and ensures the correct height."""
+        if arr is None:
+            return arr
+        elif not isinstance(arr, np.ndarray):
+            arr = np.asarray(arr)
+        if arr.ndim > 2:
+            raise ValueError(
+                f"Input must be a 1D or 2D array, but got a {arr.ndim}D array.")
+        elif arr.ndim == 1:
+            arr = arr[np.newaxis, :]
+
+        if arr.shape[1] != values_object.n:
+            warn(f"Provided input data has {arr.shape[1]} columns, but there "
+                 f"are {values_object.n} settable values. Missing values "
+                 f"will be filled with default values, and extras ignored.")
+            arr = self._trim_or_extend(arr, values_object)
+        if arr.size == 0:
+            return None
+
+        return arr  # correctly sized array just falls through untouched
+
     def get_labels(self, values_object, indices: np.ndarray) -> List[str]:
         """
         Get the labels of the states corresponding to the provided indices.
@@ -458,3 +743,25 @@ class BatchConfigurator:
         if indices is None:
             return self.parameters.names
         return self.get_labels(self.parameters, indices)
+
+    @property
+    def all_input_labels(self) -> List[str]:
+        """
+        Get all input labels, the union of state and parameter labels.
+        Returns
+        -------
+        List[str]
+            A list of all input labels.
+        """
+        return self.state_labels() + self.parameter_labels()
+
+    @property
+    def all_output_labels(self) -> List[str]:
+        """
+        Get all output labels, the union of state and observable labels.
+        Returns
+        -------
+        List[str]
+            A list of all output labels.
+        """
+        return self.state_labels() + self.observable_labels()

@@ -3,6 +3,8 @@ import numpy as np
 from numpy.testing import assert_array_equal
 from CuMC.ForwardSim.BatchConfigurator import BatchConfigurator
 from CuMC.ForwardSim import BatchConfigurator as BC
+import itertools
+from CuMC.SystemModels.Systems.decays import Decays
 
 
 @pytest.fixture(scope="function")
@@ -317,10 +319,229 @@ def test_grid_arrays_empty_inputs(system, batch_configurator, batch_settings):
     elif kind == 'verbatim':
         assert initial_values_array.shape[0] == numinits
 
+# ************************** Input Combination Tests **************************
+
+@pytest.fixture(scope="function")
+def param_dict(system, batch_settings):
+    param_names = list(system.parameters.names)
+    return {
+        param_names[1]: np.arange(batch_settings['num_param_vals']),
+    }
 
 
+@pytest.fixture(scope="function")
+def state_dict(system, batch_settings):
+    state_names = list(system.initial_values.names)
+    return {
+        state_names[0]: np.arange(batch_settings['num_state_vals']),
+    }
+
+@pytest.fixture(scope="function")
+def param_seq(system, batch_settings):
+    return np.arange(system.parameters.n - 1).tolist()
+
+@pytest.fixture(scope="function")
+def state_seq(system, batch_settings):
+    return tuple(np.arange(system.initial_values.n - 1))
+
+@pytest.fixture(scope="function")
+def state_array(system, batch_settings):
+    numvals = batch_settings['num_state_vals']
+    return np.hstack([np.linspace(0.1,0.5,numvals).reshape(
+            -1, 1),np.linspace(1,5, numvals).reshape(
+            -1, 1)])
+
+@pytest.fixture(scope="function")
+def param_array(system, batch_settings):
+    numvals = batch_settings['num_param_vals']
+    return np.hstack((np.linspace(10,50,numvals).reshape(
+            -1, 1),np.linspace(100,500,numvals).reshape(
+            -1, 1)))
+
+@pytest.mark.parametrize("mixed_type, params_type,states_type",
+                         list(itertools.product(['dict', 'seq', 'array', None],
+                              repeat=3)))
+def test_call_input_types(batch_configurator, system,
+                         mixed_type, params_type, states_type,
+                         param_dict, param_seq, param_array,
+                        state_dict, state_seq, state_array,
+                        batch_request):
+    # Prepare input for each type
+    params = None
+    states = None
+    request = None
+    if params_type == 'dict':
+        params = param_dict
+    elif params_type == 'seq':
+        params = param_seq
+    elif params_type == 'array':
+        params = param_array
+
+    if states_type == 'dict':
+        states = state_dict
+    elif states_type == 'seq':
+        states = state_seq
+    elif states_type == 'array':
+        states = state_array
+
+    if mixed_type == 'dict':
+        request = batch_request
+    elif mixed_type == 'seq':
+        request = np.hstack((param_seq, state_seq))
+    elif mixed_type == 'array':
+        request = np.hstack((param_array, state_array))
+
+    valid_combos = [('dict', None, None), # Only option with request
+                    (None, 'dict', 'dict'),
+                    (None, 'dict', 'seq'),
+                    (None, 'dict', 'array'),
+                    (None, 'dict', None),
+                    (None, 'seq', 'dict'),
+                    (None, 'seq', 'seq'),
+                    (None, 'seq', 'array'),
+                    (None, 'seq', None),
+                    (None, 'array', 'dict'),
+                    (None, 'array', 'seq'),
+                    (None, 'array', 'array'),
+                    (None, 'array', None),
+                    (None, None, 'dict'),
+                    (None, None, 'seq'),
+                    (None, None, 'array'),
+                    (None, None, None)]
 
 
+    if (mixed_type, states_type, params_type) not in valid_combos:
+        with pytest.raises(TypeError):
+            initial, param = batch_configurator(params=params,
+                                                states=states, request=request)
+        return
+    else:
+        initial, param = batch_configurator(request=request, params=params,
+                                            states=states)
+
+    sizes = system.sizes
+
+    assert initial.shape[0] == param.shape[0]
+    assert initial.shape[1] == sizes.states
+    assert param.shape[1] == sizes.parameters
+    assert_array_equal(param[:,-1], np.full_like(param[:,-1],
+                                                   system.parameters.values_array[-1]))
+    assert_array_equal(initial[:,-1], np.full_like(initial[:,-1],
+                                                   system.initial_values.values_array[-1]))
 
 
+def test_call_outputs(system, batch_configurator):
+    testarray1 = np.array([[1, 2], [3, 4]])
+    state_testarray1 = extend_test_array(testarray1, system.initial_values)
+    param_testarray1 = extend_test_array(testarray1, system.parameters)
+    testlistarray = [[1,2], [3,4]]
+    testseq = [1,2]
+    testdict = {'x0': [1,3], 'x1': [2,4], 'p0': [1,3], 'p1': np.asarray([2,4])}
+    teststatedict = {'x0': [1, 3], 'x1': [2,4]}
+    testparamdict = {'p0': [1,3], 'p1': [2,4]}
 
+
+    fullcombosingle = np.asarray([[1, 2], [1, 4], [3, 2], [3, 4]])
+    fullcombdouble1 = np.vstack((fullcombosingle, fullcombosingle,
+                                 fullcombosingle, fullcombosingle))
+    fullcombdouble2 = np.repeat(fullcombosingle, 4, axis=0)
+    statefullcombdouble = extend_test_array(fullcombdouble2, system.initial_values)
+    paramfullcombdouble = extend_test_array(fullcombdouble1, system.parameters)
+
+    arraycomb1 = extend_test_array(np.asarray([[1,2], [1,2], [3,4], [3,4]]),
+                                   system.initial_values)
+    arraycomb2 = extend_test_array(np.asarray([[1,2], [3,4], [1,2], [3,4]]),
+                                   system.parameters)
+
+    #Combine input arrays
+    inits, params = batch_configurator(params=testarray1, states=testarray1,
+                                      kind='combinatorial')
+    assert_array_equal(inits, arraycomb1)
+    assert_array_equal(params, arraycomb2)
+    inits, params = batch_configurator(params=testarray1, states=testarray1,
+                                       kind='verbatim')
+
+    assert_array_equal(inits, state_testarray1)
+    assert_array_equal(params, param_testarray1)
+
+    #full combo from dict:
+    inits, params = batch_configurator(testdict, kind='combinatorial')
+    assert_array_equal(params, paramfullcombdouble)
+    assert_array_equal(inits, statefullcombdouble)
+
+    inits, params = batch_configurator(testdict, kind='verbatim')
+    assert_array_equal(inits, state_testarray1)
+    assert_array_equal(params, param_testarray1)
+
+    inits, params = batch_configurator(params=testparamdict,
+                                       states=teststatedict,
+                                       kind='combinatorial')
+    assert_array_equal(inits, statefullcombdouble)
+    assert_array_equal(params, paramfullcombdouble)
+
+
+def extend_test_array(array, values_object):
+    """Extend a 2D array to match the system's initial values size."""
+    return np.pad(array, ((0, 0), (0, values_object.n - array.shape[1])),
+                 mode='constant',
+                 constant_values=values_object.values_array[
+                                 array.shape[1]:])
+
+def test_docstring_examples():
+    # Example 1: combinatorial dict
+    system = Decays(coefficients=[1.0, 2.0])
+    batch_configurator = BatchConfigurator.from_system(system)
+    params = {'p0': [0.1, 0.2], 'p1': [10, 20]}
+    states = {'x0': [1.0, 2.0], 'x1': [0.5, 1.5]}
+    initial_states, parameters = batch_configurator(params=params, states=states, kind='combinatorial')
+    expected_initial_large = np.array([
+        [1.0, 0.5], [1.0, 0.5], [1.0, 0.5], [1.0, 0.5],
+        [1.0, 1.5], [1.0, 1.5], [1.0, 1.5], [1.0, 1.5],
+        [2.0, 0.5], [2.0, 0.5], [2.0, 0.5], [2.0, 0.5],
+        [2.0, 1.5], [2.0, 1.5], [2.0, 1.5], [2.0, 1.5]
+    ])
+    expected_params_large = np.array([
+        [0.1, 10.0], [0.1, 20.0], [0.2, 10.0], [0.2, 20.0],
+        [0.1, 10.0], [0.1, 20.0], [0.2, 10.0], [0.2, 20.0],
+        [0.1, 10.0], [0.1, 20.0], [0.2, 10.0], [0.2, 20.0],
+        [0.1, 10.0], [0.1, 20.0], [0.2, 10.0], [0.2, 20.0]
+    ])
+    assert_array_equal(initial_states, expected_initial_large)
+    assert_array_equal(parameters, expected_params_large)
+
+    # Example 2: verbatim arrays
+    params = np.array([[0.1, 0.2], [10, 20]])
+    states = np.array([[1.0, 2.0], [0.5, 1.5]])
+    initial_states, parameters = batch_configurator(params=params, states=states, kind='verbatim')
+    expected_initial = np.array([[1.0, 2.0], [0.5, 1.5]])
+    expected_params = np.array([[0.1, 0.2], [10.0, 20.0]])
+    assert_array_equal(initial_states, expected_initial)
+    assert_array_equal(parameters, expected_params)
+
+    # Example 3: combinatorial arrays
+    initial_states, parameters = batch_configurator(params=params, states=states, kind='combinatorial')
+    expected_initial = np.array([
+        [1.0, 2.0], [1.0, 2.0], [0.5, 1.5], [0.5, 1.5]
+    ])
+    expected_params = np.array([
+        [0.1, 0.2], [10.0, 20.0], [0.1, 0.2],[10.0, 20.0]
+    ])
+    assert_array_equal(initial_states, expected_initial)
+    assert_array_equal(parameters, expected_params)
+
+    # Example 4: request dict
+    request = {'p0': [0.1, 0.2], 'p1': [10, 20], 'x0': [1.0, 2.0], 'x1': [0.5, 1.5]}
+    initial_states, parameters = batch_configurator(request=request, kind='combinatorial')
+    assert_array_equal(initial_states, expected_initial_large)
+    assert_array_equal(parameters,expected_params_large)
+    initial_states, parameters = batch_configurator(request=request, kind='verbatim')
+    assert_array_equal(initial_states, initial_states)
+    assert_array_equal(parameters, parameters)
+
+    # Example 5: request dict with only params
+    request = {'p0': [0.1, 0.2]}
+    initial_states, parameters = batch_configurator(request=request, kind='combinatorial')
+    expected_params = np.array([[0.1, 2.0], [0.2, 2.0]])
+    expected_initial = np.array([[1.0, 1.0], [1.0, 1.0]])
+    assert_array_equal(initial_states, expected_initial)
+    assert_array_equal(parameters, expected_params)

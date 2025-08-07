@@ -357,6 +357,8 @@ class OutputConfig:
             for output_type in output_types:
                 if any((output_type.startswith(name) for name in summary_metrics.implemented_metrics)):
                     summary_types.append(output_type)
+                elif output_type in ["state", "observables", "time"]:
+                    continue
                 else:
                     warn(f"Summary type '{output_type}' is not implemented. Ignoring.")
 
@@ -400,15 +402,6 @@ class OutputConfig:
             summarised_state_indices = np.asarray([], dtype=np.int_)
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
-
-        # Extract summary types
-        summary_types = []
-        for output_type in output_types:
-            if any((output_type.startswith(name) for name in summary_metrics.implemented_metrics)):
-                summary_types.append(output_type)
-            else:
-                warn(f"Summary type '{output_type}' is not implemented. Ignoring.")
-        summary_types = tuple(summary_types)
 
         return cls(
                 max_states=max_states,

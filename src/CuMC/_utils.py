@@ -77,23 +77,22 @@ def update_dicts_from_kwargs(dicts: list | dict, **kwargs):
     return dicts_modified
 
 
-def timing(f, nruns=100):
-    @wraps(f)
-    def wrap(*args, **kw):
-        ts = np.zeros(nruns)
-        te = np.zeros(nruns)
-        result = f(*args, **kw)  # Burn the compilation run
-        for i in range(nruns):
-            ts[i] = time()
-            result = f(*args, **kw)
-            te[i] = time()
-        durations = te - ts
-        print('func:%r took: \n %2.6e sec avg \n %2.6e max \n %2.6e min \n over %d runs' % \
-              (f.__name__, np.mean(durations), np.amax(durations), np.amin(durations), nruns),
-              )
-        return result
-
-    return wrap
+def timing(_func=None, *, nruns=1):
+    def decorator(func):
+        @wraps(func)
+        def wrap(*args, **kw):
+            durations = np.empty(nruns)
+            for i in range(nruns):
+                t0 = time()
+                result = func(*args, **kw)
+                durations[i] = time() - t0
+            print(
+                'func:%r took:\n %2.6e sec avg\n %2.6e max\n %2.6e min\n over %d runs'
+                % (func.__name__, durations.mean(), durations.max(), durations.min(), nruns)
+            )
+            return result
+        return wrap
+    return decorator if _func is None else decorator(_func)
 
 
 @cuda.jit(float64(float64,
