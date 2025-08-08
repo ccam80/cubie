@@ -32,4 +32,4 @@ I am using this library as a way to experiment with and learn about some better 
 past, including testing, CI/CD, and other helpful tactics I stumble upon. As such, while it's in development, there will
 be some clunky bits.
 
-The interface is not yet stable, and the documentation is currently non-working AI-generated slop, so it will be hard to use. The CUDA solver, however, is now functional.
+The interface is not yet stable, and the documentation is currently non-working AI-generated slop, so it will be hard to use. The CUDA solver, however, is now functional. V0.0.2 will be usable with some documentation.
