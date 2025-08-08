@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where    = ["src"]
-exclude  = ["tests*"]
+exclude  = ["./tests/*"]
 
 [project]
 name = "cubie"
@@ -13,10 +13,10 @@ description = "CUDA Batch Integration Engine - for doing a lot at once."
 authors = [
     { name="Chris Cameron" }
 ]
-readme = "README.md"
+readme = "readme.md"
 requires-python = ">=3.8"
 license = "MIT"
-license-files = ["LICEN[CS]E*"]
+license-files = ["src/cubie/LICEN[CS]E*"]
 dependencies = [
     "numpy",
     "numba",
