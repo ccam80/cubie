@@ -37,7 +37,7 @@ class UserArrays:
 
     @classmethod
     def from_solver(cls, solver: Union[
-        "Solver", "BatchSolverKernel"]) -> "user_arrays":
+        "Solver", "BatchSolverKernel"]) -> "UserArrays":
         """
         Create user_arrays from a Solver instance.
 
@@ -69,16 +69,16 @@ class UserArrays:
 
         return user_arrays
 
-    def update_from_solver(self, solver: "Solver") -> "user_arrays":
+    def update_from_solver(self, solver: "Solver") -> "UserArrays":
         """
-        Create user_arrays from a BatchSolverKernel instance.
+        Create UserArrays from a BatchSolverKernel instance.
 
         Args:
             solver (BatchSolverKernel): The solver instance to extract user
             arrays from.
 
         Returns:
-            UserArrays: An instance of user_arrays containing the data from
+            UserArrays: An instance of UserArrays containing the data from
             the solver.
         """
         self._active_outputs = solver.active_output_arrays
@@ -99,7 +99,7 @@ class UserArrays:
             import pandas as pd
         except ImportError:
             raise ImportError(
-                    "Pandas is required to convert user_arrays to DataFrames. "
+                    "Pandas is required to convert UserArrays to DataFrames. "
                     "To keep the dependencies list low, Pandas isn’t "
                     "included. Install Pandas to use this feature.")
 
