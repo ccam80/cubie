@@ -111,7 +111,7 @@ class Solver:
                                         profileCUDA=profileCUDA)
 
         self.batch_configurator = BatchConfigurator.from_system(system)
-        self.UserArrays = UserArrays()
+        self.user_arrays = UserArrays()
 
     def enable_profiling(self):
         """

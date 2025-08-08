@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.batchsolving.Solver import Solver
+from cubie.batchsolving.solver import Solver
 
 """Fixtures for instantiating lower-level components with default values that can be overriden through
 indirect parametrization of the "override" fixture."""

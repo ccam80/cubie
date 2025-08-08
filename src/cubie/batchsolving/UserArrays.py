@@ -1,13 +1,13 @@
 from typing import Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from cubie.batchsolving.Solver import Solver
+    from cubie.batchsolving.solver import Solver
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
 import attrs
 import numpy as np
 from numpy.typing import NDArray
-
+from copy import deepcopy
 from cubie.batchsolving.BatchOutputArrays import ActiveOutputs
 
 
@@ -37,16 +37,16 @@ class UserArrays:
 
     @classmethod
     def from_solver(cls, solver: Union[
-        "Solver", "BatchSolverKernel"]) -> "UserArrays":
+        "Solver", "BatchSolverKernel"]) -> "user_arrays":
         """
-        Create UserArrays from a Solver instance.
+        Create user_arrays from a Solver instance.
 
         Args:
             solver (BatchSolverKernel): The solver instance to extract user
             arrays from.
 
         Returns:
-            UserArrays: An instance of UserArrays containing the data from
+            UserArrays: An instance of user_arrays containing the data from
             the solver.
         """
         active_outputs = solver.active_output_arrays
@@ -69,16 +69,16 @@ class UserArrays:
 
         return user_arrays
 
-    def update_from_solver(self, solver: "Solver") -> "UserArrays":
+    def update_from_solver(self, solver: "Solver") -> "user_arrays":
         """
-        Create UserArrays from a BatchSolverKernel instance.
+        Create user_arrays from a BatchSolverKernel instance.
 
         Args:
             solver (BatchSolverKernel): The solver instance to extract user
             arrays from.
 
         Returns:
-            UserArrays: An instance of UserArrays containing the data from
+            UserArrays: An instance of user_arrays containing the data from
             the solver.
         """
         self._active_outputs = solver.active_output_arrays
@@ -99,7 +99,7 @@ class UserArrays:
             import pandas as pd
         except ImportError:
             raise ImportError(
-                    "Pandas is required to convert UserArrays to DataFrames. "
+                    "Pandas is required to convert user_arrays to DataFrames. "
                     "To keep the dependencies list low, Pandas isn’t "
                     "included. Install Pandas to use this feature.")
 
@@ -142,10 +142,10 @@ class UserArrays:
             dict[str, NDArray]: A dictionary containing the time domain and
             summaries arrays.
         """
-        return {"time_domain"   : self.time_domain,
-            "summaries"         : self.summaries,
-            "time_domain_legend": self.time_domain_legend,
-            "summaries_legend"  : self.summaries_legend, }
+        return {"time_domain"       : np.asarray(deepcopy(self.time_domain)),
+                "summaries"         : np.asarray(deepcopy(self.summaries)),
+                "time_domain_legend": self.time_domain_legend.copy(),
+                "summaries_legend"  : self.summaries_legend.copy(), }
 
     @property
     def per_summary_arrays(self) -> dict[str, NDArray]:
