@@ -10,7 +10,7 @@ Install cubie using pip:
 
 .. code-block:: bash
 
-   pip install CC_cubie
+   pip install cubie
 
 Basic Usage
 -----------
