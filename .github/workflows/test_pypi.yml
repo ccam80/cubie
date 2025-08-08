@@ -41,7 +41,7 @@ jobs:
           name: release-dists
           path: dist/
 
-  pypi-publish:
+  test-pypi-publish:
     runs-on: ubuntu-latest
     needs:
       - release-build
