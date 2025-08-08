@@ -8,8 +8,7 @@ This section contains the complete API reference for cubie.
    :caption: Modules:
 
    cubie
-   ForwardSim
-   MonteCarlo
-   Sampling
-   SystemModels
-   Utils
+   integrators
+   batchsolving
+   systemmodels
+   utils
