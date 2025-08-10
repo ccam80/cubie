@@ -34,13 +34,13 @@ def cp_stream_nocheck():
 def test_cupy_stream_wrapper(stream1, stream2, cp_stream_nocheck):
 
     with cp_stream_nocheck(stream1) as cupy_stream:
-        assert isinstance(cupy_stream._cupy_ext_stream, cp.cuda.ExternalStream)
-        assert cupy_stream._cupy_ext_stream.ptr == _numba_stream_ptr(stream1)
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream1)
         assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream1)
 
     with cp_stream_nocheck(stream2) as cupy_stream:
-        assert isinstance(cupy_stream._cupy_ext_stream, cp.cuda.ExternalStream)
-        assert cupy_stream._cupy_ext_stream.ptr == _numba_stream_ptr(stream2)
+        assert isinstance(cupy_stream.cupy_ext_stream, cp.cuda.ExternalStream)
+        assert cupy_stream.cupy_ext_stream.ptr == _numba_stream_ptr(stream2)
         assert cp.cuda.get_current_stream().ptr == _numba_stream_ptr(stream2)
 
     # Check that the default current stream is untouched
@@ -103,25 +103,22 @@ def test_correct_memalloc():
     del testarr
     cuda.synchronize()
 
-@pytest.fixture(scope="module")
-def kernel_func():
+@pytest.mark.parametrize("mgr", [NumbaCUDAMemoryManager,
+                                 CuPySyncNumbaManager,
+                                 CuPyAsyncNumbaManager])
+def test_allocation(mgr):
+    cuda.set_memory_manager(mgr)
+    cuda.close()
+
     @cuda.jit()
     def test_kernel(arr):
         i = cuda.grid(1)
         arr[i] = i
-    return test_kernel
-
-@pytest.mark.parametrize("mgr", [NumbaCUDAMemoryManager,
-                                 CuPySyncNumbaManager,
-                                 CuPyAsyncNumbaManager])
-def test_allocation(mgr, kernel_func):
-    cuda.set_memory_manager(mgr)
-    cuda.close()
 
     testarr = np.zeros((256), dtype=np.float32)
     d_testarr = cuda.device_array_like(testarr)
     d_testarr.copy_to_device(testarr)
-    kernel_func[1, 256,0 ,0](d_testarr)
+    test_kernel[1, 256,0 ,0](d_testarr)
     d_testarr.copy_to_device(testarr)
     assert not np.array_equal(testarr, np.zeros((256*256), dtype=np.float32))
 
