@@ -5,11 +5,11 @@ from contextlib import contextmanager
 from numba import cuda
 from numba.cuda import (GetIpcHandleMixin, HostOnlyCUDAMemoryManager,
                         MemoryPointer, MemoryInfo)
-import ctypes
+import ctypes #TODO: Move to conditional imports when initializing mm
 import cupy as cp
 
 # Set to False for a quieter run
-LOGGING = True
+LOGGING = False
 
 # ---------- utilities: wrap a Numba stream as a CuPy ExternalStream ----------
 
@@ -39,7 +39,7 @@ class current_cupy_stream:
 
     def __init__(self, nb_stream):
         self.nb_stream = nb_stream
-        self._cupy_ext_stream = None
+        self.cupy_ext_stream = None
         try:
             self._mgr_is_cupy = cuda.current_context().memory_manager.is_cupy
         except AttributeError:  # Numba allocators have no such attribute
@@ -48,17 +48,17 @@ class current_cupy_stream:
         if self._mgr_is_cupy:
             ptr = _numba_stream_ptr(self.nb_stream)
             if ptr:
-                self._cupy_ext_stream = cp.cuda.ExternalStream(ptr)
-                self._cupy_ext_stream.__enter__()
+                self.cupy_ext_stream = cp.cuda.ExternalStream(ptr)
+                self.cupy_ext_stream.__enter__()
             return self
         else:
             return self
 
     def __exit__(self, exc_type, exc, tb):
         if self._mgr_is_cupy:
-            if self._cupy_ext_stream is not None:
-                self._cupy_ext_stream.__exit__(exc_type, exc, tb)
-                self._cupy_ext_stream = None
+            if self.cupy_ext_stream is not None:
+                self.cupy_ext_stream.__exit__(exc_type, exc, tb)
+                self.cupy_ext_stream = None
 
 class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
     """Numba EMM plugin for using cupy memory pools to allocate.
@@ -86,6 +86,8 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
         self._testing = False
         self._testout = None
 
+        self.is_cupy = True
+
 
     def memalloc(self, nbytes):
         # Allocate from the CuPy pool and wrap the result in a MemoryPointer as
@@ -93,10 +95,11 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
         cp_mp = self._mp.malloc(nbytes)
         if self._logging:
             print("Allocated %d bytes at %x" % (nbytes, cp_mp.ptr))
+            print("on stream %s" % (cp.cuda.get_current_stream()))
         self._allocations[cp_mp.ptr] = cp_mp
         return MemoryPointer(
             cuda.current_context(),
-            ctypes.c_uint64(int(cp_mp.ptr)),
+            ctypes.c_void_p(int(cp_mp.ptr)),
             nbytes,
             finalizer=self._make_finalizer(cp_mp, nbytes)
         )
@@ -109,6 +112,7 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
         def finalizer():
             if logging:
                 print("Freeing %d bytes at %x" % (nbytes, ptr))
+                print("on stream %s" % (cp.cuda.get_current_stream()))
             # Removing the last reference to the allocation causes it to be
             # garbage-collected and returned to the pool.
             allocations.pop(ptr)
@@ -124,10 +128,11 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
     def initialize(self):
         super().initialize()
 
-    def reset(self):
+    def reset(self, stream=None):
         # Free all blocks when reset.
+        super().reset()
         if self._mp:
-            self._mp.free_all_blocks()
+            self._mp.free_all_blocks(stream=stream)
 
     @contextmanager
     def defer_cleanup(self):
@@ -137,7 +142,6 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
         with super().defer_cleanup():
             yield
 
-    @property
     def is_cupy(self):
         """Returns True to indicate that this is a CuPy-based memory manager."""
         return True
@@ -156,12 +160,13 @@ class CuPyAsyncNumbaManager(CuPyNumbaManager):
         self._mp = cp.cuda.MemoryAsyncPool()
 
     def memalloc(self, nbytes):
-        super().memalloc(nbytes)
         if self._testing:
             self._testout = "async"
+        return super().memalloc(nbytes)
 
 
-class CupySyncNumbaManager(CuPyNumbaManager):
+
+class CuPySyncNumbaManager(CuPyNumbaManager):
     """Numba EMM plugin for using cupy memory pools to allocate."""
     def __init__(self, context):
         super().__init__(context=context)
@@ -173,6 +178,7 @@ class CupySyncNumbaManager(CuPyNumbaManager):
 
 
     def memalloc(self, nbytes):
-        super().memalloc(nbytes)
         if self._testing:
             self._testout = "sync"
+        return super().memalloc(nbytes)
+

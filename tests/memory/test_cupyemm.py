@@ -1,18 +1,11 @@
 import pytest
 from cubie.memory.cupyemm import _numba_stream_ptr
 from cubie.memory.cupyemm import current_cupy_stream, CuPyAsyncNumbaManager
-from cubie.memory.cupyemm import CupySyncNumbaManager
+from cubie.memory.cupyemm import CuPySyncNumbaManager
 from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
 from numba import cuda
 import numpy as np
 import cupy as cp
-
-# @pytest.fixture(scope="function")
-# def asyncManager():
-#     return CuPyAsyncNumbaManager()
-#
-# def syncmanager():
-#     return CupySyncNumbaManager()
 
 @pytest.fixture(scope="module")
 def stream1():
@@ -60,7 +53,7 @@ def test_cupy_wrapper_mgr_check(stream1, stream2):
     with current_cupy_stream(stream1) as cupy_stream:
         assert cupy_stream._mgr_is_cupy is True, "Async manager not detected"
 
-    cuda.set_memory_manager(CupySyncNumbaManager)
+    cuda.set_memory_manager(CuPySyncNumbaManager)
     cuda.close()
     with current_cupy_stream(stream2) as cupy_stream:
         assert cupy_stream._mgr_is_cupy is True, "Sync manager not detected"
@@ -85,7 +78,7 @@ def test_correct_memalloc():
     del testarr
     cuda.synchronize()
 
-    cuda.set_memory_manager(CupySyncNumbaManager)
+    cuda.set_memory_manager(CuPySyncNumbaManager)
     cuda.close()
     mgr = cuda.current_context().memory_manager
     mgr._testing = True
@@ -109,3 +102,26 @@ def test_correct_memalloc():
             test = mgr._testout
     del testarr
     cuda.synchronize()
+
+@pytest.fixture(scope="module")
+def kernel_func():
+    @cuda.jit()
+    def test_kernel(arr):
+        i = cuda.grid(1)
+        arr[i] = i
+    return test_kernel
+
+@pytest.mark.parametrize("mgr", [NumbaCUDAMemoryManager,
+                                 CuPySyncNumbaManager,
+                                 CuPyAsyncNumbaManager])
+def test_allocation(mgr, kernel_func):
+    cuda.set_memory_manager(mgr)
+    cuda.close()
+
+    testarr = np.zeros((256), dtype=np.float32)
+    d_testarr = cuda.device_array_like(testarr)
+    d_testarr.copy_to_device(testarr)
+    kernel_func[1, 256,0 ,0](d_testarr)
+    d_testarr.copy_to_device(testarr)
+    assert not np.array_equal(testarr, np.zeros((256*256), dtype=np.float32))
+
