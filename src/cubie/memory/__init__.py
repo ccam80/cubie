@@ -1,2 +1,2 @@
-from cubie.memory.cupyemm import (current_cupy_stream, CuPySyncNumbaManager,
-                                  CuPyAsyncNumbaManager)
+from cubie.memory.cupy_emm import (current_cupy_stream, CuPySyncNumbaManager,
+                                   CuPyAsyncNumbaManager)

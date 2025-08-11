@@ -7,9 +7,9 @@ if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
 else:
     from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
 
-from cubie.memory.cupyemm import _numba_stream_ptr
-from cubie.memory.cupyemm import current_cupy_stream, CuPyAsyncNumbaManager
-from cubie.memory.cupyemm import CuPySyncNumbaManager
+from cubie.memory.cupy_emm import _numba_stream_ptr
+from cubie.memory.cupy_emm import current_cupy_stream, CuPyAsyncNumbaManager
+from cubie.memory.cupy_emm import CuPySyncNumbaManager
 from numba import cuda
 import numpy as np
 import cupy as cp

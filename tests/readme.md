@@ -14,31 +14,30 @@ in other fixtures. The override, settings, and objects are kept separate to the 
 error with direct/indirect parametrization. It's readable enough, so we're keeping it consistent. For a trivial example:
 
 Here's an example:
+
 ```python
 import pytest
 import numpy as np
-from cubie.memory.memmgmt import ArrayRequest, MemoryManager
+from cubie.memory.mem_manager import ArrayRequest, MemoryManager
 from numba import cuda
 
+
 class DummyClass:
-    def __init__(self,
-                 proportion=None,
-                 stream_group=None,
-                 native_stride_order=None):
+    def __init__(self, proportion=None, stream_group=None, native_stride_order=None):
         self.proportion = proportion
         self.stream_group = stream_group
         self.native_stride_order = native_stride_order
+
 
 @pytest.fixture(scope="function")
 def array_request_override(request):
     return request.param if hasattr(request, 'param') else {}
 
+
 @pytest.fixture(scope="function")
 def array_request_settings(array_request_override):
     """Fixture to provide settings for ArrayRequest."""
-    defaults = {'shape': (1,1,1),
-                'dtype': np.float32,
-                'memory': 'device',
+    defaults = {'shape'       : (1, 1, 1), 'dtype': np.float32, 'memory': 'device',
                 'stride_order': ("time", "run", "variable")}
     if array_request_override:
         for key, value in array_request_override.items():
@@ -46,48 +45,44 @@ def array_request_settings(array_request_override):
                 defaults[key] = value
     return defaults
 
+
 @pytest.fixture(scope="function")
 def array_request(array_request_settings):
     return ArrayRequest(**array_request_settings)
+
 
 @pytest.fixture(scope="function")
 def expected_single_array(array_request_settings):
     arr_request = array_request_settings
     if arr_request['memory'] == 'device':
-        arr = cuda.device_array(array_request_settings['shape'],
-                                dtype=array_request_settings['dtype'])
+        arr = cuda.device_array(array_request_settings['shape'], dtype=array_request_settings['dtype'])
     elif arr_request['memory'] == 'pinned':
-        arr = cuda.pinned_array(array_request_settings['shape'],
-                                dtype=array_request_settings['dtype'])
+        arr = cuda.pinned_array(array_request_settings['shape'], dtype=array_request_settings['dtype'])
     elif arr_request['memory'] == 'mapped':
-        arr = cuda.mapped_array(array_request_settings['shape'],
-                                dtype=array_request_settings['dtype'])
+        arr = cuda.mapped_array(array_request_settings['shape'], dtype=array_request_settings['dtype'])
     elif arr_request['memory'] == 'managed':
         raise NotImplementedError("Managed memory not implemented")
     else:
         raise ValueError(f"Invalid memory type: {arr_request['memory']}")
     return arr
 
-@pytest.mark.parametrize("array_request_override",
-                         [{'shape': (20000,), 'dtype': np.float64}],
-                         indirect=True)
+
+@pytest.mark.parametrize("array_request_override", [{'shape': (20000,), 'dtype': np.float64}], indirect=True)
 def test_array_request_instantiation(array_request):
     assert array_request.shape == (20000,)
     assert array_request.dtype == np.float64
     assert array_request.memory == 'device'
     assert array_request.stride_order == ("time", "run", "variable")
 
+
 @pytest.mark.parametrize("array_request_override",
-                         [{'shape': (20000,), 'dtype': np.float64},
-                          {'memory': 'pinned'},
-                          {'memory': 'mapped'}], indirect=True)
-def test_array_response(array_request,
-                        array_request_settings,
-                        expected_single_array):
+                         [{'shape': (20000,), 'dtype': np.float64}, {'memory': 'pinned'}, {'memory': 'mapped'}],
+                         indirect=True)
+def test_array_response(array_request, array_request_settings, expected_single_array):
     mgr = MemoryManager()
     instance = DummyClass()
     mgr.register(instance)
-    resp = mgr.allocate_all(instance, {'test':array_request})
+    resp = mgr.allocate_all(instance, {'test': array_request})
     arr = resp['test']
 
     # Can't directly check for equality as they'll be at different addresses

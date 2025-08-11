@@ -21,6 +21,7 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import LoopBufferSizes
+from cubie.memory.mem_manager import ArrayRequest, ArrayResponse
 
 
 @attrs.define

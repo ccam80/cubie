@@ -11,7 +11,7 @@ from numpy import float32
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.batchsolving._utils import optional_cuda_array_validator_3d
-
+from cubie.memory.mem_manager import ArrayRequest, ArrayResponse
 
 @attrs.define
 class ActiveOutputs:

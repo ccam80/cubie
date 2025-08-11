@@ -1,8 +1,8 @@
 from os import environ
+import warnings
 
 import pytest
-
-from cubie.memory.cupyemm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
+from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from cubie.cudasim_utils import (FakeNumbaCUDAMemoryManager as
@@ -12,25 +12,18 @@ if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
                                                DeviceNDArrayBase)
     from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
                                                MappedNDArray)
-
 else:
     from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
     from numba.cuda.cudadrv.driver import Stream
     from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase, MappedNDArray
 
-
-from cubie.memory.memmgmt import (
+from cubie.memory.mem_manager import (
     MemoryManager,
     ArrayRequest,
-    StreamGroups,
     ArrayResponse,
     InstanceMemorySettings,
 )
 
-
-
-import warnings
-from numba import cuda
 import numpy as np
 
 
@@ -39,188 +32,6 @@ class DummyClass:
     def __init__(self, proportion=None, invalidate_all_hook=None):
         self.proportion = proportion
         self.invalidate_all_hook = invalidate_all_hook
-
-@pytest.fixture(scope="function")
-def array_request_override(request):
-    return request.param if hasattr(request, 'param') else {}
-
-@pytest.fixture(scope="function")
-def array_request_settings(array_request_override):
-    """Fixture to provide settings for ArrayRequest."""
-    defaults = {'shape': (1,1,1),
-                'dtype': np.float32,
-                'memory': 'device',
-                'stride_order': ("time", "run", "variable")}
-    if array_request_override:
-        for key, value in array_request_override.items():
-            if key in defaults:
-                defaults[key] = value
-    return defaults
-
-@pytest.fixture(scope="function")
-def array_request(array_request_settings):
-    return ArrayRequest(**array_request_settings)
-
-@pytest.fixture(scope="function")
-def expected_single_array(array_request_settings):
-    arr_request = array_request_settings
-    if arr_request['memory'] == 'device':
-        arr = cuda.device_array(array_request_settings['shape'],
-                                dtype=array_request_settings['dtype'])
-    elif arr_request['memory'] == 'pinned':
-        arr = cuda.pinned_array(array_request_settings['shape'],
-                                dtype=array_request_settings['dtype'])
-    elif arr_request['memory'] == 'mapped':
-        arr = cuda.mapped_array(array_request_settings['shape'],
-                                dtype=array_request_settings['dtype'])
-    elif arr_request['memory'] == 'managed':
-        raise NotImplementedError("Managed memory not implemented")
-    else:
-        raise ValueError(f"Invalid memory type: {arr_request['memory']}")
-    return arr
-
-class TestArrayRequests:
-    @pytest.mark.parametrize("array_request_override",
-                             [{'shape': (20000,), 'dtype': np.float64},
-                              {'memory': 'pinned'},
-                              {'shape': (10, 10, 10, 10, 10),
-                               'dtype': np.float32}],
-                              indirect=True)
-    def test_size(self, array_request):
-        assert (array_request.size == np.prod(array_request.shape) *
-                array_request.dtype().itemsize), "Incorrect size calculated"
-
-    @pytest.mark.parametrize("array_request_override",
-                             [{'shape': (20000,), 'dtype': np.float64}],
-                             indirect=True)
-    def test_instantiation(self, array_request):
-        assert array_request.shape == (20000,)
-        assert array_request.dtype == np.float64
-        assert array_request.memory == 'device'
-        assert array_request.stride_order == ("time", "run", "variable")
-
-    def test_default_stride_ordering(self):
-        # 3D shape default stride_order
-        req3 = ArrayRequest(shape=(2,3,4), dtype=np.float32, memory='device', stride_order=None)
-        assert req3.stride_order == ('time', 'run', 'variable')
-        # 2D shape default stride_order
-        req2 = ArrayRequest(shape=(5,6), dtype=np.float32, memory='device', stride_order=None)
-        assert req2.stride_order == ('variable', 'run')
-        # 1D shape leaves stride_order None
-        req1 = ArrayRequest(
-            shape=(10,), dtype=np.float32, memory="device", stride_order=None
-        )
-        assert req1.stride_order is None
-
-    @pytest.mark.nocudasim
-    @pytest.mark.parametrize("array_request_override",
-                             [{'shape': (20000,), 'dtype': np.float64},
-                              {'memory': 'pinned'},
-                              {'memory': 'mapped'}], indirect=True)
-    def test_array_response(self, array_request,
-                            array_request_settings,
-                            expected_single_array):
-        mgr = MemoryManager()
-        instance = DummyClass()
-        mgr.register(instance)
-        resp = mgr.allocate_all(instance, {'test':array_request})
-        arr = resp['test']
-
-        # Can't directly check for equality as they'll be at different addresses
-        assert arr.shape == expected_single_array.shape
-        assert type(arr) == type(expected_single_array)
-        assert arr.nbytes == expected_single_array.nbytes
-        assert arr.strides == expected_single_array.strides
-        assert arr.dtype == expected_single_array.dtype
-
-@pytest.fixture(scope="function")
-def stream_groups(array_request_settings):
-    return StreamGroups()
-
-class TestStreamGroups:
-    @pytest.mark.nocudasim
-    def test_add_instance(self, stream_groups):
-        inst = DummyClass()
-        stream_groups.add_instance(inst, "group1")
-        assert "group1" in stream_groups.groups
-        assert id(inst) in stream_groups.groups["group1"]
-        assert isinstance(stream_groups.streams["group1"], Stream)
-        with pytest.raises(ValueError):
-            stream_groups.add_instance(inst, "group2")
-
-        inst2 = DummyClass()
-        stream_groups.add_instance(inst2, "group2")
-        assert id(inst2) in stream_groups.groups["group2"]
-        assert id(inst) not in stream_groups.groups["group2"]
-        assert id(inst2) not in stream_groups.groups["group1"]
-
-    def test_get_group(self, stream_groups):
-        """Test that get_group returns the correct group for an instance"""
-        inst = DummyClass()
-        stream_groups.add_instance(inst, "group1")
-        assert stream_groups.get_group(inst) == "group1"
-        with pytest.raises(ValueError):
-            assert stream_groups.get_group(DummyClass()) is None
-        inst1 = DummyClass()
-        stream_groups.add_instance(inst1, "group2")
-        assert stream_groups.get_group(inst1) == "group2"
-        assert stream_groups.get_group(inst) != "group2"
-
-    @pytest.mark.nocudasim
-    def test_change_group(self, stream_groups):
-        """Test that change_group removes the instance from the old group,
-        adds it to the new one, and that the instances stream has changed"""
-        inst = DummyClass()
-        stream_groups.add_instance(inst, 'group1')
-        old_stream = stream_groups.get_stream(inst)
-        # move to new group
-        stream_groups.change_group(inst, 'group2')
-        assert id(inst) not in stream_groups.groups['group1']
-        assert id(inst) in stream_groups.groups['group2']
-        new_stream = stream_groups.get_stream(inst)
-        assert int(new_stream.handle.value) != int(old_stream.handle.value)
-        # error when instance not in any group
-        with pytest.raises(ValueError):
-            stream_groups.change_group(DummyClass(), 'groupX')
-
-
-    @pytest.mark.nocudasim
-    def test_get_stream(self, stream_groups):
-        inst = DummyClass()
-        stream_groups.add_instance(inst, "group1")
-        stream1 = int(stream_groups.get_stream(inst).handle.value)
-        stream2 = int(stream_groups.get_stream(inst).handle.value)
-        assert stream1 == stream2
-        assert stream1 != stream_groups.streams["group1"]
-
-        inst2 = DummyClass()
-        stream_groups.add_instance(inst2, "group2")
-        stream3 = int(stream_groups.get_stream(inst2).handle.value)
-        assert stream3 != stream1
-        assert stream3 != stream2
-        assert stream3 != stream_groups.streams["group1"]
-        assert stream3 != stream_groups.streams["group2"]
-
-    @pytest.mark.nocudasim
-    def test_reinit_streams(self, stream_groups):
-        """ test that two instances have different streams in different
-        groups, then reinit, and check that streams don't match old ones or
-        each other."""
-        inst1 = DummyClass()
-        inst2 = DummyClass()
-        stream_groups.add_instance(inst1, 'g1')
-        stream_groups.add_instance(inst2, 'g2')
-        # ensure different initial streams
-        s1_old = stream_groups.get_stream(inst1)
-        s2_old = stream_groups.get_stream(inst2)
-        assert s1_old != s2_old
-        # reinitialize streams
-        stream_groups.reinit_streams()
-        s1_new = stream_groups.get_stream(inst1)
-        s2_new = stream_groups.get_stream(inst2)
-        assert s1_new != s1_old
-        assert s2_new != s2_old
-        assert s1_new != s2_new
 
 @pytest.fixture(scope="function")
 def instance_settings_override(request):
