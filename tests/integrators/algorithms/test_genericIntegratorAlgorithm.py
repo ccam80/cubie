@@ -1,48 +1,46 @@
 import pytest
 import numpy as np
-from tests.ForwardSim.integrators.algorithms.LoopAlgorithmTester import LoopAlgorithmTester
-from tests._utils import cpu_euler_loop
-from cubie.integrators.algorithms import Euler
-from cubie.outputhandling.output_sizes import LoopBufferSizes
+
+from cubie.integrators.algorithms import GenericIntegratorAlgorithm
+from tests.integrators.algorithms.LoopAlgorithmTester import LoopAlgorithmTester
 
 
-class TestEuler(LoopAlgorithmTester):
-    """Testing class for the Euler algorithm. Checks the instantiation, compilation, and input/output for a range
-    of cases, including incomplete inputs and random floats of different scales."""
+class TestGenericLoopAlgorithm(LoopAlgorithmTester):
+    """Test class for the GenericIntegratorAlgorithm."""
 
-    @pytest.mark.parametrize("system_override", [None, "ThreeChamber", "Decays1_100", "genericODE"])
-    def test_loop_function_builds(self, built_loop_function):
-        pass
-
-    def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides, output_functions,
-                                                       loop_under_test, expected_summary_buffer_size,
-                                                       ):
-        pass
-
-    @pytest.fixture(scope="class")
+    @pytest.fixture(scope="module")
     def algorithm_class(self):
-        return Euler
+        return GenericIntegratorAlgorithm
 
     @pytest.fixture(scope="function")
     def expected_answer(self, system, loop_compile_settings, run_settings, solverkernel, inputs, precision):
-        inits = inputs['initial_values']
-        params = inputs['parameters']
-        driver_vec = inputs['forcing_vectors']
-        dt = loop_compile_settings['dt_min']
-        output_dt = loop_compile_settings['dt_save']
-        warmup = solverkernel.warmup
-        duration = solverkernel.duration
-        saved_observable_indices = loop_compile_settings['saved_observable_indices']
-        saved_state_indices = loop_compile_settings['saved_state_indices']
+        save_state = "state" in loop_compile_settings['output_functions']
+        save_observables = "observables" in loop_compile_settings['output_functions']
+        n_states_total = inputs['initial_values'].shape[0]
+        n_samples = solverkernel.output_length
         save_time = "time" in loop_compile_settings['output_functions']
 
-        state_output, observables_output = cpu_euler_loop(system, inits, params, driver_vec, dt, output_dt,
-                                                          warmup, duration, saved_observable_indices, saved_state_indices,
-                                                          save_time,
-                                                          )
+        if save_state:
+            saved_state_indices = np.asarray(loop_compile_settings['saved_state_indices'])
+            n_saved_states = len(saved_state_indices)
+            expected_state_output = np.zeros((n_samples, n_saved_states + 1 * save_time), dtype=precision)
+            expected_state_output[:, :n_saved_states] = inputs['initial_values'][saved_state_indices][np.newaxis, :]
+            if save_time:
+                expected_state_output[:, -1] = np.arange(n_samples, dtype=precision)
+        else:
+            expected_state_output = np.zeros((1, 1), dtype=precision)
 
-        return state_output, observables_output
+        if save_observables:
 
+            saved_observable_indices = np.asarray(loop_compile_settings['saved_observable_indices'])
+            n_saved_observables = len(saved_observable_indices)
+            expected_observables = np.zeros((n_samples, n_saved_observables), dtype=precision)
+            expected_observables[:, :] = inputs['initial_values'][np.newaxis,
+                (saved_observable_indices % n_states_total)]
+        else:
+            expected_observables = np.zeros((1, 1), dtype=precision)
+
+        return expected_state_output, expected_observables
 
     @pytest.mark.nocudasim
     @pytest.mark.parametrize("loop_compile_settings_overrides, inputs_override, solver_settings_override, "
@@ -118,10 +116,8 @@ class TestEuler(LoopAlgorithmTester):
                                                                loop_under_test, expected_summary_buffer_size,
                                                                )
 
-    @pytest.fixture()
+    @pytest.fixture(scope='function')
     def expected_loop_shared_memory(self, system, output_functions):
-        """Calculate the expected shared memory size for the Euler algorithm."""
-        sizes = LoopBufferSizes.from_system_and_output_fns(system, output_functions)
-        loop_shared_memory = (sizes.state + sizes.dxdt + sizes.observables + sizes.drivers +
-                              sizes.state_summaries + sizes.observable_summaries)
-        return loop_shared_memory
+        """Override with your loops expected shared memory usage (not including summary memory, this is tested in
+        test_output_functions.py)"""
+        return 0

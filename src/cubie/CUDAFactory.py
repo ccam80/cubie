@@ -145,9 +145,11 @@ class CUDAFactory:
         unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
 
         if unrecognised_params and not silent:
+            invalid = ", ".join(sorted(unrecognised_params))
             raise KeyError(
-                    f"'{key}' is not a valid compile setting for this object, and so was not updated.", )
-        if recognized_params != []:
+                    f"'{invalid}' is not a valid compile setting for this "
+                    "object, and so was not updated.", )
+        if recognized_params:
             self._invalidate_cache()
 
         return set(recognized_params)

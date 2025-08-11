@@ -48,6 +48,12 @@ def test_update_compile_settings(factory_with_settings):
         factory_with_settings.update_compile_settings(non_existent_key=True
                                                       ), "factory did not emit a warning for non-existent key"
 
+def test_update_compile_settings_reports_correct_key(factory_with_settings):
+    with pytest.raises(KeyError) as exc:
+        factory_with_settings.update_compile_settings({'non_existent_key': True,
+                                                       'manually_overwritten_1': True})
+    assert 'non_existent_key' in str(exc.value)
+    assert 'manually_overwritten_1' not in str(exc.value)
 
 def test_cache_invalidation(factory_with_settings):
     assert factory_with_settings.cache_valid is False, "Cache should be invalid initially"
