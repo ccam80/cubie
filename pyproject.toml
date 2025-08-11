@@ -21,9 +21,9 @@ dependencies = [
     "numpy",
     "numba",
     "numba-cuda",
-    "cupy-cuda12x",
     "scipy",
 ]
+
 [project.urls]
 Homepage = "https://github.com/ccam80/cubie.git"
 Issues = "https://github.com/https://github.com/ccam80/cubie/issues"
@@ -34,6 +34,9 @@ dev = [
     "pytest-cov",
     "pytest-durations",
 ]
+cupy = [
+    "cupy-cuda12x",
+]
 
 [tool.pytest.ini_options]
 minversion = "6.0"
@@ -41,7 +44,9 @@ testpaths = [
     "tests"
 ]
 markers = [
-    "nocudasim: Will fail if run on the GPU simulator, only test on real GPU"
+    "nocudasim: Will fail if run on the GPU simulator, only test on real GPU",
+    "cupy: Requires optional dependency CuPy, will fail if not installed",
+    "slow: Marks tests that are slow to run, can be skipped with -m 'not slow'",
 ]
 addopts = [
     "--import-mode=importlib",

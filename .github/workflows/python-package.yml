@@ -40,7 +40,7 @@ jobs:
     - name: Test with pytest
       
       run: |
-        pytest -m "not nocudasim"
+        pytest -m "not nocudasim and not cupy"
 
 
   

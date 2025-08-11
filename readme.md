@@ -27,9 +27,23 @@ pip install cubie
 - CUDA Toolkit 12.9 or later
 - NVIDIA GPU with compute capability 6.0 or higher (i.e. GTX10-series or newer)
 
-
 I am using this library as a way to experiment with and learn about some better software practice than I have used in 
 past, including testing, CI/CD, and other helpful tactics I stumble upon. As such, while it's in development, there will
 be some clunky bits.
 
 The interface is not yet stable, and the documentation is currently non-working AI-generated slop, so it will be hard to use. The CUDA solver, however, is now functional. V0.0.2 will be usable with some documentation.
+
+## Project Goals:
+
+- Make an engine and interface for batch integration that is close enough to MATLAB or SciPy that a Python beginner can get integrating with the documentation alone in an hour or two.
+    Many excellent engineers are doing some gnarly mathematics in MATLAB, R, SBSS, or even Excel. This project aims to serve them. This places restrictions on dependencies and environment - most sane humans outside of the software world use Windows (no source given, or existing), so we need to stay Windows-compatible. This means JAX and some CUDA utilities are out of reach without forcing the user to figure out what WSL is.
+- Perform integrations of 10 or more parallel systems faster than MATLAB or SciPy can
+- Enable extraction of summary variables only (rather than saving time-domain outputs) to facilitate use in algorithms like likelihood-free inference.
+- Be extensible enough that users can add their own systems and algorithms without needing to go near the core machinery.
+- Don't be greedy - allow the user to control VRAM usage so that cubie can run alongside other applications.
+
+## Non-Goals:
+- Have the full set of integration algorithms that SciPy and MATLAB have.
+  The full set of known and trusted algorithms is long, and it includes many wrappers for old Fortran libraries that the Numba compiler can't touch. If a problem requires a specific algorithm, we can add it as a feature request, but we won't set out to implement them all.
+- Have a GUI.
+  MATLABs toolboxes are excellent, but from previous projects (specifically CuNODE, the precursor to cubie), GUI development becomes all-consuming and distracts from the purpose of the project.
