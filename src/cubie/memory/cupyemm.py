@@ -1,17 +1,28 @@
 """ Cupy async- or sync-memory pool External Memory Manager plugin for Numba"""
 
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
+import logging
 
 from numba import cuda
 from numba.cuda import (GetIpcHandleMixin, HostOnlyCUDAMemoryManager,
                         MemoryPointer, MemoryInfo)
-import ctypes #TODO: Move to conditional imports when initializing mm
-import cupy as cp
-import logging
+import ctypes
+try:
+    import cupy as cp
+except ImportError:
+    cp = None
 
-# Set to False for a quieter run
 logger = logging.getLogger(__name__)
-# ---------- utilities: wrap a Numba stream as a CuPy ExternalStream ----------
+
+def _import_cupy():
+    try:
+        import cupy as cp
+    except ImportError:
+        raise ImportError(
+            "To use CuPyNumbaManager you must install cupy: pip install cubie[cupy]"
+        )
+    return cp
 
 def _numba_stream_ptr(nb_stream):
     """
@@ -33,12 +44,16 @@ def _numba_stream_ptr(nb_stream):
 
 class current_cupy_stream:
     """
-    Context: set CuPy's *current* stream to a wrapper over the given Numba stream.
-    No-op if stream is None.
+    Context manager to override CuPy's *current* stream with a Numba stream.
     """
-
     def __init__(self, nb_stream):
+        if cp is None:
+            raise ImportError(
+                "To use Cupy memory managers, you must install cupy: pip "
+                "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
+            )
         self.nb_stream = nb_stream
+
         self.cupy_ext_stream = None
         try:
             self._mgr_is_cupy = cuda.current_context().memory_manager.is_cupy
@@ -71,6 +86,11 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
     allocator.
     """
     def __init__(self, context):
+        if cp is None:
+            raise ImportError(
+                    "To use Cupy memory managers, you must install cupy: pip "
+                    "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
+            )
         super().__init__(context=context)
         # We keep a record of all allocations, and remove each allocation
         # record in the finalizer, which results in it being returned back to

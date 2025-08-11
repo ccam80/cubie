@@ -22,6 +22,7 @@ def test_numba_stream_ptr(stream1):
         expected_ptr = int(stream1.handle)
     assert _numba_stream_ptr(stream1) == expected_ptr
 
+@pytest.mark.cupy
 @pytest.fixture(scope="module")
 def cp_stream_nocheck():
     class monkeypatch_cp_stream(current_cupy_stream):
@@ -31,6 +32,7 @@ def cp_stream_nocheck():
             self._mgr_is_cupy = True
     return monkeypatch_cp_stream
 
+@pytest.mark.cupy
 def test_cupy_stream_wrapper(stream1, stream2, cp_stream_nocheck):
 
     with cp_stream_nocheck(stream1) as cupy_stream:
@@ -47,6 +49,7 @@ def test_cupy_stream_wrapper(stream1, stream2, cp_stream_nocheck):
     assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream1)
     assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream2)
 
+@pytest.mark.cupy
 def test_cupy_wrapper_mgr_check(stream1, stream2):
     cuda.set_memory_manager(CuPyAsyncNumbaManager)
     cuda.close()
@@ -63,7 +66,7 @@ def test_cupy_wrapper_mgr_check(stream1, stream2):
     with current_cupy_stream(stream1) as cupy_stream:
         assert cupy_stream._mgr_is_cupy is False, "Default manager not detected"
 
-
+@pytest.mark.cupy
 def test_correct_memalloc():
     cuda.set_memory_manager(CuPyAsyncNumbaManager)
     cuda.close()
@@ -103,6 +106,7 @@ def test_correct_memalloc():
     del testarr
     cuda.synchronize()
 
+@pytest.mark.cupy
 @pytest.mark.parametrize("mgr", [NumbaCUDAMemoryManager,
                                  CuPySyncNumbaManager,
                                  CuPyAsyncNumbaManager])

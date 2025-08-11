@@ -6,72 +6,105 @@ compiled CUDA device functions, which are heavily problem-specific. This means t
 We must pass a vast array of parameters, and we cannot easily test individual components in isoolation without completely
 configuring the various components. 
 
-Function-scope fixtures have emerged as a useful way to set up the environment for each test. Each set of parameters, 
-grouped into functional units such as "loop_compile_settings" or "loop_run_settings" for example, has one fixture or 
-function that sets up a default set of parameters. A separate fixture accepts a "request" object, and updates the
-default parameter set with the request.params. A third fixture provides the updated parameters to the test, without
-being explicitly parameterized. In this way, we can choose whether or not to parameterize each component in the test.
+Function-scope fixtures have emerged as a useful way to set up the environment for each test. Each object under test
+(or involved in a test) is instantiated with some default set of parameters, usually at a function scope. The default
+parameters are overridden through an "override" fixture, which can be edited through pytest.mark.parametrize.
+In this way, we can indirectly parametrize tests through the override fixtures, and reuuse the parametrized settings
+in other fixtures. The override, settings, and objects are kept separate to the objects to overcome a long-forgotten
+error with direct/indirect parametrization. It's readable enough, so we're keeping it consistent. For a trivial example:
 
 Here's an example:
 ```python
-def loop_compile_settings(**kwargs):
-    """The standard set of kwargs, some of which aren't used by certain algorithms (like dtmax for a fixed step)."""
-    loop_compile_settings_dict = {'dt_min': 0.001,
-                                  'dt_max': 0.01,
-                                  'dt_save': 0.01,
-                                  'dt_summarise': 0.1,
-                                  'atol': 1e-6,
-                                  'rtol': 1e-3,
-                                  'saved_states': [0, 1],  # Default to first state
-                                  'saved_observables': [],  # Default to no observables
-                                  'output_functions': ["state"],
-                                  'n_peaks': 0}
-    loop_compile_settings_dict.update(kwargs)
-    return loop_compile_settings_dict
+import pytest
+import numpy as np
+from cubie.memory.memmgmt import ArrayRequest, MemoryManager
+from numba import cuda
 
+class DummyClass:
+    def __init__(self,
+                 proportion=None,
+                 stream_group=None,
+                 native_stride_order=None):
+        self.proportion = proportion
+        self.stream_group = stream_group
+        self.native_stride_order = native_stride_order
 
-@pytest.fixture(scope='function')
-def compile_settings_overrides(request):
-    return request.param
+@pytest.fixture(scope="function")
+def array_request_override(request):
+    return request.param if hasattr(request, 'param') else {}
 
-@pytest.fixture(scope='function')
-def compile_settings(request, compile_settings_overrides):
-    """
-    Create a dictionary of compile settings for the loop function.
+@pytest.fixture(scope="function")
+def array_request_settings(array_request_override):
+    """Fixture to provide settings for ArrayRequest."""
+    defaults = {'shape': (1,1,1),
+                'dtype': np.float32,
+                'memory': 'device',
+                'stride_order': ("time", "run", "variable")}
+    if array_request_override:
+        for key, value in array_request_override.items():
+            if key in defaults:
+                defaults[key] = value
+    return defaults
 
-    Usage example:
-    @pytest.mark.parametrize("compile_settings_overrides", [{'dt_min': 0.001, 'dt_max': 0.01}], indirect=True)
-    def test_compile_settings(compile_settings_overrides):
-        ...
-    """
-    return loop_compile_settings(**compile_settings_overrides)
+@pytest.fixture(scope="function")
+def array_request(array_request_settings):
+    return ArrayRequest(**array_request_settings)
+
+@pytest.fixture(scope="function")
+def expected_single_array(array_request_settings):
+    arr_request = array_request_settings
+    if arr_request['memory'] == 'device':
+        arr = cuda.device_array(array_request_settings['shape'],
+                                dtype=array_request_settings['dtype'])
+    elif arr_request['memory'] == 'pinned':
+        arr = cuda.pinned_array(array_request_settings['shape'],
+                                dtype=array_request_settings['dtype'])
+    elif arr_request['memory'] == 'mapped':
+        arr = cuda.mapped_array(array_request_settings['shape'],
+                                dtype=array_request_settings['dtype'])
+    elif arr_request['memory'] == 'managed':
+        raise NotImplementedError("Managed memory not implemented")
+    else:
+        raise ValueError(f"Invalid memory type: {arr_request['memory']}")
+    return arr
+
+@pytest.mark.parametrize("array_request_override",
+                         [{'shape': (20000,), 'dtype': np.float64}],
+                         indirect=True)
+def test_array_request_instantiation(array_request):
+    assert array_request.shape == (20000,)
+    assert array_request.dtype == np.float64
+    assert array_request.memory == 'device'
+    assert array_request.stride_order == ("time", "run", "variable")
+
+@pytest.mark.parametrize("array_request_override",
+                         [{'shape': (20000,), 'dtype': np.float64},
+                          {'memory': 'pinned'},
+                          {'memory': 'mapped'}], indirect=True)
+def test_array_response(array_request,
+                        array_request_settings,
+                        expected_single_array):
+    mgr = MemoryManager()
+    instance = DummyClass()
+    mgr.register(instance)
+    resp = mgr.allocate_all(instance, {'test':array_request})
+    arr = resp['test']
+
+    # Can't directly check for equality as they'll be at different addresses
+    assert arr.shape == expected_single_array.shape
+    assert type(arr) == type(expected_single_array)
+    assert arr.nbytes == expected_single_array.nbytes
+    assert arr.strides == expected_single_array.strides
+    assert arr.dtype == expected_single_array.dtype
 
 ```
-loop_compile_settings returns an updated default dict of parameters, the updates for which can be passed to it as an 
-argument (unlike a fixture). compile_settings_overrides is a fixture that accepts a request object, which is the one
-which we parametrize in the test. compile_settings returns the output of the loop_compile_settings function. If we don't
-parametrize the test, it just returns the default dict, and the test doesn't see anything different about the compile_settings
-fixture. If we do parametrize the test, it returns the updated dict, which is then passed to the test function.
-A test using this might look like:
-```python
-@pytest.mark.parametrize("compile_settings_overrides", [{'dt_min': 0.009, 'dt_max': 0.09}], indirect=True)
-def test_compile_settings(compile_settings):
-    assert compile_settings['dt_min'] == 0.001
-    assert compile_settings['dt_max'] == 0.01
-```
-
-the test itself takes the unparameterized compile_settings fixture, and we _indirectly_ pass the parameters to the intermediate
-update fixture.
-
 Most tests are structured like this, so that if we need to test a specific function, we can only change the relevant
 parameters.
 
-The whole chain of class -> instance -> built instance -> built function is made available as fixtures, so that you can
-pick and choose which parts to test - for example, you might want to test that a modification to a lower-level component
-is successfully passed through to the component under test on instantiation, without worrying about the compile and run
-process.
+As many steps in the chain of classes and subclasses and settings dicts etc are made available as fixtures as possible,
+to make it easier to test that parameter changes flow throught the program.
 
-Each device function has an associated test_kernel that runs it with given inputs and makes the outputs available for
+Cuda device function have an associated test_kernel that runs it with given inputs and makes the outputs available for
 assertions.
 
 ## Test structure
@@ -82,11 +115,10 @@ When creating a test set for a new subclass, you subclass the relevant \*tester 
 specifically marked "OVERRIDE THIS METHOD". The rest of the test machinery should proceed as expected once you've overridden
 these few methods to be specific to your subclass.
 
+Classes are also sometimes used to make identifying tests easier, in cases where multiple classes are tested in a single module.
+
 Each folder in tests has an \_\_init\_\_.py file, which allows us to import the tests as a package. You can import
 things using a standard import statement, e.g.:
 ```python
-from tests.ForwardSim.integrators.algorithms.LoopAlgorithmTester import LoopAlgorithmTester
+from tests.integrators.algorithms import LoopAlgorithmTester
 ```
-
-I installed the project in editable mode, so that the tests can import the package as if it were installed. You may/may not
-need to do this, I am unsure about the intricacies of how pytest works with imports..
