@@ -306,7 +306,7 @@ def mgr(fixed_mem_settings, mem_manager_settings):
             total = fixed_mem_settings['total']
             return free, total
 
-        if environ.get['NUMBA_ENABLE_CUDASIM'] == '1':
+        if environ.get('NUMBA_ENABLE_CUDASIM', '0') == '1':
             def set_allocator(self, name: str=None):
                 pass
             _allocator = None
