@@ -10,10 +10,10 @@ import numpy as np
 from typing import Optional, Callable, Union
 from warnings import warn
 from math import prod
-from cubie.memory import CuPyAsyncNumbaManager, CuPySyncNumbaManager
+from cubie.memory.cupyemm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 import contextlib
 from cubie.memory.cupyemm import current_cupy_stream
-
+from copy import deepcopy
 MIN_AUTOPOOL_SIZE = 0.05
 
 # noinspection PyTypeChecker
@@ -38,6 +38,7 @@ class ArrayRequest:
             validator=val.optional(val.instance_of(tuple)))
 
     def __attrs_post_init__(self):
+        """Set cubie-native stride order if not set already."""
         if self.stride_order is None:
             if len(self.shape) == 3:
                 self.stride_order = ("time", "run", "variable")
@@ -46,7 +47,7 @@ class ArrayRequest:
 
     @property
     def size(self):
-        return np.prod(self.shape) * self.dtype().itemsize
+        return np.prod(self.shape, dtype=np.int64) * self.dtype().itemsize
 
 @attrs.define
 class ArrayResponse:
@@ -501,8 +502,9 @@ class MemoryManager:
         request_size = sum(prod(request.shape) * request.dtype().itemsize
                            for request in requests.values())
         numchunks = self.get_chunks(instance, request_size)
+        chunked_requests = deepcopy(requests) # otherwise argument modified
 
-        for key, request in requests.items():
+        for key, request in chunked_requests.items():
             # Divide all "numruns" indices by chunks - numchunks is already
             # conservative (ceiling) rounded, so we take the ceiling of this
             # division to ensure we don't end up with one chunk too many.
@@ -511,9 +513,9 @@ class MemoryManager:
                     int(np.ceil(value / numchunks)) if i == run_index else
                     value for i, value in enumerate(request.shape))
             request.shape = newshape
-            requests[key] = request
+            chunked_requests[key] = request
 
-        arrays = self.allocate_all(instance, requests)
+        arrays = self.allocate_all(instance, chunked_requests)
         return ArrayResponse(arrays, numchunks)
 
     def allocate_all(self, instance, requests):

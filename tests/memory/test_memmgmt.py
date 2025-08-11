@@ -1,6 +1,6 @@
 import pytest
 
-from cubie.memory import CuPyAsyncNumbaManager, CuPySyncNumbaManager
+from cubie.memory.cupyemm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
 from cubie.memory.memmgmt import (
     MemoryManager,
@@ -741,7 +741,7 @@ class TestMemoryManager:
         instance_id = id(registered_instance)
 
         arr1 = ArrayRequest(
-            shape=(100, 100, 100),
+            shape=(1000, 1000, 1000),
             dtype=np.float32,
             memory="device",
             stride_order=("time", "run", "variable"),
@@ -773,9 +773,14 @@ class TestMemoryManager:
         )
         requests = [arr1, arr2, arr3, arr4, arr5, arr6]
         request_names = ["arr1", "arr2", "arr3", "arr4", "arr5", "arr6"]
-        request_size = sum(arr.size for arr in requests)
         request_dict = dict(zip(request_names, requests))
         response = registered_mgr.request(registered_instance, request_dict)
+
+        # This was very un-pythonically overflowing, hence the explicit int64
+        request_size = np.sum(tuple(arr.size for arr in requests),
+                              dtype=np.int64)
+
+
 
         #Did we get one response for each request?
         assert len(response.arr) == len(requests), "response dict"
@@ -807,11 +812,11 @@ class TestMemoryManager:
             # With correct strides?
             array_native_order = request.stride_order
             desired_order = ("time", "run", "variable")
-            shape = request.shape
+            shape = expected_shape
             itemsize = request.dtype().itemsize
 
-            if len(request.shape) != 3:
-                expected_strides = (itemsize * request.shape[0], itemsize)
+            if len(shape) != 3:
+                expected_strides = (itemsize * shape[1], itemsize)
             else:
                 dims = {name: size for name, size in zip(array_native_order, shape)}
                 strides = {}
@@ -825,21 +830,21 @@ class TestMemoryManager:
             assert allocated_array.strides == expected_strides, "strides"
 
             # Have we recorded the allocation correctly?
-            total_allocation += allocated_array.size
+            total_allocation += allocated_array.nbytes
             assert instance_id in registered_mgr.registry
             assert key in registered_mgr.registry[instance_id].allocations, \
                 "allocation recorded"
 
         #Does the allocated size match expected?
-        assert (total_allocation ==
-                registered_mgr.registry[instance_id].allocated_bytes,
-                ("allocated size"))
+        assert total_allocation == \
+                registered_mgr.registry[instance_id].allocated_bytes, \
+                "allocated size"
 
         # What happens when we free it
         for name, array in response.arr.items():
             registered_mgr.free(name)
 
-        assert (registered_mgr.registry[instance_id].allocated_bytes == 0,
-                "all freed")
-        assert (registered_mgr.registry[instance_id].allocations == {},
-                "all freed")
+        assert registered_mgr.registry[instance_id].allocated_bytes == 0, \
+                "all freed"
+        assert registered_mgr.registry[instance_id].allocations == {}, \
+                "all freed"

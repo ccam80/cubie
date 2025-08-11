@@ -37,7 +37,7 @@ class UserArrays:
 
     @classmethod
     def from_solver(cls, solver: Union[
-        "Solver", "BatchSolverKernel"]) -> "user_arrays":
+        "Solver", "BatchSolverKernel"]) -> "UserArrays":
         """
         Create user_arrays from a Solver instance.
 
@@ -69,7 +69,7 @@ class UserArrays:
 
         return user_arrays
 
-    def update_from_solver(self, solver: "Solver") -> "user_arrays":
+    def update_from_solver(self, solver: "Solver") -> "UserArrays":
         """
         Create user_arrays from a BatchSolverKernel instance.
 
