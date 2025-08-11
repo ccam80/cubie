@@ -1,8 +1,13 @@
 import pytest
-from cubie.memory.cupyemm import _numba_stream_ptr
-from cubie.memory.cupyemm import current_cupy_stream, CuPyAsyncNumbaManager
-from cubie.memory.cupyemm import CuPySyncNumbaManager
-from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
+try:
+    from cubie.memory.cupyemm import _numba_stream_ptr
+    from cubie.memory.cupyemm import current_cupy_stream, CuPyAsyncNumbaManager
+    from cubie.memory.cupyemm import CuPySyncNumbaManager
+    from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
+except ImportError:
+    pytest.skip("CUDA Simulator doesn't have memory features",
+                allow_module_level=True)
+
 from numba import cuda
 import numpy as np
 import cupy as cp

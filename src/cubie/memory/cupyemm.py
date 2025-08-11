@@ -3,10 +3,16 @@
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 import logging
+from os import environ
 
 from numba import cuda
-from numba.cuda import (GetIpcHandleMixin, HostOnlyCUDAMemoryManager,
-                        MemoryPointer, MemoryInfo)
+from numba.cuda import (
+    GetIpcHandleMixin,
+    HostOnlyCUDAMemoryManager,
+    MemoryPointer,
+    MemoryInfo
+)
+
 import ctypes
 try:
     import cupy as cp
@@ -14,15 +20,6 @@ except ImportError:
     cp = None
 
 logger = logging.getLogger(__name__)
-
-def _import_cupy():
-    try:
-        import cupy as cp
-    except ImportError:
-        raise ImportError(
-            "To use CuPyNumbaManager you must install cupy: pip install cubie[cupy]"
-        )
-    return cp
 
 def _numba_stream_ptr(nb_stream):
     """

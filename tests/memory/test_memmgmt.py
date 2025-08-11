@@ -1,20 +1,27 @@
+from os import environ
+
 import pytest
+try:
+    from cubie.memory.cupyemm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
+    from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
+    from numba.cuda.cudadrv.driver import Stream
+    from cubie.memory.memmgmt import (
+        MemoryManager,
+        ArrayRequest,
+        StreamGroups,
+        ArrayResponse,
+        InstanceMemorySettings,
+    )
+except ImportError:
+    pytest.skip("CUDA Simulator doesn't have memory features",
+                allow_module_level=True)
 
-from cubie.memory.cupyemm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
-from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
-from cubie.memory.memmgmt import (
-    MemoryManager,
-    ArrayRequest,
-    StreamGroups,
-    ArrayResponse,
-    InstanceMemorySettings,
-)
+
 import warnings
-
 from numba import cuda
 import numpy as np
 from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase, MappedNDArray
-from numba.cuda.cudadrv.driver import Stream
+
 
 # ========================== dataclasses and helpers ======================== #
 class DummyClass:
@@ -298,6 +305,13 @@ def mgr(fixed_mem_settings, mem_manager_settings):
             free = fixed_mem_settings['free']
             total = fixed_mem_settings['total']
             return free, total
+
+        if environ.get['NUMBA_ENABLE_CUDASIM'] == '1':
+            def set_allocator(self, name: str=None):
+                pass
+            _allocator = None
+
+    # Create an instance of the TestMemoryManager with the provided settings
     return TestMemoryManager(**mem_manager_settings)
 
 @pytest.fixture(scope="function")
