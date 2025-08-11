@@ -35,10 +35,11 @@ The interface is not yet stable, and the documentation is currently non-working 
 
 ## Project Goals:
 
-- Make an engine and interface for batch integration that is close enough to MATLAB or SciPy that a Python beginner can get integrating with the documentation alone in an hour or two.
-    Many excellent engineers are doing some gnarly mathematics in MATLAB, R, SBSS, or even Excel. This project aims to serve them. This places restrictions on dependencies and environment - most sane humans outside of the software world use Windows (no source given, or existing), so we need to stay Windows-compatible. This means JAX and some CUDA utilities are out of reach without forcing the user to figure out what WSL is.
+- Make an engine and interface for batch integration that is close enough to MATLAB or SciPy that a Python beginner can
+  get integrating with the documentation alone in an hour or two. This also means staying Windows-compatible.
 - Perform integrations of 10 or more parallel systems faster than MATLAB or SciPy can
-- Enable extraction of summary variables only (rather than saving time-domain outputs) to facilitate use in algorithms like likelihood-free inference.
+- Enable extraction of summary variables only (rather than saving time-domain outputs) to facilitate use in algorithms 
+  like likelihood-free inference.
 - Be extensible enough that users can add their own systems and algorithms without needing to go near the core machinery.
 - Don't be greedy - allow the user to control VRAM usage so that cubie can run alongside other applications.
 
