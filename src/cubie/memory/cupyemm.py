@@ -6,18 +6,27 @@ import logging
 from os import environ
 
 from numba import cuda
-from numba.cuda import (
-    GetIpcHandleMixin,
-    HostOnlyCUDAMemoryManager,
-    MemoryPointer,
-    MemoryInfo
-)
-
 import ctypes
+
+if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
+    from cubie.cudasim_utils import FakeGetIpcHandleMixin as GetIpcHandleMixin
+    from cubie.cudasim_utils import (FakeHostOnlyCUDAManager as
+                                     HostOnlyCUDAMemoryManager)
+    from cubie.cudasim_utils import FakeMemoryPointer as MemoryPointer
+    from cubie.cudasim_utils import FakeMemoryInfo as MemoryInfo
+else:
+    from numba.cuda import (
+        GetIpcHandleMixin,
+        HostOnlyCUDAMemoryManager,
+        MemoryPointer,
+        MemoryInfo
+    )
 try:
     import cupy as cp
 except ImportError:
     cp = None
+
+
 
 logger = logging.getLogger(__name__)
 

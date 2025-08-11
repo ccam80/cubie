@@ -1,22 +1,34 @@
-import warnings
+from os import environ
+from typing import Optional, Callable, Union
+from warnings import warn
+import contextlib
+from copy import deepcopy
 
 from numba import cuda
 import attrs
 import attrs.validators as val
 from attrs import Factory
-from numba.cuda.cudadrv.driver import Stream, NumbaCUDAMemoryManager
-from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
 import numpy as np
-from typing import Optional, Callable, Union
-from warnings import warn
 from math import prod
-from cubie.memory.cupyemm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
-import contextlib
+
+
 from cubie.memory.cupyemm import current_cupy_stream
-from copy import deepcopy
+
+if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
+    from cubie.cudasim_utils import FakeStream as Stream
+    from cubie.cudasim_utils import (FakeNumbaCUDAMemoryManager as
+                                     NumbaCUDAMemoryManager)
+    from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
+                                                          DeviceNDArrayBase)
+else:
+    from numba.cuda.cudadrv.driver import Stream, NumbaCUDAMemoryManager
+    from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
+
+
+from cubie.memory.cupyemm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
+
 MIN_AUTOPOOL_SIZE = 0.05
 
-# noinspection PyTypeChecker
 @attrs.define
 class ArrayRequest:
     """Requested array spec: shape, dtype, memory location, stride order."""
@@ -164,7 +176,7 @@ class InstanceMemorySettings:
         properly deallocated. This emits a warning, so that you're aware."""
 
         if key in self.allocations:
-            warnings.warn(
+            warn(
                 f"Overwriting previous allocation for {key} at a "
                 f"settings level - this suggests that the previous "
                 f"array wasn't deallocated properly using the "
@@ -177,7 +189,7 @@ class InstanceMemorySettings:
         if key in self.allocations:
             newalloc = {k: v for k, v in self.allocations.items() if k != key}
         else:
-            warnings.warn(f"Attempted to free allocation for {key}, but "
+            warn(f"Attempted to free allocation for {key}, but "
                           f"it was not found in the allocations list.")
             newalloc = self.allocations
         self.allocations = newalloc

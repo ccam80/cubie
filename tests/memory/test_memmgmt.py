@@ -1,26 +1,37 @@
 from os import environ
 
 import pytest
-try:
-    from cubie.memory.cupyemm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
+
+from cubie.memory.cupyemm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
+
+if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
+    from cubie.cudasim_utils import (FakeNumbaCUDAMemoryManager as
+                                     NumbaCUDAMemoryManager)
+    from cubie.cudasim_utils import FakeStream as Stream
+    from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
+                                               DeviceNDArrayBase)
+    from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
+                                               MappedNDArray)
+
+else:
     from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
     from numba.cuda.cudadrv.driver import Stream
-    from cubie.memory.memmgmt import (
-        MemoryManager,
-        ArrayRequest,
-        StreamGroups,
-        ArrayResponse,
-        InstanceMemorySettings,
-    )
-except ImportError:
-    pytest.skip("CUDA Simulator doesn't have memory features",
-                allow_module_level=True)
+    from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase, MappedNDArray
+
+
+from cubie.memory.memmgmt import (
+    MemoryManager,
+    ArrayRequest,
+    StreamGroups,
+    ArrayResponse,
+    InstanceMemorySettings,
+)
+
 
 
 import warnings
 from numba import cuda
 import numpy as np
-from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase, MappedNDArray
 
 
 # ========================== dataclasses and helpers ======================== #
@@ -87,6 +98,7 @@ class TestArrayRequests:
         assert array_request.dtype == np.float64
         assert array_request.memory == 'device'
         assert array_request.stride_order == ("time", "run", "variable")
+
     def test_default_stride_ordering(self):
         # 3D shape default stride_order
         req3 = ArrayRequest(shape=(2,3,4), dtype=np.float32, memory='device', stride_order=None)
@@ -95,9 +107,12 @@ class TestArrayRequests:
         req2 = ArrayRequest(shape=(5,6), dtype=np.float32, memory='device', stride_order=None)
         assert req2.stride_order == ('variable', 'run')
         # 1D shape leaves stride_order None
-        req1 = ArrayRequest(shape=(10,), dtype=np.float32, memory='device', stride_order=None)
+        req1 = ArrayRequest(
+            shape=(10,), dtype=np.float32, memory="device", stride_order=None
+        )
         assert req1.stride_order is None
 
+    @pytest.mark.nocudasim
     @pytest.mark.parametrize("array_request_override",
                              [{'shape': (20000,), 'dtype': np.float64},
                               {'memory': 'pinned'},
@@ -123,6 +138,7 @@ def stream_groups(array_request_settings):
     return StreamGroups()
 
 class TestStreamGroups:
+    @pytest.mark.nocudasim
     def test_add_instance(self, stream_groups):
         inst = DummyClass()
         stream_groups.add_instance(inst, "group1")
@@ -150,6 +166,7 @@ class TestStreamGroups:
         assert stream_groups.get_group(inst1) == "group2"
         assert stream_groups.get_group(inst) != "group2"
 
+    @pytest.mark.nocudasim
     def test_change_group(self, stream_groups):
         """Test that change_group removes the instance from the old group,
         adds it to the new one, and that the instances stream has changed"""
@@ -161,11 +178,13 @@ class TestStreamGroups:
         assert id(inst) not in stream_groups.groups['group1']
         assert id(inst) in stream_groups.groups['group2']
         new_stream = stream_groups.get_stream(inst)
-        assert new_stream != old_stream
+        assert int(new_stream.handle.value) != int(old_stream.handle.value)
         # error when instance not in any group
         with pytest.raises(ValueError):
             stream_groups.change_group(DummyClass(), 'groupX')
 
+
+    @pytest.mark.nocudasim
     def test_get_stream(self, stream_groups):
         inst = DummyClass()
         stream_groups.add_instance(inst, "group1")
@@ -182,6 +201,7 @@ class TestStreamGroups:
         assert stream3 != stream_groups.streams["group1"]
         assert stream3 != stream_groups.streams["group2"]
 
+    @pytest.mark.nocudasim
     def test_reinit_streams(self, stream_groups):
         """ test that two instances have different streams in different
         groups, then reinit, and check that streams don't match old ones or
@@ -252,6 +272,7 @@ class TestInstanceMemorySettings:
         instance_settings_obj.free_all()
         assert instance_settings_obj.allocations == {}
 
+    @pytest.mark.nocudasim
     def test_allocated_bytes(self, instance_settings_obj):
         # test that the allocated_bytes property returns the correct value
         arr1 = np.ndarray((100,), dtype=np.float64)
@@ -343,6 +364,7 @@ def registered_mgr(mgr, registered_instance):
     return mgr
 
 class TestMemoryManager:
+    @pytest.mark.nocudasim
     def test_instantiation(self, mgr):
         """ Test that the settings in the object match the settings fixture"""
         assert mgr.totalmem == 8*1024**3
@@ -391,6 +413,7 @@ class TestMemoryManager:
         with pytest.raises(ValueError):
             mgr.set_limit_mode("invalid")
 
+    @pytest.mark.nocudasim
     def test_get_stream(self, registered_mgr, registered_instance):
         """test that get_stream successfully passes a different stream for
         instances registered in different stream groups"""
@@ -417,6 +440,7 @@ class TestMemoryManager:
         with pytest.raises(ValueError):
             mgr.change_stream_group(dummy, "newgroup")
 
+    @pytest.mark.nocudasim
     def test_reinit_streams(self, registered_mgr, registered_instance):
         """test that reinit_streams causess a different stream to be
         returned from get_stream"""
@@ -591,6 +615,7 @@ class TestMemoryManager:
             assert arr.dtype == requests[key].dtype
             assert key in mgr.registry[id(instance)].allocations
 
+    @pytest.mark.nocudasim
     def test_allocate(self, mgr):
         """Test allocate returns correct array type and shape for each memory type."""
         for mem_type in ["device", "mapped", "pinned"]:
