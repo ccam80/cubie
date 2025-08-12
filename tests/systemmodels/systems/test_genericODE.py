@@ -1,5 +1,5 @@
 import pytest
-from tests.SystemModels.Systems.SystemTester import SystemTester
+from tests.systemmodels.systems.SystemTester import SystemTester
 from cubie.systemmodels.systems.GenericODE import GenericODE
 import numpy as np
 

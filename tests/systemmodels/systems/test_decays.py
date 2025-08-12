@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from tests.SystemModels.Systems.SystemTester import SystemTester
+from tests.systemmodels.systems.SystemTester import SystemTester
 from numpy.testing import assert_allclose
 from cubie.systemmodels.systems.decays import Decays
 

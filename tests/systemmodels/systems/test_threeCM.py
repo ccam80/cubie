@@ -1,6 +1,6 @@
 import pytest
-from tests.SystemModels.Systems.SystemTester import SystemTester
-from tests.SystemModels._utils import generate_system_tests
+from tests.systemmodels.systems.SystemTester import SystemTester
+from tests.systemmodels._utils import generate_system_tests
 from cubie.systemmodels.systems.threeCM import ThreeChamberModel
 
 testsets = generate_system_tests(ThreeChamberModel, (-6, 6))
