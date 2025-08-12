@@ -1,5 +1,5 @@
 from os import environ
-from typing import Optional, Callable, Union
+from typing import Optional, Callable, Union, Dict
 from warnings import warn
 import contextlib
 from copy import deepcopy
@@ -11,7 +11,6 @@ from attrs import Factory
 import numpy as np
 from math import prod
 
-
 from cubie.memory.cupy_emm import current_cupy_stream
 from cubie.memory.stream_groups import StreamGroups
 from cubie.memory.array_requests import ArrayRequest, ArrayResponse
@@ -19,19 +18,28 @@ from cubie.memory.array_requests import ArrayRequest, ArrayResponse
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from cubie.cudasim_utils import (FakeNumbaCUDAMemoryManager as
                                      NumbaCUDAMemoryManager)
-
+    from cubie.cudasim_utils import (FakeBaseCUDAMemoryManager as
+                                     BaseCUDAMemoryManager)
 else:
     from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
+    from numba.cuda import BaseCUDAMemoryManager
 
 
 from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 
 MIN_AUTOPOOL_SIZE = 0.05
 
+# TODO:
+#  Add tests: stream group get_instances_in_group
+#   scan all new memmanager methods
 
-def dummy_invalidate():
+
+def dummy_invalidate()->None:
     """Default dummy invalidate hook, does nothing."""
     pass
+
+def dummy_dataready(response: ArrayResponse) -> None:
+    """Default dummy dataready hook, does nothing."""
 
 # These will be keys to a dict, so must be hashable: eq=False
 @attrs.define(eq=False)
@@ -67,9 +75,12 @@ class InstanceMemorySettings:
     allocations: dict = attrs.field(
             default=Factory(dict),
             validator=val.instance_of(dict))
-    invalidate_hook: Callable = attrs.field(
+    invalidate_hook: Callable[[None], None] = attrs.field(
             default=dummy_invalidate,
             validator=val.instance_of(Callable))
+    allocation_ready_hook: Callable[[ArrayResponse], None] = attrs.field(
+            default=dummy_dataready,
+    )
     cap: int = attrs.field(
             default=None,
             validator=val.optional(val.instance_of(int)))
@@ -133,7 +144,12 @@ class MemoryManager:
     MemoryManager assigns each response a stream, so that different areas of
     software can run asynchronously. To combine streams, so that (for
     example) a solver is in the same stream as it's array allocator, assign
-    them to a "stream group" when registering."""
+    them to a "stream group" when registering.
+
+    Parameters
+    ==========
+
+    """
 
     totalmem: int = attrs.field(default=None,
                                 validator=val.optional(val.instance_of(int)))
@@ -145,7 +161,7 @@ class MemoryManager:
     _mode: str = attrs.field(
             default="passive",
             validator=val.in_(["passive", "active"]))
-    _allocator: object = attrs.field(
+    _allocator: BaseCUDAMemoryManager = attrs.field(
             default=None,
             validator=val.optional(val.instance_of(object)))
     _auto_pool: list[int] = attrs.field(
@@ -157,6 +173,9 @@ class MemoryManager:
     _stride_order: tuple[str, str, str] = attrs.field(
             default=("time", "run", "variable"),
             validator=val.instance_of(tuple))
+    _queued_allocations: Dict[str, Dict] = attrs.field(
+        default=Factory(dict),
+        validator=val.instance_of(dict))
 
     def __attrs_post_init__(self):
         free, total = self.get_memory_info()
@@ -167,7 +186,8 @@ class MemoryManager:
     def register(self,
                  instance,
                  proportion: Optional[float] = None,
-                 invalidate_all_hook: Callable = dummy_invalidate,
+                 invalidate_cache_hook: Callable = dummy_invalidate,
+                 allocation_ready_hook: Callable = dummy_dataready,
                  stream_group: str = "default",
                  ):
         """
@@ -175,7 +195,12 @@ class MemoryManager:
 
         Parameters
         ----------
-
+        instance: object
+            The instance to register.
+        proportion: float, optional
+            Proportion of VRAM to allocate to this instance. If not specified,
+            instance will automatically be assigned an equal portion of the
+            total VRAM to other auto-assigned instances
         """
         instance_id = id(instance)
         if instance_id in self.registry:
@@ -184,7 +209,8 @@ class MemoryManager:
         self.stream_groups.add_instance(instance, stream_group)
 
         settings = InstanceMemorySettings(
-                invalidate_hook=invalidate_all_hook)
+                invalidate_hook=invalidate_cache_hook,
+                allocation_ready_hook=allocation_ready_hook)
 
         self.registry[instance_id] = settings
 
@@ -371,109 +397,24 @@ class MemoryManager:
         # overhead is not significant compared to the 3D arrays.
         self.invalidate_all()
 
-    def request(self, instance, requests: dict[str, ArrayRequest]):
-        """Converts a dictionary of ArrayRequests into a dictionary of arrays
-
-        Accepts a dictionary of ArrayRequests and:
-
-        1) Calculates the memory available to the instance
-        2) Divides the request into a number of "chunks" of the size of the
-        currently available memory
-        3) Divides the requested sizes into chunks
-        4) Calculates strides for the array to achieve the memory layout
-        dictated by MemoryManager._stride_ordering.
-        5) Allocates arrays of requested memory types
-        6) Returns dictionary of arrays and the number of chunks in an
-        ArrayResponse object
-
-        Arguments
-        =========
-        instance: object
-            The instance for which the request is being processed. This is used
-            to determine the memory available to the instance, and to assign
-            the arrays to the correct stream.
-        requests: dict[str, ArrayRequest]
-            A dictionary of ArrayRequest objects, where the keys are labels
-            for the requests (to return the arrays under so that the caller
-            can sort them) and the values are the ArrayRequest objects.
-
-        Returns
-        =======
-        ArrayResponse
-            A dataclass with a dictionary of arrays keyed by label and the
-            number of chunks (how many kernels to run)
-
-        Raises
-        ======
-        TypeError
-            If requests is not a dict, or the values of a request are not
-            ArrayRequests.
-        """
-        if not isinstance(requests, dict):
-            raise TypeError(f"Expected dict for requests, got "
-                             f"{type(requests)}")
-        for key, request in requests.items():
-            if not isinstance(request, ArrayRequest):
-                raise TypeError(f"Expected ArrayRequest for {key}, "
-                                f"got {type(request)}")
-        # Total size - sum of all shapes * datasize
-        request_size = sum(prod(request.shape) * request.dtype().itemsize
-                           for request in requests.values())
-        numchunks = self.get_chunks(instance, request_size)
-        chunked_requests = deepcopy(requests) # otherwise argument modified
-
-        for key, request in chunked_requests.items():
-            # Divide all "numruns" indices by chunks - numchunks is already
-            # conservative (ceiling) rounded, so we take the ceiling of this
-            # division to ensure we don't end up with one chunk too many.
-            run_index = request.stride_order.index("run")
-            newshape = tuple(
-                    int(np.ceil(value / numchunks)) if i == run_index else
-                    value for i, value in enumerate(request.shape))
-            request.shape = newshape
-            chunked_requests[key] = request
-
-        arrays = self.allocate_all(instance, chunked_requests)
-        return ArrayResponse(arrays, numchunks)
-
-    def allocate_all(self, instance, requests):
-        """Allocate a dict of arrays based on a dict of requests"""
-        responses = {}
-        stream = self.get_stream(instance)
-        instance_settings = self.registry[id(instance)]
-        for key, request in requests.items():
-            strides = self.get_strides(request)
-            arr = self.allocate(shape=request.shape,
-                               dtype=request.dtype,
-                               memory_type=request.memory,
-                               stream=stream,
-                               strides=strides)
-            instance_settings.add_allocation(key, arr)
-            responses[key] = arr
-        return responses
-
-    def allocate(self, shape, dtype, memory_type, stream=0, strides=None):
-        cupy_ = self._allocator == CuPyAsyncNumbaManager
-        with current_cupy_stream(stream) if cupy_ else contextlib.nullcontext():
-            if memory_type == "device":
-                return cuda.device_array(shape, dtype, strides=strides)
-            elif memory_type == "mapped":
-                return cuda.mapped_array(shape, dtype, strides=strides)
-            elif memory_type == "pinned":
-                return cuda.pinned_array(shape, dtype, strides=strides)
-            elif memory_type == "managed":
-                raise NotImplementedError("Managed memory not implemented")
-            else:
-                raise ValueError(f"Invalid memory type: {memory_type}")
-
-    def free(self, key):
+    def free(self, array_label: str):
         for settings in self.registry.values():
-            if key in settings.allocations:
-                settings.free(key)
+            if array_label in settings.allocations:
+                settings.free(array_label)
 
     def free_all(self):
         for settings in self.registry.values():
             settings.free_all()
+
+    def _check_requests(self, requests):
+        """Check that all requests are valid"""
+        if not isinstance(requests, dict):
+            raise TypeError(f"Expected dict for requests, got "
+                            f"{type(requests)}")
+        for key, request in requests.items():
+            if not isinstance(request, ArrayRequest):
+                raise TypeError(f"Expected ArrayRequest for {key}, "
+                                f"got {type(request)}")
 
     def get_strides(self, request):
         """Determine the strides for a given request"""
@@ -500,38 +441,284 @@ class MemoryManager:
                 for name in reversed(desired_order):
                     strides[name] = current_stride
                     current_stride *= dims[name]
-                strides_tuple = tuple(strides[dim] for dim in
-                                     array_native_order)
-                return strides_tuple
+                strides = tuple(strides[dim] for dim in array_native_order)
 
-    def get_chunks(self, instance, request_size):
-        """Determine the number of "chunks" required to store a request
+        return strides
 
-        Examines the available memory and the requested size, and returns
-        the ratio of the two. Available memory is set by the requesting
-        object's allocated proportion in "active" mode, or by total free
-        VRAM in "passive" mode.
-        """
+    def get_available_single(self, instance_id):
         free, total = self.get_memory_info()
-        if self._mode == "active":
-            settings = self.registry.get(id(instance))
+        if self._mode == "passive":
+            return free
+        else:
+            settings = self.registry[instance_id]
             cap = settings.cap
             allocated = settings.allocated_bytes
             headroom = cap - allocated
             if headroom / cap < 0.05:
-                warn("This object has used more than 95% of it's alloted "
-                     "memory already, and future requests will run slowly/in"
-                     "many chunks ")
-            available = min(headroom, free)
-        else:
-            available = free
+                warn(f"Instance {instance_id} has used more than 95% of it's "
+                     "allotted memory already, and future requests will run "
+                     "slowly/in many chunks")
+            return min(headroom, free)
 
+    def get_available_group(self, group: str):
+        free, total = self.get_memory_info()
+        instances = self.stream_groups.get_instances_in_group(group)
+        if self._mode == "passive":
+            return free
+        else:
+            allocated = 0
+            cap = 0
+            for instance_id in instances:
+                allocated += self.registry[instance_id].allocated_bytes
+                cap += self.registry[instance_id].cap
+            headroom = cap - allocated
+            if headroom / cap < 0.05:
+                warn(f"Stream group {group} has used more than 95% of it's "
+                     "allotted memory already, and future requests will run "
+                     "slowly/in many chunks")
+            return min(headroom, free)
+
+    def get_chunks(self, request_size: int, available: int=0):
+        """Determine the number of "chunks" required to store a request
+        """
+        free, total = self.get_memory_info()
         if request_size / free > 20:
             warn("This request exceeds available VRAM by more than 20x. "
                  f"Available VRAM = {free}, request size = {request_size}.",
                  UserWarning)
-
         return int(np.ceil(request_size / available))
 
     def get_memory_info(self):
+        """ Get free and total memory from GPU context"""
         return cuda.current_context().get_memory_info()
+
+    def get_stream_group(self, instance):
+        """ Get name of the stream group for an instance """
+        return self.stream_groups.get_group(instance)
+
+    def allocate_all(self, requests, instance_id, stream):
+        """Allocate a dict of arrays based on a dict of requests"""
+        responses={}
+        instance_settings = self.registry[instance_id]
+        for key, request in requests.items():
+            strides = self.get_strides(request)
+            arr = self.allocate(
+                shape=request.shape,
+                dtype=request.dtype,
+                memory_type=request.memory,
+                stream=stream,
+                strides=strides
+            )
+            instance_settings.add_allocation(key, arr)
+            responses[key] = arr
+        return responses
+
+    def allocate(self, shape, dtype, memory_type, stream=0, strides=None):
+        """Allocate a single array according to request parameters."""
+        cupy_ = self._allocator == CuPyAsyncNumbaManager
+        with current_cupy_stream(stream) if cupy_ else contextlib.nullcontext():
+            if memory_type == "device":
+                return cuda.device_array(shape, dtype, strides=strides)
+            elif memory_type == "mapped":
+                return cuda.mapped_array(shape, dtype, strides=strides)
+            elif memory_type == "pinned":
+                return cuda.pinned_array(shape, dtype, strides=strides)
+            elif memory_type == "managed":
+                raise NotImplementedError("Managed memory not implemented")
+            else:
+                raise ValueError(f"Invalid memory type: {memory_type}")
+
+    def queue_request(self, instance, requests: dict[str, ArrayRequest]):
+        """Enter a request into the queue for a stream group.
+
+        Adds the request to a pending request dict for a whole stream group,
+        so that multiple components can contribute to a single request and
+        the whole group can be "chunked" together.
+
+        Parameters
+        ----------
+        instance: object
+            The instance making the request
+        requests:
+            A dictionary of the same form accepted by process_requests
+        """
+        self._check_requests(requests)
+        stream_group = self.get_stream_group(instance)
+        if self._queued_allocations.get(stream_group) is None:
+            self._queued_allocations[stream_group] = {}
+        instance_id = id(instance)
+        self._queued_allocations[stream_group].update({instance_id: requests})
+
+    def chunk_arrays(self,
+                     requests: dict[str, ArrayRequest],
+                     numchunks: int,
+                     axis: str="run"):
+        """Divide an array by a number of chunks along a given axis
+
+        Parameters
+        ==========
+        requests: dict[str, ArrayRequest]
+            A dictionary keying a label to an ArrayRequest object.
+        numchunks: int
+            Factor to divide size by
+        axis: str
+            An axis label along which to divide the array - for example,
+            you might want to batch in time, or batch by runs, depending on
+            your system. The string must match a label in stride_order.
+
+        Returns
+        =======
+        dict[str, ArrayRequest]
+            A new dict of requests with modified shapes.
+        """
+        chunked_requests = deepcopy(requests)
+        for key, request in chunked_requests.items():
+            # Divide all "numruns" indices by chunks - numchunks is already
+            # conservative (ceiling) rounded, so we take the ceiling of this
+            # division to ensure we don't end up with one chunk too many.
+            run_index = request.stride_order.index(axis)
+            newshape = tuple(
+                    int(np.ceil(value / numchunks)) if i == run_index else
+                    value for i, value in enumerate(request.shape))
+            request.shape = newshape
+            chunked_requests[key] = request
+        return chunked_requests
+
+    def single_request(self,
+                       instance: Union[object, int],
+                       requests: dict[str, ArrayRequest],
+                       chunk_axis: str="run"):
+        """Converts a dictionary of ArrayRequests into a dictionary of arrays
+
+        Accepts a dictionary of ArrayRequests and:
+
+        1) Calculates the memory available to the instance
+        2) Divides the request into a number of "chunks" of the size of the
+        currently available memory
+        3) Divides the requested sizes into chunks
+        4) Calculates strides for the array to achieve the memory layout
+        dictated by MemoryManager._stride_ordering.
+        5) Allocates arrays of requested memory types
+        6) Returns dictionary of arrays and the number of chunks in an
+        ArrayResponse object
+
+        Arguments
+        =========
+        instance: Union[object, int]
+            The instance (or instance id) for which the request is being
+            processed. This is used to determine the memory available to the
+            instance, to assign the arrays to the correct stream, and to
+            record the allocation.
+        requests: dict[str, ArrayRequest]
+            A dictionary of ArrayRequest objects, where the keys are labels
+            for the requests (to return the arrays under so that the caller
+            can sort them) and the values are the ArrayRequest objects.
+        chunk_axis: str
+            An axis label along which to divide the array - for example,
+            you might want to batch in time, or batch by runs, depending on
+            your system. The string must match a label in stride_order.
+
+        Returns
+        =======
+        ArrayResponse
+            A dataclass with a dictionary of arrays keyed by label and the
+            number of chunks (how many kernels to run)
+
+        Raises
+        ======
+        TypeError
+            If requests is not a dict, or the values of a request are not
+            ArrayRequests.
+        """
+        self._check_requests(requests)
+        if isinstance(instance, int):
+            instance_id = instance
+        else:
+            instance_id = id(instance)
+
+        request_size= get_total_request_size(requests)
+        available_memory = self.get_available_single(id(instance))
+        numchunks = self.get_chunks(request_size, available_memory)
+        chunked_requests = self.chunk_arrays(
+                requests, numchunks, axis=chunk_axis)
+
+        arrays = self.allocate_all(
+            chunked_requests,
+            instance_id,
+            self.get_stream(instance)
+        )
+
+        return ArrayResponse(arrays, numchunks)
+
+    def allocate_queue(self,
+                       triggering_instance: object,
+                       limit_type: str="group",
+                       chunk_axis: str="run"):
+        """ Process queued requests for the stream group *instance* is in.
+
+        Parameters
+        ==========
+        triggering_instance: object
+            The instance making the request
+        limit_type: str
+            Whether to calculate the aggregate limit for the whole group (
+            "group"), or to ensure that no individual instance exceeds its
+            limit ("instance").
+        chunk_axis: str
+            An axis label along which to divide the array - for example,
+            you might want to batch in time, or batch by runs, depending on
+            your system. The string must match a label in stride_order.
+
+        This function does not return, but calls the allocation_ready_hook
+        for each instance registered in the same stream group as *instance*
+        with the ArrayResponse object for their request.
+
+        If the memory manager is actively limiting memory, allocations will
+        be "chunked" so as not to exceed either the combined "group" limit
+        or any individuals "instance" limit, depending on the limit_type
+        string.
+        """
+        stream_group = self.get_stream_group(triggering_instance)
+        stream = self.get_stream(triggering_instance)
+        queued_requests = self._queued_allocations.get(stream_group, {})
+        n_queued = len(queued_requests)
+        if not queued_requests:
+            return None
+        elif n_queued == 1:
+            for instance_id, requests_dict in queued_requests.items():
+                arrays = self.single_request(instance=instance_id,
+                                             requests=requests_dict,
+                                             chunk_axis=chunk_axis)
+                self.registry[instance_id].allocation_ready_hook(arrays)
+        else:
+            if limit_type == "group":
+                available_memory = self.get_available_group(stream_group)
+                request_size = sum([get_total_request_size(request)
+                                    for request in queued_requests.values()])
+                numchunks = self.get_chunks(request_size, available_memory)
+
+            elif limit_type == "instance":
+                numchunks = np.iinfo(np.int32).max  # a very large number
+                for instance_id, requests_dict in queued_requests.items():
+                    available_memory = self.get_available_single(instance_id)
+                    request_size = get_total_request_size(requests_dict)
+                    chunks = self.get_chunks(request_size, available_memory)
+                    # Take the runnning minimum per-instance chunk size
+                    numchunks = chunks if chunks < numchunks else numchunks
+
+            for instance_id, requests_dict in queued_requests.items():
+                chunked_request = self.chunk_arrays(
+                        requests_dict,
+                        numchunks,
+                        chunk_axis)
+                arrays = self.allocate_all(requests_dict,
+                                           instance_id,
+                                           stream=stream)
+                response = ArrayResponse(arrays, numchunks)
+                self.registry[instance_id].allocation_ready_hook(response)
+        return None
+
+def get_total_request_size(request: dict[str, ArrayRequest]):
+    """Returns the total size of a request in bytes"""
+    return sum(prod(request.shape) * request.dtype().itemsize
+               for request in request.values())

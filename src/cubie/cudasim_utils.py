@@ -1,7 +1,19 @@
 from contextlib import contextmanager
 from ctypes import c_void_p
 
-class FakeNumbaCUDAMemoryManager:
+
+class FakeBaseCUDAMemoryManager:
+    """Placeholder for CUDA simulator environments"""
+    def __init__(self, context=None):
+        self.context = context
+    def initialize(self):
+        pass
+    def reset(self):
+        pass
+    def defer_cleanup(self):
+        return contextmanager(lambda: (yield))()
+
+class FakeNumbaCUDAMemoryManager(FakeBaseCUDAMemoryManager):
     """Placeholder for CUDA simulator environments"""
     handle: int = 0
     ptr: int = 0
@@ -28,7 +40,7 @@ class FakeStream:
     """Placeholder for CUDA simulator environments"""
     handle = c_void_p(0)
 
-class FakeHostOnlyCUDAManager:
+class FakeHostOnlyCUDAManager(FakeBaseCUDAMemoryManager):
     """Placeholder for CUDA simulator environments"""
     def __init__(self, context=None):
         self.context = context
