@@ -42,9 +42,14 @@ jobs:
         run: |
           for f in dist/*; do
             base=$(basename "$f")
-            ext="${base##*.}"
-            name="${base%.*}"
-            mv "$f" "dist/${name}-${BUILD_TIMESTAMP}.${ext}"
+            if [[ "$base" == *.tar.gz ]]; then
+              name="${base%.tar.gz}"
+              ext=".tar.gz"
+            else
+              name="${base%.*}"
+              ext=".${base##*.}"
+            fi
+            mv "$f" "dist/${name}-${BUILD_TIMESTAMP}${ext}"
           done
       
       - name: Upload distributions
