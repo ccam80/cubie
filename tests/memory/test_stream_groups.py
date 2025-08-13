@@ -101,3 +101,37 @@ class TestStreamGroups:
         assert s1_new != s1_old
         assert s2_new != s2_old
         assert s1_new != s2_new
+
+    def test_get_instances_in_group(self, stream_groups):
+        """Test get_instances_in_group returns correct instance IDs for a group."""
+        inst1 = DummyClass()
+        inst2 = DummyClass()
+        inst3 = DummyClass()
+
+        # Add instances to different groups
+        stream_groups.add_instance(inst1, 'group1')
+        stream_groups.add_instance(inst2, 'group1')
+        stream_groups.add_instance(inst3, 'group2')
+
+        # Test group1 has correct instances
+        group1_instances = stream_groups.get_instances_in_group('group1')
+        assert len(group1_instances) == 2
+        assert id(inst1) in group1_instances
+        assert id(inst2) in group1_instances
+        assert id(inst3) not in group1_instances
+
+        # Test group2 has correct instances
+        group2_instances = stream_groups.get_instances_in_group('group2')
+        assert len(group2_instances) == 1
+        assert id(inst3) in group2_instances
+        assert id(inst1) not in group2_instances
+        assert id(inst2) not in group2_instances
+
+        # Test non-existent group returns empty list
+        empty_group = stream_groups.get_instances_in_group('nonexistent')
+        assert empty_group == []
+
+        # Test default group behavior
+        default_instances = stream_groups.get_instances_in_group('default')
+        assert default_instances == []  # Should be empty initially
+

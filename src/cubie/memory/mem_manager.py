@@ -221,6 +221,7 @@ class MemoryManager:
         else:
             self._add_auto_proportion(instance)
 
+
     def set_allocator(self, name: str):
         """ Set the external memory manager in Numba
 
@@ -698,20 +699,20 @@ class MemoryManager:
                 numchunks = self.get_chunks(request_size, available_memory)
 
             elif limit_type == "instance":
-                numchunks = np.iinfo(np.int32).max  # a very large number
+                numchunks = 0
                 for instance_id, requests_dict in queued_requests.items():
                     available_memory = self.get_available_single(instance_id)
                     request_size = get_total_request_size(requests_dict)
                     chunks = self.get_chunks(request_size, available_memory)
-                    # Take the runnning minimum per-instance chunk size
-                    numchunks = chunks if chunks < numchunks else numchunks
+                    # Take the runnning maximum per-instance chunk size
+                    numchunks = chunks if chunks > numchunks else numchunks
 
             for instance_id, requests_dict in queued_requests.items():
                 chunked_request = self.chunk_arrays(
                         requests_dict,
                         numchunks,
                         chunk_axis)
-                arrays = self.allocate_all(requests_dict,
+                arrays = self.allocate_all(chunked_request,
                                            instance_id,
                                            stream=stream)
                 response = ArrayResponse(arrays, numchunks)

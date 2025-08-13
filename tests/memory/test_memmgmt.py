@@ -1,5 +1,6 @@
 from os import environ
 import warnings
+from urllib import response
 
 import pytest
 from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
@@ -709,7 +710,7 @@ class TestMemoryManager:
     def test_allocate_queue_single_instance(self, mgr):
         """Test allocate_queue with single instance in queue."""
         instance = DummyClass()
-        callback_called = {"flag": False, "response": None}
+        callback_called = {"flag": False, "response": ArrayResponse()}
 
         def allocation_hook(response):
             callback_called["flag"] = True
@@ -727,22 +728,34 @@ class TestMemoryManager:
         # Check that callback was called
         assert callback_called["flag"] is True
         assert isinstance(callback_called["response"], ArrayResponse)
+        response = callback_called["response"]
+
+        assert response.arr["arr1"].shape == (2, 2, 2)
+        assert response.arr["arr1"].dtype == np.float32
+        assert response.chunks == 1
 
     def test_allocate_queue_multiple_instances_group_limit(self, mgr):
         """Test allocate_queue with multiple instances using group limit."""
         inst1 = DummyClass()
         inst2 = DummyClass()
-        callbacks_called = {"inst1": False, "inst2": False}
+        callbacks_called = {"inst1": {"flag": False,
+                                      "response": ArrayResponse()},
+                            "inst2": {"flag": False,
+                                      "response": ArrayResponse()}}
 
         def hook1(response):
-            callbacks_called["inst1"] = True
+            callbacks_called["inst1"]["flag"] = True
+            callbacks_called["inst1"]["response"] = response
         def hook2(response):
-            callbacks_called["inst2"] = True
+            callbacks_called["inst2"]["flag"] = True
+            callbacks_called["inst2"]["response"] = response
 
         mgr.register(inst1, allocation_ready_hook=hook1, stream_group="test")
         mgr.register(inst2, allocation_ready_hook=hook2, stream_group="test")
 
-        requests1 = {"arr1": ArrayRequest(shape=(2, 2, 2), dtype=np.float32, memory="device")}
+        requests1 = {
+            "arr1": ArrayRequest(shape=(2, 2, 2), dtype=np.float32, memory="device")
+        }
         requests2 = {"arr2": ArrayRequest(shape=(3, 3, 3), dtype=np.float32, memory="device")}
 
         mgr.queue_request(inst1, requests1)
@@ -750,33 +763,77 @@ class TestMemoryManager:
         mgr.allocate_queue(inst1, limit_type="group")
 
         # Both callbacks should be called
-        assert callbacks_called["inst1"] is True
-        assert callbacks_called["inst2"] is True
+        assert callbacks_called["inst1"]["flag"] is True
+        assert callbacks_called["inst2"]["flag"] is True
 
-    def test_allocate_queue_multiple_instances_instance_limit(self, mgr):
+    @pytest.mark.parametrize("fixed_mem_override, limit_type, chunk_axis",
+                             [[{"total": 512*1024**2}, "instance", "run"],
+                              [{"total": 512*1024**2}, "group", "run"],
+                              [{"total": 512*1024**2}, "instance", "time"],
+                              [{"total": 512*1024**2}, "group", "time"]
+                              ],
+                             indirect=["fixed_mem_override"])
+    def test_allocate_queue_multiple_instances_instance_limit(self,
+                                                              mgr,
+                                                              limit_type,
+                                                              chunk_axis):
         """Test allocate_queue with multiple instances using instance limit."""
         inst1 = DummyClass()
         inst2 = DummyClass()
-        callbacks_called = {"inst1": False, "inst2": False}
+        callbacks_called = {"inst1": {"flag": False,
+                                      "response": ArrayRequest()},
+                            "inst2": {"flag": False,
+                                      "response": ArrayRequest()}}
 
         def hook1(response):
-            callbacks_called["inst1"] = True
+            callbacks_called["inst1"]["flag"] = True
+            callbacks_called["inst1"]["response"] = response
         def hook2(response):
-            callbacks_called["inst2"] = True
+            callbacks_called["inst2"]["flag"] = True
+            callbacks_called["inst2"]["response"] = response
 
         mgr.register(inst1, allocation_ready_hook=hook1, stream_group="test")
         mgr.register(inst2, allocation_ready_hook=hook2, stream_group="test")
-
-        requests1 = {"arr1": ArrayRequest(shape=(2, 2, 2), dtype=np.float32, memory="device")}
-        requests2 = {"arr2": ArrayRequest(shape=(3, 3, 3), dtype=np.float32, memory="device")}
+        mgr.set_limit_mode("active")
+        requests1 = {"arr": ArrayRequest(shape=(4, 4, 4), dtype=np.float32,
+                                          memory="device")}
+        requests2 = {"arr": ArrayRequest(shape=(1000, 256, 1024),
+                                          #~4x instance
+                                          dtype=np.float32,
+                                          memory="device")}
 
         mgr.queue_request(inst1, requests1)
         mgr.queue_request(inst2, requests2)
-        mgr.allocate_queue(inst1, limit_type="instance")
+        mgr.allocate_queue(inst1, limit_type=limit_type, chunk_axis=chunk_axis)
 
         # Both callbacks should be called
-        assert callbacks_called["inst1"] is True
-        assert callbacks_called["inst2"] is True
+        assert callbacks_called["inst1"]["flag"] is True
+        assert callbacks_called["inst2"]["flag"] is True
+        response1 = callbacks_called["inst1"]["response"]
+        response2 = callbacks_called["inst2"]["response"]
+
+        if limit_type == "instance":
+            expected_chunks = 4
+        else:
+            expected_chunks = 2
+        if chunk_axis == "run":
+            chunk_index = 1
+        elif chunk_axis == "time":
+            chunk_index = 0
+
+        shape_1 = np.asarray([4,4,4])
+        shape_2 = np.asarray([1000,256,1024])
+        shape_1[chunk_index] = shape_1[chunk_index] // expected_chunks
+        shape_2[chunk_index] = shape_2[chunk_index] // expected_chunks
+
+
+        assert response1.arr["arr"].shape == tuple(shape_1)
+        assert response1.arr["arr"].dtype == np.float32
+        assert response1.chunks == expected_chunks
+
+        assert response2.arr["arr"].shape == tuple(shape_2)
+        assert response2.arr["arr"].dtype == np.float32
+        assert response2.chunks == expected_chunks
 
     def test_allocate_queue_empty_queue(self, registered_mgr, registered_instance):
         """Test allocate_queue with empty queue returns None."""
@@ -786,18 +843,22 @@ class TestMemoryManager:
         result = mgr.allocate_queue(instance)
         assert result is None
 
-    @pytest.mark.parametrize("fixed_mem_override", [{"free": 500*1024**2}], indirect=True)
+    @pytest.mark.parametrize("fixed_mem_override", [{"total": 512*1024**2}],
+                             indirect=True)
     def test_get_available_single_low_memory_warning(self, registered_mgr, registered_instance):
         """Test get_available_single issues warning when memory usage is high."""
         mgr = registered_mgr
-        instance = registered_instance
+        instance = registered_instance #initializes with 0.5 of VRAM assigned
         instance_id = id(instance)
 
         mgr.set_limit_mode("active")
+        requests1 = {"arr1": ArrayRequest(shape=(250, 1024, 256),   # >95%
+                                          dtype=np.float32,
+                                          memory="device")}
 
         # Add some fake allocation to trigger low memory warning
-        fake_arr = np.zeros(100*1024**3//4, dtype=np.uint8)  # Large fake allocation
-        mgr.registry[instance_id].add_allocation("fake", fake_arr)
+        # allocation
+        mgr.single_request(instance, requests1)
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -805,25 +866,28 @@ class TestMemoryManager:
             # Should warn about high memory usage
             assert any("95% of it's allotted memory" in str(wi.message) for wi in w)
 
-    @pytest.mark.parametrize("fixed_mem_override", [{"free": 500*1024**2}], indirect=True)
+    @pytest.mark.parametrize("fixed_mem_override", [{"total": 512*1024**2}],
+                             indirect=True)
     def test_get_available_group_low_memory_warning(self, mgr):
         """Test get_available_group issues warning when group memory usage is high."""
         inst1 = DummyClass()
         inst2 = DummyClass()
-        mgr.register(inst1, stream_group="test", proportion=0.3)
-        mgr.register(inst2, stream_group="test", proportion=0.3)
-        mgr.set_limit_mode("active")
-
+        mgr.register(inst1, stream_group="test", proportion=0.25)
+        mgr.register(inst2, stream_group="test", proportion=0.25)
+        mgr.set_limit_mode("passive")
+        requests1 = {"arr1": ArrayRequest(shape=(250, 1024, 256),   # >95%
+                                          dtype=np.float32,
+                                          memory="device")}
+        mgr.single_request(inst1, requests1)
         # Add fake allocations to trigger warning
-        fake_arr = np.zeros(100*1024**3//4, dtype=np.uint8)
-        mgr.registry[id(inst1)].add_allocation("fake1", fake_arr)
-        mgr.registry[id(inst2)].add_allocation("fake2", fake_arr)
+
+        mgr.set_limit_mode("active")
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             mgr.get_available_group("test")
             # Should warn about high group memory usage
-            assert any("95% of it's allotted memory" in str(wi.message) for wi in w)
+            assert any("has used more than 95%" in str(wi.message) for wi in w)
 
 def test_get_total_request_size():
     """Test get_total_request_size calculates correct total size."""
@@ -837,6 +901,3 @@ def test_get_total_request_size():
     total_size = get_total_request_size(requests)
     expected_size = (10 * 10 * 4) + (5 * 5 * 8)  # 400 + 200 = 600
     assert total_size == expected_size
-
-#TODO: Add a big integrated queue test that checks chunking and allocation
-# of a set of large arrays.
