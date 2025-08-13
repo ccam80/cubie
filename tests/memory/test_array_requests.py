@@ -52,7 +52,8 @@ class TestArrayRequests:
         mgr = MemoryManager()
         instance = DummyClass()
         mgr.register(instance)
-        resp = mgr.allocate_all(instance, {'test':array_request})
+        resp = mgr.allocate_all({'test':array_request}, id(instance),
+                                stream=0)
         arr = resp['test']
 
         # Can't directly check for equality as they'll be at different addresses

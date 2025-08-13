@@ -27,6 +27,9 @@ class ConcreteArrayManager(BaseArrayManager):
     def initialise_chunk(self, indices, axis):
         return indices, axis
 
+    def check_sizes(self, arrays, system_sizes):
+        pass
+
 @attrs.define(slots=False)
 class TestArrays(ArrayContainer):
     arr1 = attrs.field(default=None)

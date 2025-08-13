@@ -14,25 +14,24 @@ from math import prod
 from cubie.memory.cupy_emm import current_cupy_stream
 from cubie.memory.stream_groups import StreamGroups
 from cubie.memory.array_requests import ArrayRequest, ArrayResponse
+from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from cubie.cudasim_utils import (FakeNumbaCUDAMemoryManager as
                                      NumbaCUDAMemoryManager)
     from cubie.cudasim_utils import (FakeBaseCUDAMemoryManager as
                                      BaseCUDAMemoryManager)
+    from cubie.cudasim_utils import fake_get_memory_info as current_mem_info
+    from cubie.cudasim_utils import fake_set_manager as set_cuda_memory_manager
 else:
     from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
     from numba.cuda import BaseCUDAMemoryManager
+    def current_mem_info():
+        return cuda.current_context().get_memory_info()
+    from numba.cuda import set_memory_manager as set_cuda_memory_manager
 
-
-from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 
 MIN_AUTOPOOL_SIZE = 0.05
-
-# TODO:
-#  Add tests: stream group get_instances_in_group
-#   scan all new memmanager methods
-
 
 def dummy_invalidate()->None:
     """Default dummy invalidate hook, does nothing."""
@@ -250,7 +249,7 @@ class MemoryManager:
             self._allocator = NumbaCUDAMemoryManager
         else:
             raise ValueError(f"Unknown allocator: {name}")
-        cuda.set_memory_manager(self._allocator)
+        set_cuda_memory_manager(self._allocator)
 
         # Reset the context:
         # https://nvidia.github.io/numba-cuda/user/external-memory.html#setting-emm-plugin
@@ -491,7 +490,7 @@ class MemoryManager:
 
     def get_memory_info(self):
         """ Get free and total memory from GPU context"""
-        return cuda.current_context().get_memory_info()
+        return current_mem_info()
 
     def get_stream_group(self, instance):
         """ Get name of the stream group for an instance """

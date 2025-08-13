@@ -1,7 +1,6 @@
 from contextlib import contextmanager
 from ctypes import c_void_p
 
-
 class FakeBaseCUDAMemoryManager:
     """Placeholder for CUDA simulator environments"""
     def __init__(self, context=None):
@@ -60,7 +59,13 @@ class FakeMemoryPointer:
         self._cuda_memsize = size
         self.handle = self.device_pointer
 
+def fake_get_memory_info():
+    fakemem = FakeMemoryInfo()
+    return fakemem.free, fakemem.total
 
 class FakeMemoryInfo:
     free = 1024**3
     total = 8*1024**3
+
+def fake_set_manager(manager):
+    pass

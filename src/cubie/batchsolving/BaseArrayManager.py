@@ -168,3 +168,13 @@ class BaseArrayManager(ABC):
         For most input arrays, this is a copy to device.
         For output arrays, this is typically a no-op."""
 
+    @abstractmethod
+    def check_sizes(self, arrays, system_sizes: Dict[str, int]) -> bool:
+        """Check if the sizes of the arrays match the system sizes.
+
+        Returns True if sizes match, False otherwise.
+        This is used to validate input arrays before processing."""
+        pass
+    #
+    # def check_types(self, arrays) -> bool:
+    #     """Check if the precision of the arrays match the system precision."""
