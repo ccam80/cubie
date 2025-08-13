@@ -497,6 +497,16 @@ class MemoryManager:
         """ Get name of the stream group for an instance """
         return self.stream_groups.get_group(instance)
 
+    def is_grouped(self, instance):
+        """Returns True if instance is grouped with others in named stream."""
+        group = self.get_stream_group(instance)
+        if group == 'default':
+            return False
+        peers = self.stream_groups.get_instances_in_group(group)
+        if len(peers) == 1:
+            return False
+        return True
+
     def allocate_all(self, requests, instance_id, stream):
         """Allocate a dict of arrays based on a dict of requests"""
         responses={}
@@ -589,7 +599,7 @@ class MemoryManager:
                        instance: Union[object, int],
                        requests: dict[str, ArrayRequest],
                        chunk_axis: str="run"):
-        """Converts a dictionary of ArrayRequests into a dictionary of arrays
+        """Converts a dictionary of ArrayRequests into allocated arrays
 
         Accepts a dictionary of ArrayRequests and:
 
@@ -600,8 +610,8 @@ class MemoryManager:
         4) Calculates strides for the array to achieve the memory layout
         dictated by MemoryManager._stride_ordering.
         5) Allocates arrays of requested memory types
-        6) Returns dictionary of arrays and the number of chunks in an
-        ArrayResponse object
+        6) Calls the instance's allocation_ready_hook with an ArrayResponse
+        containing the arrays and chunk count
 
         Arguments
         =========
@@ -621,9 +631,10 @@ class MemoryManager:
 
         Returns
         =======
-        ArrayResponse
-            A dataclass with a dictionary of arrays keyed by label and the
-            number of chunks (how many kernels to run)
+        None
+            This method does not return a value. Instead, it calls the
+            allocation_ready_hook for the instance with an ArrayResponse
+            object containing the allocated arrays and chunk count.
 
         Raises
         ======
@@ -648,8 +659,8 @@ class MemoryManager:
             instance_id,
             self.get_stream(instance)
         )
-
-        return ArrayResponse(arrays, numchunks)
+        self.registry[instance_id].allocation_ready_hook(ArrayResponse(
+                arrays, numchunks))
 
     def allocate_queue(self,
                        triggering_instance: object,
@@ -687,10 +698,9 @@ class MemoryManager:
             return None
         elif n_queued == 1:
             for instance_id, requests_dict in queued_requests.items():
-                arrays = self.single_request(instance=instance_id,
-                                             requests=requests_dict,
-                                             chunk_axis=chunk_axis)
-                self.registry[instance_id].allocation_ready_hook(arrays)
+                self.single_request(instance=instance_id,
+                     requests=requests_dict,
+                     chunk_axis=chunk_axis)
         else:
             if limit_type == "group":
                 available_memory = self.get_available_group(stream_group)

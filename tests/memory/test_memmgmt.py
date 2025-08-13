@@ -395,15 +395,27 @@ class TestMemoryManager:
         with pytest.raises(ValueError):
             mgr.set_global_stride_ordering(("foo", "bar", "baz"))
 
-    def test_process_request(self, registered_mgr, registered_instance):
-        """Test single_request returns ArrayResponse with correct arrays and chunk count."""
-        mgr = registered_mgr
-        instance = registered_instance
+    def test_process_request(self, mgr):
+        """Test single_request calls allocation hook with correct ArrayResponse."""
+        # Create instance with callback to capture response
+        instance = DummyClass()
+        callback_called = {"flag": False, "response": None}
+
+        def allocation_hook(response):
+            callback_called["flag"] = True
+            callback_called["response"] = response
+
+        mgr.register(instance, allocation_ready_hook=allocation_hook)
+
         requests = {
             "arr1": ArrayRequest(shape=(8, 8, 8), dtype=np.float32, memory="device"),
             "arr2": ArrayRequest(shape=(4, 4, 4), dtype=np.float32, memory="device"),
         }
-        response = mgr.single_request(instance, requests)
+        mgr.single_request(instance, requests)
+
+        # Check that callback was called with correct response
+        assert callback_called["flag"] is True
+        response = callback_called["response"]
         assert isinstance(response, ArrayResponse)
         assert set(response.arr.keys()) == set(requests.keys())
         for key, arr in response.arr.items():
@@ -688,24 +700,34 @@ class TestMemoryManager:
 
     def test_single_request(self, registered_mgr, registered_instance):
         """Test single_request processes individual requests correctly."""
-        mgr = registered_mgr
-        instance = registered_instance
+        # Create instance with callback to capture response
+        instance = DummyClass()
+        callback_called = {"flag": False, "response": None}
+
+        def allocation_hook(response):
+            callback_called["flag"] = True
+            callback_called["response"] = response
+
+        registered_mgr.register(instance,
+                                allocation_ready_hook=allocation_hook)
 
         requests = {
             "arr1": ArrayRequest(shape=(4, 4, 4), dtype=np.float32, memory="device"),
             "arr2": ArrayRequest(shape=(2, 2, 2), dtype=np.float32, memory="mapped"),
         }
 
-        response = mgr.single_request(instance, requests)
+        registered_mgr.single_request(instance, requests)
 
-        # Should return ArrayResponse with correct structure
+        # Check that callback was called with correct response
+        assert callback_called["flag"] is True
+        response = callback_called["response"]
         assert isinstance(response, ArrayResponse)
         assert set(response.arr.keys()) == set(requests.keys())
         assert isinstance(response.chunks, int)
 
         # Arrays should be allocated and registered
         for key in requests.keys():
-            assert key in mgr.registry[id(instance)].allocations
+            assert key in registered_mgr.registry[id(instance)].allocations
 
     def test_allocate_queue_single_instance(self, mgr):
         """Test allocate_queue with single instance in queue."""
@@ -843,6 +865,41 @@ class TestMemoryManager:
         result = mgr.allocate_queue(instance)
         assert result is None
 
+    def test_is_grouped(self, mgr):
+        """Test is_grouped returns correct grouping status for instances."""
+        # Test instance in default group (should return False)
+        inst_default = DummyClass()
+        mgr.register(inst_default, stream_group="default")
+        assert mgr.is_grouped(inst_default) is False
+
+        # Test single instance in named group (should return False)
+        inst_single = DummyClass()
+        mgr.register(inst_single, stream_group="single_group")
+        assert mgr.is_grouped(inst_single) is False
+
+        # Test multiple instances in named group (should return True)
+        inst_group1 = DummyClass()
+        inst_group2 = DummyClass()
+        mgr.register(inst_group1, stream_group="multi_group")
+        mgr.register(inst_group2, stream_group="multi_group")
+        assert mgr.is_grouped(inst_group1) is True
+        assert mgr.is_grouped(inst_group2) is True
+
+        # Test three instances in named group (should return True)
+        inst_group3 = DummyClass()
+        mgr.register(inst_group3, stream_group="multi_group")
+        assert mgr.is_grouped(inst_group1) is True
+        assert mgr.is_grouped(inst_group2) is True
+        assert mgr.is_grouped(inst_group3) is True
+
+        # Test after moving instance to different group
+        mgr.change_stream_group(inst_group3, "new_group")
+        # inst_group3 should now be alone in "new_group"
+        assert mgr.is_grouped(inst_group3) is False
+        # inst_group1 and inst_group2 should still be grouped in "multi_group"
+        assert mgr.is_grouped(inst_group1) is True
+        assert mgr.is_grouped(inst_group2) is True
+
     @pytest.mark.parametrize("fixed_mem_override", [{"total": 512*1024**2}],
                              indirect=True)
     def test_get_available_single_low_memory_warning(self, registered_mgr, registered_instance):
@@ -901,3 +958,4 @@ def test_get_total_request_size():
     total_size = get_total_request_size(requests)
     expected_size = (10 * 10 * 4) + (5 * 5 * 8)  # 400 + 200 = 600
     assert total_size == expected_size
+
