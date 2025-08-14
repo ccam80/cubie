@@ -8,10 +8,10 @@ if TYPE_CHECKING:
 import attrs
 from cubie.batchsolving._utils import ensure_nonzero_size
 from numpy import ceil
-
+from abc import ABC
 
 @attrs.define
-class ArraySizingClass:
+class ArraySizingClass(ABC):
     """Base class for all array sizing classes. Provides a nonzero method
     which returns a copy of the object where
     all sizes have a minimum of one element, useful for allocating memory.."""
