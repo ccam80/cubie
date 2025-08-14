@@ -14,6 +14,7 @@ from numba import cuda
 from numba import int32, int16, from_dtype
 from numpy.typing import NDArray, ArrayLike
 
+from cubie import default_memmgr
 from cubie.CUDAFactory import CUDAFactory
 from cubie.batchsolving.BatchInputArrays import InputArrays
 from cubie.batchsolving.BatchOutputArrays import OutputArrays, ActiveOutputs
@@ -52,8 +53,21 @@ class BatchSolverKernel(CUDAFactory):
                  summarised_state_indices: Optional[ArrayLike] = None,
                  summarised_observable_indices: Optional[ArrayLike] = None,
                  output_types: list[str] = None, precision: type = np.float64,
-                 profileCUDA: bool = False, ):
+                 profileCUDA: bool = False,
+                 memory_manager=default_memmgr,
+                 stream_group='default',
+                 mem_proportion=None,
+                 ):
         super().__init__()
+        self.chunks = None
+        self.chunk_axis = 'run'
+        self.num_runs = 1
+        self._memory_manager = memory_manager
+        self._memory_manager.register(
+                self,
+                stream_group=stream_group,
+                proportion=mem_proportion,
+                allocation_ready_hook=self._on_allocation)
 
         config = BatchSolverConfig(precision=precision, algorithm=algorithm,
                                    duration=duration, warmup=warmup,
@@ -74,8 +88,13 @@ class BatchSolverKernel(CUDAFactory):
                 summarised_observable_indices=summarised_observable_indices,
                 output_types=output_types, )
 
-        self.input_arrays = InputArrays.from_solver(self)
+        # input/output arrays supressed while refactoring
+        self.input_arrays = InputArrays.from_solver(
+                self)
         self.output_arrays = OutputArrays.from_solver(self)
+
+    def _on_allocation(self, response):
+        self.chunks = response.chunks
 
     @property
     def output_heights(self):
@@ -90,23 +109,62 @@ class BatchSolverKernel(CUDAFactory):
     def build(self):
         return self.build_kernel()
 
+    @property
+    def memory_manager(self):
+        """Returns the memory manager the solver is registered with."""
+        return self._memory_manager
+
+    @property
+    def stream_group(self):
+        """Returns the stream_group the solver is in."""
+        return self.memory_manager.get_stream_group(self)
+
+    @property
+    def mem_proportion(self):
+        """Returns the memory proportion the solver is assigned."""
+        return self.memory_manager.proportion(self)
+
+
     def run(self, duration, params, inits, forcing_vectors, blocksize=256,
-            stream=0, warmup=0.0, ):
+            stream=0, warmup=0.0, chunk_axis='run'):
         """Run the solver kernel."""
         # Order currently IMPORTANT - num_runs is updated in input_arrays,
         # which is used in output_arrays.
         self.duration = duration
         self.warmup = warmup
+        numruns = inits.shape[0]
+        self.num_runs = numruns
 
-        self.input_arrays(inits, params, forcing_vectors)
+        self.input_arrays(self, inits, params, forcing_vectors)
         self.output_arrays(self)
 
-        output_length = self.output_length
+        self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
+        chunks = self.chunks
+
+        if chunk_axis == 'run':
+            chunkruns = int(np.ceil(numruns / chunks))
+            chunklength = self.output_length
+            chunksize = chunkruns
+        elif chunk_axis == 'time':
+            chunklength = int(np.ceil(self.output_length / chunks))
+            chunkruns = numruns
+            chunksize = chunklength
+        else:
+            chunklength = self.output_length
+            chunkruns = numruns
+            chunksize = None
+            chunks = 1
+
+        #------------ from here on dimensions are "chunked" -----------------
+        self.chunk_axis = chunk_axis
+        self.chunks = chunks
+        numruns = chunkruns
+        output_length = chunklength
         warmup_length = self.warmup_length
-        numruns = self.input_arrays.num_runs
 
         dynamic_sharedmem = int(
-                self.shared_memory_bytes_per_run * min(numruns, blocksize))
+                self.shared_memory_bytes_per_run * min(numruns,
+                                                       blocksize))
         while dynamic_sharedmem > 32768:
             if blocksize < 32:
                 warn("Block size has been reduced to less than 32 threads, "
@@ -121,33 +179,39 @@ class BatchSolverKernel(CUDAFactory):
 
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
-        BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
-
+        BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))  #
+        # selectively chunk by chunk_size - depends on chunk_axis
         if (os.environ.get(
                 "NUMBA_ENABLE_CUDASIM") != "1" and
                 self.compile_settings.profileCUDA):
             cuda.profile_start()
 
-        self.device_function[BLOCKSPERGRID, (threads_per_loop,
-                                             runsperblock), stream,
-        dynamic_sharedmem](
-                self.input_arrays.device_initial_values,
-                self.input_arrays.device_parameters,
-                self.input_arrays.device_forcing_vectors,
-                self.output_arrays.state, self.output_arrays.observables,
-                self.output_arrays.state_summaries,
-                self.output_arrays.observable_summaries, output_length,
-                warmup_length, numruns, )
-        cuda.synchronize()
+        for i in range(chunks):
+            indices = slice(i * chunksize, (i + 1) * chunksize)
+            self.input_arrays.initialise(indices)
+            self.output_arrays.initialise(indices)
+
+            self.device_function[BLOCKSPERGRID,
+                                (threads_per_loop, runsperblock),
+                                stream,
+                                dynamic_sharedmem](
+                    self.input_arrays.device_initial_values,
+                    self.input_arrays.device_parameters,
+                    self.input_arrays.device_forcing_vectors,
+                    self.output_arrays.device_state,
+                    self.output_arrays.device_observables,
+                    self.output_arrays.device_state_summaries,
+                    self.output_arrays.device_observable_summaries, output_length,
+                    warmup_length, numruns, )
+            self.memory_manager.sync_stream(self)
+
+            self.input_arrays.finalise(indices)
+            self.output_arrays.finalise(indices)
 
         if (os.environ.get(
                 "NUMBA_ENABLE_CUDASIM") != "1" and
                 self.compile_settings.profileCUDA):
             cuda.profile_stop()
-
-        # return self.output_arrays # Should this be returned? do we want
-        # the user's dirty fingers in here or is it  # required to keep the
-        # higher algorithms spinning around?
 
     def build_kernel(self):
         """Build the integration kernel."""
@@ -291,15 +355,9 @@ class BatchSolverKernel(CUDAFactory):
                         self.single_integrator.dt_save))
 
     @property
-    def num_runs(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchInputArrays.InputArrays
-        .num_runs` from the child InputArrays object."""
-        return self.input_arrays.num_runs
-
-    @property
     def system(self):
         """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .dt_save` from the SingleIntegratorRun
+        .system` from the SingleIntegratorRun
         instance."""
         return self.single_integrator.system
 
@@ -328,6 +386,14 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.system_sizes
 
     @property
+    def output_array_heights(self):
+        """Exposes :attr:`~cubie.batchsolving.integrators
+        .SingleIntegratorRun.output_array_heights` from the child
+        SingleIntegratorRun object.
+        """
+        return self.single_integrator.output_array_heights
+
+    @property
     def ouput_array_sizes_2d(self):
         """Returns the 2D output array sizes for a single run."""
         return SingleRunOutputSizes.from_solver(self)
@@ -336,6 +402,12 @@ class BatchSolverKernel(CUDAFactory):
     def output_array_sizes_3d(self):
         """Returns the 3D output array sizes for a batch of runs."""
         return BatchOutputSizes.from_solver(self)
+
+    @property
+    def summaries_buffer_sizes(self):
+        """Exposes :attr:`~cubie.batchsolving.integrators
+        .SingleIntegratorRun.summaries_buffer_sizes` from the child"""
+        return self.single_integrator.summaries_buffer_sizes
 
     @property
     def summary_legend_per_variable(self):
@@ -379,28 +451,63 @@ class BatchSolverKernel(CUDAFactory):
         return self.output_arrays.active_outputs
 
     @property
-    def state_dev_array(self):
+    def device_state_array(self):
         """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
         .state` from the child OutputArrays object."""
+        return self.output_arrays.device_state
+
+    @property
+    def device_observables_array(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
+        .observables` from the child OutputArrays object."""
+        return self.output_arrays.device_observables
+
+    @property
+    def device_state_summaries_array(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
+        .state_summaries` from the child OutputArrays object."""
+        return self.output_arrays.device_state_summaries
+
+    @property
+    def device_observable_summaries_array(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
+        .observable_summaries` from the child OutputArrays object."""
+        return self.output_arrays.device_observable_summaries
+
+    @property
+    def state(self):
+        """Returns the state array."""
         return self.output_arrays.state
 
     @property
-    def observables_dev_array(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
-        .observables` from the child OutputArrays object."""
+    def observables(self):
+        """Returns the observables array."""
         return self.output_arrays.observables
 
     @property
-    def state_summaries_dev_array(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
-        .state_summaries` from the child OutputArrays object."""
+    def state_summaries(self):
+        """Returns the state summaries array."""
         return self.output_arrays.state_summaries
 
     @property
-    def observable_summaries_dev_array(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
-        .observable_summaries` from the child OutputArrays object."""
+    def observable_summaries(self):
+        """Returns the observable summaries array."""
         return self.output_arrays.observable_summaries
+
+    @property
+    def initial_values(self):
+        """Returns the initial values array."""
+        return self.input_arrays.initial_values
+
+    @property
+    def parameters(self):
+        """Returns the parameters array."""
+        return self.input_arrays.parameters
+
+    @property
+    def forcing_vectors(self):
+        """Returns the forcing vectors array."""
+        return self.input_arrays.forcing_vectors
 
     @property
     def save_time(self):

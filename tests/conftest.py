@@ -6,6 +6,7 @@ import numpy as np
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
+from cubie import default_memmgr
 
 """Fixtures for instantiating lower-level components with default values that can be overriden through
 indirect parametrization of the "override" fixture."""
@@ -189,6 +190,9 @@ def solver_settings(loop_compile_settings, solver_settings_override, precision):
         'blocksize':        32,
         'stream': 0,
         'profileCUDA':       False,
+        'memory_manager':default_memmgr,
+        'stream_group': "test_group",
+        'mem_proportion':None
     }
 
     if solver_settings_override:
@@ -200,21 +204,26 @@ def solver_settings(loop_compile_settings, solver_settings_override, precision):
 
 @pytest.fixture(scope='function')
 def solverkernel(solver_settings, system):
-    return BatchSolverKernel(system,
-                             algorithm=solver_settings['algorithm'],
-                            duration=solver_settings['duration'],
-                            warmup=solver_settings['warmup'],
-                            dt_min=solver_settings['dt_min'],
-                            dt_max=solver_settings['dt_max'],
-                            dt_save=solver_settings['dt_save'],
-                            dt_summarise=solver_settings['dt_summarise'],
-                            atol=solver_settings['atol'],
-                            rtol=solver_settings['rtol'],
-                            saved_state_indices=solver_settings['saved_state_indices'],
-                            saved_observable_indices=solver_settings['saved_observable_indices'],
-                            output_types=solver_settings['output_types'],
-                            precision=solver_settings['precision'],
-                            profileCUDA=solver_settings.get('profileCUDA', False))
+    return BatchSolverKernel(
+        system,
+        algorithm=solver_settings["algorithm"],
+        duration=solver_settings["duration"],
+        warmup=solver_settings["warmup"],
+        dt_min=solver_settings["dt_min"],
+        dt_max=solver_settings["dt_max"],
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        atol=solver_settings["atol"],
+        rtol=solver_settings["rtol"],
+        saved_state_indices=solver_settings["saved_state_indices"],
+        saved_observable_indices=solver_settings["saved_observable_indices"],
+        output_types=solver_settings["output_types"],
+        precision=solver_settings["precision"],
+        profileCUDA=solver_settings.get("profileCUDA", False),
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+        mem_proportion=solver_settings["mem_proportion"],
+    )
 
 @pytest.fixture(scope='function')
 def solver(system, solver_settings):
@@ -232,7 +241,11 @@ def solver(system, solver_settings):
                             saved_observable_indices=solver_settings['saved_observable_indices'],
                             output_types=solver_settings['output_types'],
                             precision=solver_settings['precision'],
-                            profileCUDA=solver_settings.get('profileCUDA', False))
+                            profileCUDA=solver_settings.get('profileCUDA',
+                                                            False),
+                            memory_manager=solver_settings['memory_manager'],
+                            stream_group=solver_settings['stream_group'],
+                            mem_proportion=solver_settings['mem_proportion'],)
 
 
 @pytest.fixture(scope='function')

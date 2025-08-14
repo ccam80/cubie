@@ -1,263 +1,358 @@
+from os import environ
 import pytest
 import numpy as np
-from numpy import float32, float64, zeros, ones, array_equal
-from cubie.batchsolving.BatchInputArrays import InputArrays
-from cubie.outputhandling.output_sizes import LoopBufferSizes
+from numpy.testing import assert_array_equal
+import attrs
+from numba import cuda
 
-@pytest.fixture(scope="function")
-def input_arrays():
-    """Fixture to create a default InputArrays instance"""
-    return InputArrays()
+from cubie.batchsolving.BatchInputArrays import (InputArrays,
+                                                 InputArrayContainer)
+from cubie import default_memmgr
+from cubie.outputhandling.output_sizes import BatchInputSizes
+
+if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
+    from numba.cuda.simulator.cudadrv.devicearray import \
+        FakeCUDAArray as DeviceNDArray
+    from numpy import zeros as device_array
+else:
+    from numba.cuda.cudadrv.devicearray import DeviceNDArray
+    from numba.cuda import device_array
+
+@pytest.fixture(scope='function')
+def input_test_overrides(request):
+    if hasattr(request, 'param'):
+        return request.param
+    return {}
+
+@pytest.fixture(scope='function')
+def input_test_settings(input_test_overrides):
+    settings = {
+        'num_runs': 5,
+        'dtype': 'float32',
+        'memory': 'device',
+        'stream_group': 'default',
+        'memory_proportion': None,
+    }
+    settings.update(input_test_overrides)
+    return settings
+
+@pytest.fixture(scope='function')
+def input_arrays_manager(solver, input_test_settings):
+    """Create a InputArrays instance using real solver"""
+    batch_input_sizes = BatchInputSizes.from_solver(solver)
+    return InputArrays(
+        sizes=batch_input_sizes,
+        precision=solver.precision,
+        stream_group=input_test_settings['stream_group'],
+        memory_proportion=input_test_settings['memory_proportion'],
+        memory_manager=default_memmgr
+    )
+
+@pytest.fixture(scope='function')
+def sample_input_arrays(solver, input_test_settings, precision):
+    """Create sample input arrays for testing based on real solver"""
+    num_runs = input_test_settings['num_runs']
+    dtype = precision
+    
+    variables_count = solver.system_sizes.states
+    parameters_count = solver.system_sizes.parameters
+    forcing_count = solver.system_sizes.drivers
+
+    return {
+        'initial_values': np.random.rand(variables_count, num_runs).astype(dtype),
+        'parameters': np.random.rand(parameters_count, num_runs).astype(dtype),
+        'forcing_vectors': np.random.rand(forcing_count, num_runs).astype(dtype)
+    }
+
+
+class TestInputArrayContainer:
+    """Test the InputArrayContainer class"""
+
+    def test_container_arrays_after_init(self):
+        """Test that container has correct arrays after initialization"""
+        container = InputArrayContainer()
+        expected_arrays = {'initial_values', 'parameters', 'forcing_vectors'}
+        actual_arrays = {key for key in container.__dict__.keys() if not
+        key.startswith('_')}
+        
+        assert actual_arrays == expected_arrays
+        
+        # Check that all arrays are None initially
+        assert container.initial_values is None
+        assert container.parameters is None
+        assert container.forcing_vectors is None
+
+    def test_container_stride_order(self):
+        """Test that stride order is set correctly"""
+        container = InputArrayContainer()
+        assert container.stride_order == ("run", "variable")
+
+    def test_host_factory(self):
+        """Test host factory method"""
+        container = InputArrayContainer.host_factory()
+        assert container._memory_type == "host"
+
+    def test_device_factory(self):
+        """Test device factory method"""
+        container = InputArrayContainer.device_factory()
+        assert container._memory_type == "device"
+
 
 class TestInputArrays:
-    """Test InputArrays class for device memory management and caching behavior"""
+    """Test the InputArrays class"""
 
-    def test_init_default(self):
-        """Test default initialization creates zero arrays"""
-        arrays = InputArrays()
+    def test_initialization_container_types(self, input_arrays_manager):
+        """Test that containers have correct array types after initialization"""
+        # Check host container arrays
+        expected_arrays = {'initial_values', 'parameters', 'forcing_vectors'}
+        host_arrays = {key for key in input_arrays_manager.host.__dict__.keys() if not key.startswith('_')}
+        device_arrays = {key for key in input_arrays_manager.device.__dict__.keys() if not key.startswith('_')}
+        
+        assert host_arrays == expected_arrays
+        assert device_arrays == expected_arrays
+        
+        # Check memory types are set correctly in post_init
+        assert input_arrays_manager.host._memory_type == "host"
+        assert input_arrays_manager.device._memory_type == "device"
 
-        assert arrays.initial_values.shape == (1, 1, 1)
-        assert arrays.parameters.shape == (1, 1, 1)
-        assert arrays.forcing_vectors.shape == (1, 1, 1)
-        assert arrays._precision == float32
-        assert np.all(arrays.initial_values == 0)
-        assert np.all(arrays.parameters == 0)
-        assert np.all(arrays.forcing_vectors == 0)
+    def test_from_solver_factory(self, solver):
+        """Test creating InputArrays from solver"""
+        input_arrays = InputArrays.from_solver(solver)
+        
+        assert isinstance(input_arrays, InputArrays)
+        assert isinstance(input_arrays._sizes, BatchInputSizes)
+        assert input_arrays._precision == solver.precision
 
-    def test_init_with_arrays(self):
-        """Test initialization with provided arrays"""
-        init_vals = ones((2, 3, 4), dtype=float32)
-        params = 2 * ones((2, 3, 5), dtype=float32)
-        forcing = 3 * ones((2, 3, 6), dtype=float32)
+    def test_allocation_and_getters_not_none(self, input_arrays_manager, solver, sample_input_arrays):
+        """Test that all getters return non-None after allocation"""
+        # Call the manager to set up arrays and allocate
+        # solver.numruns=sample_input_arrays['initial_values'].shape[1]
+        input_arrays_manager(
+            solver,
+            sample_input_arrays['initial_values'],
+            sample_input_arrays['parameters'],
+            sample_input_arrays['forcing_vectors']
+        )
+        
+        # Check host getters
+        assert input_arrays_manager.initial_values is not None
+        assert input_arrays_manager.parameters is not None
+        assert input_arrays_manager.forcing_vectors is not None
+        
+        # Check device getters
+        assert input_arrays_manager.device_initial_values is not None
+        assert input_arrays_manager.device_parameters is not None
+        assert input_arrays_manager.device_forcing_vectors is not None
 
-        arrays = InputArrays(
-            precision=float32,
-            initial_values=init_vals,
-            parameters=params,
-            forcing_vectors=forcing
+    def test_call_method_updates_host_arrays(self, input_arrays_manager, solver, sample_input_arrays):
+        """Test that call method updates host arrays"""
+        input_arrays_manager(
+            solver,
+            sample_input_arrays['initial_values'],
+            sample_input_arrays['parameters'],
+            sample_input_arrays['forcing_vectors']
+        )
+        
+        # Check that host arrays were updated
+        assert_array_equal(input_arrays_manager.initial_values, sample_input_arrays['initial_values'])
+        assert_array_equal(input_arrays_manager.parameters, sample_input_arrays['parameters'])
+        assert_array_equal(input_arrays_manager.forcing_vectors, sample_input_arrays['forcing_vectors'])
+
+    def test_call_method_size_change_triggers_reallocation(self, input_arrays_manager, solver, input_test_settings):
+        """Test that call method triggers reallocation when size changes"""
+        dtype = getattr(np, input_test_settings['dtype'])
+        num_runs = input_test_settings['num_runs']
+        
+        variables_count = solver.system_sizes.states
+        parameters_count = solver.system_sizes.parameters
+        forcing_count = solver.system_sizes.drivers
+        
+        # Initial call with original sizes
+        initial_arrays = {
+            'initial_values': np.random.rand(variables_count, num_runs).astype(dtype),
+            'parameters': np.random.rand(parameters_count, num_runs).astype(dtype),
+            'forcing_vectors': np.random.rand(forcing_count, num_runs).astype(dtype)
+        }
+        
+        input_arrays_manager(
+            solver,
+            initial_arrays['initial_values'],
+            initial_arrays['parameters'],
+            initial_arrays['forcing_vectors']
+        )
+        
+        original_device_initial_values = input_arrays_manager.device_initial_values
+        
+        # Call with different sized arrays (more runs)
+        new_num_runs = num_runs + 2
+        new_arrays = {
+            'initial_values': np.random.rand(variables_count, new_num_runs).astype(dtype),
+            'parameters': np.random.rand(parameters_count, new_num_runs).astype(dtype),  
+            'forcing_vectors': np.random.rand(forcing_count, new_num_runs).astype(dtype)
+        }
+        
+        input_arrays_manager(
+            solver,
+            new_arrays['initial_values'],
+            new_arrays['parameters'],
+            new_arrays['forcing_vectors']
+        )
+        
+        # Should have triggered reallocation for all arrays
+        assert input_arrays_manager.device_initial_values is not original_device_initial_values
+        assert input_arrays_manager.device_initial_values.shape == (variables_count, new_num_runs)
+
+    def test_update_from_solver(self, input_arrays_manager, solver):
+        """Test update_from_solver method"""
+        input_arrays_manager.update_from_solver(solver)
+        
+        assert input_arrays_manager._precision == solver.precision
+        assert isinstance(input_arrays_manager._sizes, BatchInputSizes)
+
+    def test_initialise_method(self, input_arrays_manager, solver, sample_input_arrays):
+        """Test initialise method copies data to device"""
+        # Set up the manager
+        input_arrays_manager(
+            solver,
+            sample_input_arrays['initial_values'],
+            sample_input_arrays['parameters'],
+            sample_input_arrays['forcing_vectors']
+        )
+        
+        # Clear device arrays to test initialise
+        input_arrays_manager.device.initial_values[:,:] = 0.0
+        input_arrays_manager.device.parameters[:,:] = 0.0
+        input_arrays_manager.device.forcing_vectors[:,:] = 0.0
+        
+        # Set up chunking
+        input_arrays_manager._chunks = 1
+        input_arrays_manager._chunk_axis = "run"
+        
+        # Call initialise with host indices (all data)
+        host_indices = slice(None)
+        input_arrays_manager.initialise(host_indices)
+        
+        # Check that device arrays now match host arrays
+        np.testing.assert_array_equal(
+            np.array(input_arrays_manager.device.initial_values),
+            sample_input_arrays['initial_values']
+        )
+        np.testing.assert_array_equal(
+            np.array(input_arrays_manager.device.parameters),
+            sample_input_arrays['parameters']
+        )
+        np.testing.assert_array_equal(
+            np.array(input_arrays_manager.device.forcing_vectors),
+            sample_input_arrays['forcing_vectors']
         )
 
-        assert np.array_equal(arrays.initial_values, init_vals)
-        assert np.array_equal(arrays.parameters, params)
-        assert np.array_equal(arrays.forcing_vectors, forcing)
-
-    def test_precision_setting(self):
-        """Test different precision types"""
-        arrays_f32 = InputArrays(precision=float32)
-        arrays_f64 = InputArrays(precision=float64)
-
-        assert arrays_f32._precision == float32
-        assert arrays_f64._precision == float64
-        assert arrays_f64.initial_values.dtype == float64
-
-    def test_call_method_basic_update(self):
-        """Test __call__ method updates arrays correctly"""
-        arrays = InputArrays()
-
-        new_init = ones((2, 3, 4), dtype=float32)
-        new_params = 2 * ones((2, 3, 5), dtype=float32)
-        new_forcing = 3 * ones((2, 3, 6), dtype=float32)
-
-        arrays(new_init, new_params, new_forcing)
-
-        assert np.array_equal(arrays.initial_values, new_init)
-        assert np.array_equal(arrays.parameters, new_params)
-        assert np.array_equal(arrays.forcing_vectors, new_forcing)
-
-    def test_call_method_no_change(self):
-        """Test __call__ method does nothing when arrays unchanged"""
-        arrays = InputArrays()
-        original_init = arrays.initial_values.copy()
-
-        # Call with same arrays - should not trigger updates
-        arrays(original_init, arrays.parameters, arrays.forcing_vectors)
-
-        # Check no reallocation/overwrite lists populated
-        assert len(arrays._needs_reallocation) == 0
-        assert len(arrays._needs_overwrite) == 0
-
-    def test_call_method_content_change(self):
-        """Test __call__ method detects content changes"""
-        arrays = InputArrays()
-        original_shape = arrays.initial_values.shape
-
-        # Same shape, different content
-        new_init = ones(original_shape, dtype=float32)
-        arrays(new_init, arrays.parameters, arrays.forcing_vectors)
-
-        # Should trigger overwrite, not reallocation
-
-        assert arrays._initial_values is new_init
-        assert array_equal(arrays._device_inits.copy_to_host(), new_init)
-
-
-    def test_arrays_equal_method(self):
-        """Test _arrays_equal method handles various cases"""
-        arrays = InputArrays()
-
-        arr1 = ones((2, 3), dtype=float32)
-        arr2 = ones((2, 3), dtype=float32)
-        arr3 = zeros((2, 3), dtype=float32)
-        arr4 = ones((2, 4), dtype=float32)
-
-        assert arrays._arrays_equal(arr1, arr2)
-        assert not arrays._arrays_equal(arr1, arr3)
-        assert not arrays._arrays_equal(arr1, arr4)
-        assert arrays._arrays_equal(None, None)
-        assert not arrays._arrays_equal(arr1, None)
-
-    def test_check_dims_vs_system_no_sizes(self):
-        """Test dimension checking when no system sizes set"""
-        arrays = InputArrays()
-        arrays._sizes = None
-
-        result = arrays._check_dims_vs_system(
-            ones((2, 3, 4)), ones((2, 3, 5)), ones((2, 3, 6))
+    def test_finalise_method(self, solver, sample_input_arrays):
+        """Test finalise method copies data from device"""
+        # Set up the manager
+        input_arrays_manager = InputArrays.from_solver(solver)
+        input_arrays_manager(
+            solver,
+            sample_input_arrays['initial_values'],
+            sample_input_arrays['parameters'],
+            sample_input_arrays['forcing_vectors']
         )
-        assert result  # Should return True when no sizes to check against
-
-    def test_check_dims_vs_system_with_sizes(self):
-        """Test dimension checking with system sizes"""
-        # Mock LoopBufferSizes
-        MockSizes = LoopBufferSizes(state = 4,
-                                    parameters = 5,
-                                    drivers = 6,
-                                    )
-
-        arrays = InputArrays()
-        arrays._sizes = MockSizes
-
-        # Correct dimensions
-        result = arrays._check_dims_vs_system(
-            ones((3, 4)), ones((5, 5)), ones((4, 6))
+        solver.memory_manager.allocate_queue(input_arrays_manager)
+        # Modify device initial_values (simulate computation results)
+        modified_values = np.array(
+                input_arrays_manager.device.initial_values.copy_to_host()) * 2
+        cuda.to_device(modified_values,
+                       to=input_arrays_manager.device.initial_values)
+        
+        # Set up chunking
+        input_arrays_manager._chunks = 1
+        input_arrays_manager._chunk_axis = "run"
+        
+        # Store original host values
+        original_host_values = input_arrays_manager.host.initial_values.copy()
+        
+        # Call finalise with host indices (all data)
+        host_indices = slice(None)
+        input_arrays_manager.finalise(host_indices)
+        
+        # Check that host initial_values were updated with device values
+        np.testing.assert_array_equal(
+            input_arrays_manager.host.initial_values,
+            modified_values
         )
-        assert result
+        
+        # Verify it actually changed from original
+        assert not np.array_equal(input_arrays_manager.host.initial_values, original_host_values)
 
-        # Incorrect dimensions
-        result = arrays._check_dims_vs_system(
-            ones((2, 6)), ones((2, 5)), ones((2, 4))
-        )
-        assert not result
-
-    def test_num_runs_property(self):
-        """Test num_runs property calculation"""
-        arrays = InputArrays(
-            precision=float32,
-            initial_values=ones((2, 3), dtype=float32),
-            parameters=ones((2, 5), dtype=float32)
+    @pytest.mark.parametrize("precision_override",
+                             [np.float32, np.float64],
+                             indirect=True)
+    def test_dtype(self, input_arrays_manager, solver, sample_input_arrays,
+                   precision):
+        """Test finalise method copies data from device"""
+        # Set up the manager
+        input_arrays_manager(
+            solver,
+            sample_input_arrays['initial_values'],
+            sample_input_arrays['parameters'],
+            sample_input_arrays['forcing_vectors']
         )
 
-        assert arrays.num_runs == 2  # init_runs * param_runs
+        expected_dtype = precision
+        assert input_arrays_manager.initial_values.dtype == expected_dtype
+        assert input_arrays_manager.parameters.dtype == expected_dtype
+        assert input_arrays_manager.forcing_vectors.dtype == expected_dtype
+        assert input_arrays_manager.device_initial_values.dtype == expected_dtype
+        assert input_arrays_manager.device_parameters.dtype == expected_dtype
+        assert input_arrays_manager.device_forcing_vectors.dtype == expected_dtype
 
-    def test_num_runs_property_none_arrays(self):
-        """Test num_runs property with None arrays"""
-        arrays = InputArrays()
-        arrays._initial_values = None
-        arrays._parameters = None
+# Parametrized tests for different configurations
+@pytest.mark.parametrize("input_test_overrides", [
+    {'num_runs': 10},
+    {'num_runs': 3},
+    {'stream_group': 'test_group', 'memory_proportion': 0.5},
+], indirect=True)
+def test_input_arrays_with_different_configs(input_arrays_manager, solver, sample_input_arrays, input_test_settings):
+    """Test InputArrays with different configurations"""
+    # Test that the manager works with different configurations
+    input_arrays_manager(
+        solver,
+        sample_input_arrays['initial_values'],
+        sample_input_arrays['parameters'],
+        sample_input_arrays['forcing_vectors']
+    )
+    
+    # Check shapes match expected configuration
+    expected_num_runs = input_test_settings['num_runs']
+    assert input_arrays_manager.initial_values.shape[1] == expected_num_runs
+    assert input_arrays_manager.parameters.shape[1] == expected_num_runs
+    assert input_arrays_manager.forcing_vectors.shape[1] == expected_num_runs
+    
+    # Check data types
+    expected_dtype = getattr(np, input_test_settings['dtype'])
+    assert input_arrays_manager.initial_values.dtype == expected_dtype
+    assert input_arrays_manager.parameters.dtype == expected_dtype
+    assert input_arrays_manager.forcing_vectors.dtype == expected_dtype
 
-        assert arrays.num_runs == 0
-
-    def test_to_device_clears_lists(self):
-        """Test to_device method clears pending operation lists"""
-        arrays = InputArrays()
-
-        # Manually populate lists to simulate pending operations
-        mock_array = ones((2, 3), dtype=float32)
-        arrays._needs_reallocation = [(mock_array, arrays._device_inits)]
-        arrays._needs_overwrite = [(mock_array, arrays._device_parameters)]
-
-        arrays.to_device()
-
-        assert len(arrays._needs_reallocation) == 0
-        assert len(arrays._needs_overwrite) == 0
-
-    @pytest.mark.parametrize("precision", [float32, float64])
-    def test_different_precisions(self, precision):
-        """Test InputArrays works with different precision types"""
-        arrays = InputArrays(precision=precision)
-
-        assert arrays._precision == precision
-        assert arrays.initial_values.dtype == precision
-
-    def test_properties_readonly(self):
-        """Test that array properties are read-only"""
-        arrays = InputArrays()
-        init_vals = arrays.initial_values
-
-        # Properties should return the same object
-        assert arrays.initial_values is init_vals
-        assert arrays.parameters is arrays._parameters
-        assert arrays.forcing_vectors is arrays._forcing_vectors
-
-    def test_integration_scenario(self):
-        """Test complete integration scenario with multiple updates"""
-        arrays = InputArrays()
-
-        # First update - should trigger reallocation
-        init1 = ones((2, 3, 4), dtype=float32)
-        params1 = 2 * ones((2, 3, 5), dtype=float32)
-        forcing1 = 3 * ones((2, 3, 6), dtype=float32)
-
-        arrays(init1, params1, forcing1)
-
-        # Verify arrays updated
-        assert np.array_equal(arrays.initial_values, init1)
-        assert np.array_equal(arrays.parameters, params1)
-        assert np.array_equal(arrays.forcing_vectors, forcing1)
-
-        # Second update - same shape, different content (should overwrite)
-        init2 = 4 * ones((2, 3, 4), dtype=float32)
-        arrays(init2, params1, forcing1)  # Only change initial values
-
-        assert np.array_equal(arrays.initial_values, init2)
-
-        # Third update - different shape (should reallocate)
-        init3 = ones((5, 6, 4), dtype=float32)
-        params3 = ones((5, 6, 5), dtype=float32)
-        forcing3 = ones((5, 6, 6), dtype=float32)
-
-        arrays(init3, params3, forcing3)
-
-        assert arrays.initial_values.shape == (5, 6, 4)
-        assert np.array_equal(arrays.initial_values, init3)
-
-    def test_device_readback(self):
-        arrays = InputArrays()
-
-        init = ones((2, 3, 4), dtype=float32)
-        params = 2 * ones((2, 3, 5), dtype=float32)
-        forcing = 3 * ones((2, 3, 6), dtype=float32)
-
-        arrays(init, params, forcing)
-
-        assert array_equal(arrays._device_inits.copy_to_host(), init)
-        assert array_equal(arrays._device_parameters.copy_to_host(), params)
-        assert array_equal(arrays._device_forcing.copy_to_host() , forcing)
-
-        init = ones((5, 6, 4), dtype=float32) * 5.0
-        params = ones((5, 6, 5), dtype=float32) * 3.0
-        forcing = ones((5, 6, 6), dtype=float32) * 2.0
-        arrays(init, params, forcing)
-
-        assert array_equal(arrays._device_inits.copy_to_host(), init)
-        assert array_equal(arrays._device_parameters.copy_to_host(), params)
-        assert array_equal(arrays._device_forcing.copy_to_host(), forcing)
-
-        #reallocate:
-        init = ones((5, 2, 4), dtype=float32) * 5.0
-        params = ones((5, 2, 5), dtype=float32) * 3.0
-        forcing = ones((5, 2, 6), dtype=float32) * 2.0
-        arrays(init, params, forcing)
-
-        assert array_equal(arrays._device_inits.copy_to_host(), init)
-        assert array_equal(arrays._device_parameters.copy_to_host(), params)
-        assert array_equal(arrays._device_forcing.copy_to_host(), forcing)
-
-def test_zero_size_handling():
-    """Test zero size arrays are overwritten with size 1"""
-    arrays = InputArrays()
-    arrays(zeros((0, 2, 3)), zeros((4, 0, 6)), zeros((0,)))
-
-    assert arrays._initial_values.shape == (1,1,1)
-    assert arrays._parameters.shape == (1,1,1)
-    assert arrays._forcing_vectors.shape == (1, 1, 1)
+@pytest.mark.parametrize("system_override", ["ThreeChamber", "Decays123", "genericODE"], indirect=True)
+def test_input_arrays_with_different_systems(input_arrays_manager, solver, sample_input_arrays):
+    """Test InputArrays with different system models"""
+    # Test that the manager works with different system types
+    input_arrays_manager(
+        solver,
+        sample_input_arrays['initial_values'],
+        sample_input_arrays['parameters'],
+        sample_input_arrays['forcing_vectors']
+    )
+    
+    # Verify the arrays match the system's requirements
+    assert input_arrays_manager.initial_values.shape[0] == solver.system_sizes.states
+    assert input_arrays_manager.parameters.shape[0] == solver.system_sizes.parameters
+    assert input_arrays_manager.forcing_vectors.shape[0] == solver.system_sizes.drivers
+    
+    # Check that all getters work
+    assert input_arrays_manager.initial_values is not None
+    assert input_arrays_manager.parameters is not None
+    assert input_arrays_manager.forcing_vectors is not None
+    assert input_arrays_manager.device_initial_values is not None
+    assert input_arrays_manager.device_parameters is not None
+    assert input_arrays_manager.device_forcing_vectors is not None

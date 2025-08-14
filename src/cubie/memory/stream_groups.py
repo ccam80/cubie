@@ -60,10 +60,6 @@ class StreamGroups:
         if group not in self.groups:
             return []
 
-        # Convert instance IDs back to instance objects
-        # Note: This requires maintaining a reverse mapping or using weak references
-        # For now, we'll need to iterate through all registered instances
-        # This will be handled by the MemoryManager's registry
         return self.groups[group]
 
     def change_group(self, instance, new_group):

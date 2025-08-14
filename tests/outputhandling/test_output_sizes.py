@@ -11,7 +11,8 @@ from cubie.outputhandling.output_sizes import (
     LoopBufferSizes,
     OutputArrayHeights,
     SingleRunOutputSizes,
-    BatchOutputSizes
+    BatchOutputSizes,
+    BatchInputSizes,
     )
 
 
@@ -372,6 +373,44 @@ class TestSingleRunOutputSizes:
         assert from_fns.observables == explicit.observables
         assert from_fns.state_summaries == explicit.state_summaries
         assert from_fns.observable_summaries == explicit.observable_summaries
+
+
+class TestBatchInputSizes:
+    """Test BatchInputSizes class"""
+
+    @pytest.mark.parametrize("test_data", [
+        pytest.param({
+            'initial_values': (5, 3), 'parameters': (5, 2), 'forcing_vectors': (2, None)
+        }, id="normal_values"),
+        pytest.param({
+            'initial_values': (0, 0), 'parameters': (0, 0), 'forcing_vectors': (0, None)
+        }, id="zeros"),
+    ])
+    def test_explicit_initialization(self, test_data):
+        """Test explicit initialization of BatchInputSizes"""
+        sizes = BatchInputSizes(**test_data)
+
+        assert sizes.initial_values == test_data['initial_values']
+        assert sizes.parameters == test_data['parameters']
+        assert sizes.forcing_vectors == test_data['forcing_vectors']
+
+    def test_nonzero_functionality(self):
+        """Test that nonzero property works correctly"""
+        sizes = BatchInputSizes(
+            initial_values=(0, 0), parameters=(0, 0), forcing_vectors=(0, None)
+        )
+        nonzero_sizes = sizes.nonzero
+
+        # All tuple values should have elements >= 1
+        assert all(v >= 1 for v in nonzero_sizes.initial_values)
+        assert all(v >= 1 for v in nonzero_sizes.parameters)
+        assert nonzero_sizes.forcing_vectors[0] == 1
+        assert nonzero_sizes.forcing_vectors[1] == 1
+
+    def test_stride_order_default(self):
+        """Test that stride_order has correct default value"""
+        sizes = BatchInputSizes()
+        assert sizes.stride_order == ("run", "variable")
 
 
 class TestBatchOutputSizes:

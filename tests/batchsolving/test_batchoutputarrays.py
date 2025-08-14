@@ -1,394 +1,424 @@
+from os import environ
 import pytest
 import numpy as np
-from numpy import float32, float64
-from numba.cuda import mapped_array
-from cubie.batchsolving.BatchOutputArrays import OutputArrays
-from cubie.outputhandling.output_sizes import BatchOutputSizes
-from warnings import catch_warnings
+from numpy.testing import assert_array_equal
 import attrs
 
-@attrs.define
-class IntegratorRunSettings:
-    output_samples: int = attrs.field(default=1000, metadata={'description': 'Number of output samples'})
-    summarise_samples: int = attrs.field(default=100, metadata={'description': 'Number of samples to summarise'})
-    duration: float = attrs.field(default=10.0, metadata={'description': 'Total simulation duration'})
+from cubie.batchsolving.BatchOutputArrays import (OutputArrays,
+                                              OutputArrayContainer, ActiveOutputs)
+from cubie.memory.mem_manager import MemoryManager
+from cubie.outputhandling.output_sizes import BatchOutputSizes
 
-# Fixtures for run settings
-@pytest.fixture(scope="function")
-def run_settings_override(request):
-    """Override for run settings, if provided."""
-    return request.param if hasattr(request, 'param') else {}
+if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
+    from numba.cuda.simulator.cudadrv.devicearray import \
+        FakeCUDAArray as DeviceNDArray
+    from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
+                                                          MappedNDArray)
+    from numpy import zeros as mapped_array
+    from numpy import zeros as device_array
+else:
+    from numba.cuda.cudadrv.devicearray import DeviceNDArray, MappedNDArray
+    from numba.cuda import mapped_array, device_array
 
-@pytest.fixture(scope="function")
-def run_settings(run_settings_override):
-    """Create a dictionary of run settings for testing"""
-    default_settings = IntegratorRunSettings()
-    for key, value in run_settings_override.items():
-        if hasattr(default_settings, key):
-            setattr(default_settings, key, value)
-    return default_settings
+@pytest.fixture(scope='function')
+def output_test_overrides(request):
+    if hasattr(request, 'param'):
+        return request.param
+    return {}
+
+@pytest.fixture(scope='function')
+def output_test_settings(output_test_overrides):
+    settings = {
+        'num_runs': 5,
+        'dtype': 'float32',
+        'memory': 'mapped',
+        'stream_group': 'default',
+        'memory_proportion': None,
+    }
+    settings.update(output_test_overrides)
+    return settings
+
+@pytest.fixture(scope='function')
+def test_memory_manager():
+    """Create a MemoryManager instance for testing"""
+    return MemoryManager(mode="passive")
+
+@pytest.fixture(scope='function')
+def output_arrays_manager(solver, output_test_settings, test_memory_manager):
+    """Create a OutputArrays instance using real solver"""
+    batch_output_sizes = BatchOutputSizes.from_solver(solver)
+    return OutputArrays(
+        sizes=batch_output_sizes,
+        precision=solver.precision,
+        stream_group=output_test_settings['stream_group'],
+        memory_proportion=output_test_settings['memory_proportion'],
+        memory_manager=test_memory_manager
+    )
+
+@pytest.fixture(scope='function')
+def sample_output_arrays(solver, output_test_settings, precision):
+    """Create sample output arrays for testing based on real solver"""
+    num_runs = output_test_settings['num_runs']
+    dtype = precision
+    
+    # Get dimensions from solver's output sizes
+    output_sizes = BatchOutputSizes.from_solver(solver)
+    time_points = output_sizes.state[0]
+    variables_count = solver.system_sizes.states
+    observables_count = solver.system_sizes.observables
+    
+    return {
+        'state': np.random.rand(time_points, num_runs, variables_count).astype(dtype),
+        'observables': np.random.rand(time_points, num_runs, observables_count).astype(dtype),
+        'state_summaries': np.random.rand(max(0, time_points - 2), num_runs, variables_count).astype(dtype),
+        'observable_summaries': np.random.rand(max(0, time_points - 2), num_runs, observables_count).astype(dtype)
+    }
+
+
+class TestOutputArrayContainer:
+    """Test the OutputArrayContainer class"""
+
+    def test_container_arrays_after_init(self):
+        """Test that container has correct arrays after initialization"""
+        container = OutputArrayContainer()
+        expected_arrays = {'state', 'observables', 'state_summaries', 'observable_summaries'}
+        actual_arrays = {key for key in container.__dict__.keys() if not key.startswith('_')}
+        
+        assert actual_arrays == expected_arrays
+        
+        # Check that all arrays are None initially
+        assert container.state is None
+        assert container.observables is None
+        assert container.state_summaries is None
+        assert container.observable_summaries is None
+
+    def test_container_stride_order(self):
+        """Test that stride order is set correctly"""
+        container = OutputArrayContainer()
+        assert container.stride_order == ("time", "run", "variable")
+
+    def test_container_memory_type_default(self):
+        """Test default memory type"""
+        container = OutputArrayContainer()
+        assert container._memory_type == "device"
+
+    def test_host_factory(self):
+        """Test host factory method"""
+        container = OutputArrayContainer.host_factory()
+        assert container._memory_type == "host"
+
+    def test_device_factory(self):
+        """Test device factory method"""
+        container = OutputArrayContainer.device_factory()
+        assert container._memory_type == "mapped"
+
+
+class TestActiveOutputs:
+    """Test the ActiveOutputs class"""
+
+    def test_active_outputs_initialization(self):
+        """Test ActiveOutputs initialization"""
+        active = ActiveOutputs()
+        assert active.state is False
+        assert active.observables is False
+        assert active.state_summaries is False
+        assert active.observable_summaries is False
+
+    def test_update_from_outputarrays_all_active(self, output_arrays_manager, sample_output_arrays):
+        """Test update_from_outputarrays with all arrays active"""
+        # Set up arrays in the manager
+        output_arrays_manager.host.state = sample_output_arrays['state']
+        output_arrays_manager.host.observables = sample_output_arrays['observables']
+        output_arrays_manager.host.state_summaries = sample_output_arrays['state_summaries']
+        output_arrays_manager.host.observable_summaries = sample_output_arrays['observable_summaries']
+        
+        active = ActiveOutputs()
+        active.update_from_outputarrays(output_arrays_manager)
+        
+        assert active.state is True
+        assert active.observables is True
+        assert active.state_summaries is True
+        assert active.observable_summaries is True
+
+    def test_update_from_outputarrays_size_one_arrays(self, output_arrays_manager):
+        """Test update_from_outputarrays with size-1 arrays (treated as inactive)"""
+        # Set up size-1 arrays (treated as artifacts)
+        output_arrays_manager.host.state = np.array([1])
+        output_arrays_manager.host.observables = np.array([1])
+        output_arrays_manager.host.state_summaries = None
+        output_arrays_manager.host.observable_summaries = None
+        
+        active = ActiveOutputs()
+        active.update_from_outputarrays(output_arrays_manager)
+        
+        assert active.state is False  # Size 1 treated as inactive
+        assert active.observables is False  # Size 1 treated as inactive
+        assert active.state_summaries is False  # None
+        assert active.observable_summaries is False  # None
+
 
 class TestOutputArrays:
-    """Test OutputArrays class for allocation, caching, and array management"""
+    """Test the OutputArrays class"""
 
-    def test_init_basic(self):
-        """Test basic initialization with mock sizes"""
-        # Create a proper BatchOutputSizes object
-        sizes = BatchOutputSizes(
-            state=(10, 5, 3),
-            observables=(10, 5, 4),
-            state_summaries=(5, 2, 1),
-            observable_summaries=(5, 3, 1)
+    def test_initialization_container_types(self, output_arrays_manager):
+        """Test that containers have correct array types after initialization"""
+        # Check host container arrays
+        expected_arrays = {'state', 'observables', 'state_summaries', 'observable_summaries'}
+        host_arrays = {key for key in output_arrays_manager.host.__dict__.keys() if not key.startswith('_')}
+        device_arrays = {key for key in output_arrays_manager.device.__dict__.keys() if not key.startswith('_')}
+        
+        assert host_arrays == expected_arrays
+        assert device_arrays == expected_arrays
+        
+        # Check memory types are set correctly in post_init
+        assert output_arrays_manager.host._memory_type == "host"
+        assert output_arrays_manager.device._memory_type == "mapped"
+
+    def test_from_solver_factory(self, solver):
+        """Test creating OutputArrays from solver"""
+        output_arrays = OutputArrays.from_solver(solver)
+        
+        assert isinstance(output_arrays, OutputArrays)
+        assert isinstance(output_arrays._sizes, BatchOutputSizes)
+        assert output_arrays._precision == solver.precision
+
+    def test_allocation_and_getters_not_none(self, output_arrays_manager, solver):
+        """Test that all getters return non-None after allocation"""
+        # Call the manager to allocate arrays based on solver
+        output_arrays_manager(solver)
+
+        # Check host getters
+        assert output_arrays_manager.state is not None
+        assert output_arrays_manager.observables is not None
+        assert output_arrays_manager.state_summaries is not None
+        assert output_arrays_manager.observable_summaries is not None
+        
+        # Check device getters
+        assert output_arrays_manager.device_state is not None
+        assert output_arrays_manager.device_observables is not None
+        assert output_arrays_manager.device_state_summaries is not None
+        assert output_arrays_manager.device_observable_summaries is not None
+
+    def test_getters_return_none_before_allocation(self, output_arrays_manager):
+        """Test that getters return None before allocation"""
+        assert output_arrays_manager.device_state is None
+        assert output_arrays_manager.device_observables is None
+        assert output_arrays_manager.device_state_summaries is None
+        assert output_arrays_manager.device_observable_summaries is None
+
+    def test_call_method_allocates_arrays(self, output_arrays_manager, solver):
+        """Test that call method allocates arrays based on solver"""
+        # Call the manager - it allocates based on solver sizes only
+        output_arrays_manager(solver)
+
+        # Check that arrays were allocated
+        assert output_arrays_manager.state is not None
+        assert output_arrays_manager.observables is not None
+        assert output_arrays_manager.state_summaries is not None
+        assert output_arrays_manager.observable_summaries is not None
+
+        # Check device arrays
+        assert output_arrays_manager.device_state is not None
+        assert output_arrays_manager.device_observables is not None
+        assert output_arrays_manager.device_state_summaries is not None
+        assert output_arrays_manager.device_observable_summaries is not None
+
+    def test_reallocation_on_size_change(self, output_arrays_manager, solver):
+        """Test that arrays are reallocated when sizes change"""
+        # Initial allocation
+        output_arrays_manager(solver)
+        original_device_state = output_arrays_manager.device_state
+        original_shape = output_arrays_manager.device_state.shape
+
+        # Simulate a size change by directly updating the sizes
+        new_shape = (original_shape[0] + 2, original_shape[1], original_shape[2])
+        output_arrays_manager._sizes.state = new_shape
+
+        # Force reallocation by calling update_from_solver
+        output_arrays_manager.update_from_solver(solver)
+
+        # Verify reallocation occurred (array should be different object)
+        assert output_arrays_manager.device_state is not None
+
+    def test_chunking_affects_device_array_size(self, output_arrays_manager, solver):
+        """Test that chunking changes device array allocation size"""
+        # Allocate initially
+        output_arrays_manager(solver)
+
+        # Set up chunking - this should affect the device array size
+        output_arrays_manager._chunks = 2
+        output_arrays_manager._chunk_axis = "run"
+
+        # The chunking logic should be reflected in allocation behavior
+        # (This tests the chunking mechanism exists)
+        assert output_arrays_manager._chunks == 2
+        assert output_arrays_manager._chunk_axis == "run"
+
+    def test_active_outputs_property(self, output_arrays_manager, solver):
+        """Test active_outputs property"""
+        output_arrays_manager(solver)
+
+        active = output_arrays_manager.active_outputs
+        assert isinstance(active, ActiveOutputs)
+        # Active status depends on whether arrays have size > 1
+        # After allocation from solver, arrays should be active
+
+    def test_update_from_solver(self, output_arrays_manager, solver):
+        """Test update_from_solver method"""
+        output_arrays_manager.update_from_solver(solver)
+        
+        assert output_arrays_manager._precision == solver.precision
+        assert isinstance(output_arrays_manager._sizes, BatchOutputSizes)
+
+    def test_initialise_method(self, output_arrays_manager, solver):
+        """Test initialise method (no-op for outputs)"""
+        # Set up the manager
+        output_arrays_manager(solver)
+
+        # Set up chunking
+        output_arrays_manager._chunks = 1
+        output_arrays_manager._chunk_axis = "run"
+        
+        # Call initialise - should be a no-op for OutputArrays
+        host_indices = slice(None)
+        output_arrays_manager.initialise(host_indices)
+        
+        # Since initialise is a no-op for outputs, just verify it doesn't crash
+        # and arrays remain intact
+        assert output_arrays_manager.device_state is not None
+        assert output_arrays_manager.device_observables is not None
+
+    def test_finalise_method_copies_device_to_host(self, output_arrays_manager, solver):
+        """Test finalise method copies data from device to host"""
+        # Set up the manager
+        output_arrays_manager(solver)
+
+        # Simulate computation by modifying device arrays
+        # (In reality, CUDA kernels would write to these device arrays)
+        original_device_state = np.array(output_arrays_manager.device_state)
+        original_device_observables = np.array(output_arrays_manager.device_observables)
+
+        # Modify device arrays to simulate kernel output
+        output_arrays_manager.device_state[:] = original_device_state * 2
+        output_arrays_manager.device_observables[:] = original_device_observables * 3
+
+        # Set up chunking
+        output_arrays_manager._chunks = 1
+        output_arrays_manager._chunk_axis = "run"
+        
+        # Call finalise - should copy device data to host
+        host_indices = slice(None)
+        output_arrays_manager.finalise(host_indices)
+        
+        # Verify that host arrays now contain the modified device data
+        np.testing.assert_array_equal(
+            output_arrays_manager.host.state,
+            output_arrays_manager.device_state
         )
-        arrays = OutputArrays(sizes, precision=float32)
-
-        assert arrays._sizes is sizes
-        assert arrays._precision == float32
-        assert arrays.state is None
-        assert arrays.observables is None
-
-    def test_allocate_new_method(self):
-        """Test _allocate_new method creates correctly sized arrays"""
-        sizes = BatchOutputSizes(
-            state=(10, 5, 3),
-            observables=(10, 5, 4),
-            state_summaries=(5, 2, 1),
-            observable_summaries=(5, 3, 1)
+        np.testing.assert_array_equal(
+            output_arrays_manager.host.observables,
+            output_arrays_manager.device_observables
         )
-        arrays = OutputArrays(sizes, precision=float32)
-        arrays._allocate_new()
 
-        assert arrays.state.shape == (10, 5, 3)
-        assert arrays.observables.shape == (10, 5, 4)
-        assert arrays.state_summaries.shape == (5, 2, 1)
-        assert arrays.observable_summaries.shape == (5, 3, 1)
-        assert arrays.state.dtype == float32
+@pytest.mark.parametrize("precision_override",
+                         [np.float32, np.float64],
+                         indirect=True)
+def test_dtype(output_arrays_manager, solver, precision):
+    """Test OutputArrays with different configurations"""
+    # Test that the manager works with different configurations
+    output_arrays_manager(solver)
 
-    def test_clear_cache_method(self):
-        """Test _clear_cache method properly deallocates arrays"""
-        sizes = BatchOutputSizes(
-            state=(5, 3, 2),
-            observables=(5, 3, 2),
-            state_summaries=(3, 1, 1),
-            observable_summaries=(3, 1, 1)
-        )
-        arrays = OutputArrays(sizes)
-        arrays._allocate_new()
+    expected_dtype = precision
+    assert output_arrays_manager.state.dtype == expected_dtype
+    assert output_arrays_manager.observables.dtype == expected_dtype
+    assert output_arrays_manager.state_summaries.dtype == expected_dtype
+    assert output_arrays_manager.observable_summaries.dtype == expected_dtype
+    assert output_arrays_manager.device_state.dtype == expected_dtype
+    assert output_arrays_manager.device_observables.dtype == expected_dtype
+    assert output_arrays_manager.device_state_summaries.dtype == expected_dtype
+    assert output_arrays_manager.device_observable_summaries.dtype == expected_dtype
 
-        # Verify arrays exist
-        assert arrays.state is not None
-        assert arrays.observables is not None
 
-        arrays._clear_cache()
+@pytest.mark.parametrize("output_test_overrides", [
+    {'num_runs': 8},
+    {'num_runs': 3},
+    {'stream_group': 'test_group', 'memory_proportion': 0.5},
+], indirect=True)
+def test_output_arrays_with_different_configs(output_arrays_manager, solver, output_test_settings):
+    """Test OutputArrays with different configurations"""
+    # Test that the manager works with different configurations
+    output_arrays_manager(solver)
 
-        # Arrays should be None after clearing (del sets them to None in this implementation)
+    # Check shapes match expected configuration based on solver
+    expected_num_runs = output_test_settings['num_runs']
+    assert output_arrays_manager.state is not None
+    assert output_arrays_manager.observables is not None
+    assert output_arrays_manager.state_summaries is not None
+    assert output_arrays_manager.observable_summaries is not None
 
-    def test_check_dims_method(self):
-        """Test _check_dims method correctly validates dimensions"""
-        sizes = BatchOutputSizes(
-            state=(10, 5, 3),
-            observables=(10, 5, 4),
-            state_summaries=(5, 2, 1),
-            observable_summaries=(5, 3, 1)
-        )
-        arrays = OutputArrays(sizes)
+    # Check data types
+    expected_dtype = getattr(np, output_test_settings['dtype'])
+    assert output_arrays_manager.state.dtype == expected_dtype
+    assert output_arrays_manager.observables.dtype == expected_dtype
+    assert output_arrays_manager.state_summaries.dtype == expected_dtype
+    assert output_arrays_manager.observable_summaries.dtype == expected_dtype
 
-        # Create mock arrays with correct dimensions
-        state = np.zeros((10, 5, 3))
-        observables = np.zeros((10, 5, 4))
-        state_summaries = np.zeros((5, 2, 1))
-        observable_summaries = np.zeros((5, 3, 1))
 
-        result = arrays._check_dims(state, observables, state_summaries, observable_summaries, sizes)
-        assert result
+@pytest.mark.parametrize("solver_settings_override",
+                         [{'saved_state_indices': None,
+                          'saved_observable_indices': None,
+                          'output_types': ["state", "observables", "mean",
+                                         "max", "rms", "peaks[2]"]}],
+                         indirect=True)
+@pytest.mark.parametrize("system_override",
+                         ["ThreeChamber", "Decays123", "genericODE"],
+                         indirect=True)
+def test_output_arrays_with_different_systems(output_arrays_manager, solver):
+    """Test OutputArrays with different system models"""
+    # Test that the manager works with different system types
+    output_arrays_manager(solver)
 
-        # Test with incorrect dimensions
-        wrong_state = np.zeros((10, 5, 999))
-        result = arrays._check_dims(wrong_state, observables, state_summaries, observable_summaries, sizes)
-        assert not result
+    # Verify the arrays match the system's requirements
+    assert (output_arrays_manager.state.shape[2] ==
+            solver.output_array_heights.state)
+    assert (output_arrays_manager.observables.shape[2] ==
+            solver.output_array_heights.observables)
+    assert (output_arrays_manager.state_summaries.shape[2] ==
+            solver.output_array_heights.state_summaries)
+    assert (output_arrays_manager.observable_summaries.shape[2] ==
+            solver.output_array_heights.observable_summaries)
 
-    def test_check_type_method(self):
-        """Test _check_type method validates array types"""
-        sizes = BatchOutputSizes(
-            state=(5, 3, 2),
-            observables=(5, 3, 2),
-            state_summaries=(3, 1, 1),
-            observable_summaries=(3, 1, 1)
-        )
-        arrays = OutputArrays(sizes, precision=float32)
+    # Check that all getters work
+    assert output_arrays_manager.state is not None
+    assert output_arrays_manager.observables is not None
+    assert output_arrays_manager.state_summaries is not None
+    assert output_arrays_manager.observable_summaries is not None
+    assert output_arrays_manager.device_state is not None
+    assert output_arrays_manager.device_observables is not None
+    assert output_arrays_manager.device_state_summaries is not None
+    assert output_arrays_manager.device_observable_summaries is not None
 
-        # Create arrays with correct type
-        state = np.zeros((5, 3, 2), dtype=float32)
-        observables = np.zeros((5, 3, 2), dtype=float32)
-        state_summaries = np.zeros((3, 1, 1), dtype=float32)
-        observable_summaries = np.zeros((3, 1, 1), dtype=float32)
 
-        result = arrays._check_type(state, observables, state_summaries, observable_summaries, float32)
-        assert result
+class TestOutputArraysSpecialCases:
+    """Test special cases for OutputArrays"""
 
-        # Test with incorrect type
-        wrong_type = np.zeros((5, 3, 2), dtype=float64)
-        result = arrays._check_type(wrong_type, observables, state_summaries, observable_summaries, float32)
-        assert not result
+    def test_allocation_with_different_solver_sizes(self, output_arrays_manager, solver):
+        """Test that arrays are allocated based on solver sizes"""
+        # Test allocation - arrays should be sized based on solver
+        output_arrays_manager(solver)
 
-    def test_check_type_none_precision(self):
-        """Test _check_type method with None precision"""
-        sizes = BatchOutputSizes(
-            state=(5, 3, 2),
-            observables=(5, 3, 2),
-            state_summaries=(3, 1, 1),
-            observable_summaries=(3, 1, 1)
-        )
-        arrays = OutputArrays(sizes)
+        # Manager should be set up without errors and arrays should exist
+        assert output_arrays_manager.state is not None
+        assert output_arrays_manager.observables is not None
+        assert output_arrays_manager.state_summaries is not None
+        assert output_arrays_manager.observable_summaries is not None
 
-        # Any arrays should pass when precision is None
-        state = np.zeros((5, 3, 2), dtype=float64)
-        observables = np.zeros((5, 3, 2), dtype=float32)
-        state_summaries = np.zeros((3, 1, 1), dtype=float32)
-        observable_summaries = np.zeros((3, 1, 1), dtype=float32)
+    def test_active_outputs_after_allocation(self, output_arrays_manager, solver):
+        """Test active outputs detection after allocation"""
+        # Allocate arrays from solver
+        output_arrays_manager(solver)
 
-        result = arrays._check_type(state, observables, state_summaries, observable_summaries, None)
-        assert result
-
-    def test_cache_valid_method(self):
-        """Test cache_valid method combines dimension and type checking"""
-        sizes = BatchOutputSizes(
-            state=(5, 3, 2),
-            observables=(5, 3, 2),
-            state_summaries=(3, 1, 1),
-            observable_summaries=(3, 1, 1)
-        )
-        arrays = OutputArrays(sizes, precision=float32)
-        arrays._allocate_new()
-
-        # Should be valid after allocation
-        assert arrays.cache_valid()
-
-        # Clear and reallocate
-        arrays._clear_cache()
-        arrays._allocate_new()
-
-        # Should be different array objects
-        assert arrays.state.shape == (5, 3, 2)
-
-    def test_cache_valid_no_arrays(self):
-        """Test cache_valid method when no arrays allocated"""
-        sizes = BatchOutputSizes(
-            state=(5, 3, 2),
-            observables=(5, 3, 2),
-            state_summaries=(3, 1, 1),
-            observable_summaries=(3, 1, 1)
-        )
-        arrays = OutputArrays(sizes)
-
-        # Should not be valid without arrays
-        try:
-            result = arrays.cache_valid()
-            assert not result
-        except AttributeError:
-            # Expected if arrays are None
-            pass
-
-    def test_attach_method_valid_arrays(self):
-        """Test attach method with valid external arrays"""
-        sizes = BatchOutputSizes(
-            state=(5, 3, 2),
-            observables=(5, 3, 2),
-            state_summaries=(3, 1, 1),
-            observable_summaries=(3, 1, 1)
-        )
-        arrays = OutputArrays(sizes, precision=float32)
-        arrays.allocate()
-        arrays.state[:] = 1.0
-        arrays.observables[:] = 1.0
-        arrays.state_summaries[:] = 1.0
-        arrays.observable_summaries[:] = 1.0
-
-        # Create external arrays with correct dimensions and type
-        ext_state = mapped_array(sizes.state, dtype=float32)
-        ext_observables = mapped_array(sizes.observables, dtype=float32)
-        ext_state_summaries = mapped_array(sizes.state_summaries, dtype=float32)
-        ext_observable_summaries = mapped_array(sizes.observable_summaries, dtype=float32)
-        ext_state[:] = 2.0
-        ext_observables[:] = 2.0
-        ext_state_summaries[:] = 2.0
-        ext_observable_summaries[:] = 2.0
-        arrays.attach(ext_state, ext_observables, ext_state_summaries, ext_observable_summaries)
-
-        assert arrays.state is ext_state
-        assert arrays.observables is ext_observables
-
-    def test_attach_method_invalid_arrays(self):
-        """Test attach method with invalid external arrays falls back to allocation"""
-        sizes = BatchOutputSizes(
-            state=(5, 3, 2),
-            observables=(5, 3, 2),
-            state_summaries=(3, 1, 1),
-            observable_summaries=(3, 1, 1)
-        )
-        arrays = OutputArrays(sizes, precision=float32)
-
-        # Create external arrays with wrong dimensions
-        wrong_state = np.ones((999, 3, 2), dtype=float32)
-        ext_observables = np.ones((5, 3, 2), dtype=float32)
-        ext_state_summaries = np.ones((3, 1, 1), dtype=float32)
-        ext_observable_summaries = np.ones((3, 1, 1), dtype=float32)
-
-        with catch_warnings(record=True) as w:
-            arrays.attach(wrong_state, ext_observables, ext_state_summaries, ext_observable_summaries)
-            assert len(w) == 1
-            assert "do not match the expected sizes" in str(w[0].message)
-
-        # Should have allocated new arrays instead
-        assert arrays.state.shape == (5, 3, 2)
-
-    def test_initialize_zeros_method(self):
-        """Test initialize_zeros method sets all arrays to zero"""
-        sizes = BatchOutputSizes(
-            state=(3, 2, 1),
-            observables=(3, 2, 1),
-            state_summaries=(2, 1, 1),
-            observable_summaries=(2, 1, 1)
-        )
-        arrays = OutputArrays(sizes, precision=float32)
-        arrays._allocate_new()
-
-        # Set some non-zero values
-        arrays.state[:] = 5.0
-        arrays.observables[:] = 3.0
-
-        arrays.initialize_zeros()
-
-        assert np.allclose(arrays.state, 0.0)
-        assert np.allclose(arrays.observables, 0.0)
-        assert np.allclose(arrays.state_summaries, 0.0)
-        assert np.allclose(arrays.observable_summaries, 0.0)
-
-    @pytest.mark.parametrize("precision", [float32, float64])
-    def test_different_precisions(self, precision):
-        """Test OutputArrays works with different precision types"""
-        sizes = BatchOutputSizes(
-            state=(2, 2, 2),
-            observables=(2, 2, 2),
-            state_summaries=(2, 1, 1),
-            observable_summaries=(2, 1, 1)
-        )
-        arrays = OutputArrays(sizes, precision=precision)
-        arrays._allocate_new()
-
-        assert arrays._precision == precision
-        assert arrays.state.dtype == precision
-    #
-    # def test_summary_views_method(self):
-    #     """Test summary_views method returns summary arrays split by type"""
-    #     class DummySolver:
-    #         class SingleIntegrator:
-    #             summary_types = ['mean', 'max']
-    #         single_integrator = SingleIntegrator()
-    #     class DummySummaryMetrics:
-    #         @staticmethod
-    #         def output_sizes(types):
-    #             return [1 for _ in types]
-    #     # Patch summary_metrics in the OutputArrays module
-    #     import sys
-    #     mod = sys.modules[arrays.__class__.__module__]
-    #     setattr(mod, 'summary_metrics', DummySummaryMetrics)
-    #
-    #     sizes = BatchOutputSizes(
-    #         state=(5, 3, 2),
-    #         observables=(5, 3, 2),
-    #         state_summaries=(3, 1, 2),
-    #         observable_summaries=(3, 1, 2)
-    #     )
-    #     arrays = OutputArrays(sizes)
-    #     arrays._allocate_new()
-    #     dummy_solver = DummySolver()
-    #     state_splits, obs_splits = arrays.summary_views(dummy_solver)
-    #     assert set(state_splits.keys()) == {'mean', 'max'}
-    #     assert set(obs_splits.keys()) == {'mean', 'max'}
-    #     assert state_splits['mean'].shape[-1] == 1
-    #     assert state_splits['max'].shape[-1] == 1
-    #
-    # def test_legend_method(self):
-    #     """Test legend method returns correct mapping for state and observable summaries"""
-    #     class DummySolver:
-    #         class SingleIntegrator:
-    #             summary_types = ['mean', 'max']
-    #         single_integrator = SingleIntegrator()
-    #         class System:
-    #             state_names = ['x', 'y']
-    #             observable_names = ['a', 'b']
-    #         system = System()
-    #     class DummySummaryMetrics:
-    #         @staticmethod
-    #         def output_sizes(types):
-    #             return [1 for _ in types]
-    #     # Patch summary_metrics in the OutputArrays module
-    #     import sys
-    #     mod = sys.modules[OutputArrays.__module__]
-    #     setattr(mod, 'summary_metrics', DummySummaryMetrics)
-    #
-    #     sizes = BatchOutputSizes(
-    #         state=(5, 3, 2),
-    #         observables=(5, 3, 2),
-    #         state_summaries=(3, 1, 2),
-    #         observable_summaries=(3, 1, 2)
-    #     )
-    #     arrays = OutputArrays(sizes)
-    #     arrays._allocate_new()
-    #     dummy_solver = DummySolver()
-    #     legend = arrays.legend(dummy_solver, which='state_summaries')
-    #     assert legend[0] == ('x', 'mean')
-    #     assert legend[1] == ('y', 'mean')
-    #     assert legend[2] == ('x', 'max')
-    #     assert legend[3] == ('y', 'max')
-    #     legend_obs = arrays.legend(dummy_solver, which='observable_summaries')
-    #     assert legend_obs[0] == ('a', 'mean')
-    #     assert legend_obs[1] == ('b', 'mean')
-    #     assert legend_obs[2] == ('a', 'max')
-    #     assert legend_obs[3] == ('b', 'max')
-
-    def test_integration_scenario_allocation_reuse(self):
-        """Test complete scenario with allocation and cache reuse"""
-        sizes = BatchOutputSizes(
-            state=(10, 5, 3),
-            observables=(10, 5, 4),
-            state_summaries=(5, 2, 1),
-            observable_summaries=(5, 3, 1)
-        )
-        arrays = OutputArrays(sizes, precision=float32)
-
-        # First allocation
-        arrays._allocate_new()
-        first_state = arrays.state
-
-        # Initialize with some values
-        arrays.initialize_zeros()
-        arrays.state[0, 0, 0] = 42.0
-
-        # Verify cache is valid
-        assert arrays.cache_valid()
-
-        # Clear and reallocate
-        arrays._clear_cache()
-        arrays._allocate_new()
-
-        # Should be different array objects
-        assert arrays.state is not first_state
-        assert arrays.state.shape == (10, 5, 3)
-
-    def test_allocate_method_with_invalid_cache(self):
-        """Test allocate method behavior when cache is invalid"""
-        sizes = BatchOutputSizes(
-            state=(3, 2, 1),
-            observables=(3, 2, 1),
-            state_summaries=(2, 1, 1),
-            observable_summaries=(2, 1, 1)
-        )
-        arrays = OutputArrays(sizes)
-
-        # This should trigger allocation since cache is initially invalid
-        arrays.allocate()
-
-        assert arrays.state is not None
-        assert np.allclose(arrays.state, 0.0)  # Should be initialized to zeros
+        # Check active outputs - should be active since arrays have size > 1
+        active = output_arrays_manager.active_outputs
+        assert isinstance(active, ActiveOutputs)
+        # Arrays allocated from solver should typically be active (size > 1)

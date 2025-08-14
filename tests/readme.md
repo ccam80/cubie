@@ -38,7 +38,7 @@ def array_request_override(request):
 def array_request_settings(array_request_override):
     """Fixture to provide settings for ArrayRequest."""
     defaults = {'shape'       : (1, 1, 1), 'dtype': np.float32, 'memory': 'device',
-                'stride_order': ("time", "run", "variable")}
+                '_stride_order': ("time", "run", "variable")}
     if array_request_override:
         for key, value in array_request_override.items():
             if key in defaults:
@@ -72,7 +72,7 @@ def test_array_request_instantiation(array_request):
     assert array_request.shape == (20000,)
     assert array_request.dtype == np.float64
     assert array_request.memory == 'device'
-    assert array_request.stride_order == ("time", "run", "variable")
+    assert array_request._stride_order == ("time", "run", "variable")
 
 
 @pytest.mark.parametrize("array_request_override",

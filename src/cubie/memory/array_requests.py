@@ -51,3 +51,5 @@ class ArrayResponse:
     chunks: int = attrs.field(
             default=attrs.Factory(dict),
     )
+    chunk_axis: str = attrs.field(default="run",
+                                  validator=val.in_(["run", "variable", "time"]))

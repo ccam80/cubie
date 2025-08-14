@@ -16,207 +16,170 @@ else:
 from cubie.batchsolving._utils import optional_cuda_array_validator, \
     optional_cuda_array_validator_3d
 from numpy.typing import NDArray
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Dict
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.outputhandling.output_sizes import LoopBufferSizes
+from cubie.outputhandling.output_sizes import BatchInputSizes
 from cubie.memory.mem_manager import ArrayRequest, ArrayResponse
+from cubie.batchsolving.BaseArrayManager import (BaseArrayManager,
+                                                 ArrayContainer)
+from cubie.batchsolving import ArrayTypes
+
+
+@attrs.define(slots=False)
+class InputArrayContainer(ArrayContainer):
+    """Container for input arrays"""
+    initial_values: ArrayTypes = attrs.field(
+            default=None)
+    parameters: ArrayTypes = attrs.field(
+            default=None)
+    forcing_vectors: ArrayTypes = attrs.field(
+            default=None)
+    stride_order: tuple[str,...] = attrs.field(
+            default=("run", "variable"),
+            init=False)
+    _memory_type: str = attrs.field(
+        default="device",
+        validator=val.in_(["device", "mapped", "pinned", "managed", "host"]),
+    )
+    _unchunkable = attrs.field(default=('forcing_vectors',), init=False)
+    
+    @classmethod
+    def host_factory(cls):
+        """Factory method for creating a new array"""
+        return cls(memory_type="host")
+
+    @classmethod
+    def device_factory(cls):
+        """Factory method for creating a new array"""
+        return cls(memory_type="device")
 
 
 @attrs.define
-class InputArrays:
+class InputArrays(BaseArrayManager):
     """ Manages batch integration input arrays between the host and device.
     This class is initialised with a
-    LoopBufferSizes instance (which is drawn from a solver instance using the from_solver factory method),
+    BatchInputSizes instance (which is drawn from a solver instance using the from_solver factory method),
     which sets the allowable array heights from the ODE system's data. Once initialised, the object can be called
     with arguments (initial_values, parameters, forcing_vectors). Each call to the the classes __call__ method will:
     - Check if the input array has changed in shape or content since the last update
-    - Allocate a new device array if the shape has changed
-    - Overwrite the old device array if the shape has not changed but the content has
-    - Do nothing an input array has not changed.
+    - Queue allocation requests with the MemoryManager
+    - Attach allocated arrays once received from MemoryManager
     """
-    _sizes: Optional[LoopBufferSizes] = attrs.field(default=None,
-            validator=val.optional(val.instance_of(LoopBufferSizes)), )
-    _precision: type = attrs.field(default=float32,
-                                   validator=val.instance_of(type))
-    _initial_values: Optional[NDArray] = attrs.field(default=None,
-                                                     validator=val.optional(
-                                                             val.instance_of(
-                                                                     ndarray)))
-    _parameters: Optional[NDArray] = attrs.field(default=None,
-                                                 validator=val.optional(
-                                                         val.instance_of(
-                                                             ndarray)))
-    _forcing_vectors: Optional[NDArray] = attrs.field(default=None,
-                                                      validator=val.optional(
-                                                              val.instance_of(
-                                                                      ndarray)))
-    _default_stream: Optional[int] = attrs.field(default=0,
-                                                 validator=val.instance_of(
-                                                         int), init=False)
-    _device_inits: Optional[DeviceNDArray] = attrs.field(default=None,
-            validator=val.optional(optional_cuda_array_validator_3d),
-            init=False, )
-    _device_parameters: Optional[DeviceNDArray] = attrs.field(default=None,
-            validator=val.optional(optional_cuda_array_validator_3d),
-            init=False, )
-    _device_forcing: Optional[DeviceNDArray] = attrs.field(default=None,
-            validator=val.optional(optional_cuda_array_validator),
-            init=False, )
+    _sizes: Optional[BatchInputSizes] = attrs.field(
+        factory=BatchInputSizes,
+        validator=val.optional(val.instance_of(BatchInputSizes)))
+    host: InputArrayContainer = attrs.field(
+            factory=InputArrayContainer.host_factory,
+            validator=val.instance_of(InputArrayContainer),
+            init=True)
+    device: InputArrayContainer = attrs.field(
+            factory=InputArrayContainer.device_factory,
+            validator=val.instance_of(InputArrayContainer),
+            init=False)
 
-    _needs_reallocation: list[str] = attrs.field(factory=list, init=False)
-    _needs_overwrite: list[str] = attrs.field(factory=list, init=False)
 
     def __attrs_post_init__(self):
-        if self._initial_values is None:
-            self._initial_values = zeros((1, 1, 1), dtype=self._precision)
-        if self._parameters is None:
-            self._parameters = zeros((1, 1, 1), dtype=self._precision)
-        if self._forcing_vectors is None:
-            self._forcing_vectors = zeros((1, 1, 1), dtype=self._precision)
+        super().__attrs_post_init__()
+        self.host._memory_type = "host"
+        self.device._memory_type = "device"
 
-        self._needs_reallocation = ["initial_values", "parameters",
-                                    "forcing_vectors"]
+    def __call__(self,
+                 solver_instance,
+                 initial_values: NDArray,
+                 parameters: NDArray,
+                 forcing_vectors: NDArray) -> None:
+        """
+        Set the initial values, parameters, and forcing vectors.
+        Queues allocation requests with the MemoryManager for batch processing.
+        """
+        updates_dict = {'initial_values': initial_values,
+                        'parameters': parameters,
+                        'forcing_vectors': forcing_vectors}
+        self.update_from_solver(solver_instance)
+        self.update_host_arrays(updates_dict)
+        self.allocate()  # Will queue request if in a stream group
 
-    def __call__(self, initial_values: NDArray, parameters: NDArray,
-                 forcing_vectors: NDArray, stream=None):
-        """
-        Set the initial values, parameters, and forcing vectors. This is useful for reusing already allocated arrays.
-        """
-        if self._check_dims_vs_system(initial_values, parameters,
-                                      forcing_vectors):
-            self._initial_values = self._update_host_array(initial_values,
-                                                           self._initial_values,
-                                                           "initial_values")
-            self._parameters = self._update_host_array(parameters,
-                                                       self._parameters,
-                                                       "parameters")
-            self._forcing_vectors = self._update_host_array(forcing_vectors,
-                                                            self._forcing_vectors,
-                                                            "forcing_vectors")
-            self.to_device(stream=stream)
-        else:
-            warn("Provided initial values/parameters/driver arrays do not match the sizes according to the ODE "
-                 "system, ignoring update", )
+
 
     @property
     def initial_values(self):
-        return self._initial_values
+        return self.host.initial_values
 
     @property
     def parameters(self):
-        return self._parameters
+        return self.host.parameters
 
     @property
     def forcing_vectors(self):
-        return self._forcing_vectors
+        return self.host.forcing_vectors
 
     @property
     def device_initial_values(self):
-        return self._device_inits
+        return self.device.initial_values
 
     @property
     def device_parameters(self):
-        return self._device_parameters
+        return self.device.parameters
 
     @property
     def device_forcing_vectors(self):
-        return self._device_forcing
-
-    def _arrays_equal(self, arr1, arr2):
-        """Check if two arrays are equal in shape and content."""
-        if arr1 is None or arr2 is None:
-            return arr1 is arr2
-        return array_equal(arr1, arr2)
-
-    def _check_dims_vs_system(self, initial_values, parameters,
-                              forcing_vectors):
-        """
-        Check heights of the arrays match the expected sizes. Return True if sizes match. If no sizes are provided,
-        return True.
-        """
-        if self._sizes is None:
-            return True
-
-        match = True
-        if initial_values.shape[1] != self._sizes.state:
-            match = False
-        if parameters.shape[1] != self._sizes.parameters:
-            match = False
-        if forcing_vectors.shape[1] != self._sizes.drivers:
-            match = False
-        return match
-
-    def to_device(self, stream=None):
-        """Allocates or writes data to the device only if the input arrays have been updated, otherwise does nothing."""
-        if stream is None:
-            stream = self._default_stream
-
-        # Handle reallocations first
-        for array_label in self._needs_reallocation:
-            if array_label == "initial_values":
-                if self._device_inits is not None:
-                    del self._device_inits
-                self._device_inits = to_device(self._initial_values,
-                                               stream=stream)
-
-            elif array_label == "parameters":
-                if self._device_parameters is not None:
-                    del self._device_parameters
-                self._device_parameters = to_device(self._parameters,
-                                                    stream=stream)
-
-            elif array_label == "forcing_vectors":
-                if self._device_forcing is not None:
-                    del self._device_forcing
-                self._device_forcing = to_device(self.forcing_vectors,
-                                                 stream=stream)
-
-        # Handle overwrites
-        for array_label in self._needs_overwrite:
-            if array_label == "initial_values":
-                to_device(self._initial_values, stream=stream,
-                          to=self._device_inits)
-            elif array_label == "parameters":
-                to_device(self._parameters, stream=stream,
-                          to=self._device_parameters)
-            elif array_label == "forcing_vectors":
-                to_device(self._forcing_vectors, stream=stream,
-                          to=self._device_forcing)
-
-        self._needs_reallocation = []
-        self._needs_overwrite = []
-
-    def _update_host_array(self, new_array: NDArray, current_array: NDArray,
-                           label: str):
-        """Check for equality and shape equality, append to reallocation or overwrite lists accordingly.
-        Returns the new array if changed, otherwise returns current_array unchanged."""
-        if not self._arrays_equal(new_array, current_array):
-            if current_array.shape != new_array.shape:
-                self._needs_reallocation.append(label)
-                if 0 in new_array.shape:
-                    return np.zeros((1, 1, 1), dtype=self._precision)
-            else:
-                self._needs_overwrite.append(label)
-            return new_array
-        return current_array
-
-    @property
-    def num_runs(self):
-        """ Number of runs in the batch, as determined by the inner dimension of the initial values and parameters
-        arrays. This feels like a bit of unnecessary coupling, but as it's determined by the inputs, it may end up
-        being the best place for it."""
-        init_runs = self._initial_values.shape[
-            0] if self._initial_values is not None else 0
-        return init_runs
+        return self.device.forcing_vectors
 
     @classmethod
-    def from_solver(cls,
-                    solver_instance: "BatchSolverKernel") -> "InputArrays":
+    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "InputArrays":
         """
         Create an empty instance from a solver instance, importing the heights of the parameters, initial values,
         and driver arrays from the ODE system for checking inputs against. Does not allocate host or device arrays.
         """
-        sizes = LoopBufferSizes.from_solver(solver_instance)
-        return cls(sizes=sizes, precision=solver_instance.precision)
+        sizes = BatchInputSizes.from_solver(solver_instance)
+        return cls(sizes=sizes,
+                   precision=solver_instance.precision,
+                   memory_manager=solver_instance.memory_manager,
+                   stream_group=solver_instance.stream_group)
+
+    def update_from_solver(self, solver_instance: "BatchSolverKernel"):
+        """ Update size and precision from solver """
+        self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
+        self._precision = solver_instance.precision
+        self._chunk_axis = solver_instance.chunk_axis
+
+    def finalise(self, host_indices):
+        """ Copy out final states if they're required """
+        chunk_index = self.host.stride_order.index(self._chunk_axis)
+        slice_tuple = [slice(None)] * 2
+        slice_tuple[chunk_index] = host_indices
+        slice_tuple = tuple(slice_tuple)
+
+        to_ = [self.host.initial_values[slice_tuple]]
+        from_ = [self.device.initial_values]
+
+        self.from_device(self, from_, to_)
+
+    def initialise(self, host_indices):
+        " Copy chunk of data to device. "
+        from_ = []
+        to_ = []
+
+        if self._chunks <= 1:
+            arrays_to_copy = [array for array in self._needs_overwrite]
+            self._needs_overwrite = []
+            slice_tuple = tuple([slice(None)] * len(self.host.stride_order))
+        else:
+            arrays_to_copy = [array for array in self.device.__dict__ if
+                              not array.startswith("_")]
+            chunk_index = self.host.stride_order.index(self._chunk_axis)
+            slice_tuple = [slice(None)] * len(self.host.stride_order)
+            slice_tuple[chunk_index] = host_indices
+            slice_tuple = tuple(slice_tuple)
+
+        for array_name in arrays_to_copy:
+            if not array_name.startswith("_"):
+                to_.append(getattr(self.device, array_name))
+                if array_name in self.host._unchunkable:
+                    from_.append(getattr(self.host, array_name))
+                else:
+                    from_.append(getattr(self.host, array_name)[slice_tuple])
+
+        self.to_device(from_, to_)

@@ -32,7 +32,7 @@ class UserArrays:
     _singlevar_summary_legend: Optional[dict[int, str]] = attrs.field(
             default=attrs.Factory(dict), validator=attrs.validators.optional(
                     attrs.validators.instance_of(dict)))
-    _active_outputs: Optional[ActiveOutputs] = attrs.field(
+    active_outputs: Optional[ActiveOutputs] = attrs.field(
             default=attrs.Factory(lambda: ActiveOutputs()))
 
     @classmethod
@@ -51,11 +51,11 @@ class UserArrays:
         """
         active_outputs = solver.active_output_arrays
         time_domain_array = cls.time_domain_array(active_outputs,
-                                                  solver.state_dev_array,
-                                                  solver.observables_dev_array, )
+                                                  solver.state,
+                                                  solver.observables)
         summaries_array = cls.summaries_array(active_outputs,
-                                              solver.state_summaries_dev_array,
-                                              solver.observable_summaries_dev_array, )
+                                              solver.state_summaries,
+                                              solver.observable_summaries)
         time_domain_legend = cls.time_domain_legend_from_solver(solver)
         summaries_legend = cls.summary_legend_from_solver(solver)
         _singlevar_summary_legend = solver.summary_legend_per_variable
@@ -81,13 +81,15 @@ class UserArrays:
             UserArrays: An instance of UserArrays containing the data from
             the solver.
         """
-        self._active_outputs = solver.active_output_arrays
-        self.time_domain = UserArrays.time_domain_array(self.active_outputs,
-                                                        solver.state_dev_array,
-                                                        solver.observables_dev_array, )
+        self.active_outputs = solver.active_output_arrays
+
+        self.time_domain = UserArrays.time_domain_array(
+                self.active_outputs,
+                solver.state,
+                solver.observables, )
         self.summaries = UserArrays.summaries_array(self.active_outputs,
-                                                    solver.state_summaries_dev_array,
-                                                    solver.observable_summaries_dev_array, )
+                                                    solver.state_summaries,
+                                                    solver.observable_summaries)
         self._singlevar_summary_legend = solver.summary_legend_per_variable
         self.time_domain_legend = UserArrays.time_domain_legend_from_solver(
                 solver)
@@ -187,7 +189,7 @@ class UserArrays:
         """
         Flags indicating which device arrays are nonzero.
         """
-        return self._active_outputs
+        return self.active_outputs
 
     @staticmethod
     def time_domain_array(active_outputs, state, observables) -> np.ndarray:

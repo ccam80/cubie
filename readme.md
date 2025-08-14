@@ -1,7 +1,7 @@
 # CuBIE
 ## CUDA batch integration engine for python
 
-[![docs](https://github.com/ccam80/smc/actions/workflows/documentation.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/documentation.yml) [![CUDA-enabled tests](https://github.com/ccam80/smc/actions/workflows/cuda_test_lightning.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/cuda_test_lightning.yml) [![Python Tests](https://github.com/ccam80/smc/actions/workflows/python-package.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/python-package.yml)
+[![docs](https://github.com/ccam80/smc/actions/workflows/documentation.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/documentation.yml) [![CUDA tests](https://github.com/ccam80/cubie/actions/workflows/ci_cuda_tests.yml/badge.svg)](https://github.com/ccam80/cubie/actions/workflows/ci_cuda_tests.yml)  [![Python Tests](https://github.com/ccam80/cubie/actions/workflows/ci_nocuda_tests.yml/badge.svg)](https://github.com/ccam80/cubie/actions/workflows/ci_nocuda_tests.yml)  [![test build](https://github.com/ccam80/cubie/actions/workflows/test_pypi.yml/badge.svg)](https://github.com/ccam80/cubie/actions/workflows/test_pypi.yml)
 
 A batch integration system for systems of ODEs and SDEs, for when elegant solutions fail and you would like to simulate 
 1,000,000 systems, fast. This package was designed to simulate a large electrophysiological model as part of a 

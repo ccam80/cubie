@@ -946,6 +946,86 @@ class TestMemoryManager:
             # Should warn about high group memory usage
             assert any("has used more than 95%" in str(wi.message) for wi in w)
 
+    @pytest.mark.nocudasim
+    def test_to_device(self, registered_mgr, registered_instance):
+        """Test to_device copies values to allocated device arrays correctly."""
+        from numba import cuda
+
+        mgr = registered_mgr
+        instance = registered_instance
+
+        # Allocate device arrays through the memory manager
+        requests = {
+            "arr1": ArrayRequest(shape=(3, 4), dtype=np.float32, memory="device"),
+            "arr2": ArrayRequest(shape=(2, 3), dtype=np.float64, memory="device"),
+        }
+
+        stream = mgr.get_stream(instance)
+        device_arrays = mgr.allocate_all(requests, id(instance), stream)
+
+        # Create host arrays with test data
+        host_arr1 = np.arange(12, dtype=np.float32).reshape(3, 4)
+        host_arr2 = np.arange(6, dtype=np.float64).reshape(2, 3) * 2.5
+
+        # Copy to device using to_device method
+        from_arrays = [host_arr1, host_arr2]
+        to_arrays = [device_arrays["arr1"], device_arrays["arr2"]]
+
+        mgr.to_device(instance, from_arrays, to_arrays)
+
+        # Synchronize stream to ensure copy is complete
+        stream.synchronize()
+
+        # Copy back to host and verify values
+        result_arr1 = device_arrays["arr1"].copy_to_host()
+        result_arr2 = device_arrays["arr2"].copy_to_host()
+
+        np.testing.assert_array_equal(result_arr1, host_arr1)
+        np.testing.assert_array_equal(result_arr2, host_arr2)
+
+    @pytest.mark.nocudasim
+    def test_from_device(self, registered_mgr, registered_instance):
+        """Test from_device copies values from allocated device arrays correctly."""
+        from numba import cuda
+
+        mgr = registered_mgr
+        instance = registered_instance
+
+        # Allocate device arrays through the memory manager
+        requests = {
+            "arr1": ArrayRequest(shape=(2, 5), dtype=np.float32, memory="device"),
+            "arr2": ArrayRequest(shape=(3, 2), dtype=np.float64, memory="device"),
+        }
+
+        stream = mgr.get_stream(instance)
+        device_arrays = mgr.allocate_all(requests, id(instance), stream)
+
+        # Create host arrays with test data and copy to device first
+        host_source1 = np.arange(10, dtype=np.float32).reshape(2, 5) * 3.0
+        host_source2 = np.arange(6, dtype=np.float64).reshape(3, 2) + 10.0
+
+        # Copy test data to device arrays using cuda.to_device directly
+        cuda.to_device(host_source1, stream=stream, to=device_arrays["arr1"])
+        cuda.to_device(host_source2, stream=stream, to=device_arrays["arr2"])
+        stream.synchronize()
+
+        # Create empty host arrays to receive the data
+        host_dest1 = np.zeros_like(host_source1)
+        host_dest2 = np.zeros_like(host_source2)
+
+        # Copy from device using from_device method
+        from_arrays = [device_arrays["arr1"], device_arrays["arr2"]]
+        to_arrays = [host_dest1, host_dest2]
+
+        mgr.from_device(instance, from_arrays, to_arrays)
+
+        # Synchronize stream to ensure copy is complete
+        stream.synchronize()
+
+        # Verify that the data was correctly copied from device to host
+        np.testing.assert_array_equal(host_dest1, host_source1)
+        np.testing.assert_array_equal(host_dest2, host_source2)
+
 def test_get_total_request_size():
     """Test get_total_request_size calculates correct total size."""
     from cubie.memory.mem_manager import get_total_request_size
@@ -958,4 +1038,3 @@ def test_get_total_request_size():
     total_size = get_total_request_size(requests)
     expected_size = (10 * 10 * 4) + (5 * 5 * 8)  # 400 + 200 = 600
     assert total_size == expected_size
-

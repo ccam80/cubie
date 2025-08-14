@@ -84,6 +84,7 @@ class InstanceMemorySettings:
             default=None,
             validator=val.optional(val.instance_of(int)))
 
+
     def add_allocation(self, key, arr):
         """Add an allocation to the instance's allocations list
 
@@ -161,7 +162,7 @@ class MemoryManager:
             default="passive",
             validator=val.in_(["passive", "active"]))
     _allocator: BaseCUDAMemoryManager = attrs.field(
-            default=None,
+            default=NumbaCUDAMemoryManager,
             validator=val.optional(val.instance_of(object)))
     _auto_pool: list[int] = attrs.field(
             default=Factory(list),
@@ -180,7 +181,7 @@ class MemoryManager:
         free, total = self.get_memory_info()
         self.totalmem = total
         self.registry = {}
-        self.set_allocator("default")
+        # self.set_allocator("default")
 
     def register(self,
                  instance,
@@ -200,6 +201,9 @@ class MemoryManager:
             Proportion of VRAM to allocate to this instance. If not specified,
             instance will automatically be assigned an equal portion of the
             total VRAM to other auto-assigned instances
+        stream_group: str, optional
+        invalidate_cache_hook: callable, optional
+        allocation_ready_hook: callable, optional
         """
         instance_id = id(instance)
         if instance_id in self.registry:
@@ -341,6 +345,7 @@ class MemoryManager:
         return pool_proportion
 
     def _add_manual_proportion(self, instance: object, proportion: float):
+        """Add an instance to the manual allocation pool"""
         instance_id = id(instance)
         new_manual_pool_size = self.manual_pool_proportion + proportion
         if new_manual_pool_size > 1.0:
@@ -574,7 +579,7 @@ class MemoryManager:
         axis: str
             An axis label along which to divide the array - for example,
             you might want to batch in time, or batch by runs, depending on
-            your system. The string must match a label in stride_order.
+            your system. The string must match a label in _stride_order.
 
         Returns
         =======
@@ -626,7 +631,7 @@ class MemoryManager:
         chunk_axis: str
             An axis label along which to divide the array - for example,
             you might want to batch in time, or batch by runs, depending on
-            your system. The string must match a label in stride_order.
+            your system. The string must match a label in _stride_order.
 
         Returns
         =======
@@ -659,7 +664,7 @@ class MemoryManager:
             self.get_stream(instance)
         )
         self.registry[instance_id].allocation_ready_hook(ArrayResponse(
-                arrays, numchunks))
+                arr=arrays, chunks=numchunks, chunk_axis=chunk_axis))
 
     def allocate_queue(self,
                        triggering_instance: object,
@@ -678,7 +683,7 @@ class MemoryManager:
         chunk_axis: str
             An axis label along which to divide the array - for example,
             you might want to batch in time, or batch by runs, depending on
-            your system. The string must match a label in stride_order.
+            your system. The string must match a label in _stride_order.
 
         This function does not return, but calls the allocation_ready_hook
         for each instance registered in the same stream group as *instance*
@@ -690,6 +695,7 @@ class MemoryManager:
         string.
         """
         stream_group = self.get_stream_group(triggering_instance)
+        peers = self.stream_groups.get_instances_in_group(stream_group)
         stream = self.get_stream(triggering_instance)
         queued_requests = self._queued_allocations.get(stream_group, {})
         n_queued = len(queued_requests)
@@ -716,6 +722,7 @@ class MemoryManager:
                     # Take the runnning maximum per-instance chunk size
                     numchunks = chunks if chunks > numchunks else numchunks
 
+            notaries = set(peers) - set(queued_requests.keys())
             for instance_id, requests_dict in queued_requests.items():
                 chunked_request = self.chunk_arrays(
                         requests_dict,
@@ -724,9 +731,40 @@ class MemoryManager:
                 arrays = self.allocate_all(chunked_request,
                                            instance_id,
                                            stream=stream)
-                response = ArrayResponse(arrays, numchunks)
+                response = ArrayResponse(arr=arrays,
+                                         chunks=numchunks,
+                                         chunk_axis=chunk_axis)
                 self.registry[instance_id].allocation_ready_hook(response)
+
+            for peer in notaries:
+                self.registry[peer].allocation_ready_hook(ArrayResponse(
+                        arr={}, chunks=numchunks, chunk_axis=chunk_axis))
         return None
+
+    def to_device(self, instance: object, from_arrays: list, to_arrays: list):
+        """Copy values to device array in the groups stream. """
+        stream = self.get_stream(instance)
+        is_cupy = self._allocator == CuPyAsyncNumbaManager
+        with (current_cupy_stream(stream) if is_cupy else
+              contextlib.nullcontext()):
+            for i, from_array in enumerate(from_arrays):
+                cuda.to_device(from_array, stream=stream, to=to_arrays[i])
+
+    def from_device(self,
+                    instance: object,
+                    from_arrays: list,
+                    to_arrays: list):
+        """Copy values from device array in the groups stream. """
+        stream = self.get_stream(instance)
+        is_cupy = self._allocator == CuPyAsyncNumbaManager
+        with (current_cupy_stream(stream) if is_cupy else
+              contextlib.nullcontext()):
+            for i, from_array in enumerate(from_arrays):
+                from_array.copy_to_host(to_arrays[i], stream=stream)
+
+    def sync_stream(self, instance):
+        stream = self.get_stream(instance)
+        stream.synchronize()
 
 def get_total_request_size(request: dict[str, ArrayRequest]):
     """Returns the total size of a request in bytes"""

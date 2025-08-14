@@ -7,6 +7,7 @@ from cubie.batchsolving.BatchConfigurator import BatchConfigurator
 from cubie.batchsolving.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.UserArrays import UserArrays
+from cubie import default_memmgr
 
 if TYPE_CHECKING:
     from numba.cuda.cudadrv import MappedNDArray
@@ -81,34 +82,52 @@ class Solver:
     model, which contains the ODEs to be solved.
     """
 
-    def __init__(self, system, algorithm: str = 'euler', duration: float = 1.0,
-                 warmup: float = 0.0, dt_min: float = 0.01,
-                 dt_max: float = 0.1, dt_save: float = 0.1,
-                 dt_summarise: float = 1.0, atol: float = 1e-6,
-                 rtol: float = 1e-6,
-                 saved_state_indices: Optional[List[Union[str | int]]] = None,
-                 saved_observable_indices: Optional[
-                     List[Union[str | int]]] = None,
-                 summarised_state_indices: Optional[
-                     List[Union[str | int]]] = None,
-                 summarised_observable_indices: Optional[
-                     List[Union[str | int]]] = None,
-                 output_types: list[str] = None, precision: type = np.float64,
-                 profileCUDA: bool = False, ):
+    def __init__(
+        self,
+        system,
+        algorithm: str = "euler",
+        duration: float = 1.0,
+        warmup: float = 0.0,
+        dt_min: float = 0.01,
+        dt_max: float = 0.1,
+        dt_save: float = 0.1,
+        dt_summarise: float = 1.0,
+        atol: float = 1e-6,
+        rtol: float = 1e-6,
+        saved_state_indices: Optional[List[Union[str | int]]] = None,
+        saved_observable_indices: Optional[List[Union[str | int]]] = None,
+        summarised_state_indices: Optional[List[Union[str | int]]] = None,
+        summarised_observable_indices: Optional[List[Union[str | int]]] = None,
+        output_types: list[str] = None,
+        precision: type = np.float64,
+        profileCUDA: bool = False,
+        memory_manager=default_memmgr,
+        stream_group="default",
+        mem_proportion=None,
+    ):
         super().__init__()
-        self.kernel = BatchSolverKernel(system, algorithm=algorithm,
-                                        duration=duration, warmup=warmup,
-                                        dt_min=dt_min, dt_max=dt_max,
-                                        dt_save=dt_save,
-                                        dt_summarise=dt_summarise, atol=atol,
-                                        rtol=rtol,
-                                        saved_state_indices=saved_state_indices,
-                                        saved_observable_indices=saved_observable_indices,
-                                        summarised_state_indices=summarised_state_indices,
-                                        summarised_observable_indices=summarised_observable_indices,
-                                        output_types=output_types,
-                                        precision=precision,
-                                        profileCUDA=profileCUDA)
+        self.kernel = BatchSolverKernel(
+            system,
+            algorithm=algorithm,
+            duration=duration,
+            warmup=warmup,
+            dt_min=dt_min,
+            dt_max=dt_max,
+            dt_save=dt_save,
+            dt_summarise=dt_summarise,
+            atol=atol,
+            rtol=rtol,
+            saved_state_indices=saved_state_indices,
+            saved_observable_indices=saved_observable_indices,
+            summarised_state_indices=summarised_state_indices,
+            summarised_observable_indices=summarised_observable_indices,
+            output_types=output_types,
+            precision=precision,
+            profileCUDA=profileCUDA,
+            memory_manager=memory_manager,
+            stream_group=stream_group,
+            mem_proportion=mem_proportion,
+        )
 
         self.batch_configurator = BatchConfigurator.from_system(system)
         self.user_arrays = UserArrays()
@@ -136,6 +155,43 @@ class Solver:
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.precision` from
         the child BatchSolverKernel object."""
         return self.kernel.precision
+
+    @property
+    def system_sizes(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.system_sizes`
+        from the child BatchSolverKernel object."""
+        return self.kernel.system_sizes
+
+    @property
+    def output_array_heights(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_array_heights`
+        from the child BatchSolverKernel object.
+        """
+        return self.kernel.output_array_heights
+
+    @property
+    def summaries_buffer_sizes(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
+        .summaries_buffer_sizes` from the child BatchSolverKernel object."""
+        return self.kernel.summaries_buffer_sizes
+
+    @property
+    def num_runs(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.num_runs` from
+        the child BatchSolverKernel object."""
+        return self.kernel.num_runs
+
+    @property
+    def output_length(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_length`
+        from the child BatchSolverKernel object."""
+        return self.kernel.output_length
+
+    @property
+    def summaries_length(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.summaries_length`
+        from the child BatchSolverKernel object."""
+        return self.kernel.summaries_length
 
     @property
     def summary_legend_per_variable(self) -> dict[int, str]:
@@ -177,29 +233,45 @@ class Solver:
         return self.kernel.active_output_arrays
 
     @property
-    def state_dev_array(self) -> 'MappedNDArray':
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.state_dev_array
-        ` from the child BatchSolverKernel object."""
-        return self.kernel.state_dev_array
+    def state(self):
+        """Exposes :attr:~cubie.batchsolving.BatchSolverKernel.state from the
+        child BatchSolverKernel object."""
+        return self.kernel.state
+    @property
+    def observables(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.observables`
+        from the child BatchSolverKernel object."""
+        return self.kernel.observables
 
     @property
-    def observables_dev_array(self) -> 'MappedNDArray':
+    def state_summaries(self):
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .observables_dev_array` from the child BatchSolverKernel object."""
-        return self.kernel.observables_dev_array
+        .state_summaries` from the child BatchSolverKernel object."""
+        return self.kernel.state_summaries
 
     @property
-    def state_summaries_dev_array(self) -> 'MappedNDArray':
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .state_summaries_dev_array` from the child BatchSolverKernel object."""
-        return self.kernel.state_summaries_dev_array
+    def observable_summaries(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.
+        observable_summaries` from the child BatchSolverKernel object."""
+        return self.kernel.observable_summaries
 
     @property
-    def observable_summaries_dev_array(self) -> 'MappedNDArray':
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .observable_summaries_dev_array` from the child BatchSolverKernel
-        object."""
-        return self.kernel.observable_summaries_dev_array
+    def parameters(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.parameters`
+        from the child BatchSolverKernel object."""
+        return self.kernel.parameters
+
+    @property
+    def initial_values(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.initial_values`
+        from the child BatchSolverKernel object."""
+        return self.kernel.initial_values
+
+    @property
+    def forcing_vectors(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.forcing_vectors`
+         from the child BatchSolverKernel object."""
+        return self.kernel.forcing_vectors
 
     @property
     def save_time(self) -> bool:
@@ -224,3 +296,30 @@ class Solver:
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
         .output_variables` from the child BatchSolverKernel object."""
         return self.batch_configurator.output_variables
+
+    @property
+    def chunk_axis(self) -> str:
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.chunk_axis`
+        from the child BatchSolverKernel object."""
+        return self.kernel.chunk_axis
+
+    @property
+    def chunks(self):
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.chunks` from the
+        child BatchSolverKernel object."""
+        return self.kernel.chunks
+
+    @property
+    def memory_manager(self):
+        """Returns the memory manager the solver is registered with."""
+        return self.kernel.memory_manager
+
+    @property
+    def stream_group(self):
+        """Returns the stream_group the solver is in."""
+        return self.kernel.stream_group
+
+    @property
+    def mem_proportion(self):
+        """Returns the memory proportion the solver is assigned."""
+        return self.kernel.mem_proportion

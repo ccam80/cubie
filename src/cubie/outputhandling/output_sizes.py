@@ -33,15 +33,15 @@ class SummariesBufferSizes(ArraySizingClass):
     with an adapter factory - for example, give it an output_functions
     object, and it returns sizes without awkward
     property names from a more cluttered namespace"""
-    state: Optional[int] = attrs.field(default=1,
-                                       validator=attrs.validators.instance_of(
-                                               int))
-    observables: Optional[int] = attrs.field(default=1,
-                                             validator=attrs.validators.instance_of(
-                                                     int))
-    per_variable: Optional[int] = attrs.field(default=1,
-                                              validator=attrs.validators.instance_of(
-                                                      int))
+    state: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    observables: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    per_variable: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
 
     @classmethod
     def from_output_fns(cls,
@@ -58,27 +58,27 @@ class LoopBufferSizes(ArraySizingClass):
     loop of an integrator - system-size based
     buffers like state, dxdt and summary buffers derived from output
     functions information."""
-    state_summaries: Optional[int] = attrs.field(default=1,
-                                                 validator=attrs.validators.instance_of(
-                                                         int))
-    observable_summaries: Optional[int] = attrs.field(default=1,
-                                                      validator=attrs.validators.instance_of(
-                                                              int))
-    state: Optional[int] = attrs.field(default=1,
-                                       validator=attrs.validators.instance_of(
-                                               int))
-    observables: Optional[int] = attrs.field(default=1,
-                                             validator=attrs.validators.instance_of(
-                                                     int))
-    dxdt: Optional[int] = attrs.field(default=1,
-                                      validator=attrs.validators.instance_of(
-                                              int))
-    parameters: Optional[int] = attrs.field(default=1,
-                                            validator=attrs.validators.instance_of(
-                                                    int))
-    drivers: Optional[int] = attrs.field(default=1,
-                                         validator=attrs.validators.instance_of(
-                                                 int))
+    state_summaries: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    observable_summaries: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    state: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    observables: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    dxdt: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    parameters: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    drivers: Optional[int] = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
 
     @classmethod
     def from_system_and_output_fns(cls, system: "GenericODE",
@@ -99,8 +99,7 @@ class LoopBufferSizes(ArraySizingClass):
         Create a LoopBufferSizes instance from a BatchSolverKernel object.
         """
         system_sizes = solver_instance.system_sizes
-        summary_sizes = (
-            solver_instance.single_integrator.summaries_buffer_sizes)
+        summary_sizes = solver_instance.summaries_buffer_sizes
         return cls(summary_sizes.state, summary_sizes.observables,
                    system_sizes.states, system_sizes.observables,
                    system_sizes.states, system_sizes.parameters,
@@ -109,19 +108,21 @@ class LoopBufferSizes(ArraySizingClass):
 
 @attrs.define
 class OutputArrayHeights(ArraySizingClass):
-    state: int = attrs.field(default=1,
-                             validator=attrs.validators.instance_of(int))
-    observables: int = attrs.field(default=1,
-                                   validator=attrs.validators.instance_of(int))
-    state_summaries: int = attrs.field(default=1,
-                                       validator=attrs.validators.instance_of(
-                                               int))
-    observable_summaries: int = attrs.field(default=1,
-                                            validator=attrs.validators.instance_of(
-                                                    int))
-    per_variable: int = attrs.field(default=1,
-                                    validator=attrs.validators.instance_of(
-                                            int))
+    state: int = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    observables: int = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    state_summaries: int = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    observable_summaries: int = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
+    per_variable: int = attrs.field(
+        default=1,
+        validator=attrs.validators.instance_of(int))
 
     @classmethod
     def from_output_fns(cls,
@@ -140,18 +141,22 @@ class OutputArrayHeights(ArraySizingClass):
 class SingleRunOutputSizes(ArraySizingClass):
     """ Returns 2d single-slice output array sizes for a single integration
     run."""
-    state: Tuple[int, int] = attrs.field(default=(1, 1),
-                                         validator=attrs.validators.instance_of(
-                                                 Tuple))
-    observables: Tuple[int, int] = attrs.field(default=(1, 1),
-                                               validator=attrs.validators.instance_of(
-                                                       Tuple))
-    state_summaries: Tuple[int, int] = attrs.field(default=(1, 1),
-                                                   validator=attrs.validators.instance_of(
-                                                           Tuple))
-    observable_summaries: Tuple[int, int] = attrs.field(default=(1, 1),
-                                                        validator=attrs.validators.instance_of(
-                                                                Tuple))
+    state: Tuple[int, int] = attrs.field(
+        default=(1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    observables: Tuple[int, int] = attrs.field(
+        default=(1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    state_summaries: Tuple[int, int] = attrs.field(
+        default=(1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    observable_summaries: Tuple[int, int] = attrs.field(
+        default=(1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    stride_order: Tuple[str, ...] = attrs.field(
+        default=("time", "variable"),
+        validator=attrs.validators.deep_iterable(
+            attrs.validators.in_(["time", "variable"])))
 
     @classmethod
     def from_solver(cls,
@@ -160,7 +165,7 @@ class SingleRunOutputSizes(ArraySizingClass):
         """
         Create a SingleRunOutputSizes instance from a BatchSolverKernel object.
         """
-        heights = solver_instance.output_heights
+        heights = solver_instance.output_array_heights
         output_samples = solver_instance.output_length
         summarise_samples = solver_instance.summaries_length
 
@@ -194,22 +199,63 @@ class SingleRunOutputSizes(ArraySizingClass):
 
 
 @attrs.define
+class BatchInputSizes(ArraySizingClass):
+    """ Returns 3d output array sizes for a batch of integration runs,
+    given a singleintegrator sizes object and
+    num_runs"""
+    initial_values: Tuple[int, int] = attrs.field(
+        default=(1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    parameters: Tuple[int, int] = attrs.field(
+        default=(1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    forcing_vectors: Tuple[int, Optional[int]] = attrs.field(
+        default=(1, None),
+        validator=attrs.validators.instance_of(Tuple))
+
+    stride_order: Tuple[str, ...] = attrs.field(
+        default=("run", "variable"),
+        validator=attrs.validators.deep_iterable(
+            attrs.validators.in_(["run", "variable"])))
+
+    @classmethod
+    def from_solver(
+            cls,
+            solver_instance: "BatchSolverKernel") -> "BatchInputSizes":
+        """
+        Create a BatchInputSizes instance from a BatchSolverKernel object.
+        """
+        loopBufferSizes = LoopBufferSizes.from_solver(solver_instance)
+        num_runs = solver_instance.num_runs
+        initial_values = (num_runs, loopBufferSizes.state)
+        parameters = (num_runs, loopBufferSizes.parameters)
+        forcing_vectors = (loopBufferSizes.drivers, None)
+
+        obj = cls(initial_values, parameters, forcing_vectors)
+        return obj
+
+
+@attrs.define
 class BatchOutputSizes(ArraySizingClass):
     """ Returns 3d output array sizes for a batch of integration runs,
     given a singleintegrator sizes object and
     num_runs"""
-    state: Tuple[int, int, int] = attrs.field(default=(1, 1, 1),
-                                              validator=attrs.validators.instance_of(
-                                                      Tuple))
-    observables: Tuple[int, int, int] = attrs.field(default=(1, 1, 1),
-                                                    validator=attrs.validators.instance_of(
-                                                            Tuple))
-    state_summaries: Tuple[int, int, int] = attrs.field(default=(1, 1, 1),
-                                                        validator=attrs.validators.instance_of(
-                                                                Tuple), )
-    observable_summaries: Tuple[int, int, int] = attrs.field(default=(1, 1, 1),
-                                                             validator=attrs.validators.instance_of(
-                                                                     Tuple), )
+    state: Tuple[int, int, int] = attrs.field(
+        default=(1, 1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    observables: Tuple[int, int, int] = attrs.field(
+        default=(1, 1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    state_summaries: Tuple[int, int, int] = attrs.field(
+        default=(1, 1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    observable_summaries: Tuple[int, int, int] = attrs.field(
+        default=(1, 1, 1),
+        validator=attrs.validators.instance_of(Tuple))
+    stride_order: Tuple[str, ...] = attrs.field(
+        default=("time", "run", "variable"),
+        validator=attrs.validators.deep_iterable(
+            attrs.validators.in_(["time", "run", "variable"])))
 
     @classmethod
     def from_solver(cls,

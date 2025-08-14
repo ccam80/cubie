@@ -86,7 +86,7 @@ def test_kernel_builds(solverkernel):
                           #  {'duration': 10.0, 'output_types':["state", "observables", "mean", "max"]},
                           #  {'num_state_vals_0': 10, 'num_state_vals_1': 10, 'num_param_vals_0': 10, 'num_param_vals_1': 10})
                           ),
-                          ids = ["smoke_test", "fire_test (all outputs)"],#, "scorcher: 10k "
+                          ids = ["smoke_test", "fire_test (all outputs)"],
                          # "10s threeCM runs"],
                          indirect=True)
 def test_run(solverkernel, batch_input_arrays, solver_settings, square_drive, batch_settings,
@@ -133,10 +133,10 @@ def test_run(solverkernel, batch_input_arrays, solver_settings, square_drive, ba
     if active_output_arrays.observable_summaries is False:
         expected_observable_summaries_shape = (1, 1, 1)
 
-    state = solverkernel.state_dev_array
-    observables = solverkernel.observables_dev_array
-    state_summaries = solverkernel.state_summaries_dev_array
-    observable_summaries = solverkernel.observable_summaries_dev_array
+    state = solverkernel.state
+    observables = solverkernel.observables
+    state_summaries = solverkernel.state_summaries
+    observable_summaries = solverkernel.observable_summaries
 
     #Check sizes match
     assert state.shape == expected_state_output_shape
@@ -212,11 +212,7 @@ def test_getters_get(solverkernel):
     assert solverkernel.summarised_state_indices is not None, ("BatchSolverKernel.summarised_state_indices returning None")
     assert solverkernel.summarised_observable_indices is not None, ("BatchSolverKernel.summarised_observable_indices returning None")
     assert solverkernel.active_output_arrays is not None, ("BatchSolverKernel.active_output_arrays returning None")
-    assert solverkernel.state_dev_array is not None, ("BatchSolverKernel.state_dev_array returning None")
-    assert solverkernel.observables_dev_array is not None, ("BatchSolverKernel.observables_dev_array returning None")
-    assert solverkernel.state_summaries_dev_array is not None, ("BatchSolverKernel.state_summaries_dev_array returning None")
-    assert solverkernel.observable_summaries_dev_array is not None, ("BatchSolverKernel.observable_summaries_dev_array returning None")
-
+    # device arrays SHOULD be None.
 
 def test_all_lower_plumbing(system, solverkernel):
     """Big plumbing integration check - check that config classes match exactly between an updated solver and one
