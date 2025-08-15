@@ -18,10 +18,10 @@ requires-python = ">=3.8"
 license = "MIT"
 license-files = ["src/LICEN[CS]E*"]
 dependencies = [
-    "numpy",
+    "numpy==1.26.4",
     "numba",
-    "numba-cuda",
-    "scipy",
+    "numba-cuda[cu12]",
+    "attrs"
 ]
 
 [project.urls]
@@ -33,10 +33,17 @@ dev = [
     "pytest",
     "pytest-cov",
     "pytest-durations",
+    "pytest-json-report",
+    "flake8"
+
 ]
 cupy = [
     "cupy-cuda12x",
 ]
+pandas = [
+    "pandas"
+]
+all = []
 
 [tool.pytest.ini_options]
 minversion = "6.0"

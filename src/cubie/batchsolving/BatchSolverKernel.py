@@ -55,7 +55,7 @@ class BatchSolverKernel(CUDAFactory):
                  output_types: list[str] = None, precision: type = np.float64,
                  profileCUDA: bool = False,
                  memory_manager=default_memmgr,
-                 stream_group='default',
+                 stream_group='solver',
                  mem_proportion=None,
                  ):
         super().__init__()
