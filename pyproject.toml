@@ -34,7 +34,9 @@ dev = [
     "pytest-cov",
     "pytest-durations",
     "pytest-json-report",
-    "flake8"
+    "flake8",
+    "cupy-cuda12x",
+    "pandas"
 
 ]
 cupy = [
