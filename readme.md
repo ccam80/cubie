@@ -17,7 +17,7 @@ This library comprises four main modules:
 - batchsolving: The higher-level components that deal with a whole batch problem at once: allocating arrays, interpreting user inputs, and using the integrators.
 - integrators: The low-level components that implement the actual integration algorithms, such as Euler (implemented), RK45, Radau (RK45 and Radau not implemented yet).
 - outputhandling: The components that deal with the output of the integration, saving or summarising all or a selected subset of variables
-- systemmodels: The format for defining ODE systems, and the biggest barrier to entry for using this library. Although the intention was to make it easy to port existing equations from MATLAB or SciPy, the Numba/CUDA system does not feature full support for all Python features, so some work is required to "simplify" (by making more comlicated to read), existing code.
+- systemmodels: The format for defining ODE systems, and the biggest barrier to entry for using this library. Although the intention was to make it easy to port existing equations from MATLAB or SciPy, the Numba/CUDA system does not feature full support for all Python features, so some work is required to "simplify" (by making more complicated to read), existing code.
 
 ## Installation:
 pip install cubie

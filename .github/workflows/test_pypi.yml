@@ -6,7 +6,7 @@
 # separate terms of service, privacy policy, and support
 # documentation.
 
-name: Publish Nightly to TestPyPI
+name: test-build
 
 on:
   workflow_dispatch:

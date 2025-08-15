@@ -1,4 +1,4 @@
-name: CUDA-enabled tests
+name: CUDA tests
 on:
   create:
   workflow_dispatch:
