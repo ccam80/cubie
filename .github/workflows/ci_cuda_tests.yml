@@ -50,7 +50,7 @@ jobs:
               'cd repo && '
               'python -m pip install -e . && '
               'mkdir -p /artifacts && '
-              'pytest --cov --cov-branch --cov-report=xml -vv -ra --junitxml=/artifacts/pytest-results.xml --cov=. --cov-report=xml:/artifacts/coverage.xml | tee /artifacts/pytest-output.log'
+              'pytest --cov --cov-branch -vv -ra --junitxml=/artifacts/pytest-results.xml --cov-report=xml:/artifacts/coverage.xml | tee /artifacts/pytest-output.log"'
           )
 
           job = Job.run(command=cmd, 
