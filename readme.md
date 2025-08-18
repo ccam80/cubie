@@ -9,15 +9,7 @@ likelihood-free inference method (see package [cubism]), but the machinery is do
 
 The most basic use case is to define a system of ODEs or SDEs, and then call cubie.solve(system, inits, params, duration) with a description of the "batch" in the form of initial conditions and system parameters. There are a few seconds of overhead in the first call to Solve - cubie really shines when dealing with large problems or repeated calls with a similarly sized batch.
 
-Defining a system of ODEs is the most cumbersome part of using this library. Like in MATLAB or SciPy, we need to create a dxdt function that takes the current state and parameters, and returns the rate of change of the state. Unlike MATLAB and SciPy, this function needs to be CUDA-compatible, which means it cannot use some of the features of Python and numpy.
-
-Creating a system is done by subclassing cubie.SystemModel, and implementing the dxdt method. See ThreeCM.py for an example of a small system. Fabbri_linder.py for an example of a large system.
-
-This library comprises four main modules:
-- batchsolving: The higher-level components that deal with a whole batch problem at once: allocating arrays, interpreting user inputs, and using the integrators.
-- integrators: The low-level components that implement the actual integration algorithms, such as Euler (implemented), RK45, Radau (RK45 and Radau not implemented yet).
-- outputhandling: The components that deal with the output of the integration, saving or summarising all or a selected subset of variables
-- systemmodels: The format for defining ODE systems, and the biggest barrier to entry for using this library. Although the intention was to make it easy to port existing equations from MATLAB or SciPy, the Numba/CUDA system does not feature full support for all Python features, so some work is required to "simplify" (by making more complicated to read), existing code.
+Defining a system of ODEs is the most cumbersome part of using this library. Like in MATLAB or SciPy, we need to create a dxdt function that takes the current state and parameters, and returns the rate of change of the state. Unlike MATLAB and SciPy, this function needs to be CUDA-compatible, which means it cannot use some of the features of Python and numpy. Creating a system is done by subclassing cubie.SystemModel.GenericODE, and implementing the dxdt method. See ThreeCM.py for an example of a small system. Fabbri_linder.py for an example of a large system.
 
 ## Installation:
 pip install cubie
@@ -31,8 +23,7 @@ I am using this library as a way to experiment with and learn about some better 
 past, including testing, CI/CD, and other helpful tactics I stumble upon. As such, while it's in development, there will
 be some clunky bits.
 
-The interface is not yet stable, and the documentation is currently non-working AI-generated slop, so it will be hard to use. The CUDA solver, however, is now functional. V0.0.2 will be usable with some documentation.
-
+The interface is not yet stable, and the documentation is currently non-working AI-generated slop, but the library now works roughly as you might expect, and can get up and running quickly by reading docstrings. Documentation and SymPy integration (as a means to get Jacobians to use implicit algorithms) are on the hit list for v0.1.0.
 ## Project Goals:
 
 - Make an engine and interface for batch integration that is close enough to MATLAB or SciPy that a Python beginner can
