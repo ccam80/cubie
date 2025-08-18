@@ -127,7 +127,7 @@ class TestInputArrays:
         """Test that all getters return non-None after allocation"""
         # Call the manager to set up arrays and allocate
         # solver.numruns=sample_input_arrays['initial_values'].shape[1]
-        input_arrays_manager(
+        input_arrays_manager.update(
             solver,
             sample_input_arrays['initial_values'],
             sample_input_arrays['parameters'],
@@ -145,8 +145,8 @@ class TestInputArrays:
         assert input_arrays_manager.device_forcing_vectors is not None
 
     def test_call_method_updates_host_arrays(self, input_arrays_manager, solver, sample_input_arrays):
-        """Test that call method updates host arrays"""
-        input_arrays_manager(
+        """Test that update method updates host arrays"""
+        input_arrays_manager.update(
             solver,
             sample_input_arrays['initial_values'],
             sample_input_arrays['parameters'],
@@ -159,7 +159,7 @@ class TestInputArrays:
         assert_array_equal(input_arrays_manager.forcing_vectors, sample_input_arrays['forcing_vectors'])
 
     def test_call_method_size_change_triggers_reallocation(self, input_arrays_manager, solver, input_test_settings):
-        """Test that call method triggers reallocation when size changes"""
+        """Test that update method triggers reallocation when size changes"""
         dtype = getattr(np, input_test_settings['dtype'])
         num_runs = input_test_settings['num_runs']
         
@@ -174,7 +174,7 @@ class TestInputArrays:
             'forcing_vectors': np.random.rand(forcing_count, num_runs).astype(dtype)
         }
         
-        input_arrays_manager(
+        input_arrays_manager.update(
             solver,
             initial_arrays['initial_values'],
             initial_arrays['parameters'],
@@ -191,7 +191,7 @@ class TestInputArrays:
             'forcing_vectors': np.random.rand(forcing_count, new_num_runs).astype(dtype)
         }
         
-        input_arrays_manager(
+        input_arrays_manager.update(
             solver,
             new_arrays['initial_values'],
             new_arrays['parameters'],
@@ -212,7 +212,7 @@ class TestInputArrays:
     def test_initialise_method(self, input_arrays_manager, solver, sample_input_arrays):
         """Test initialise method copies data to device"""
         # Set up the manager
-        input_arrays_manager(
+        input_arrays_manager.update(
             solver,
             sample_input_arrays['initial_values'],
             sample_input_arrays['parameters'],
@@ -250,7 +250,7 @@ class TestInputArrays:
         """Test finalise method copies data from device"""
         # Set up the manager
         input_arrays_manager = InputArrays.from_solver(solver)
-        input_arrays_manager(
+        input_arrays_manager.update(
             solver,
             sample_input_arrays['initial_values'],
             sample_input_arrays['parameters'],
@@ -290,7 +290,7 @@ class TestInputArrays:
                    precision):
         """Test finalise method copies data from device"""
         # Set up the manager
-        input_arrays_manager(
+        input_arrays_manager.update(
             solver,
             sample_input_arrays['initial_values'],
             sample_input_arrays['parameters'],
@@ -314,7 +314,7 @@ class TestInputArrays:
 def test_input_arrays_with_different_configs(input_arrays_manager, solver, sample_input_arrays, input_test_settings):
     """Test InputArrays with different configurations"""
     # Test that the manager works with different configurations
-    input_arrays_manager(
+    input_arrays_manager.update(
         solver,
         sample_input_arrays['initial_values'],
         sample_input_arrays['parameters'],
@@ -337,7 +337,7 @@ def test_input_arrays_with_different_configs(input_arrays_manager, solver, sampl
 def test_input_arrays_with_different_systems(input_arrays_manager, solver, sample_input_arrays):
     """Test InputArrays with different system models"""
     # Test that the manager works with different system types
-    input_arrays_manager(
+    input_arrays_manager.update(
         solver,
         sample_input_arrays['initial_values'],
         sample_input_arrays['parameters'],

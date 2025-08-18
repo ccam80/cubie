@@ -60,9 +60,11 @@ class InputArrayContainer(ArrayContainer):
 class InputArrays(BaseArrayManager):
     """ Manages batch integration input arrays between the host and device.
     This class is initialised with a
-    BatchInputSizes instance (which is drawn from a solver instance using the from_solver factory method),
-    which sets the allowable array heights from the ODE system's data. Once initialised, the object can be called
-    with arguments (initial_values, parameters, forcing_vectors). Each call to the the classes __call__ method will:
+    BatchInputSizes instance (which is drawn from a solver instance using the
+    from_solver factory method), which sets the allowable array heights from
+    the ODE system's data. Once initialised, the object can be updated
+    with arguments (initial_values, parameters, forcing_vectors). Each call to
+    the update method will:
     - Check if the input array has changed in shape or content since the last update
     - Queue allocation requests with the MemoryManager
     - Attach allocated arrays once received from MemoryManager
@@ -85,7 +87,7 @@ class InputArrays(BaseArrayManager):
         self.host._memory_type = "host"
         self.device._memory_type = "device"
 
-    def __call__(self,
+    def update(self,
                  solver_instance,
                  initial_values: NDArray,
                  parameters: NDArray,

@@ -185,7 +185,7 @@ class TestOutputArrays:
     def test_allocation_and_getters_not_none(self, output_arrays_manager, solver):
         """Test that all getters return non-None after allocation"""
         # Call the manager to allocate arrays based on solver
-        output_arrays_manager(solver)
+        output_arrays_manager.update(solver)
 
         # Check host getters
         assert output_arrays_manager.state is not None
@@ -207,9 +207,9 @@ class TestOutputArrays:
         assert output_arrays_manager.device_observable_summaries is None
 
     def test_call_method_allocates_arrays(self, output_arrays_manager, solver):
-        """Test that call method allocates arrays based on solver"""
+        """Test that update method allocates arrays based on solver"""
         # Call the manager - it allocates based on solver sizes only
-        output_arrays_manager(solver)
+        output_arrays_manager.update(solver)
 
         # Check that arrays were allocated
         assert output_arrays_manager.state is not None
@@ -226,7 +226,7 @@ class TestOutputArrays:
     def test_reallocation_on_size_change(self, output_arrays_manager, solver):
         """Test that arrays are reallocated when sizes change"""
         # Initial allocation
-        output_arrays_manager(solver)
+        output_arrays_manager.update(solver)
         original_device_state = output_arrays_manager.device_state
         original_shape = output_arrays_manager.device_state.shape
 
@@ -243,7 +243,7 @@ class TestOutputArrays:
     def test_chunking_affects_device_array_size(self, output_arrays_manager, solver):
         """Test that chunking changes device array allocation size"""
         # Allocate initially
-        output_arrays_manager(solver)
+        output_arrays_manager.update(solver)
 
         # Set up chunking - this should affect the device array size
         output_arrays_manager._chunks = 2
@@ -255,8 +255,8 @@ class TestOutputArrays:
         assert output_arrays_manager._chunk_axis == "run"
 
     def test_active_outputs_property(self, output_arrays_manager, solver):
-        """Test active_outputs property"""
-        output_arrays_manager(solver)
+        """Test _active_outputs property"""
+        output_arrays_manager.update(solver)
 
         active = output_arrays_manager.active_outputs
         assert isinstance(active, ActiveOutputs)
@@ -273,7 +273,7 @@ class TestOutputArrays:
     def test_initialise_method(self, output_arrays_manager, solver):
         """Test initialise method (no-op for outputs)"""
         # Set up the manager
-        output_arrays_manager(solver)
+        output_arrays_manager.update(solver)
 
         # Set up chunking
         output_arrays_manager._chunks = 1
@@ -291,7 +291,7 @@ class TestOutputArrays:
     def test_finalise_method_copies_device_to_host(self, output_arrays_manager, solver):
         """Test finalise method copies data from device to host"""
         # Set up the manager
-        output_arrays_manager(solver)
+        output_arrays_manager.update(solver)
 
         # Simulate computation by modifying device arrays
         # (In reality, CUDA kernels would write to these device arrays)
@@ -326,7 +326,7 @@ class TestOutputArrays:
 def test_dtype(output_arrays_manager, solver, precision):
     """Test OutputArrays with different configurations"""
     # Test that the manager works with different configurations
-    output_arrays_manager(solver)
+    output_arrays_manager.update(solver)
 
     expected_dtype = precision
     assert output_arrays_manager.state.dtype == expected_dtype
@@ -344,10 +344,12 @@ def test_dtype(output_arrays_manager, solver, precision):
     {'num_runs': 3},
     {'stream_group': 'test_group', 'memory_proportion': 0.5},
 ], indirect=True)
-def test_output_arrays_with_different_configs(output_arrays_manager, solver, output_test_settings):
+def test_output_arrays_with_different_configs(output_arrays_manager,
+                                              solver,
+                                              output_test_settings):
     """Test OutputArrays with different configurations"""
     # Test that the manager works with different configurations
-    output_arrays_manager(solver)
+    output_arrays_manager.update(solver)
 
     # Check shapes match expected configuration based on solver
     expected_num_runs = output_test_settings['num_runs']
@@ -376,7 +378,7 @@ def test_output_arrays_with_different_configs(output_arrays_manager, solver, out
 def test_output_arrays_with_different_systems(output_arrays_manager, solver):
     """Test OutputArrays with different system models"""
     # Test that the manager works with different system types
-    output_arrays_manager(solver)
+    output_arrays_manager.update(solver)
 
     # Verify the arrays match the system's requirements
     assert (output_arrays_manager.state.shape[2] ==
@@ -402,10 +404,12 @@ def test_output_arrays_with_different_systems(output_arrays_manager, solver):
 class TestOutputArraysSpecialCases:
     """Test special cases for OutputArrays"""
 
-    def test_allocation_with_different_solver_sizes(self, output_arrays_manager, solver):
+    def test_allocation_with_different_solver_sizes(self,
+                                                    output_arrays_manager,
+                                                    solver):
         """Test that arrays are allocated based on solver sizes"""
         # Test allocation - arrays should be sized based on solver
-        output_arrays_manager(solver)
+        output_arrays_manager.update(solver)
 
         # Manager should be set up without errors and arrays should exist
         assert output_arrays_manager.state is not None
@@ -413,10 +417,12 @@ class TestOutputArraysSpecialCases:
         assert output_arrays_manager.state_summaries is not None
         assert output_arrays_manager.observable_summaries is not None
 
-    def test_active_outputs_after_allocation(self, output_arrays_manager, solver):
+    def test_active_outputs_after_allocation(self,
+                                             output_arrays_manager,
+                                             solver):
         """Test active outputs detection after allocation"""
         # Allocate arrays from solver
-        output_arrays_manager(solver)
+        output_arrays_manager.update(solver)
 
         # Check active outputs - should be active since arrays have size > 1
         active = output_arrays_manager.active_outputs

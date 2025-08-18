@@ -124,6 +124,13 @@ class BaseArrayManager(ABC):
                 setattr(self.host, name, np.zeros(shape,
                                                dtype=self._precision))
         self._invalidate_hook()
+    @abstractmethod
+    def update(self, *args, **kwargs):
+        """Override with the desired behaviour to update arrays from external data.
+
+        This method should handle updating the manager's arrays based on
+        provided input data and trigger reallocation/allocation as needed.
+        """
 
     def _on_allocation_complete(self, response: ArrayResponse):
         """Callback for when the allocation response is received.
@@ -250,8 +257,8 @@ class BaseArrayManager(ABC):
                 f"Invalid location: {location} - must be 'host' or 'device'"
             )
         expected_sizes = self._sizes
-        source_stride_order = getattr(expected_sizes, "stride_order", None)
-        target_stride_order = container.stride_order
+        source_stride_order = getattr(expected_sizes, "_stride_order", None)
+        target_stride_order = container._stride_order
         chunk_axis_name = self._chunk_axis
         matches = {}
 
@@ -279,8 +286,8 @@ class BaseArrayManager(ABC):
 
                 # Chunk if needed and arrays are device arrays
                 if location == "device" and self._chunks > 0:
-                    if chunk_axis_name in container.stride_order:
-                        chunk_axis_index = container.stride_order.index(chunk_axis_name)
+                    if chunk_axis_name in container._stride_order:
+                        chunk_axis_index = container._stride_order.index(chunk_axis_name)
                         if expected_shape[chunk_axis_index] is not None:
                             expected_shape[chunk_axis_index] = int(
                                 np.ceil(expected_shape[chunk_axis_index] / self._chunks)

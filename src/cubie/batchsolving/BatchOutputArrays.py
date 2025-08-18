@@ -90,14 +90,11 @@ class ActiveOutputs:
 @attrs.define
 class OutputArrays(BaseArrayManager):
     """ Manages batch integration output arrays between the host and device.
-    This class is initialised with a
-    BatchOutputSizes instance (which is drawn from a solver instance using
-    the from_solver factory method),
-    which sets the allowable 3d array sizes from the ODE system's data and
-    run settings. Once initialised,
-    the object can be called with a solver instance to update the expected
-    sizes, check the cache, and allocate if
-    required.
+    This class is initialised with a BatchOutputSizes instance (which is drawn
+    from a solver instance using the from_solver factory method), which sets
+    the allowable 3d array sizes from the ODE system's data and run settings.
+    Once initialised, the object can be updated with a solver instance to
+    update the expected sizes, check the cache, and allocate if required.
     """
     _sizes: BatchOutputSizes = attrs.field(
             factory=BatchOutputSizes,
@@ -120,7 +117,7 @@ class OutputArrays(BaseArrayManager):
         self.host._memory_type = "host"
         self.device._memory_type = "mapped"
 
-    def __call__(self,
+    def update(self,
                  solver_instance) -> "OutputArrays":
         self.update_from_solver(solver_instance)
         self.allocate()
