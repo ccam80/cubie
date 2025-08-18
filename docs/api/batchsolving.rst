@@ -34,7 +34,7 @@ Core Components
 Data Structures
 ---------------
 
-.. automodule:: cubie.batchsolving.UserArrays
+.. automodule:: cubie.batchsolving.SolveResult
    :members:
    :undoc-members:
    :show-inheritance:
