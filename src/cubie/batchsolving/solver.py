@@ -16,18 +16,18 @@ from cubie.batchsolving.solveresult import SolveSpec
 if TYPE_CHECKING:
     from numba.cuda.cudadrv import MappedNDArray
 
-def batch_solve(system, y0, parameters, forcing_vectors=None,
+def solve_ivp(system, y0, parameters, forcing_vectors=None,
                 algorithm: str = 'euler',
                 solver_settings: Optional[dict] = None, duration: float = 1.0,
                 warmup: float = 0.0, dt_min: float = 0.01, dt_max: float = 0.1,
                 dt_save: float = 0.1, dt_summarise: float = 1.0,
                 atol: float = 1e-6, rtol: float = 1e-6,
-                saved_state_indices: Optional[List[Union[str | int]]] = None,
-                saved_observable_indices: Optional[
+                saved_states: Optional[List[Union[str | int]]] = None,
+                saved_observables: Optional[
                     List[Union[str | int]]] = None,
-                summarised_state_indices: Optional[
+                summarised_states: Optional[
                     List[Union[str | int]]] = None,
-                summarised_observable_indices: Optional[
+                summarised_observables: Optional[
                     List[Union[str | int]]] = None,
                 output_types: list[str] = None, precision: type = np.float64,
                 profileCUDA: bool = False) -> SolveResult:
@@ -148,6 +148,24 @@ class Solver:
         but will speed things up.
         """
         self.kernel.disable_profiling()
+
+    def get_state_indices(self,
+                          state_labels: Optional[List[str]] = None):
+        """
+        Get the indices of the states in the system based on the provided
+        state labels.
+        If no labels are provided, returns all state indices.
+        """
+        return self.batch_configurator.get_state_indices(state_labels)
+
+    def get_observable_indices(self,
+                               observable_labels: Optional[List[str]] = None):
+        """
+        Get the indices of the observables in the system based on the provided
+        observable labels.
+        If no labels are provided, returns all observable indices.
+        """
+        return self.batch_configurator.get_observable_indices(observable_labels)
 
     @property
     def precision(self) -> type:

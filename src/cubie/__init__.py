@@ -1,5 +1,5 @@
 """
-cubie: CUDA-accelerated Monte Carlo simulations
+cubie: CUDA Batch Integration Engine
 """
 
 from importlib.metadata import version
@@ -7,8 +7,11 @@ from importlib.metadata import version
 from cubie.batchsolving import *
 from cubie.integrators import  *
 from cubie.outputhandling import *
-from cubie.systemmodels import *
+from cubie.memory import default_memmgr
+import cubie.systemmodels as systems
 from cubie._utils import *
+
+__all__ = ["summary_metrics", "default_memmgr", "systems", "ArrayTypes", "Solver", "solve_ivp"]
 
 try:
     __version__ = version("cubie")

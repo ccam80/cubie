@@ -13,5 +13,6 @@ else:
 ArrayTypes = Optional[Union[NDArray, DeviceNDArrayBase, MappedNDArray]]
 # Import and re-export for top-level access
 from cubie.outputhandling import summary_metrics
+from cubie.batchsolving.solver import Solver, solve_ivp
 
-__all__ = ['summary_metrics', 'ArrayTypes']
+__all__ = ['summary_metrics', 'ArrayTypes', "Solver", "solve_ivp"]

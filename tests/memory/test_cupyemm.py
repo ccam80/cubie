@@ -14,12 +14,10 @@ from numba import cuda
 import numpy as np
 import cupy as cp
 
-@pytest.mark.nocudasim
 @pytest.fixture(scope="module")
 def stream1():
     return cuda.stream()
 
-@pytest.mark.nocudasim
 @pytest.fixture(scope="module")
 def stream2():
     return cuda.stream()
@@ -32,7 +30,6 @@ def test_numba_stream_ptr(stream1):
         expected_ptr = int(stream1.handle)
     assert _numba_stream_ptr(stream1) == expected_ptr
 
-@pytest.mark.cupy
 @pytest.fixture(scope="module")
 def cp_stream_nocheck():
     class monkeypatch_cp_stream(current_cupy_stream):
