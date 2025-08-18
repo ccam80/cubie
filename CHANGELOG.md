@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.0.2](https://github.com/ccam80/cubie/compare/v0.0.1...v0.0.2) (2025-08-18)
+
+
+### Features
+
+* BaseArrayManager class added to unify approach to allocating/deallocating device arrays through the memory manager ([416e363](https://github.com/ccam80/cubie/commit/416e3632085eaac507e596c22bafb34c22f107a2))
+* BatchConfigurator now accepts extra user input types to match usage ([a345679](https://github.com/ccam80/cubie/commit/a3456797cbd37eb47a3d75b10b9d870fe6b22203))
+* BatchInputArrays and BatchOutputArrays now subclass BaseArrayManager ([808695e](https://github.com/ccam80/cubie/commit/808695ed21eee0a777178babb2f181f6fc85afef))
+* Memory Manager extended to queue and process requests from multiple objects ([67e66bf](https://github.com/ccam80/cubie/commit/67e66bfe82fc02258afcbb94d342621505632074))
+* MemoryManager implemented ([3387142](https://github.com/ccam80/cubie/commit/3387142c7925c3ee76e60175bb1cddd0a1b87ce7))
+* Solver interface now set up for real people to use (I think) ([2b05c1e](https://github.com/ccam80/cubie/commit/2b05c1eb1a590f7fcd99f4aa0d33171ea4f5de37))
+* UserArrays now handles delivery from device arrays to end user for inspection ([9d93a7a](https://github.com/ccam80/cubie/commit/9d93a7a560500519b9cd500b70d082610fc9efc4))
+
+
+### Bug Fixes
+
+* BatchSolverKernel now uses blocksize to calculate dynamic shared memory correctly, and reduces blocksize if it's &gt; limit ([5d8263f](https://github.com/ccam80/cubie/commit/5d8263fd9aae11f6006f53bd349c44d169341405))
+* bug in previosu commit: BatchSolverKernel now uses blocksize to calculate dynamic shared memory correctly, and reduces blocksize if it's &gt; limit ([afda7cb](https://github.com/ccam80/cubie/commit/afda7cbe7d72e2d3a0e0134dca1be49ca81dbe08))
+* fix circular imports introduced in 636b5e3 ([2865160](https://github.com/ccam80/cubie/commit/2865160cc31fb7589cc75148dfbeaad88d78af37))
+* force odd shared memory size per run to minimise clashes. ([fc12c76](https://github.com/ccam80/cubie/commit/fc12c768dbc7bd27bbd90b469dae8258c09149d9))
+* forward declarations no longer cause circular imports ([e3841ff](https://github.com/ccam80/cubie/commit/e3841ffabdd745e1a5892417b19b7524a8d65f0a)), closes [#73](https://github.com/ccam80/cubie/issues/73)
+* Newly-initialised memory manager no longer breaks in CUDA sim ([db99862](https://github.com/ccam80/cubie/commit/db99862da766224b1f1588fd15f41cb524dc40bc))
+* output config flags now treated as derived quantities instead of attributes ([9d93a7a](https://github.com/ccam80/cubie/commit/9d93a7a560500519b9cd500b70d082610fc9efc4))
+* pyproject.toml now points at correct license and readme files for building. ([f7bd7f0](https://github.com/ccam80/cubie/commit/f7bd7f00079c4e804cd92e9bfdcf18bd2089c42f))
+* pyproject.toml now points at correct license file (but for real this time) ([93591ed](https://github.com/ccam80/cubie/commit/93591ed9c3c4465ff812b0402ec58c993d7cd63c))
+* SolverKernel now solves and summarises accurately. ([879da10](https://github.com/ccam80/cubie/commit/879da1033c7e5318ea2633213d55501f9cb186f5))
+* SolverKernel tests made CUDA-simulator-friendly ([ad702bb](https://github.com/ccam80/cubie/commit/ad702bb3a37f95e831723fc270978a5876316829))
+* UserArrays now SolveResult, and works with array managers to produce a sensible output ([994cd7c](https://github.com/ccam80/cubie/commit/994cd7ccc6bcd53c1e02b73f7397d5fe0c4e1d65))
+* UserArrays.as_numpy now returns copies rather than mappedarrays ([01af17d](https://github.com/ccam80/cubie/commit/01af17d493ceb74ac9b05468b929a7f6290cdd19))
+
+
+### Documentation
+
+* Docs don't mention CuMC anymore, and we shall never speak of it again ([fff2e00](https://github.com/ccam80/cubie/commit/fff2e0088168ac8106c50ff3d479cc49ccad4864))
+* Docs updated to reflect cubie refactor ([205e748](https://github.com/ccam80/cubie/commit/205e7489360c458818904c4e2bd0860639d54acf))
+* Properties which expose lower-level attributes are now docstringed as such ([a97d368](https://github.com/ccam80/cubie/commit/a97d368500ae618ae35ca0cce40ce54ebc98380b))
+
+
+### Miscellaneous Chores
+
+* release 0.0.2 ([60b3cd1](https://github.com/ccam80/cubie/commit/60b3cd1887078b2bbcb92ff0160bfc1222fddbd6))
+
 ## 0.0.1 (2025-08-01)
 
 
