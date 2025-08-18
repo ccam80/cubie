@@ -1,17 +1,11 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    pass
+    from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
-from os import environ
 import attrs
 import attrs.validators as val
 import numpy as np
-
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    pass
-else:
-    pass
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (BaseArrayManager,

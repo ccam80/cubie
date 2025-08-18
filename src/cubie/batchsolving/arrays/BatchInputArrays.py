@@ -12,7 +12,8 @@ from numpy.typing import NDArray
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    pass
+    from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
+
 from cubie.outputhandling.output_sizes import BatchInputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (BaseArrayManager,
                                                         ArrayContainer)

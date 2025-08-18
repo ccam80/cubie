@@ -17,7 +17,8 @@ from numpy.typing import NDArray, ArrayLike
 from cubie.memory import default_memmgr
 from cubie.CUDAFactory import CUDAFactory
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
-from cubie.batchsolving.arrays.BatchOutputArrays import OutputArrays
+from cubie.batchsolving.arrays.BatchOutputArrays import (OutputArrays,
+                                                         ActiveOutputs)
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.outputhandling.output_sizes import BatchOutputSizes, \
     SingleRunOutputSizes
@@ -135,8 +136,15 @@ class BatchSolverKernel(CUDAFactory):
         return self.memory_manager.proportion(self)
 
 
-    def run(self, duration, params, inits, forcing_vectors, blocksize=256,
-            stream=0, warmup=0.0, chunk_axis='run'):
+    def run(self,
+            duration,
+            params,
+            inits,
+            forcing_vectors,
+            blocksize=256,
+            stream=0,
+            warmup=0.0,
+            chunk_axis='run'):
         """Run the solver kernel."""
         # Order currently IMPORTANT - num_runs is updated in input_arrays,
         # which is used in output_arrays.
