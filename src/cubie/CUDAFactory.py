@@ -1,50 +1,48 @@
+"""Base classes for constructing cached CUDA device functions with Numba."""
 from typing import Set
-
+from abc import ABC, abstractmethod
 import attrs
 
 from cubie._utils import in_attr, is_attrs_class
 
 
-class CUDAFactory:
-    """
-    Factory class for creating CUDA device functions and kernels in Numba.
-    This parent class has common cache
-    invalidation and update functionality for parameters that affect the compiled CUDA functions.
+class CUDAFactory(ABC):
+    """Factory for creating and caching CUDA device functions.
 
-    Each CUDAFactory subclass should implement a "build()" factory method that declares and returns the CUDA function.
-    An additional class, decorated with @attrs.define, should be created that holds all of the data that is used to
-    configure the CUDA function. The CUDAFactory monitors any changes to the compile settings class, and invalidates
-    the cache when these have changed. If a cached object (like the device function) is requested but the cache is
-    invalid, the object will be built again before returning.
+    Subclasses implement :meth:`build` to construct Numba CUDA device functions
+    or other cached outputs. Compile settings are stored as attrs classes and
+    any change invalidates the cache to ensure functions are rebuilt when
+    needed.
 
-    The build() method can either return a single CUDA dispatcher, which will then be available through the
-    self.device_function property, or another @attrs class which only holds the cached outputs (when there are other
-    pieces of information that can be invalidated, such as memory sizes), each of which can then be safely accessed
-    using the self.get_cached_output(key) method. Apart from the build method, a subclass can include whatever
-    non-CUDA support functions are required.
+    Attributes
+    ----------
+    _compile_settings : attrs class or None
+        Current compile settings.
+    _cache_valid : bool
+        Indicates whether cached outputs are valid.
+    _device_function : callable or None
+        Cached CUDA device function.
+    _cache : attrs class or None
+        Container for additional cached outputs.
 
-    attrs classes are used to hold compile settings and cached output to avoid the mutability of keys that come with
-    using dicts, according to the sage advice from attrs (self-promotion I guess, but I like it!)
-        https://www.attrs.org/en/stable/why.html#dicts:~:text=Dictionaries%20are%20not%20for%20fixed%20fields.
+    Notes
+    -----
+    There is potential for a cache mismatch when doing the following:
 
-    Instantiate your compile_settings class and pass it to the self.setup_compile_settings() method in init,
-    then handle any updates to it using the self.update_compile_settings() method. This method will check if the
-    attributes requested are in the compile settings class, and will raise a warning if not. Once it's done it's
-    updating work, it will invalidate the cache. There is still a potential cache mismatch when doing the following:
+    ```python
+    device_function = self.device_function  # calls build if settings updated
+    self.update_compile_settings(new_setting=value)  # updates settings but
+    does not rebuild
 
-        '''
-        device_function = self.device_function #calls build if settings updated
-        self.update_compile_settings(new_setting=value) #updates settings but does not rebuild
-        self.compile_settings.new_setting #fetches updated setting and builds new device functions
+    device_function(argument_derived_from_new_setting)  # this will use the
+    old device function, not the new one
+    ```
 
-        device_function(argument_derived_from_new_setting) #this will use the old device function, not the new one
-        '''
+    The lesson is: Always use CUDAFactory.device_function at the point of
+    use, otherwise you'll defeat the cache invalidation logic.
 
-    The lesson is: Always use CUDAFactory.device_function at the point of use, otherwise you'll break the
-    cache logic.
-
-    If your build function returns multiple cached items, create a cache class decorated with @attrs.define. For
-    example:
+    If your build function returns multiple cached items, create a cache
+    class decorated with @attrs.define. For example:
     ```python
     @attrs.define
     class MyCache:
@@ -52,18 +50,16 @@ class CUDAFactory:
         other_output: int
     ```
     Then, in your build method, return an instance of this class:
-    '''python
+    ```python
 
     def build(self):
         return MyCache(device_function=my_device_function,
                         other_output=42)
+    ```
 
-    ```python
-
-    The current cache validity can be checked using the `cache_valid` property, which will return True if the cache
-     is valid and False otherwise.
-
-    Leave underscored methods and attribute alone - all should be modifiable using the non-underscored methods.
+    The current cache validity can be checked using the `cache_valid` property,
+    which will return True if the cache
+    is valid and False otherwise.
     """
 
     def __init__(self):
@@ -72,17 +68,30 @@ class CUDAFactory:
         self._device_function = None
         self._cache = None
 
+    @abstractmethod
     def build(self):
-        """A must-override method for any subclass."""
+        """Build and return the CUDA device function.
+
+        This method must be overridden by subclasses.
+
+        Returns
+        -------
+        callable or attrs class
+            Compiled CUDA function or container of cached outputs.
+        """
         return None
 
     def setup_compile_settings(self, compile_settings):
-        """
-        Set the compile settings for the factory. This function should be called to initialize the compile settings.
-        The compile_settings parameter should be an attrs class instance.
+        """Attach a container of compile-critical settings to the object.
 
-        This method overwrites the _compile_settings attribute wholesale rather than updating, so calling this on an
-        existing instance will overwrite any previously set compile settings.
+        Parameters
+        ----------
+        compile_settings : attrs class
+            Settings object used to configure the CUDA function.
+
+        Notes
+        -----
+        Any existing settings are replaced.
         """
         if not attrs.has(compile_settings):
             raise TypeError(
@@ -92,13 +101,18 @@ class CUDAFactory:
 
     @property
     def cache_valid(self):
+        """bool: ``True`` if cached outputs are up to date."""
+
         return self._cache_valid
 
     @property
     def device_function(self):
-        """
-        Returns the compiled CUDA device function.
-        If the cache is invalid, it will rebuild the function.
+        """Return the compiled CUDA device function.
+
+        Returns
+        -------
+        callable
+            Compiled CUDA device function.
         """
         if not self._cache_valid:
             self._build()
@@ -106,21 +120,34 @@ class CUDAFactory:
 
     @property
     def compile_settings(self):
-        """
-        Returns the current compile settings class instance.
-        """
+        """Return the current compile settings object."""
         return self._compile_settings
 
-    def update_compile_settings(self, updates_dict=None, silent=False,
-                                **kwargs) -> Set[str]:
-        """
-        Update the compile settings with new values, specified as keyword arguments.
-        This method should be called before building the system to ensure that the latest settings are used.
+    def update_compile_settings(
+        self, updates_dict=None, silent=False, **kwargs
+    ) -> Set[str]:
+        """Update compile settings with new values.
 
-        Args:
-            updates_dict (dict): A dictionary of compile settings to update with
-            silent (bool): If True, suppress warnings about unrecognized parameters
-            **kwargs: keywpord arguments to supplement or replace updates_dict
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Mapping of setting names to new values.
+        silent : bool, default=False
+            Suppress errors for unrecognised parameters.
+        **kwargs
+            Additional settings to update.
+
+        Returns
+        -------
+        set[str]
+            Names of settings that were successfully updated.
+
+        Raises
+        ------
+        ValueError
+            If compile settings have not been set up.
+        KeyError
+            If an unrecognised parameter is supplied and ``silent`` is ``False``.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -133,13 +160,11 @@ class CUDAFactory:
             raise ValueError(
                     "Compile settings must be set up using self.setup_compile_settings before updating.")
 
-        update_successful = False
         recognized_params = []
 
         for key, value in updates_dict.items():
             if in_attr(key, self._compile_settings):
                 setattr(self._compile_settings, key, value)
-                update_successful = True
                 recognized_params.append(key)
 
         unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
@@ -155,16 +180,17 @@ class CUDAFactory:
         return set(recognized_params)
 
     def _invalidate_cache(self):
+        """Mark cached outputs as invalid."""
         self._cache_valid = False
 
     def _build(self):
-        """Build or compile the system if needed."""
+        """Rebuild cached outputs if they are invalid."""
         build_result = self.build()
 
+        # Multi-output case
         if is_attrs_class(build_result):
-            # Multi-output case (for subclasses that need multiple cached values)
             self._cache = build_result
-            # For backward compatibility, if 'device_function' is in the dict, make it an attribute
+            # If 'device_function' is in the dict, make it an attribute
             if in_attr('device_function', build_result):
                 self._device_function = build_result.device_function
         else:
@@ -173,9 +199,22 @@ class CUDAFactory:
         self._cache_valid = True
 
     def get_cached_output(self, output_name):
-        """
-        Get a cached output by name. Will trigger a rebuild if the cache is invalid.
-        For subclasses with multiple outputs.
+        """Return a named cached output.
+
+        Parameters
+        ----------
+        output_name : str
+            Name of the cached item to retrieve.
+
+        Returns
+        -------
+        Any
+            Cached value associated with ``output_name``.
+
+        Raises
+        ------
+        KeyError
+            If ``output_name`` is not present in the cache.
         """
         if not self.cache_valid:
             self._build()

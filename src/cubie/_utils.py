@@ -1,8 +1,7 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Jul  5 19:24:23 2024
+"""Utility helpers used throughout :mod:`cubie`.
 
-@author: cca79
+This module provides general-purpose helpers for array slicing, dictionary
+updates and CUDA utilities that are shared across the code base.
 """
 from functools import wraps
 from time import time
@@ -20,21 +19,27 @@ xoro_type = from_dtype(xoroshiro128p_dtype)
 from attrs import fields, has
 
 def slice_variable_dimension(slices, indices, ndim):
-    """Slices indices with individual slices.
+    """Create a combined slice for selected dimensions.
 
     Parameters
-    ==========
-    slices: slice | list[slice]
-        The slice to apply to each index in indices
-    indices: int | list[int]
-        The indices along which to apply each slice
-    ndim: int
-        The total number of dimensions in the slice
+    ----------
+    slices : slice or list[slice]
+        Slice to apply to each index in ``indices``.
+    indices : int or list[int]
+        Dimension indices corresponding to ``slices``.
+    ndim : int
+        Total number of dimensions of the target array.
 
     Returns
-    =======
-    slice: slice
-        A single slice with the specified slices applied to the indices.
+    -------
+    tuple
+        Tuple of slice objects with ``slices`` applied to ``indices``.
+
+    Raises
+    ------
+    ValueError
+        If ``slices`` and ``indices`` differ in length or indices exceed
+        ``ndim``.
     """
     if isinstance(slices, slice):
         slices = [slices]
@@ -52,38 +57,63 @@ def slice_variable_dimension(slices, indices, ndim):
     return tuple(outslice)
 
 def in_attr(name, attrs_class_instance):
-    """Checks if a name is in the attributes of a class instance."""
-    field_names = {field.name for field in
-                   fields(attrs_class_instance.__class__)}
+    """Check whether a field exists on an attrs class instance.
+
+    Parameters
+    ----------
+    name : str
+        Field name to query.
+    attrs_class_instance : attrs class
+        Instance whose fields are inspected.
+
+    Returns
+    -------
+    bool
+        ``True`` if ``name`` or ``_name`` is a field of the instance.
+    """
+    field_names = {field.name for field in fields(
+            attrs_class_instance.__class__)}
     return name in field_names or ("_" + name) in field_names
 
 
 def is_attrs_class(putative_class_instance):
-    """Checks if the given object is an attrs class instance."""
+    """Return ``True`` if the object is an attrs class instance.
+
+     Parameters
+     ----------
+     putative_class_instance : Any
+         Object to check.
+
+     Returns
+     -------
+     bool
+         Whether the object is an attrs class instance.
+     """
     return has(putative_class_instance)
 
-
-def pinned_zeros(self, shape, dtype):
-    """Returns a pinned array of zeros with the given shape and dtype."""
-    npary = np.zeros(shape, dtype=dtype)
-    return cuda.pinned_array_like(npary)
-
-
 def update_dicts_from_kwargs(dicts: list | dict, **kwargs):
-    """Helper function to update specific keys in the parameter d of classes
-    which contain compiled objects -
-    this function scans through the dicts to find any keys that match kwargs, and updates the values if they're
-    different. The function returns True if any of the dicts were modified, to set a "needs rebuild" flag in the class
-    if the d is used for compilation.
+    """Update dictionaries with supplied keyword arguments.
 
-    Raises a UserWarning if any of the keys in kwargs were not found in the dicts. This doesn't error/stop code.
+    Scans the provided dictionaries for keys matching ``kwargs`` and updates
+    their values. The function returns ``True`` if any dictionary was modified
+    so callers can determine when cached objects require rebuilding.
 
-    Args:
-        dicts (list[d): A list of dictionaries to update.
-        **kwargs: Key-value pairs to update in the dictionaries.
-    Returns:
-        was_modified (bool): a flag that indicates if any d items were updated
+    Parameters
+    ----------
+    dicts : list or dict
+        Dictionaries to update.
+    **kwargs
+        Key-value pairs to apply to ``dicts``.
 
+    Returns
+    -------
+    bool
+        ``True`` if any dictionary entries were changed.
+
+    Warns
+    -----
+    UserWarning
+        If a key is not found or appears in multiple dictionaries.
     """
     if isinstance(dicts, dict):
         dicts = [dicts]
@@ -105,13 +135,31 @@ def update_dicts_from_kwargs(dicts: list | dict, **kwargs):
                     dicts_modified = True
 
         if kwarg_found is False:
-            warn(f"The parameter {key} was not found in the ODE algorithms dictionary"
-                 "of parameters", UserWarning, )
+            warn(
+                f"The parameter {key} was not found in the ODE algorithms dictionary"
+                "of parameters",
+                UserWarning,
+            )
 
     return dicts_modified
 
 
 def timing(_func=None, *, nruns=1):
+    """Decorator for printing execution time statistics.
+
+    Parameters
+    ----------
+    _func : callable, optional
+        Function to decorate. Used when the decorator is applied without
+        arguments.
+    nruns : int, default=1
+        Number of executions used to compute timing statistics.
+
+    Returns
+    -------
+    callable
+        Wrapped function or decorator.
+    """
     def decorator(func):
         @wraps(func)
         def wrap(*args, **kw):
@@ -130,8 +178,32 @@ def timing(_func=None, *, nruns=1):
     return decorator if _func is None else decorator(_func)
 
 
-@cuda.jit(float64(float64, float64, ), device=True, inline=True, )
-def clamp_64(value, clip_value, ):
+@cuda.jit(
+    float64(
+        float64,
+        float64,
+    ),
+    device=True,
+    inline=True,
+)
+def clamp_64(
+    value,
+    clip_value,
+):
+    """Clamp a 64-bit float to ``[-clip_value, clip_value]``.
+
+    Parameters
+    ----------
+    value : float64
+        Value to clamp.
+    clip_value : float64
+        Maximum absolute value allowed.
+
+    Returns
+    -------
+    float64
+        Clamped value.
+    """
     if value <= clip_value and value >= -clip_value:
         return value
     elif value > clip_value:
@@ -142,6 +214,20 @@ def clamp_64(value, clip_value, ):
 
 @cuda.jit(float32(float32, float32, ), device=True, inline=True, )
 def clamp_32(value, clip_value, ):
+    """Clamp a 32-bit float to ``[-clip_value, clip_value]``.
+
+    Parameters
+    ----------
+    value : float32
+        Value to clamp.
+    clip_value : float32
+        Maximum absolute value allowed.
+
+    Returns
+    -------
+    float32
+        Clamped value.
+    """
     if value <= clip_value and value >= -clip_value:
         return value
     elif value > clip_value:
@@ -150,23 +236,79 @@ def clamp_32(value, clip_value, ):
         return -clip_value
 
 
-@cuda.jit((float64[:], float64[:], int32, xoro_type[:]), device=True,
-          inline=True, )
-def get_noise_64(noise_array, sigmas, idx, RNG, ):
+@cuda.jit(
+    (float64[:], float64[:], int32, xoro_type[:]),
+    device=True,
+    inline=True,
+)
+def get_noise_64(
+    noise_array,
+    sigmas,
+    idx,
+    RNG,
+):
+    """Fill ``noise_array`` with Gaussian noise (float64).
+
+    Parameters
+    ----------
+    noise_array : float64[:]
+        Output array to populate.
+    sigmas : float64[:]
+        Standard deviations for each element.
+    idx : int32
+        Thread index used for RNG.
+    RNG : xoro_type[:]
+        RNG state array.
+    """
     for i in range(len(noise_array)):
         if sigmas[i] != 0.0:
             noise_array[i] = xoroshiro128p_normal_float64(RNG, idx) * sigmas[i]
 
 
-@cuda.jit((float32[:], float32[:], int32, xoro_type[:]), device=True,
-          inline=True, )
-def get_noise_32(noise_array, sigmas, idx, RNG, ):
+@cuda.jit(
+    (float32[:], float32[:], int32, xoro_type[:]),
+    device=True,
+    inline=True,
+)
+def get_noise_32(
+    noise_array,
+    sigmas,
+    idx,
+    RNG,
+):
+    """Fill ``noise_array`` with Gaussian noise (float32).
+
+    Parameters
+    ----------
+    noise_array : float32[:]
+        Output array to populate.
+    sigmas : float32[:]
+        Standard deviations for each element.
+    idx : int32
+        Thread index used for RNG.
+    RNG : xoro_type[:]
+        RNG state array.
+    """
     for i in range(len(noise_array)):
         if sigmas[i] != 0.0:
             noise_array[i] = xoroshiro128p_normal_float32(RNG, idx) * sigmas[i]
 
 
 def round_sf(num, sf):
+    """Round a number to a given number of significant figures.
+
+    Parameters
+    ----------
+    num : float
+        Number to round.
+    sf : int
+        Desired significant figures.
+
+    Returns
+    -------
+    float
+        ``num`` rounded to ``sf`` significant figures.
+    """
     if num == 0.0:
         return 0.0
     else:
@@ -174,10 +316,36 @@ def round_sf(num, sf):
 
 
 def round_list_sf(list, sf):
+    """Round each number in a list to significant figures.
+
+    Parameters
+    ----------
+    list : Sequence[float]
+        Numbers to round.
+    sf : int
+        Desired significant figures.
+
+    Returns
+    -------
+    list[float]
+        Rounded numbers.
+    """
     return [round_sf(num, sf) for num in list]
 
 
 def get_readonly_view(array):
+    """Return a read-only view of ``array``.
+
+        Parameters
+        ----------
+        array : numpy.ndarray
+            Array to make read-only.
+
+        Returns
+        -------
+        numpy.ndarray
+            Read-only view of ``array``.
+        """
     view = array.view()
     view.flags.writeable = False
     return view

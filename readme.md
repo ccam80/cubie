@@ -5,7 +5,7 @@
 
 A batch integration system for systems of ODEs and SDEs, for when elegant solutions fail and you would like to simulate 
 1,000,000 systems, fast. This package was designed to simulate a large electrophysiological model as part of a 
-likelihood-free inference method (see package [cubism]), but the machinery is domain-agnostic.
+likelihood-free inference method (eventually, package [cubism]), but the machinery is domain-agnostic.
 
 The most basic use case is to define a system of ODEs or SDEs, and then call cubie.solve(system, inits, params, duration) with a description of the "batch" in the form of initial conditions and system parameters. There are a few seconds of overhead in the first call to Solve - cubie really shines when dealing with large problems or repeated calls with a similarly sized batch.
 

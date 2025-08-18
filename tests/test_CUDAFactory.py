@@ -17,7 +17,14 @@ def dict_to_attrs_class(dictionary):
 @pytest.fixture(scope='class')
 def factory():
     """Fixture to provide a factory for creating system instances."""
-    factory = CUDAFactory()
+    class ConcreteFactory(CUDAFactory):
+        def __init__(self):
+            super().__init__()
+
+        def build(self):
+            return None
+
+    factory = ConcreteFactory()
     return factory
 
 
