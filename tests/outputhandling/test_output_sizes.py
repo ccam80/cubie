@@ -408,7 +408,7 @@ class TestBatchInputSizes:
         assert nonzero_sizes.forcing_vectors[1] == 1
 
     def test_stride_order_default(self):
-        """Test that stride_order has correct default value"""
+        """Test that _stride_order has correct default value"""
         sizes = BatchInputSizes()
         assert sizes.stride_order == ("run", "variable")
 

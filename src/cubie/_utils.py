@@ -8,7 +8,7 @@ from functools import wraps
 from time import time
 from warnings import warn
 from contextlib import contextmanager
-
+from typing import Union
 
 import numpy as np
 from numba import cuda
@@ -19,6 +19,37 @@ from numba.cuda.random import xoroshiro128p_normal_float64, \
 xoro_type = from_dtype(xoroshiro128p_dtype)
 from attrs import fields, has
 
+def slice_variable_dimension(slices, indices, ndim):
+    """Slices indices with individual slices.
+
+    Parameters
+    ==========
+    slices: slice | list[slice]
+        The slice to apply to each index in indices
+    indices: int | list[int]
+        The indices along which to apply each slice
+    ndim: int
+        The total number of dimensions in the slice
+
+    Returns
+    =======
+    slice: slice
+        A single slice with the specified slices applied to the indices.
+    """
+    if isinstance(slices, slice):
+        slices = [slices]
+    if isinstance(indices, int):
+        indices = [indices]
+    if len(slices) != len(indices):
+        raise ValueError("slices and indices must have the same length")
+    if max(indices) >= ndim:
+        raise ValueError("indices must be less than ndim")
+
+    outslice = [slice(None)] * ndim
+    for i, s in zip(indices, slices):
+        outslice[i] = s
+
+    return tuple(outslice)
 
 def in_attr(name, attrs_class_instance):
     """Checks if a name is in the attributes of a class instance."""

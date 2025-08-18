@@ -112,7 +112,7 @@ class OutputConfig:
                 self._save_state or self._save_observables or self._save_time or self.save_summaries)
         if not any_output:
             raise ValueError(
-                    "At least one output type must be enabled (state, observables, time, summaries)")
+                    "At least one output type must be enabled (state, observables, time, summaries_array)")
 
     def _check_saved_indices(self):
         """Convert indices iterables to numpy arrays for interface with device functions. If the array type is None,

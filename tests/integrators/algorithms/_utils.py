@@ -5,12 +5,12 @@ def convert_times_to_fixed_steps(internal_step_size: float, dt_save: float, dt_s
     Args:
         internal_step_size (float): The internal step size of the loop.
         dt_save (float): The time interval between saves.
-        dt_summarise (float): The time interval between summaries.
+        dt_summarise (float): The time interval between summaries_array.
 
     Returns:
         tuple: A tuple containing:
             - n_steps_save: Number of internal steps between saves
-            - n_steps_summarise: Number of save steps between summaries
+            - n_steps_summarise: Number of save steps between summaries_array
             - actual_dt_save: The actual save interval (may differ from requested)
             - actual_dt_summarise: The actual summary interval (may differ from requested)
     """

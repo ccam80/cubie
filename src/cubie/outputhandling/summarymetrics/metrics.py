@@ -217,7 +217,7 @@ class SummaryMetrics:
 
     def summaries_output_height(self, output_types_requested):
         """
-        Returns the total output size for the requested summaries metrics.
+        Returns the total output size for the requested summaries_array metrics.
 
         Args:
             output_types_requested: A list of metric names to calculate total output size for.

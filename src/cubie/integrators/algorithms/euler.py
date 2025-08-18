@@ -141,7 +141,7 @@ class Euler(GenericIntegratorAlgorithm):
     @property
     def shared_memory_required(self):
         """
-        Calculate the number of items in shared memory required for the loop - don't include summaries, they are handled
+        Calculate the number of items in shared memory required for the loop - don't include summaries_array, they are handled
         outside the loop as they are common to all algorithms. This is just the number of items stored in shared memory
         for state, dxdt, observables, drivers, which will change between algorithms.
         """

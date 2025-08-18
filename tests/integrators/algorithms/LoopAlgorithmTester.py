@@ -33,7 +33,7 @@ class LoopAlgorithmTester:
     def expected_summaries(self, expected_answer, loop_under_test, loop_compile_settings,
                            output_functions, precision):
         """
-        Calculate the expected summaries for the loop algorithm.
+        Calculate the expected summaries_array for the loop algorithm.
 
         Usage example:
         @pytest.mark.parametrize("summarise_every", [10], indirect=True)
@@ -258,7 +258,7 @@ class LoopAlgorithmTester:
         state_summary_output = d_summary_state.copy_to_host()
         observable_summary_output = d_summary_observables.copy_to_host()
 
-        # Calculate expected summaries
+        # Calculate expected summaries_array
         expected_state_summaries = expected_summaries['state']
         expected_obs_summaries = expected_summaries['observables']
 

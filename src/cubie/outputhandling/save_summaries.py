@@ -77,7 +77,7 @@ def save_summary_factory(buffer_sizes: SummariesBufferSizes,
         summarised_observable_indices: Sequence[int] | ArrayLike,
         summaries_list: Sequence[str], ):
     """Loop through the requested states and observables, applying the chained function to each. Return a device
-    function which saves all requested summaries."""
+    function which saves all requested summaries_array."""
     num_summarised_states = len(summarised_state_indices)
     num_summarised_observables = len(summarised_observable_indices)
 

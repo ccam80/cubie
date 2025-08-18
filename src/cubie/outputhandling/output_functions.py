@@ -82,7 +82,7 @@ class OutputFunctions(CUDAFactory):
         return set(recognised_params)
 
     def build(self) -> OutputFunctionCache:
-        """Compile three functions: Save state, update summaries metrics, and save summaries.
+        """Compile three functions: Save state, update summaries_array metrics, and save summaries_array.
         Calculate memory requirements for buffer and output arrays.
 
         Returns:
@@ -121,7 +121,7 @@ class OutputFunctions(CUDAFactory):
 
     @property
     def output_types(self):
-        """Return a set of the summaries requested/compiled into the functions"""
+        """Return a set of the summaries_array requested/compiled into the functions"""
         return self.compile_settings.output_types
 
     @property
@@ -172,37 +172,37 @@ class OutputFunctions(CUDAFactory):
 
     @property
     def state_summaries_output_height(self) -> int:
-        """Height of the output array for state summaries."""
+        """Height of the output array for state summaries_array."""
         return self.compile_settings.state_summaries_output_height
 
     @property
     def observable_summaries_output_height(self) -> int:
-        """Height of the output array for observable summaries."""
+        """Height of the output array for observable summaries_array."""
         return self.compile_settings.observable_summaries_output_height
 
     @property
     def summaries_buffer_height_per_var(self) -> int:
-        """Calculate the height of the state summaries buffer."""
+        """Calculate the height of the state summaries_array buffer."""
         return self.compile_settings.summaries_buffer_height_per_var
 
     @property
     def state_summaries_buffer_height(self) -> int:
-        """Calculate the height of the state summaries buffer."""
+        """Calculate the height of the state summaries_array buffer."""
         return self.compile_settings.state_summaries_buffer_height
 
     @property
     def observable_summaries_buffer_height(self) -> int:
-        """Calculate the height of the observable summaries buffer."""
+        """Calculate the height of the observable summaries_array buffer."""
         return self.compile_settings.observable_summaries_buffer_height
 
     @property
     def total_summary_buffer_size(self) -> int:
-        """Calculate the total size of the summaries buffer."""
+        """Calculate the total size of the summaries_array buffer."""
         return self.compile_settings.total_summary_buffer_size
 
     @property
     def summaries_output_height_per_var(self) -> int:
-        """Calculate the height of the state summaries output."""
+        """Calculate the height of the state summaries_array output."""
         return self.compile_settings.summaries_output_height_per_var
 
     @property

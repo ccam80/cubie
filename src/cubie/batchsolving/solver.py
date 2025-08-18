@@ -1,22 +1,21 @@
 from typing import Optional, Union, List
 from typing import TYPE_CHECKING
 
+import attrs
+import attrs.validators as val
 import numpy as np
 
 from cubie.batchsolving.BatchConfigurator import BatchConfigurator
 from cubie.batchsolving.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.batchsolving.UserArrays import UserArrays
+from cubie.batchsolving.solveresult import SolveResult
 from cubie import default_memmgr
+from cubie.batchsolving.solveresult import SolveSpec
+
 
 if TYPE_CHECKING:
     from numba.cuda.cudadrv import MappedNDArray
 
-
-# To be implemented at the solver/batchconfig/userarrays levels:
-
-
-#
 def batch_solve(system, y0, parameters, forcing_vectors=None,
                 algorithm: str = 'euler',
                 solver_settings: Optional[dict] = None, duration: float = 1.0,
@@ -31,7 +30,7 @@ def batch_solve(system, y0, parameters, forcing_vectors=None,
                 summarised_observable_indices: Optional[
                     List[Union[str | int]]] = None,
                 output_types: list[str] = None, precision: type = np.float64,
-                profileCUDA: bool = False) -> UserArrays:
+                profileCUDA: bool = False) -> SolveResult:
     """ Solve a batch problem using the provided system model and
     parameters. This is a convenience function that
     creates a Solver instance and calls its solve method. It is intended for
@@ -130,7 +129,7 @@ class Solver:
         )
 
         self.batch_configurator = BatchConfigurator.from_system(system)
-        self.user_arrays = UserArrays()
+        self.user_arrays = SolveResult()
 
     def enable_profiling(self):
         """
@@ -207,11 +206,22 @@ class Solver:
         return self.kernel.saved_state_indices
 
     @property
+    def saved_states(self):
+        """Returns a list of state labels for the saved states."""
+        return self.batch_configurator.state_labels(
+                self.saved_state_indices)
+
+    @property
     def saved_observable_indices(self):
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
         .saved_observable_indices` from the child BatchSolverKernel object."""
         return self.kernel.saved_observable_indices
 
+    @property
+    def saved_observables(self):
+        """Returns a list of observable labels for the saved observables."""
+        return self.batch_configurator.observable_labels(
+                self.saved_observable_indices)
     @property
     def summarised_state_indices(self):
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
@@ -219,11 +229,23 @@ class Solver:
         return self.kernel.summarised_state_indices
 
     @property
+    def summarised_states(self):
+        """Returns a list of state labels for the summarised states."""
+        return self.batch_configurator.state_labels(
+                self.summarised_state_indices)
+
+    @property
     def summarised_observable_indices(self):
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
         .summarised_observable_indices` from the child BatchSolverKernel
         object."""
         return self.kernel.summarised_observable_indices
+
+    @property
+    def summarised_observables(self):
+        """Returns a list of observable labels for the summarised observables."""
+        return self.batch_configurator.observable_labels(
+                self.summarised_observable_indices)
 
     @property
     def active_output_arrays(self) -> ActiveOutputs:
@@ -286,6 +308,12 @@ class Solver:
         return self.kernel.output_types
 
     @property
+    def output_stride_order(self) -> List[str]:
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_stride_order
+        ` from the child BatchSolverKernel object."""
+        return self.kernel.output_stride_order
+
+    @property
     def input_variables(self) -> List[str]:
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.input_variables
         ` from the child BatchSolverKernel object."""
@@ -323,3 +351,25 @@ class Solver:
     def mem_proportion(self):
         """Returns the memory proportion the solver is assigned."""
         return self.kernel.mem_proportion
+
+    @property
+    def solve_info(self):
+        """Returns a SolveSpec object with details of the solver run."""
+        return SolveSpec(
+                dt_min = self.kernel.dt_min,
+                dt_max = self.kernel.dt_max,
+                dt_save = self.kernel.dt_save,
+                dt_summarise = self.kernel.dt_summarise,
+                duration = self.kernel.duration,
+                warmup = self.kernel.warmup,
+                atol = self.kernel.atol,
+                rtol = self.kernel.rtol,
+                algorithm = self.kernel.algorithm,
+                saved_states = self.saved_states,
+                saved_observables = self.saved_observables,
+                summarised_states = self.summarised_states,
+                summarised_observables = self.summarised_states,
+                output_types = self.kernel.output_types,
+                precision = self.precision
+        )
+

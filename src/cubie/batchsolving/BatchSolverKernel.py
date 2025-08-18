@@ -43,10 +43,15 @@ class BatchSolverKernel(CUDAFactory):
      - System equations - these are handled in the system model classes.
     """
 
-    def __init__(self, system, algorithm: str = 'euler', duration: float = 1.0,
-                 warmup: float = 0.0, dt_min: float = 0.01,
-                 dt_max: float = 0.1, dt_save: float = 0.1,
-                 dt_summarise: float = 1.0, atol: float = 1e-6,
+    def __init__(self, system,
+                 algorithm: str = 'euler',
+                 duration: float = 1.0,
+                 warmup: float = 0.0,
+                 dt_min: float = 0.01,
+                 dt_max: float = 0.1,
+                 dt_save: float = 0.1,
+                 dt_summarise: float = 1.0,
+                 atol: float = 1e-6,
                  rtol: float = 1e-6,
                  saved_state_indices: NDArray[np.int_] = None,
                  saved_observable_indices: NDArray[np.int_] = None,
@@ -80,9 +85,14 @@ class BatchSolverKernel(CUDAFactory):
             output_types = ["state"]
 
         self.single_integrator = SingleIntegratorRun(system,
-                algorithm=algorithm, dt_min=dt_min, dt_max=dt_max,
-                dt_save=dt_save, dt_summarise=dt_summarise, atol=atol,
-                rtol=rtol, saved_state_indices=saved_state_indices,
+                algorithm=algorithm,
+                dt_min=dt_min,
+                dt_max=dt_max,
+                dt_save=dt_save,
+                dt_summarise=dt_summarise,
+                atol=atol,
+                rtol=rtol,
+                saved_state_indices=saved_state_indices,
                 saved_observable_indices=saved_observable_indices,
                 summarised_state_indices=summarised_state_indices,
                 summarised_observable_indices=summarised_observable_indices,
@@ -135,8 +145,8 @@ class BatchSolverKernel(CUDAFactory):
         numruns = inits.shape[0]
         self.num_runs = numruns
 
-        self.input_arrays(self, inits, params, forcing_vectors)
-        self.output_arrays(self)
+        self.input_arrays.update(self, inits, params, forcing_vectors)
+        self.output_arrays.update(self)
 
         self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
         chunks = self.chunks
@@ -362,10 +372,35 @@ class BatchSolverKernel(CUDAFactory):
         return self.single_integrator.system
 
     @property
+    def algorithm(self):
+        """Returns the integration algorithm being used."""
+        return self.single_integrator.algorithm_key
+
+    @property
     def fixed_step_size(self):
         """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
         .step_size` from the child SingleIntegratorRun object."""
         return self.single_integrator.fixed_step_size
+
+    @property
+    def dt_min(self):
+        """Minimum step size allowed for the solver."""
+        return self.single_integrator.config.dt_min
+
+    @property
+    def dt_max(self):
+        """Maximum step size allowed for the solver."""
+        return self.single_integrator.config.dt_max
+
+    @property
+    def atol(self):
+        """Absolute tolerance for the solver."""
+        return self.single_integrator.config.atol
+
+    @property
+    def rtol(self):
+        """Relative tolerance for the solver."""
+        return self.single_integrator.config.rtol
 
     @property
     def dt_save(self):
@@ -446,7 +481,7 @@ class BatchSolverKernel(CUDAFactory):
     @property
     def active_output_arrays(self) -> "ActiveOutputs":
         """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
-        .active_outputs` from the child OutputArrays object."""
+        ._active_outputs` from the child OutputArrays object."""
         self.output_arrays.allocate()
         return self.output_arrays.active_outputs
 
@@ -486,12 +521,12 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def state_summaries(self):
-        """Returns the state summaries array."""
+        """Returns the state summaries_array array."""
         return self.output_arrays.state_summaries
 
     @property
     def observable_summaries(self):
-        """Returns the observable summaries array."""
+        """Returns the observable summaries_array array."""
         return self.output_arrays.observable_summaries
 
     @property
@@ -508,6 +543,11 @@ class BatchSolverKernel(CUDAFactory):
     def forcing_vectors(self):
         """Returns the forcing vectors array."""
         return self.input_arrays.forcing_vectors
+
+    @property
+    def output_stride_order(self):
+        """Returns the axis order of the output arrays."""
+        return self.output_arrays.host.stride_order
 
     @property
     def save_time(self):

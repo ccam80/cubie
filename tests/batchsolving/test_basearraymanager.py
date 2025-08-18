@@ -31,6 +31,9 @@ class ConcreteArrayManager(BaseArrayManager):
     def initialise(self, indices, axis):
         return indices, axis
 
+    def update(self):
+        return
+
 @attrs.define(slots=False)
 class TestArrays(ArrayContainer):
     state = attrs.field(default=None)

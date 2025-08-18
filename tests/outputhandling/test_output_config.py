@@ -233,7 +233,7 @@ class TestSummaryMetrics:
         assert config.summaries_buffer_height_per_var > 0
         assert config.summaries_output_height_per_var > 0
 
-        # No summaries should mean no memory needed
+        # No summaries_array should mean no memory needed
         config.output_types = ["state",]
         assert config.summaries_buffer_height_per_var == 0
         assert config.summaries_output_height_per_var == 0

@@ -153,12 +153,12 @@ def test_run(solverkernel, batch_input_arrays, solver_settings, square_drive, ba
             assert_array_equal(observables, np.zeros(observables.shape, dtype=precision), err_msg="No observables output found")
     if active_output_arrays.state_summaries is True:
         with pytest.raises(AssertionError):
-            assert_array_equal(state_summaries, np.zeros(state_summaries.shape, dtype=precision), err_msg="No state summaries output "
+            assert_array_equal(state_summaries, np.zeros(state_summaries.shape, dtype=precision), err_msg="No state summaries_array output "
                                        "found")
     if active_output_arrays.observable_summaries is True:
         with ((pytest.raises(AssertionError))):
             assert_array_equal(observable_summaries, np.zeros(observable_summaries.shape, dtype=precision),
-                               err_msg=("No observable summaries output found"))
+                               err_msg=("No observable summaries_array output found"))
 
     # Set tolerance based on precision
     if precision == np.float32:
@@ -276,7 +276,7 @@ def expected_batch_answers_euler(system, solverkernel, batch_input_arrays, squar
 def expected_batch_summaries(expected_batch_answers_euler, solverkernel,
                        output_functions, precision):
     """
-    Calculate the expected summaries for the loop algorithm.
+    Calculate the expected summaries_array for the loop algorithm.
 
     Usage example:
     @pytest.mark.parametrize("summarise_every", [10], indirect=True)

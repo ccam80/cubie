@@ -148,7 +148,7 @@ def expected_outputs(output_test_settings, input_arrays, precision):
 @pytest.fixture(scope='function')
 def expected_summaries(output_test_settings, empty_output_arrays,
                        expected_outputs, output_functions, precision):
-    """Default expected summaries for the output functions."""
+    """Default expected summaries_array for the output functions."""
     state_output, observables_output = expected_outputs
     if output_functions.save_time:
         state_output = state_output[:, :-1]
@@ -212,7 +212,7 @@ def output_functions_test_kernel(precision, output_test_settings, output_functio
             return
 
         if test_shared_mem:
-            # Shared memory arrays for current state, current observables, and running summaries
+            # Shared memory arrays for current state, current observables, and running summaries_array
             shared = cuda.shared.array(0, dtype=numba_precision)
 
             observables_start_idx = num_states
@@ -349,13 +349,13 @@ def compare_input_output(output_functions_test_kernel,
 
     if output_functions.compile_settings.summarise_state:
         assert_allclose(expected_state_summaries, state_summaries_output, atol=atol, rtol=rtol,
-                        err_msg=f"State summaries didn't match expected values. Shapes: expected"
+                        err_msg=f"State summaries_array didn't match expected values. Shapes: expected"
                                 f"[{expected_state_summaries.shape}, actual[{state_summaries_output.shape}]",
                         verbose=True,
                         )
     if output_functions.compile_settings.summarise_observables:
         assert_allclose(expected_observable_summaries, observable_summaries_output, atol=atol, rtol=rtol,
-                        err_msg=f"Observable summaries didn't match expected values. Shapes: expected[{expected_observable_summaries.shape}, actual[{observable_summaries_output.shape}]",
+                        err_msg=f"Observable summaries_array didn't match expected values. Shapes: expected[{expected_observable_summaries.shape}, actual[{observable_summaries_output.shape}]",
                         verbose=True,
                         )
 
@@ -366,7 +366,7 @@ def compare_input_output(output_functions_test_kernel,
      'num_summaries': 100, 'random_scale': 1e3},
 ], ids=["large_dataset"], indirect=True)
 def test_all_summaries_long_run(compare_input_output):
-    """Test a long run with frequent summaries."""
+    """Test a long run with frequent summaries_array."""
     pass
 
 @pytest.mark.parametrize("precision_override", [np.float32, np.float64], ids=["float32", "float64"], indirect=True)

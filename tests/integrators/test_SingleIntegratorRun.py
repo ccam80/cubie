@@ -119,7 +119,7 @@ def test_property_access(single_integrator_run):
     array_heights = single_integrator_run.output_array_heights
     assert array_heights is not None
 
-    # Test summaries buffer sizes
+    # Test summaries_array buffer sizes
     summaries_sizes = single_integrator_run.summaries_buffer_sizes
     assert summaries_sizes is not None
 
@@ -143,11 +143,11 @@ def test_function_access_properties(single_integrator_run):
     save_state_func = single_integrator_run.save_state_func
     assert callable(save_state_func)
 
-    # Test update summaries function
+    # Test update summaries_array function
     update_summaries_func = single_integrator_run.update_summaries_func
     assert callable(update_summaries_func)
 
-    # Test save summaries function
+    # Test save summaries_array function
     save_summaries_func = single_integrator_run.save_summaries_func
     assert callable(save_summaries_func)
 

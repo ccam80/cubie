@@ -82,7 +82,7 @@ def calculate_single_summary_array(input_array,
     except ZeroDivisionError:
         n_items = 0
 
-    # Manual cycling through possible summaries to match the approach used when building the device functions
+    # Manual cycling through possible summaries_array to match the approach used when building the device functions
     for j in range(n_items):
         for i in range(summary_samples):
             summary_index = 0

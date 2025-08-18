@@ -29,13 +29,13 @@ class TestArrayRequests:
         assert array_request.stride_order == ("time", "run", "variable")
 
     def test_default_stride_ordering(self):
-        # 3D shape default stride_order
+        # 3D shape default _stride_order
         req3 = ArrayRequest(shape=(2,3,4), dtype=np.float32, memory='device', stride_order=None)
         assert req3.stride_order == ('time', 'run', 'variable')
-        # 2D shape default stride_order
+        # 2D shape default _stride_order
         req2 = ArrayRequest(shape=(5,6), dtype=np.float32, memory='device', stride_order=None)
         assert req2.stride_order == ('variable', 'run')
-        # 1D shape leaves stride_order None
+        # 1D shape leaves _stride_order None
         req1 = ArrayRequest(
             shape=(10,), dtype=np.float32, memory="device", stride_order=None
         )
