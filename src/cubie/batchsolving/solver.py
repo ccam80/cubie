@@ -1,8 +1,8 @@
 from typing import Optional, Union, List
 from typing import TYPE_CHECKING
+import warnings
 
 import numpy as np
-
 from cubie.memory import default_memmgr
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.SystemInterface import SystemInterface
@@ -14,26 +14,17 @@ from cubie.batchsolving.solveresult import SolveSpec
 
 if TYPE_CHECKING:
     from numba.cuda.cudadrv import MappedNDArray
-
-def solve_ivp(system, y0, parameters, forcing_vectors=None,
-                algorithm: str = 'euler',
-                solver_settings: Optional[dict] = None,
-              duration: float = 1.0,
-                warmup: float = 0.0,
-              dt_min: float = 0.01,
-              dt_max: float = 0.1,
-                dt_save: float = 0.1,
-              dt_summarise: float = 1.0,
-                atol: float = 1e-6, rtol: float = 1e-6,
-                saved_states: Optional[List[Union[str | int]]] = None,
-                saved_observables: Optional[
-                    List[Union[str | int]]] = None,
-                summarised_states: Optional[
-                    List[Union[str | int]]] = None,
-                summarised_observables: Optional[
-                    List[Union[str | int]]] = None,
-                output_types: list[str] = None, precision: type = np.float64,
-                profileCUDA: bool = False) -> SolveResult:
+def solve_ivp(
+    system,
+    y0,
+    parameters,
+    forcing_vectors,
+    dt_eval,
+    method="euler",
+    duration=1.0,
+    settling_time=0.0,
+    **options,
+) -> SolveResult:
     """ Solve a batch problem using the provided system model and
     parameters. This is a convenience function that
     creates a Solver instance and calls its solve method. It is intended for
@@ -43,32 +34,19 @@ def solve_ivp(system, y0, parameters, forcing_vectors=None,
     instantiate a Solver object and use its solve method, to take advantage
     of it reusing some expensive components.
     """
-    solver = Solver(system, **solver_settings)
-    process_request(y0, parameters, solver)
+    solver = Solver(system,
+                    algorithm=method,
+                    dt_save=dt_eval,
+                    duration=duration,
+                    warmup=settling_time,
+                    **options)
+    results = solver.solve(y0,
+                         parameters,
+                         forcing_vectors,
+                         duration=duration,
+                         warmup=settling_time,
+                         **options)
 
-
-def process_request(y0, parameters, solver: "Solver",
-                    batch_type: str = 'combinatorial'):
-    # MATLAB-like : a single 1d array of params and inits
-    # MATLAB-like extended to batch: A 2d array of params and inits,
-    # where they're *probably* not intended to be run
-    # together
-    if isinstance(y0, np.ndarray):
-        if y0.ndim == 1:
-            y0 = y0[np.newaxis, :]
-        elif y0.ndim > 2:
-            raise ValueError(
-                    f"Initial values must be a 1D or 2D array a dict mapping "
-                    f"a variable label, or a value or "
-                    "a series of values, got shape {y0.shape}")
-    elif isinstance(y0, dict):
-        if any([key in solver.all_input_labels for key in y0.keys()]):
-            pass
-        inits = y0[np.newaxis, :]
-    if isinstance(parameters, np.ndarray):
-        params = parameters[np.newaxis, :]
-    # handle None Forcing
-    inits, params = solver.grid_builder.grid_arrays()
 
 
 class Solver:
@@ -106,31 +84,22 @@ class Solver:
         memory_manager=default_memmgr,
         stream_group="solver",
         mem_proportion=None,
+        **kwargs,
     ):
         super().__init__()
         interface = SystemInterface.from_system(system)
-
-        if saved_states is not None:
-            saved_state_indices = interface.state_indices(saved_states)
-        else:
-            saved_state_indices = None
-        if saved_observables is not None:
-            saved_observable_indices = interface.observable_indices(
-                saved_observables)
-        else:
-            saved_observable_indices = None
-        if summarised_states is not None:
-            summarised_state_indices = interface.state_indices(
-                    summarised_states)
-        else:
-            summarised_state_indices = None
-        if summarised_observables is not None:
-            summarised_observable_indices = interface.observable_indices(
-                summarised_observables)
-        else:
-            summarised_observable_indices = None
-
         self.system_interface = interface
+
+        (saved_state_indices,
+         saved_observable_indices,
+         summarised_state_indices,
+         summarised_observable_indices) = self._variable_indices_from_list(
+                saved_states,
+                saved_observables,
+                summarised_states,
+                summarised_observables)
+
+
         self.grid_builder = BatchGridBuilder(interface)
 
         self.kernel = BatchSolverKernel(
@@ -156,14 +125,169 @@ class Solver:
             mem_proportion=mem_proportion,
         )
 
+    def _variable_indices_from_list(self,
+                                    saved_states,
+                                    saved_observables,
+                                    summarised_states,
+                                    summarised_observables):
+        """Get integer indices from SystemInterface given a list of labels"""
+        if saved_states is not None:
+            saved_state_indices = self.system_interface.state_indices(saved_states)
+        else:
+            saved_state_indices = None
+        if saved_observables is not None:
+            saved_observable_indices = self.system_interface.observable_indices(
+                saved_observables)
+        else:
+            saved_observable_indices = None
+        if summarised_states is not None:
+            summarised_state_indices = self.system_interface.state_indices(
+                    summarised_states)
+        else:
+            summarised_state_indices = None
+        if summarised_observables is not None:
+            summarised_observable_indices = self.system_interface.observable_indices(
+                    summarised_observables)
+        else:
+            summarised_observable_indices = None
+
+        return (saved_state_indices,
+                saved_observable_indices,
+                summarised_state_indices,
+                summarised_observable_indices)
+
     def solve(self,
               initial_values,
               parameters,
               forcing_vectors=None,
-              profileCUDA: bool = False,
+              duration=1.0,
+              settling_time=0.0,
+              blocksize=256,
+              stream=None,
+              chunk_axis='run',
+              grid_type: str = 'combinatorial',
+              results_type: str = 'full',
               **kwargs):
         """Solve a batch IVP problem using the Solver's settings and the
         provided inputs."""
+        if kwargs:
+            self.update(kwargs)
+
+        inits, params = self.grid_builder(states=initial_values,
+                                          params=parameters,
+                                          kind=grid_type)
+        self.kernel.run(
+            inits=inits,
+            params=params,
+            forcing_vectors=forcing_vectors,
+            duration=duration,
+            warmup=settling_time,
+            blocksize=blocksize,
+            stream=stream,
+            chunk_axis=chunk_axis,
+        )
+
+        return SolveResult.from_solver(self, results_type=results_type)
+
+    def update(self, updates_dict, silent=False, **kwargs):
+        """Update settings in this and all children of this solver.
+
+        Any settings in the integrator or system can be modified through
+        this function, including those that are not exposed directly.
+        """
+        if updates_dict is None:
+            updates_dict = {}
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return set()
+
+        updates_dict = self.update_saved_variables(updates_dict)
+
+        recognised = set()
+        all_unrecognized = set(updates_dict.keys())
+        all_unrecognized -= self.update_memory_settings(updates_dict, silent=True)
+        all_unrecognized -= self.system_interface.update(updates_dict, silent=True)
+        all_unrecognized -= self.kernel.update(updates_dict, silent=True)
+
+        if "profileCUDA" in updates_dict:
+            if updates_dict["profileCUDA"]:
+                self.enable_profiling()
+            else:
+                self.disable_profiling()
+            recognised.add("profileCUDA")
+
+        recognised = set(updates_dict.keys()) - all_unrecognized
+
+        if all_unrecognized:
+            if not silent:
+                raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
+        return recognised
+
+    def update_saved_variables(self, updates_dict):
+        """Interprets list of labels or indices and returns updates dict"""
+        saved_states = updates_dict.pop("saved_states", None)
+        saved_observables = updates_dict.pop("saved_observables", None)
+        summarised_states = updates_dict.pop("summarised_states", None)
+        summarised_observables = updates_dict.pop("summarised_observables",
+                                                  None)
+
+        (saved_state_indices,
+         saved_observable_indices,
+         summarised_state_indices,
+         summarised_observable_indices) = self._variable_indices_from_list(
+            saved_states,
+            saved_observables,
+            summarised_states,
+            summarised_observables
+        )
+
+        if saved_state_indices is not None:
+            updates_dict[saved_state_indices] = saved_state_indices
+        if saved_observable_indices is not None:
+            updates_dict[saved_observable_indices] = saved_observable_indices
+        if summarised_state_indices is not None:
+            updates_dict[summarised_state_indices] = summarised_state_indices
+        if summarised_observable_indices is not None:
+            updates_dict[summarised_observable_indices] = \
+                summarised_observable_indices
+
+        return updates_dict
+
+    def update_memory_settings(self,
+                               updates_dict=None,
+                               silent=False,
+                               **kwargs):
+        """
+        Update memory manager parameters. Possible keys:
+        - mem_proportion: float, the proportion of the GPU VRAM to set aside for
+        the solver
+        - allocator: str, the allocator to use for memory allocation.
+        """
+        if updates_dict is None:
+
+            updates_dict = {}
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return set()
+        all_unrecognized = set(updates_dict.keys())
+        recognised = set()
+
+        if "mem_proportion" in updates_dict:
+            self.memory_manager.set_manual_proportion(
+                    updates_dict["mem_proportion"])
+            recognised.add("mem_proportion")
+        if "allocator" in updates_dict:
+            self.memory_manager.set_allocator(updates_dict["allocator"])
+            recognised.add("allocator")
+
+        recognised = set(recognised)
+        all_unrecognized -= set(recognised)
+        if all_unrecognized:
+            if not silent:
+                raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
+        return recognised
 
     def enable_profiling(self):
         """

@@ -32,7 +32,10 @@ class SystemInterface:
         """Create an accessor from a system model."""
         return cls(system.parameters, system.initial_values, system.observables)
 
-    def update(self, updates: Dict[str, float] | None = None, **kwargs) -> None:
+    def update(self,
+               updates: Dict[str, float] | None = None,
+               silent=False,
+               **kwargs) -> None:
         """Update default parameter or state values.
 
         Parameters
@@ -54,11 +57,12 @@ class SystemInterface:
             all_unrecognized -= recognized
 
         if all_unrecognized:
-            unrecognized_list = sorted(all_unrecognized)
-            raise KeyError(
-                "The following updates were not recognized by the system. Was this a typo?: "
-                f"{unrecognized_list}"
-            )
+            if not silent:
+                unrecognized_list = sorted(all_unrecognized)
+                raise KeyError(
+                    "The following updates were not recognized by the system. Was this a typo?: "
+                    f"{unrecognized_list}"
+                )
 
         recognized = set(updates.keys()) - all_unrecognized
         return recognized

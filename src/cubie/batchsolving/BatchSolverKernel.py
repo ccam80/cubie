@@ -131,23 +131,29 @@ class BatchSolverKernel(CUDAFactory):
         return self.memory_manager.get_stream_group(self)
 
     @property
+    def stream(self):
+        """Return the stream assigned to the solver."""
+        return self.memory_manager.get_stream(self)
+
+
+    @property
     def mem_proportion(self):
         """Returns the memory proportion the solver is assigned."""
         return self.memory_manager.proportion(self)
 
-
     def run(self,
-            duration,
-            params,
             inits,
+            params,
             forcing_vectors,
+            duration,
             blocksize=256,
-            stream=0,
+            stream=None,
             warmup=0.0,
             chunk_axis='run'):
         """Run the solver kernel."""
-        # Order currently IMPORTANT - num_runs is updated in input_arrays,
-        # which is used in output_arrays.
+        if stream is None:
+            stream = self.stream
+
         self.duration = duration
         self.warmup = warmup
         numruns = inits.shape[0]

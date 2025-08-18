@@ -11,7 +11,8 @@ from cubie.memory import *
 import cubie.systemmodels as systems
 from cubie._utils import *
 
-__all__ = ["summary_metrics", "default_memmgr", "systems", "ArrayTypes", "Solver", "solve_ivp"]
+__all__ = ["summary_metrics", "default_memmgr", "systems", "ArrayTypes",
+           "Solver", "solve_ivp"]
 
 try:
     __version__ = version("cubie")

@@ -1,8 +1,156 @@
 """Utilities for building grids of state and parameter values.
 
 The :class:`BatchGridBuilder` class converts user-supplied dictionaries or
-arrays into the 2D numpy arrays expected by the solver. Most users will
-interact with the class through its ``__call__`` method."""
+arrays into the 2D numpy arrays expected by the solver. The user primarily
+interacts with this class through the Solver class, unless they have very
+specific needs. Interaction with the BatchConfigurator is primarily through
+the `__call__` method, which accepts four arguments:
+
+- `request`: A dictionary of (potentially mixed) parameter and state names
+mapped to sequences of values. Says: "Integrate from combinations of
+these named variables"
+- 'params': A dictionary of purely parameter variable names, a 1D sequence to
+set one set of values for every integration, or a 2D array of all
+combinations to integrate from.
+- 'states': A dictionary of purely state variable names, a 1D sequence to
+set one set of values for every integration, or a 2D array of all
+combinations to integrate from.
+- 'kind': A string indicating how to combine the parameters and states.
+  - 'combinatorial' constructs a grid of all combinations of the values
+  provided
+  - 'verbatim' constructs a grid of [[all variables[0]],[all variables[1]],...]
+  when the conbinations have been intentionally constructed already.
+
+Examples
+--------
+''''
+import numpy as np
+from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+from cubie.systemmodels.systems.decays import Decays
+systm = Decays(coefficients=[1.0, 2.0])
+grid_builder = BatchGridBuilder.from_system(system)
+params = {'p0': [0.1, 0.2], 'p1': [10, 20]}
+states = {'x0': [1.0, 2.0], 'x1': [0.5, 1.5]}
+inits, params = grid_builder(params=params, states=states,
+                                                kind='combinatorial')
+'''
+>>>print(inits.shape)
+(16, 2)
+>>>print(inits)
+[[1.  0.5]
+ [1.  0.5]
+ [1.  0.5]
+ [1.  0.5]
+ [1.  1.5]
+ [1.  1.5]
+ [1.  1.5]
+ [1.  1.5]
+ [2.  0.5]
+ [2.  0.5]
+ [2.  0.5]
+ [2.  0.5]
+ [2.  1.5]
+ [2.  1.5]
+ [2.  1.5]
+ [2.  1.5]]
+>>>print(params.shape)
+(16, 2)
+>>>print(params)
+[[ 0.1 10. ]
+ [ 0.1 20. ]
+ [ 0.2 10. ]
+ [ 0.2 20. ]
+ [ 0.1 10. ]
+ [ 0.1 20. ]
+ [ 0.2 10. ]
+ [ 0.2 20. ]
+ [ 0.1 10. ]
+ [ 0.1 20. ]
+ [ 0.2 10. ]
+ [ 0.2 20. ]
+ [ 0.1 10. ]
+ [ 0.1 20. ]
+ [ 0.2 10. ]
+ [ 0.2 20. ]]
+
+ '''
+ # Example 2: verbatim arrays
+params = np.array([[0.1, 0.2], [10, 20]])
+states = np.array([[1.0, 2.0], [0.5, 1.5]])
+inits, params = grid_builder(params=params, states=states,
+                                                kind='verbatim')
+'''
+>>>print(inits.shape)
+(2, 2)
+>>>print(inits)
+[[1.  2. ]
+ [0.5 1.5]]
+>>>print(params.shape)
+(2, 2)
+>>>print(params)
+[[ 0.1  0.2]
+ [10.  20. ]]
+
+
+>>>inits, params = grid_builder(params=params, states=states,
+                                                kind='combinatorial')
+
+>>>print(inits.shape)
+(4, 2)
+>>>print(inits)
+[[1.  2. ]
+ [1.  2. ]
+ [0.5 1.5]
+ [0.5 1.5]]
+>>>print(params.shape)
+(4, 2)
+>>>print(params)
+[[ 0.1  0.2]
+ [10.  20. ]
+ [ 0.1  0.2]
+ [10.  20. ]]
+
+#Same as individual dictionaries
+>>>request = {'p0': [0.1, 0.2], 'p1': [10, 20], 'x0': [1.0, 2.0],
+           'x1': [0.5, 1.5]}
+>>>inits, params = grid_builder(request=request,
+                                                kind='combinatorial')
+>>>print(inits.shape)
+(16, 2)
+>>>print(params.shape)
+(16, 2)
+
+>>>request = {'p0': [0.1, 0.2]}
+>>>inits, params = grid_builder(request=request,
+                                                kind='combinatorial')
+>>>print(inits.shape)
+(2, 2)
+>>>print(inits)  # unspecified variables are filled with defaults from system
+[[1. 1.]
+ [1. 1.]]
+>>>print(params.shape)
+(2, 2)
+>>>print(params)
+[[0.1 2. ]
+ [0.2 2. ]]
+
+Notes
+-----
+There is a subtle difference between a 'combinatorial' combination of two
+input arrays the same values given as per-variable arrays in a dict,
+as demonstrated in the examples above. If the user provides arrays as an
+argument, it is assumed that all within-array combinations have already been
+constructed. When the user provides a dict, it is assumed that they want a
+combinatorial combination of the values. In the array case, the method will
+return arrays which contain all combinations of the crows of the arrays (
+i.e. nrows x nrows combinations). The dictionary case first constructs
+combinations of values, resulting in an array of height nvals1 * nvals2 *
+... * nvalsk for k variables, then combines these in the same fashion as
+the array case.
+
+For more fine-grained control, you can call the grid_arrays and
+combine_grids methods directly, or construct the full arrays outside of
+this method and let them pass through verbatim."""
 
 
 from itertools import product
@@ -335,10 +483,11 @@ class BatchGridBuilder:
         interface = SystemInterface.from_system(system)
         return cls(interface)
 
-    def grid_arrays(self, request: Dict[
-        Union[str, int], Union[float, ArrayLike, np.ndarray]],
-                    kind: str = 'combinatorial', ) -> tuple[
-        np.ndarray, np.ndarray]:
+    def grid_arrays(self,
+                    request: Dict[Union[str, int],
+                                  Union[float, ArrayLike, np.ndarray]],
+                    kind: str = 'combinatorial'
+                    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Build a grid of parameters for a batch of runs based on a dictionary
         keyed by parameter name or index,
@@ -366,21 +515,22 @@ class BatchGridBuilder:
 
         return initial_values_array, params_array
 
-    def __call__(self, request: Optional[
-        Dict[str, Union[float, ArrayLike, np.ndarray]]] = None,
-                 params: Optional[Union[Dict, ArrayLike]] = None,
-                 states: Optional[Union[Dict, ArrayLike]] = None,
-                 kind: str = 'combinatorial', ) -> tuple[
-        np.ndarray, np.ndarray]:
+    def __call__(
+            self,
+             request: Optional[Dict[str,
+                               Union[float, ArrayLike, np.ndarray]]] = None,
+             params: Optional[Union[Dict, ArrayLike]] = None,
+             states: Optional[Union[Dict, ArrayLike]] = None,
+             kind: str = 'combinatorial'
+             ) -> tuple[np.ndarray, np.ndarray]:
         """
         Processes user input to generate parameter and state arrays for a
         batch run.
 
         This method acts as the main entry point for the user. It accepts
-        parameters and initial states in various
-        formats (dictionaries or arrays), processes them, and returns two 2D
-        arrays: one for initial states and one
-        for parameters, ready to be used in a simulation.
+        parameters and initial states in various formats (dictionaries or
+        arrays), processes them, and returns two 2D arrays: one for initial
+        states and one for parameters, ready to be used in a simulation.
 
         Parameters
         ----------
