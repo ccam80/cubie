@@ -16,6 +16,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
     'sphinx.ext.autosummary',
+    'sphinx.ext.todo',
 ]
 
 templates_path = ['_templates']
@@ -33,6 +34,8 @@ autodoc_default_options = {
     'show-inheritance': True,
 }
 
+autodoc_mock_imports = ["numba", "cupy"]
+
 # napoleon
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
@@ -41,6 +44,9 @@ napoleon_include_private_with_doc = False
 
 # autosummary
 autosummary_generate = True
+
+# todo
+todo_include_todos = True
 
 # intersphinx
 intersphinx_mapping = {
