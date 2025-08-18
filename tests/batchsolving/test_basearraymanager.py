@@ -1,25 +1,21 @@
 from os import environ
 import pytest
-from cupy import zeros_like
 
-from cubie.batchsolving.BaseArrayManager import BaseArrayManager, ArrayContainer
+from cubie.batchsolving.arrays.BaseArrayManager import BaseArrayManager, ArrayContainer
 import attrs
 import numpy as np
 
 from cubie.memory.array_requests import ArrayResponse, ArrayRequest
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from numpy.testing import assert_array_equal
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numba.cuda.simulator.cudadrv.devicearray import \
-        FakeCUDAArray as DeviceNDArray
     from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
                                                           MappedNDArray)
     from numpy import zeros as mapped_array
     from numpy import zeros as device_array
 else:
-    from numba.cuda.cudadrv.devicearray import DeviceNDArray, MappedNDArray
+    from numba.cuda.cudadrv.devicearray import MappedNDArray
     from numba.cuda import mapped_array, device_array
 
 @attrs.define

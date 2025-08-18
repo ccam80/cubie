@@ -6,7 +6,7 @@ import numpy as np
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
-from cubie import default_memmgr
+from cubie.memory import default_memmgr
 
 """Fixtures for instantiating lower-level components with default values that can be overriden through
 indirect parametrization of the "override" fixture."""
@@ -237,8 +237,10 @@ def solver(system, solver_settings):
                             dt_summarise=solver_settings['dt_summarise'],
                             atol=solver_settings['atol'],
                             rtol=solver_settings['rtol'],
-                            saved_state_indices=solver_settings['saved_state_indices'],
-                            saved_observable_indices=solver_settings['saved_observable_indices'],
+                            saved_states=solver_settings[
+                                'saved_state_indices'],
+                            saved_observables=solver_settings[
+                                'saved_observable_indices'],
                             output_types=solver_settings['output_types'],
                             precision=solver_settings['precision'],
                             profileCUDA=solver_settings.get('profileCUDA',

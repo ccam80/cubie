@@ -1,33 +1,21 @@
-from typing import TYPE_CHECKING, Dict
-
-from typing import Optional, Union
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from warnings import warn
+    pass
 
 from os import environ
 import attrs
 import attrs.validators as val
-from numba.cuda import mapped_array
-from numpy import float32
-from numpy.typing import NDArray
 import numpy as np
-from functools import partial
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numba.cuda.simulator.cudadrv.devicearray import \
-        FakeCUDAArray as DeviceNDArrayBase
-    from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
-                                                          MappedNDArray)
+    pass
 else:
-    from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase, MappedNDArray
+    pass
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from cubie.batchsolving._utils import optional_cuda_array_validator_3d
-from cubie.memory.mem_manager import ArrayRequest, ArrayResponse
-from cubie.batchsolving.BaseArrayManager import (BaseArrayManager,
-                                                 ArrayContainer)
+from cubie.batchsolving.arrays.BaseArrayManager import (BaseArrayManager,
+                                                        ArrayContainer)
 from cubie.batchsolving import ArrayTypes
 
 @attrs.define(slots=False)

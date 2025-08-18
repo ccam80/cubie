@@ -2,20 +2,16 @@ from os import environ
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal
-import attrs
 from numba import cuda
 
-from cubie.batchsolving.BatchInputArrays import (InputArrays,
-                                                 InputArrayContainer)
-from cubie import default_memmgr
+from cubie.batchsolving.arrays.BatchInputArrays import (InputArrays,
+                                                        InputArrayContainer)
+from cubie.memory import default_memmgr
 from cubie.outputhandling.output_sizes import BatchInputSizes
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numba.cuda.simulator.cudadrv.devicearray import \
-        FakeCUDAArray as DeviceNDArray
     from numpy import zeros as device_array
 else:
-    from numba.cuda.cudadrv.devicearray import DeviceNDArray
     from numba.cuda import device_array
 
 @pytest.fixture(scope='function')

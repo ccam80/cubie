@@ -1,163 +1,10 @@
-"""
-Interprets user inputs and generates initial value and parameter arrays.
+"""Utilities for building grids of state and parameter values.
 
-Processes user input provided as dictionaries of parameter and state names
-mapped to sequences of values, arrays of ordered values, or sequences of
-values. Constructs 2D arrays for initial values and parameters for use by a
-Solver object. The user primarily interacts with this class through the
-Solver class, unless they have very specific needs. Interaction with the
-BatchConfigurator is primarily through the `__call__` method, which accepts
-four arguments:
-- `request`: A dictionary of (potentially mixed) parameter and state names
-mapped to sequences of values. Says: "Integrate from combinations of
-these named variables"
-- 'params': A dictionary of purely parameter variable names, a 1D sequence to
-set one set of values for every integration, or a 2D array of all
-combinations to integrate from.
-- 'states': A dictionary of purely state variable names, a 1D sequence to
-set one set of values for every integration, or a 2D array of all
-combinations to integrate from.
-- 'kind': A string indicating how to combine the parameters and states.
-  - 'combinatorial' constructs a grid of all combinations of the values
-  provided
-  - 'verbatim' constructs a grid of [[all variables[0]],[all variables[1]],...]
-  when the conbinations have been intentionally constructed already.
-
-Examples
---------
-''''
-import numpy as np
-from cubie.batchsolving.BatchConfigurator import BatchConfigurator
-from cubie.systemmodels.systems.decays import Decays
-systm = Decays(coefficients=[1.0, 2.0])
-batch_configurator = BatchConfigurator.from_system(system)
-params = {'p0': [0.1, 0.2], 'p1': [10, 20]}
-states = {'x0': [1.0, 2.0], 'x1': [0.5, 1.5]}
-inits, params = batch_configurator(params=params, states=states,
-                                                kind='combinatorial')
-'''
->>>print(inits.shape)
-(16, 2)
->>>print(inits)
-[[1.  0.5]
- [1.  0.5]
- [1.  0.5]
- [1.  0.5]
- [1.  1.5]
- [1.  1.5]
- [1.  1.5]
- [1.  1.5]
- [2.  0.5]
- [2.  0.5]
- [2.  0.5]
- [2.  0.5]
- [2.  1.5]
- [2.  1.5]
- [2.  1.5]
- [2.  1.5]]
->>>print(params.shape)
-(16, 2)
->>>print(params)
-[[ 0.1 10. ]
- [ 0.1 20. ]
- [ 0.2 10. ]
- [ 0.2 20. ]
- [ 0.1 10. ]
- [ 0.1 20. ]
- [ 0.2 10. ]
- [ 0.2 20. ]
- [ 0.1 10. ]
- [ 0.1 20. ]
- [ 0.2 10. ]
- [ 0.2 20. ]
- [ 0.1 10. ]
- [ 0.1 20. ]
- [ 0.2 10. ]
- [ 0.2 20. ]]
-
- '''
- # Example 2: verbatim arrays
-params = np.array([[0.1, 0.2], [10, 20]])
-states = np.array([[1.0, 2.0], [0.5, 1.5]])
-inits, params = batch_configurator(params=params, states=states,
-                                                kind='verbatim')
-'''
->>>print(inits.shape)
-(2, 2)
->>>print(inits)
-[[1.  2. ]
- [0.5 1.5]]
->>>print(params.shape)
-(2, 2)
->>>print(params)
-[[ 0.1  0.2]
- [10.  20. ]]
+The :class:`BatchGridBuilder` class converts user-supplied dictionaries or
+arrays into the 2D numpy arrays expected by the solver. Most users will
+interact with the class through its ``__call__`` method."""
 
 
->>>inits, params = batch_configurator(params=params, states=states,
-                                                kind='combinatorial')
-
->>>print(inits.shape)
-(4, 2)
->>>print(inits)
-[[1.  2. ]
- [1.  2. ]
- [0.5 1.5]
- [0.5 1.5]]
->>>print(params.shape)
-(4, 2)
->>>print(params)
-[[ 0.1  0.2]
- [10.  20. ]
- [ 0.1  0.2]
- [10.  20. ]]
-
-#Same as individual dictionaries
->>>request = {'p0': [0.1, 0.2], 'p1': [10, 20], 'x0': [1.0, 2.0],
-           'x1': [0.5, 1.5]}
->>>inits, params = batch_configurator(request=request,
-                                                kind='combinatorial')
->>>print(inits.shape)
-(16, 2)
->>>print(params.shape)
-(16, 2)
-
->>>request = {'p0': [0.1, 0.2]}
->>>inits, params = batch_configurator(request=request,
-                                                kind='combinatorial')
->>>print(inits.shape)
-(2, 2)
->>>print(inits)  # unspecified variables are filled with defaults from system
-[[1. 1.]
- [1. 1.]]
->>>print(params.shape)
-(2, 2)
->>>print(params)
-[[0.1 2. ]
- [0.2 2. ]]
-
-Notes
------
-There is a subtle difference between a 'combinatorial' combination of two
-input arrays the same values given
-as per-variable arrays in a dict, as demonstrated in the examples above. If
-the user provides arrays as an
-argument, it is assumed that all within-array combinations have already been
-constructed. When the user
-provides a dict, it is assumed that they want a combinatorial combination of
-the values. In the array case,
-the method will return arrays which contain all combinations of the crows of
-the arrays (i.e. nrows x
-nrows combinations). The dictionary case first constructs combinations of
-values, resulting in an array of
-height nvals1 * nvals2 * ... * nvalsk for k variables, then combines these
-in the same fashion as the array
-case.
-
-For more fine-grained control, you can call the grid_arrays and
-combine_grids methods directly, or construct
-the full arrays outside of this method and let them pass through verbatim.
-"""
 from itertools import product
 from typing import List, Union, Dict, Optional
 from warnings import warn
@@ -167,6 +14,7 @@ from numpy.typing import ArrayLike, NDArray
 
 from cubie.systemmodels.SystemValues import SystemValues
 from cubie.systemmodels.systems.GenericODE import GenericODE
+from cubie.batchsolving.SystemInterface import SystemInterface
 
 
 def unique_cartesian_product(arrays: List[np.ndarray]):
@@ -246,12 +94,12 @@ def combinatorial_grid(
     Examples
     --------
     ```
-    combinatorial_grid({
+    >>> combinatorial_grid({
         'param1': [0.1, 0.2, 0.3],
         'param2': [10, 20]
     }, system.parameters)
     ```
-    >>> (array([[ 0.1, 10. ],
+    (array([[ 0.1, 10. ],
            [ 0.1, 20. ],
            [ 0.2, 10. ],
            [ 0.2, 20. ],
@@ -359,8 +207,8 @@ def generate_grid(
     Notes
     -----
     The `kind` parameter determines how the grid is constructed:
-    - 'combinatorial': see BatchConfigurator.combinatorial_grid
-    - 'verbatim': see BatchConfigurator.verbatim_grid
+    - 'combinatorial': see BatchGridBuilder.combinatorial_grid
+    - 'verbatim': see BatchGridBuilder.verbatim_grid
     """
     if kind == 'combinatorial':
         return combinatorial_grid(request, values_instance, silent=silent)
@@ -474,103 +322,18 @@ def generate_array(
     return extend_grid_to_array(grid, indices, values_instance.values_array)
 
 
-class BatchConfigurator:
-    """
-    Holds system parameters and initial values for integrator runs, as well
-    as observable labels for a convenient
-    to provide convenience indexing-by-label to the system's components.
-    Takes default values from the system at
-    instantiation, and all writing to the parameters and states is done in
-    this module from that point on.
-    """
+class BatchGridBuilder:
+    """Build grids of parameter and state values for batch runs."""
 
-    def __init__(self, system_parameters: SystemValues,
-                 system_inits: SystemValues,
-                 system_observables: SystemValues, ):
-
-        self.parameters = system_parameters
-        self.states = system_inits
-        self.observables = system_observables
+    def __init__(self, interface: SystemInterface):
+        self.parameters = interface.parameters
+        self.states = interface.states
 
     @classmethod
     def from_system(cls, system: GenericODE):
-        """
-        Create a BatchConfigurator instance from a GenericODE system.
-        """
-        parameters = system.parameters
-        inits = system.initial_values
-        observables = system.observables
-
-        return cls(system_parameters=parameters, system_inits=inits,
-                   system_observables=observables, )
-
-    def update(self, updates=None, **kwargs):
-        """
-        Update the parameters, states, and/or observables with a dictionary
-        of updates or keyword arguments.
-        The keys should be the names of the parameters/states/observables.
-        """
-        if updates is None:
-            updates = {}
-        if kwargs:
-            updates.update(kwargs)
-        if updates == {}:
-            return
-
-        all_unrecognized = set(updates.keys())
-        recognized = []
-        for values_object in (self.parameters, self.states):
-            recognized = values_object.update_from_dict(updates, silent=True)
-            all_unrecognized -= recognized
-
-        # Check if any parameters were unrecognized (indicating an entry error)
-        if all_unrecognized:
-            unrecognized_list = sorted(all_unrecognized)
-            raise KeyError(
-                    f"The following updates were not recognized by the "
-                    f"system. Was this a typo?:"
-                    f" {unrecognized_list}", )
-
-    def state_indices(self,
-                      keys_or_indices: Union[List[Union[str, int]], str, int],
-                      silent: bool = False, ) -> np.ndarray:
-        """
-        Convert user-specified state names or indices to numpy array of int
-        indices.
-        """
-        return self.states.get_indices(keys_or_indices, silent=silent)
-
-    def observable_indices(self, keys_or_indices: Union[
-        List[Union[str, int]], str, int],
-                           silent: bool = False, ) -> np.ndarray:
-        """
-        Convert user-specified observable names or indices to numpy array of
-        int indices.
-        """
-        return self.observables.get_indices(keys_or_indices, silent=silent)
-
-    def parameter_indices(self, keys_or_indices: Union[
-        List[Union[str, int]], str, int],
-                          silent: bool = False, ) -> np.ndarray:
-        """
-        Convert user-specified parameter names or indices to numpy array of
-        int indices.
-        Parameters
-        ----------
-        keys_or_indices : Union[List[Union[str, int]], str, int]
-            A list of parameter names or indices, or a single name or index.
-            If a list is provided, it can contain strings (parameter names)
-            or integers (indices).
-
-        Returns
-        -------
-        indices: np.ndarray
-            A numpy array of integer indices corresponding to the provided
-            parameter names or indices.
-            If a single name or index is provided, returns a 1D array with
-            that single index.
-        """
-        return self.parameters.get_indices(keys_or_indices, silent=silent)
+        """Create a ``BatchGridBuilder`` from a system model."""
+        interface = SystemInterface.from_system(system)
+        return cls(interface)
 
     def grid_arrays(self, request: Dict[
         Union[str, int], Union[float, ArrayLike, np.ndarray]],
@@ -621,8 +384,7 @@ class BatchConfigurator:
 
         Parameters
         ----------
-        request: Optional[Dict[str, Union[float, ArrayLike, np.ndarray]]],
-        optional
+        request: Optional[Dict[str, Union[float, ArrayLike, np.ndarray]]]
             A dictionary keyed by variable name containing a combined
             request for parameters and initial values.
         params : Optional[Union[Dict, ArrayLike]], optional
@@ -655,7 +417,7 @@ class BatchConfigurator:
 
         Examples
         --------
-        See BatchConfigurator module docstring for examples.
+        See BatchGridBuilder module docstring for examples.
         """
         parray = None
         sarray = None
@@ -750,94 +512,3 @@ class BatchConfigurator:
             return None
 
         return arr  # correctly sized array just falls through untouched
-
-    def get_labels(self, values_object, indices: np.ndarray) -> List[str]:
-        """
-        Get the labels of the states corresponding to the provided indices.
-        Parameters
-        ----------
-        indices : np.ndarray
-            A 1D array of state indices.
-
-        Returns
-        -------
-        List[str]
-            A list of state labels corresponding to the provided indices.
-        """
-        return values_object.get_labels(indices)
-
-    def state_labels(self, indices: Optional[np.ndarray]) -> List[str]:
-        """
-        Get the labels of the states corresponding to the provided indices.
-        Parameters
-        ----------
-        indices : np.ndarray
-            A 1D array of state indices. If None, return all state labels.
-
-        Returns
-        -------
-        List[str]
-            A list of state labels corresponding to the provided indices.
-        """
-        if indices is None:
-            return self.states.names
-        return self.get_labels(self.states, indices)
-
-    def observable_labels(self, indices: Optional[np.ndarray]) -> List[str]:
-        """
-        Get the labels of the observables corresponding to the provided
-        indices.
-        Parameters
-        ----------
-        indices : np.ndarray
-            A 1D array of observable indices. If None, return all observable
-            labels.
-
-        Returns
-        -------
-        List[str]
-            A list of observable labels corresponding to the provided indices.
-        """
-        if indices is None:
-            return self.observables.names
-        return self.get_labels(self.observables, indices)
-
-    def parameter_labels(self, indices: Optional[np.ndarray]) -> List[str]:
-        """
-        Get the labels of the parameters corresponding to the provided indices.
-        Parameters
-        ----------
-        indices : np.ndarray
-            A 1D array of parameter indices. If None, return all parameter
-            labels.
-
-        Returns
-        -------
-        List[str]
-            A list of parameter labels corresponding to the provided indices.
-        """
-        if indices is None:
-            return self.parameters.names
-        return self.get_labels(self.parameters, indices)
-
-    @property
-    def all_input_labels(self) -> List[str]:
-        """
-        Get all input labels, the union of state and parameter labels.
-        Returns
-        -------
-        List[str]
-            A list of all input labels.
-        """
-        return self.state_labels() + self.parameter_labels()
-
-    @property
-    def all_output_labels(self) -> List[str]:
-        """
-        Get all output labels, the union of state and observable labels.
-        Returns
-        -------
-        List[str]
-            A list of all output labels.
-        """
-        return self.state_labels() + self.observable_labels()

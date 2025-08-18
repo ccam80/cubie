@@ -2,14 +2,13 @@ import pytest
 import numpy as np
 import pandas as pd
 from cubie.batchsolving.solveresult import SolveResult
-from cubie.batchsolving.BatchOutputArrays import ActiveOutputs
-from cubie.batchsolving import summary_metrics
-from cubie.batchsolving.BatchConfigurator import BatchConfigurator
+from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
+from cubie.batchsolving.BatchGridBuilder  import BatchGridBuilder
 
 # ------------THESE COPIED FROM TEST_SOLVERKERNEL UNTIL REFACTOR  ----------- #
 @pytest.fixture(scope='function')
 def batchconfig_instance(system):
-    return BatchConfigurator.from_system(system)
+    return BatchGridBuilder.from_system(system)
 
 @pytest.fixture(scope='function')
 def square_drive(system, solver_settings, precision, request):

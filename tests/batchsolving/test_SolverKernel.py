@@ -1,4 +1,4 @@
-from cubie.batchsolving.BatchConfigurator import BatchConfigurator
+from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.batchsolving._utils import ensure_nonzero_size
@@ -10,7 +10,7 @@ from tests._utils import cpu_euler_loop, calculate_expected_summaries
 
 @pytest.fixture(scope='function')
 def batchconfig_instance(system):
-    return BatchConfigurator.from_system(system)
+    return BatchGridBuilder.from_system(system)
 
 @pytest.fixture(scope='function')
 def square_drive(system, solver_settings, precision, request):

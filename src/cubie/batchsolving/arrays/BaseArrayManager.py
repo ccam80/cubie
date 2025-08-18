@@ -8,10 +8,9 @@ import numpy as np
 from numba.core.types import NoneType
 from numpy import float32, ceil
 from numpy.typing import NDArray
-from cubie import default_memmgr
+from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import MemoryManager
 from cubie.memory.mem_manager import ArrayRequest, ArrayResponse
-
 from cubie.outputhandling import ArraySizingClass
 
 

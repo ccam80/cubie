@@ -8,7 +8,7 @@ import attrs
 import attrs.validators as val
 import numpy as np
 from numpy.typing import NDArray
-from cubie.batchsolving.BatchOutputArrays import ActiveOutputs
+from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import slice_variable_dimension
 

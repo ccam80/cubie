@@ -1,24 +1,16 @@
 from os import environ
 import pytest
 import numpy as np
-from numpy.testing import assert_array_equal
-import attrs
 
-from cubie.batchsolving.BatchOutputArrays import (OutputArrays,
-                                              OutputArrayContainer, ActiveOutputs)
+from cubie.batchsolving.arrays.BatchOutputArrays import (OutputArrays,
+                                                         OutputArrayContainer, ActiveOutputs)
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numba.cuda.simulator.cudadrv.devicearray import \
-        FakeCUDAArray as DeviceNDArray
-    from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
-                                                          MappedNDArray)
-    from numpy import zeros as mapped_array
-    from numpy import zeros as device_array
+    pass
 else:
-    from numba.cuda.cudadrv.devicearray import DeviceNDArray, MappedNDArray
-    from numba.cuda import mapped_array, device_array
+    pass
 
 @pytest.fixture(scope='function')
 def output_test_overrides(request):

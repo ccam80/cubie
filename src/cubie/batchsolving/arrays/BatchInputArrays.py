@@ -1,29 +1,21 @@
-from _warnings import warn
 from os import environ
 
 import attrs
 import attrs.validators as val
-import numpy as np
-from numba.cuda import to_device
-from numpy import float32, array_equal, zeros, ndarray
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numba.cuda.simulator.cudadrv.devicearray import \
-        FakeCUDAArray as DeviceNDArray
+    pass
 else:
-    from numba.cuda.cudadrv.devicearray import DeviceNDArray
+    pass
 
-from cubie.batchsolving._utils import optional_cuda_array_validator, \
-    optional_cuda_array_validator_3d
 from numpy.typing import NDArray
-from typing import Optional, TYPE_CHECKING, Dict
+from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
+    pass
 from cubie.outputhandling.output_sizes import BatchInputSizes
-from cubie.memory.mem_manager import ArrayRequest, ArrayResponse
-from cubie.batchsolving.BaseArrayManager import (BaseArrayManager,
-                                                 ArrayContainer)
+from cubie.batchsolving.arrays.BaseArrayManager import (BaseArrayManager,
+                                                        ArrayContainer)
 from cubie.batchsolving import ArrayTypes
 
 

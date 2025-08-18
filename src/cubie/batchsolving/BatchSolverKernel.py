@@ -14,10 +14,10 @@ from numba import cuda
 from numba import int32, int16, from_dtype
 from numpy.typing import NDArray, ArrayLike
 
-from cubie import default_memmgr
+from cubie.memory import default_memmgr
 from cubie.CUDAFactory import CUDAFactory
-from cubie.batchsolving.BatchInputArrays import InputArrays
-from cubie.batchsolving.BatchOutputArrays import OutputArrays, ActiveOutputs
+from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
+from cubie.batchsolving.arrays.BatchOutputArrays import OutputArrays
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
 from cubie.outputhandling.output_sizes import BatchOutputSizes, \
     SingleRunOutputSizes

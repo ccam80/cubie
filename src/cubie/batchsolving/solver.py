@@ -1,15 +1,14 @@
 from typing import Optional, Union, List
 from typing import TYPE_CHECKING
 
-import attrs
-import attrs.validators as val
 import numpy as np
 
-from cubie.batchsolving.BatchConfigurator import BatchConfigurator
-from cubie.batchsolving.BatchOutputArrays import ActiveOutputs
+from cubie.memory import default_memmgr
+from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+from cubie.batchsolving.SystemInterface import SystemInterface
+from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solveresult import SolveResult
-from cubie import default_memmgr
 from cubie.batchsolving.solveresult import SolveSpec
 
 
@@ -18,9 +17,13 @@ if TYPE_CHECKING:
 
 def solve_ivp(system, y0, parameters, forcing_vectors=None,
                 algorithm: str = 'euler',
-                solver_settings: Optional[dict] = None, duration: float = 1.0,
-                warmup: float = 0.0, dt_min: float = 0.01, dt_max: float = 0.1,
-                dt_save: float = 0.1, dt_summarise: float = 1.0,
+                solver_settings: Optional[dict] = None,
+              duration: float = 1.0,
+                warmup: float = 0.0,
+              dt_min: float = 0.01,
+              dt_max: float = 0.1,
+                dt_save: float = 0.1,
+              dt_summarise: float = 1.0,
                 atol: float = 1e-6, rtol: float = 1e-6,
                 saved_states: Optional[List[Union[str | int]]] = None,
                 saved_observables: Optional[
@@ -65,7 +68,7 @@ def process_request(y0, parameters, solver: "Solver",
     if isinstance(parameters, np.ndarray):
         params = parameters[np.newaxis, :]
     # handle None Forcing
-    inits, params = solver.batch_configurator.grid_arrays()
+    inits, params = solver.grid_builder.grid_arrays()
 
 
 class Solver:
@@ -93,10 +96,10 @@ class Solver:
         dt_summarise: float = 1.0,
         atol: float = 1e-6,
         rtol: float = 1e-6,
-        saved_state_indices: Optional[List[Union[str | int]]] = None,
-        saved_observable_indices: Optional[List[Union[str | int]]] = None,
-        summarised_state_indices: Optional[List[Union[str | int]]] = None,
-        summarised_observable_indices: Optional[List[Union[str | int]]] = None,
+        saved_states: Optional[List[Union[str | int]]] = None,
+        saved_observables: Optional[List[Union[str | int]]] = None,
+        summarised_states: Optional[List[Union[str | int]]] = None,
+        summarised_observables: Optional[List[Union[str | int]]] = None,
         output_types: list[str] = None,
         precision: type = np.float64,
         profileCUDA: bool = False,
@@ -105,6 +108,31 @@ class Solver:
         mem_proportion=None,
     ):
         super().__init__()
+        interface = SystemInterface.from_system(system)
+
+        if saved_states is not None:
+            saved_state_indices = interface.state_indices(saved_states)
+        else:
+            saved_state_indices = None
+        if saved_observables is not None:
+            saved_observable_indices = interface.observable_indices(
+                saved_observables)
+        else:
+            saved_observable_indices = None
+        if summarised_states is not None:
+            summarised_state_indices = interface.state_indices(
+                    summarised_states)
+        else:
+            summarised_state_indices = None
+        if summarised_observables is not None:
+            summarised_observable_indices = interface.observable_indices(
+                summarised_observables)
+        else:
+            summarised_observable_indices = None
+
+        self.system_interface = interface
+        self.grid_builder = BatchGridBuilder(interface)
+
         self.kernel = BatchSolverKernel(
             system,
             algorithm=algorithm,
@@ -128,8 +156,14 @@ class Solver:
             mem_proportion=mem_proportion,
         )
 
-        self.batch_configurator = BatchConfigurator.from_system(system)
-        self.user_arrays = SolveResult()
+    def solve(self,
+              initial_values,
+              parameters,
+              forcing_vectors=None,
+              profileCUDA: bool = False,
+              **kwargs):
+        """Solve a batch IVP problem using the Solver's settings and the
+        provided inputs."""
 
     def enable_profiling(self):
         """
@@ -156,7 +190,7 @@ class Solver:
         state labels.
         If no labels are provided, returns all state indices.
         """
-        return self.batch_configurator.get_state_indices(state_labels)
+        return self.system_interface.get_state_indices(state_labels)
 
     def get_observable_indices(self,
                                observable_labels: Optional[List[str]] = None):
@@ -165,7 +199,7 @@ class Solver:
         observable labels.
         If no labels are provided, returns all observable indices.
         """
-        return self.batch_configurator.get_observable_indices(observable_labels)
+        return self.system_interface.get_observable_indices(observable_labels)
 
     @property
     def precision(self) -> type:
@@ -226,7 +260,7 @@ class Solver:
     @property
     def saved_states(self):
         """Returns a list of state labels for the saved states."""
-        return self.batch_configurator.state_labels(
+        return self.system_interface.state_labels(
                 self.saved_state_indices)
 
     @property
@@ -238,7 +272,7 @@ class Solver:
     @property
     def saved_observables(self):
         """Returns a list of observable labels for the saved observables."""
-        return self.batch_configurator.observable_labels(
+        return self.system_interface.observable_labels(
                 self.saved_observable_indices)
     @property
     def summarised_state_indices(self):
@@ -249,7 +283,7 @@ class Solver:
     @property
     def summarised_states(self):
         """Returns a list of state labels for the summarised states."""
-        return self.batch_configurator.state_labels(
+        return self.system_interface.state_labels(
                 self.summarised_state_indices)
 
     @property
@@ -262,7 +296,7 @@ class Solver:
     @property
     def summarised_observables(self):
         """Returns a list of observable labels for the summarised observables."""
-        return self.batch_configurator.observable_labels(
+        return self.system_interface.observable_labels(
                 self.summarised_observable_indices)
 
     @property
@@ -335,13 +369,13 @@ class Solver:
     def input_variables(self) -> List[str]:
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.input_variables
         ` from the child BatchSolverKernel object."""
-        return self.batch_configurator.input_variables
+        return self.system_interface.all_input_labels
 
     @property
     def output_variables(self) -> List[str]:
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
         .output_variables` from the child BatchSolverKernel object."""
-        return self.batch_configurator.output_variables
+        return self.system_interface.all_output_labels
 
     @property
     def chunk_axis(self) -> str:
