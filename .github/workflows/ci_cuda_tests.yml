@@ -50,7 +50,7 @@ jobs:
               'cd repo && '
               'python -m pip install -e . && '
               'mkdir -p /artifacts && '
-              'pytest -vv -ra --junitxml=/artifacts/pytest-results.xml | tee /artifacts/pytest-output.log"'
+              'pytest --cov --cov-branch --cov-report=xml -vv -ra --junitxml=/artifacts/pytest-results.xml --cov=. --cov-report=xml:/artifacts/coverage.xml | tee /artifacts/pytest-output.log
           )
 
           job = Job.run(command=cmd, 
@@ -79,3 +79,15 @@ jobs:
           name: pytest-artifacts
           path: |
             lightning-job.log
+            coverage.xml
+            
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pytest-artifacts
+          path: .
+          
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
