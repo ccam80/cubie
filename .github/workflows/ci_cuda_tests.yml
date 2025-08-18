@@ -84,16 +84,16 @@ jobs:
           path: |
             lightning-job.log
 
-      - name: Download coverage artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: coverage.xml
-          path: .
+      # - name: Download coverage artifact
+      #   uses: actions/download-artifact@v4
+      #   with:
+      #     name: coverage.xml
+      #     path: .
 
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: ./coverage.xml
+      # - name: Upload coverage reports to Codecov
+      #   uses: codecov/codecov-action@v5
+      #   with:
+      #     files: ./coverage.xml
 
       # - name: Upload test results to Codecov
       #   if: ${{ !cancelled() }}
