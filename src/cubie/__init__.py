@@ -9,6 +9,7 @@ from cubie.integrators import  *
 from cubie.outputhandling import *
 from cubie.memory import *
 import cubie.systemmodels as systems
+from cubie.systemmodels import *
 from cubie._utils import *
 
 __all__ = ["summary_metrics", "default_memmgr", "systems", "ArrayTypes",

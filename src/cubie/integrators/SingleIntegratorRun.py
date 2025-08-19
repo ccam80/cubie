@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue May 27 17:45:03 2025
-
-@author: cca79
-"""
-
 """
 Single integrator run coordination for CUDA-based ODE solving.
 

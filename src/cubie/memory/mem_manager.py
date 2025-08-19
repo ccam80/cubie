@@ -281,7 +281,14 @@ class MemoryManager:
 
     def __attrs_post_init__(self):
         """Initialize memory manager with current GPU memory information."""
-        free, total = self.get_memory_info()
+        try:
+            free, total = self.get_memory_info()
+        except ValueError as e:
+            if e.args[0].startswith("not enough values to unpack"):
+                # memory manager initialised in a cuda-less environment -
+                # allow import but do not provide any memory (1 byte)
+                free = 1
+                total = 1
         self.totalmem = total
         self.registry = {}
 

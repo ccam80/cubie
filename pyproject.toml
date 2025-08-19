@@ -45,7 +45,7 @@ cupy = [
 pandas = [
     "pandas"
 ]
-all = []
+
 
 [tool.pytest.ini_options]
 minversion = "6.0"
