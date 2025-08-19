@@ -285,10 +285,14 @@ class MemoryManager:
             free, total = self.get_memory_info()
         except ValueError as e:
             if e.args[0].startswith("not enough values to unpack"):
-                # memory manager initialised in a cuda-less environment -
-                # allow import but do not provide any memory (1 byte)
-                free = 1
+                warn("memory manager was initialised in a cuda-less "
+                     "environment - memory manager will allow import but not"
+                     "provide any memory (1 byte)")
                 total = 1
+        except Exception as e:
+            warn(f"Unexpected exception {e} encountered while instantiating "
+                 "memory manager")
+            total = 1
         self.totalmem = total
         self.registry = {}
 
