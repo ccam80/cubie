@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed May 28 10:36:56 2025
+"""Three chamber cardiovascular model.
 
-@author: cca79
+This module implements a three chamber cardiovascular model based on
+Antoine Pironet's thesis , suitable for CUDA execution.
 """
 import numpy as np
 from numba import cuda, from_dtype
@@ -22,8 +22,65 @@ default_constants = {}
 
 # noinspection PyPep8Naming
 class ThreeChamberModel(GenericODE):
-    """ Three chamber model as laid out in [Pironet's thesis reference].
+    """Three chamber cardiovascular model.
 
+    A cardiovascular model with three chambers (heart, arteries, veins) as
+    described in Antoine Pironet's thesis[1]_.
+
+    Parameters
+    ----------
+    initial_values : dict, optional
+        Initial values for state variables (V_h, V_a, V_v).
+    parameters : dict, optional
+        Parameter values for the system (E_h, E_a, E_v, R_i, R_o, R_c, V_s3).
+    constants : dict, optional
+        Constants that are not expected to change between simulations.
+    observables : dict, optional
+        Observable values to track (P_a, P_v, P_h, Q_i, Q_o, Q_c).
+    precision : numpy.dtype, optional
+        Precision to use for calculations, by default np.float64.
+    default_initial_values : dict, optional
+        Default initial values if not provided in initial_values.
+    default_parameters : dict, optional
+        Default parameter values if not provided in parameters.
+    default_constants : dict, optional
+        Default constant values if not provided in constants.
+    default_observable_names : list, optional
+        Default observable names if not provided in observables.
+    num_drivers : int, optional
+        Number of driver/forcing functions, by default 1.
+    **kwargs : dict
+        Additional arguments.
+
+    Notes
+    -----
+    State variables:
+    - V_h: Volume in heart
+    - V_a: Volume in arteries
+    - V_v: Volume in veins
+
+    Parameters:
+    - E_h: Elastance of Heart (e(t) multiplier)
+    - E_a: Elastance of Arteries
+    - E_v: Elastance of Ventricles
+    - R_i: Resistance of input (mitral) valve
+    - R_o: Resistance of output (atrial) valve
+    - R_c: Resistance of circulation (arteries -> veins)
+    - V_s3: Total stressed blood volume
+
+    Observables:
+    - P_a: Pressure in arteries
+    - P_v: Pressure in veins
+    - P_h: Pressure in heart
+    - Q_i: Flow through input valve (Mitral)
+    - Q_o: Flow through output valve (Aortic)
+    - Q_c: Flow in circulation
+
+    References
+    ----------
+    [1] A. Pironet. "Model-Based Prediction of the Response to Vascular
+     Therapy." Unpublished doctoral thesis, ULiège - Université de Liège, 2016.
+    https://hdl.handle.net/2268/194747
     """
 
     def __init__(self, initial_values=None, parameters=None, constants=None,
@@ -32,12 +89,43 @@ class ThreeChamberModel(GenericODE):
                  default_parameters=default_parameters,
                  default_constants=default_constants,
                  default_observable_names=default_observable_names,
-                 num_drivers=1,
-                 # Error: This probably shouldn't be an instantiation
-                 # parameter, but rather a property of the system.
-                 **kwargs, ):
-        super().__init__(initial_values=initial_values, parameters=parameters,
-                         constants=constants, observables=observables,
+                 num_drivers=1, **kwargs, ):
+        """Initialize the three chamber model.
+
+        Parameters
+        ----------
+        initial_values : dict, optional
+            Initial values for state variables.
+        parameters : dict, optional
+            Parameter values for the system.
+        constants : dict, optional
+            Constants that are not expected to change between simulations.
+        observables : dict, optional
+            Observable values to track.
+        precision : numpy.dtype, optional
+            Precision to use for calculations, by default np.float64.
+        default_initial_values : dict, optional
+            Default initial values if not provided in initial_values.
+        default_parameters : dict, optional
+            Default parameter values if not provided in parameters.
+        default_constants : dict, optional
+            Default constant values if not provided in constants.
+        default_observable_names : list, optional
+            Default observable names if not provided in observables.
+        num_drivers : int, optional
+            Number of driver/forcing functions, by default 1.
+        **kwargs : dict
+            Additional arguments.
+
+        Notes
+        -----
+        num_drivers probably shouldn't be an instantiation parameter, but
+        rather a property of the system.
+        """
+        super().__init__(initial_values=initial_values,
+                         parameters=parameters,
+                         constants=constants,
+                         observables=observables,
                          default_initial_values=default_initial_values,
                          default_parameters=default_parameters,
                          default_constants=default_constants,
@@ -45,6 +133,14 @@ class ThreeChamberModel(GenericODE):
                          precision=precision, num_drivers=num_drivers, )
 
     def build(self):
+        """Build the CUDA device function for the three chamber model.
+
+        Returns
+        -------
+        function
+            Compiled CUDA device function implementing the three chamber
+            cardiovascular dynamics.
+        """
         # Hoist fixed parameters to global namespace
         global global_constants
         global_constants = self.compile_settings.constants.values_array.astype(
@@ -58,48 +154,46 @@ class ThreeChamberModel(GenericODE):
                   inline=True, )
         def three_chamber_model_dv(state, parameters, driver, observables,
                                    dxdt, ):  # pragma: no cover
+            """Three chamber model dynamics implementation.
+
+            Parameters
+            ----------
+            state : numpy.ndarray
+                State vector [V_h, V_a, V_v] where:
+                - V_h: Volume in heart
+                - V_a: Volume in arteries
+                - V_v: Volume in veins
+            parameters : numpy.ndarray
+                Parameter vector [E_h, E_a, E_v, R_i, R_o, R_c, V_s3] where:
+                - E_h: Elastance of Heart (e(t) multiplier)
+                - E_a: Elastance of Arteries
+                - E_v: Elastance of Ventricles
+                - R_i: Resistance of input (mitral) valve
+                - R_o: Resistance of output (atrial) valve
+                - R_c: Resistance of circulation (arteries -> veins)
+                - V_s3: Total stressed blood volume
+            driver : numpy.ndarray
+                Driver/forcing array containing e(t) - current value of
+                driver function.
+            observables : numpy.ndarray
+                Output array for observables [P_a, P_v, P_h, Q_i, Q_o, Q_c]:
+                - P_a: Pressure in arteries
+                - P_v: Pressure in veins
+                - P_h: Pressure in heart
+                - Q_i: Flow through input valve (Mitral)
+                - Q_o: Flow through output valve (Aortic)
+                - Q_c: Flow in circulation
+            dxdt : numpy.ndarray
+                Output array for state derivatives [dV_h, dV_a, dV_v]:
+                - dV_h/dt = Q_i - Q_o
+                - dV_a/dt = Q_o - Q_c
+                - dV_v/dt = Q_c - Q_i
+
+            Notes
+            -----
+            Modifications are made to the dxdt and observables arrays in-place
+            to avoid allocating.
             """
-
-                0: V_h: Volume in heart - dV_h/dt = Q_i - Q_o
-                1: V_a: Volume in arteries - dV_a/dt = Q_o - Q_c
-                2: V_v: Volume in vains - dV_v/dt = Q_c - Q_i
-
-            Parameters (CUDA device array - local or shared for speed):
-
-                0: E_h: Elastance of Heart  (e(t) multiplier)
-                1: E_a: Elastance of Arteries
-                2: E_v: Elastance of Ventricles
-                3: R_i: Resistance of input (mitral) valve
-                4: R_o: Resistance of output (atrial) valve
-                5: R_c: Resistance of circulation (arteries -> veins)
-                6: SBV: The total stressed blood volume - the volume in the three chambers,
-                        not pooled in the body
-
-            Driver/forcing (CUDA device array - local or shared for speed):
-
-                e(t):  current value of driver function
-
-            dxdt (CUDA device array - local or shared for speed):
-
-                Input values not used!
-                0: dV_h: increment in V_h
-                1: dV_a: increment in V_a
-                2: dV_v: increment in V_v
-
-            Observables (CUDA device array - local or shared for speed):
-
-                Input values not used!
-                0: P_a: Pressure in arteries -  E_a * V_a
-                1: P_v: Pressure in veins = E_v * V_v
-                2: P_h: Pressure in "heart" = e(t) * E_h * V_h where e(t) is the time-varying elastance driver function
-                3: Q_i: Flow through "input valve" (Mitral) = (P_v - P_h) / R_i
-                4: Q_o: Flow through "output valve" (Aortic) = (P_h - P_a) / R_o
-                5: Q_c: Flow in circulation = (P_a - P_v) / R_c
-
-            returns:
-                None, modifications are made to the dxdt and observables arrays in-place to avoid allocating
-
-           """
             # Extract parameters from input arrays - purely for readability
             E_h = parameters[0]
             E_a = parameters[1]
@@ -142,8 +236,24 @@ class ThreeChamberModel(GenericODE):
         # no cover: stop
 
     def correct_answer_python(self, states, parameters, drivers):
-        """ More-direct port of Nic Davey's MATLAB implementation.         """
+        """Python version of the three chamber model for testing.
 
+        More-direct port of Nic Davey's MATLAB implementation.
+
+        Parameters
+        ----------
+        states : numpy.ndarray
+            Current state values [V_h, V_a, V_v].
+        parameters : numpy.ndarray
+            Parameter values [E_h, E_a, E_v, R_i, R_o, R_c, V_s3].
+        drivers : numpy.ndarray
+            Driver/forcing values [e(t)].
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            A tuple containing (dxdt, observables) arrays.
+        """
         E_h, E_a, E_v, R_i, R_o, R_c, _ = parameters
         V_h, V_a, V_v = states
         driver = drivers[0]

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed May 28 10:36:56 2025
+"""Exponential decay ODE system for testing.
 
-@author: cca79
+This module provides a simple ODE system where each state variable decays
+exponentially at a rate proportional to its position.
 """
 
 import numpy as np
@@ -12,12 +12,23 @@ from cubie.systemmodels.systems.GenericODE import GenericODE
 
 
 class Decays(GenericODE):
-    """ Give it a list of coefficients, and it will create a system in which
-    each state variable decays exponentially at
-    a rate proportional to its position. Observables are the same as state variables * parameters (coefficients) + index.
+    """Exponential decay system for testing purposes.
 
-    i.e. if coefficients = [c1, c2, c3], then the system will have three state variables x0, x1, x2,
-    and:
+    A system where each state variable decays exponentially at a rate
+    proportional to its position. Observables are the same as state variables
+    * parameters (coefficients) + index.
+
+    Parameters
+    ----------
+    precision : numpy.dtype, optional
+        Data type for calculations, by default np.float64.
+    **kwargs : dict
+        Must contain 'coefficients' key with list of decay coefficients.
+
+    Notes
+    -----
+    If coefficients = [c1, c2, c3], then the system will have three state
+    variables x0, x1, x2, and:
 
     dx[0] = -x[0]/1,
     dx[1] = x[1]/2,
@@ -27,12 +38,19 @@ class Decays(GenericODE):
     obs[1] = dx[1]*c2 + 2 + step_count,
     obs[2] = dx[2]*c3 + 3 + step_count.
 
-
     Really just exists for testing.
     """
 
     def __init__(self, precision=np.float64, **kwargs, ):
+        """Initialize the decay system.
 
+        Parameters
+        ----------
+        precision : numpy.dtype, optional
+            Data type for calculations, by default np.float64.
+        **kwargs : dict
+            Must contain 'coefficients' key with list of decay coefficients.
+        """
         coefficients = kwargs["coefficients"]
 
         nterms = len(coefficients)
@@ -47,19 +65,47 @@ class Decays(GenericODE):
                          precision=precision, num_drivers=n_drivers, )
 
     def build(self):
+        """Build the CUDA device function for the decay system.
+
+        Returns
+        -------
+        function
+            Compiled CUDA device function implementing the decay dynamics.
+        """
         # Hoist fixed parameters to global namespace
         global global_constants
         global_constants = self.compile_settings.constants.values_array
         n_terms = self.sizes.states
         numba_precision = from_dtype(self.precision)
 
-        @cuda.jit((numba_precision[:], numba_precision[:], numba_precision[:],
-                   numba_precision[:], numba_precision[:]), device=True,
-                  inline=True, )
+        @cuda.jit((
+                   numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:],
+                   numba_precision[:]),
+                  device=True,
+                  inline=True)
         def dxdtfunc(state, parameters, driver, observables, dxdt, ):
-            """
-               dx[i] = state[i] / (i+1)
-               observables[i] = state[i] * parameters[i] + constants[i] + driver[0]
+            """Decay dynamics implementation.
+
+            Parameters
+            ----------
+            state : numpy.ndarray
+                Current state values.
+            parameters : numpy.ndarray
+                Parameter values (coefficients).
+            driver : numpy.ndarray
+                Driver/forcing values (time).
+            observables : numpy.ndarray
+                Output array for observable values.
+            dxdt : numpy.ndarray
+                Output array for state derivatives.
+
+            Notes
+            -----
+            dx[i] = state[i] / (i+1)
+            observables[i] = state[i] * parameters[i] + constants[i] + driver[0]
             """
             for i in range(n_terms):
                 dxdt[i] = -state[i] / (i + 1)
@@ -69,8 +115,24 @@ class Decays(GenericODE):
         return dxdtfunc
 
     def correct_answer_python(self, states, parameters, drivers):
-        """ Python testing function - do it in python and compare results."""
+        """Python testing function.
 
+        Do it in python and compare results with CUDA implementation.
+
+        Parameters
+        ----------
+        states : numpy.ndarray
+            Current state values.
+        parameters : numpy.ndarray
+            Parameter values.
+        drivers : numpy.ndarray
+            Driver values.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            A tuple containing (dxdt, observables) arrays.
+        """
         indices = np.arange(len(states))
         observables = np.zeros(self.sizes.observables)
         dxdt = -states / (indices + 1)

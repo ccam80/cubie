@@ -1,12 +1,12 @@
 import os
 import sys
-sys.path.insert(0, os.path.abspath('../src'))
+sys.path.insert(0, os.path.abspath('./src'))
 
 # -- Project information -----------------------------------------------------
 project = 'cubie'
-copyright = '2024, Chris Cameron'
+copyright = '2025, Chris Cameron'
 author = 'Chris Cameron'
-release = '0.0.1'
+release = '0.0.2'
 
 # -- General configuration ---------------------------------------------------
 extensions = [
@@ -33,6 +33,7 @@ autodoc_default_options = {
     'show-inheritance': True,
 }
 
+autodoc_mock_imports = ["numba", "cupy"]
 # napoleon
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True

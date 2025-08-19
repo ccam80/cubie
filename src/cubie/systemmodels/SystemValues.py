@@ -5,22 +5,33 @@ import numpy as np
 
 
 class SystemValues:
-    """ A container for numerical values used to specify ODE systems,
-    such as initial state
-    values, parameters, and observables (auxiliary variables).
+    """A container for numerical values used to specify ODE systems.
 
-    This is just a fancy dictionary with some tricks for interacting with the
-    CUDA machinery. When you initialise it with a dictionary of values, or a
-    subset-dictionary of updated values and the system's default values, this
-    object creates a corresponding array to feed to CUDA functions for
-    compiling, and a dictionary of indices to look up that array.
+    A container for numerical values such as initial state values, parameters,
+    and observables (auxiliary variables). This object creates a corresponding
+    array to feed to CUDA functions for compiling, and a dictionary of indices
+    to look up that array.
 
+    Parameters
+    ----------
+    values_array : np.ndarray
+        Array containing the numerical values.
+    indices_dict : dict
+        Dictionary mapping parameter names to array indices.
+    keys_by_index : dict
+        Dictionary mapping array indices to parameter names.
+    values_dict : dict
+        Dictionary containing parameter name-value pairs.
+    precision : np.dtype
+        Data type for the values array.
+
+    Notes
+    -----
     If given a list of strings, it will create a dictionary with those strings
     as keys and 0.0 as the default value.
 
     You can index into this object like a dictionary or an array, i.e.
     values['key'] or values[index or slice].
-
     """
     values_array: np.ndarray
     indices_dict: dict
@@ -29,33 +40,32 @@ class SystemValues:
     precision: np.dtype
 
     def __init__(self, values_dict, precision, defaults=None, **kwargs, ):
-        """
+        """Initialize the system parameters.
+
         Initialize the system parameters with default values, user-specified
         values from a dictionary, then any keyword arguments. Sets up an array
         of values and a dictionary mapping parameter names to indices.
 
-        Args:
-            values_dict (dict or list(str)):
-                Full dictionary of parameter values, or dictionary of a subset
-                of parameter values for use with a second dictionary of default
-                values (if your system has default parameters, for example,
-                and you want to create a new system with only one different
-                value, you can just pass that one value in a dict).
-                This argument can also be a list of strings, in which case it
-                will create a dictionary with those strings as keys.
+        Parameters
+        ----------
+        values_dict : dict or list of str
+            Full dictionary of parameter values, or dictionary of a subset
+            of parameter values for use with a second dictionary of default
+            values. This argument can also be a list of strings, in which case
+            it will create a dictionary with those strings as keys.
+        precision : numpy.dtype
+            Data type for the values array (e.g., np.float32, np.float64).
+        defaults : dict, optional
+            Dictionary of default parameter values, if you're only updating
+            a subset.
+        **kwargs : dict
+            Additional parameter values that override both defaults and
+            values_dict.
 
-            precision (numpy.dtype):
-                Data type for the values array (e.g., np.float32, np.float64)
-
-            defaults (dict)=None:
-                Dictionary of default parameter values, if you're only updating
-                 a subset.
-
-            **kwargs: 
-                Additional parameter values that override both defaults and
-                values_dict. Don't know why you would use this, to be honest,
-                but better to have it and not need it than need it and not have
-                it.
+        Notes
+        -----
+        If the same value occurs in the dict and keyword args, the kwargs one
+        will win.
         """
         if values_dict is None:
             values_dict = {}
@@ -99,12 +109,15 @@ class SystemValues:
         self.n = len(self.values_array)
 
     def update_param_array_and_indices(self):
-        """
+        """Extract values and create array and indices mapping.
+
         Extract all values in self.values_dict and save to a numpy array with
         the specified precision. Also create a dict keyed by the values_dict
         key whose value is the index of the parameter in the created array.
 
-        Note: The indices_dict dict will always be in the same order as the
+        Notes
+        -----
+        The indices_dict dict will always be in the same order as the
         values_array, as long as the keys are extracted in the same order
         (insertion order is preserved in Python 3.7+).
         """
@@ -115,10 +128,26 @@ class SystemValues:
         self.keys_by_index = {i: k for i, k in enumerate(keys)}
 
     def get_index_of_key(self, parameter_key, silent=False):
-        """
-        Retrieve the index of a given key in the values_array.
-        Accepts a single string.  Raises KeyError if a key is not found, unless
-         silent is True.
+        """Retrieve the index of a given key in the values_array.
+
+        Parameters
+        ----------
+        parameter_key : str
+            The parameter key to look up.
+        silent : bool, optional
+            If True, suppresses KeyError if key is not found, by default False.
+
+        Returns
+        -------
+        int
+            The index of the parameter in the values_array.
+
+        Raises
+        ------
+        KeyError
+            If parameter_key is not found and silent is False.
+        TypeError
+            If parameter_key is not a string.
         """
         if isinstance(parameter_key, str):
             if parameter_key in self.indices_dict:
@@ -132,27 +161,44 @@ class SystemValues:
                             f"constants)", )
         else:
             raise TypeError(
-                    f"parameter_key must be a string, you submitted a {type(parameter_key)}.")
+                    f"parameter_key must be a string, "
+                    f"you submitted a {type(parameter_key)}.")
 
     def get_indices(self, keys_or_indices, silent=False):
-        """ Convert from the many possible forms that a user might specify
+        """Convert parameter identifiers to array indices.
+
+        Convert from the many possible forms that a user might specify
         parameters (str, int, list of either, array of indices) into an array
         of indices that can be passed to the CUDA functions.
 
-         Arguments:
-            keys_or_indices (Union[str, int, slice, List[Union[str, int]],
-            numpy.ndarray]): Parameter identifiers that can be:
-                - Single string parameter name
-                - Single integer index
-                - Slice object
-                - List of string parameter names
-                - List of integer indices
-                - Numpy array of indices
-            silent (bool): Flag determining whether to raise KeyError if a key is not found
+        Parameters
+        ----------
+        keys_or_indices : str, int, slice, list, or numpy.ndarray
+            Parameter identifiers that can be:
+            - Single string parameter name
+            - Single integer index
+            - Slice object
+            - List of string parameter names
+            - List of integer indices
+            - Numpy array of indices
+        silent : bool, optional
+            Flag determining whether to raise KeyError if a key is not found,
+            by default False.
 
-         Returns:
-            numpy.ndarray: Array of parameter indices as np.int16 values
-         """
+        Returns
+        -------
+        numpy.ndarray
+            Array of parameter indices as np.int16 values.
+
+        Raises
+        ------
+        KeyError
+            If a string key is not found and silent is False.
+        IndexError
+            If an index is out of bounds.
+        TypeError
+            If the input type is not supported or mixed types are provided.
+        """
         if isinstance(keys_or_indices, list):
             if all(isinstance(item, str) for item in keys_or_indices):
                 # A list of strings
@@ -211,32 +257,34 @@ class SystemValues:
         return indices
 
     def get_values(self, keys_or_indices):
-        """
+        """Retrieve parameter values.
+
         Retrieve the value(s) of the parameter(s) from the values_dict.
-        Accepts the same range of input types as get_indices:
-        - Single string parameter name
-        - Single integer index
-        - List of string parameter names
-        - List of integer indices
-        - Numpy array of indices
+        Accepts the same range of input types as get_indices.
 
-        Args:
-            keys_or_indices (Union[str, int, List[Union[str, int]],
-            numpy.ndarray]): Parameter identifiers that can be:
-                - Single string parameter name
-                - Single integer index
-                - List of string parameter names
-                - List of integer indices
-                - Numpy array of indices
+        Parameters
+        ----------
+        keys_or_indices : str, int, list, or numpy.ndarray
+            Parameter identifiers that can be:
+            - Single string parameter name
+            - Single integer index
+            - List of string parameter names
+            - List of integer indices
+            - Numpy array of indices
 
-        Returns:
-            value: float or list of floats
-                The parameter value(s) requested
+        Returns
+        -------
+        float or numpy.ndarray
+            The parameter value(s) requested.
 
-        Raises:
-            KeyError: If a string key is not found in the parameters dictionary
-            IndexError: If an integer index is out of bounds
-            TypeError: If the input type is not supported
+        Raises
+        ------
+        KeyError
+            If a string key is not found in the parameters dictionary.
+        IndexError
+            If an integer index is out of bounds.
+        TypeError
+            If the input type is not supported.
         """
         indices = self.get_indices(keys_or_indices)
         if len(indices) == 1:
@@ -246,7 +294,20 @@ class SystemValues:
                           dtype=self.precision)
 
     def set_values(self, keys, values):
+        """Set parameter values.
 
+        Parameters
+        ----------
+        keys : str, int, list, or numpy.ndarray
+            Parameter identifiers.
+        values : float, list, or numpy.ndarray
+            Values to set for the specified parameters.
+
+        Raises
+        ------
+        ValueError
+            If the number of keys does not match the number of values.
+        """
         indices = self.get_indices(keys)
 
         # Checks for mismatches between lengths of indices and values
@@ -278,24 +339,33 @@ class SystemValues:
         self.update_from_dict(updates)
 
     def update_from_dict(self, values_dict, silent=False, **kwargs):
-        """
-        Update dictionary and values_array with new values
+        """Update dictionary and values_array with new values.
+
         Updates both the values_dict and the values_array.
 
-        Args:
-            values_dict: dict
-                key-value pairs to update in the values_dict.
-            silent: bool, optional
-                If True, suppresses KeyError if a key is not found in the
-                parameters dictionary.
-        Raises:
-            KeyError: If the key is not found in the parameters dictionary (if
-            silent is False).
-            TypeError: If any value in the values_dict cannot be cast to the
+        Parameters
+        ----------
+        values_dict : dict
+            Key-value pairs to update in the values_dict.
+        silent : bool, optional
+            If True, suppresses KeyError if a key is not found in the
+            parameters dictionary, by default False.
+        **kwargs : dict
+            Additional key-value pairs to update.
+
+        Returns
+        -------
+        set of str
+            A set of keys that were successfully updated.
+
+        Raises
+        ------
+        KeyError
+            If the key is not found in the parameters dictionary and
+            silent is False.
+        TypeError
+            If any value in the values_dict cannot be cast to the
             specified precision.
-        Returns:
-            recognised keys: set[str]
-                A set of keys that were successfully updated
         """
         if values_dict is None:
             values_dict = {}
@@ -335,17 +405,32 @@ class SystemValues:
 
     @property
     def names(self):
+        """Get parameter names.
+
+        Returns
+        -------
+        list of str
+            List of parameter names.
+        """
         return list(self.values_dict.keys())
 
     def get_labels(self, indices):
-        """
-        Get the labels (keys) corresponding to the provided indices.
+        """Get parameter labels corresponding to indices.
 
-        Args:
-            indices: list or array of indices
+        Parameters
+        ----------
+        indices : list or numpy.ndarray
+            Array or list of indices.
 
-        Returns:
-            list of labels corresponding to the provided indices
+        Returns
+        -------
+        list of str
+            List of labels corresponding to the provided indices.
+
+        Raises
+        ------
+        TypeError
+            If indices is not a list or numpy array.
         """
         if isinstance(indices, (list, np.ndarray)):
             return [self.keys_by_index[i] for i in indices]
@@ -355,43 +440,54 @@ class SystemValues:
                     f"{type(indices)}.")
 
     def __getitem__(self, key):
-        """
-        Allow dictionary-like and array-like access to the values. Any
-        indexing method will return a value or values only.
+        """Allow dictionary-like and array-like access to values.
 
-        Args:
-            key: string, integer, or slice
-                If string, the parameter key to retrieve the value for
-                If integer, the index in the values_array to retrieve
-                If slice, the slice of the values_array to retrieve
+        Parameters
+        ----------
+        key : str, int, or slice
+            If string, the parameter key to retrieve the value for.
+            If integer, the index in the values_array to retrieve.
+            If slice, the slice of the values_array to retrieve.
 
-        Returns:
-            value: The parameter value requested
+        Returns
+        -------
+        float or numpy.ndarray
+            The parameter value requested.
 
-        Raises:
-            KeyError: If the string key is not found in the parameters
-            dictionary
-            IndexError: If the integer index is out of bounds
-            TypeError: If the key is not a string, integer, or slice
+        Raises
+        ------
+        KeyError
+            If the string key is not found in the parameters dictionary.
+        IndexError
+            If the integer index is out of bounds.
+        TypeError
+            If the key is not a string, integer, or slice.
         """
         return self.get_values(key)
 
     def __setitem__(self, key, value):
-        """
-        Allow dictionary-like and array-like indexing to the values. Both
-        indexing methods will update both the dictionary and the array.
+        """Allow dictionary-like and array-like indexing to set values.
 
-        Args:
-            key: string, integer, or slice
-                If string, the parameter key to update
-                If integer, the index in the values_array to update
-                If slice, the slice of the values_array to update
-            value: The new value to set
+        Parameters
+        ----------
+        key : str, int, or slice
+            If string, the parameter key to update.
+            If integer, the index in the values_array to update.
+            If slice, the slice of the values_array to update.
+        value : float, list, or numpy.ndarray
+            The new value to set.
 
-        Raises:
-            KeyError: If the string key is not found in the parameters
-            dictionary
-            IndexError: If the integer index is out of bounds
-            TypeError: If the key is not a string, integer, or slice
+        Raises
+        ------
+        KeyError
+            If the string key is not found in the parameters dictionary.
+        IndexError
+            If the integer index is out of bounds.
+        TypeError
+            If the key is not a string, integer, or slice.
+
+        Notes
+        -----
+        Both indexing methods will update both the dictionary and the array.
         """
         self.set_values(key, value)

@@ -1,14 +1,12 @@
-API Reference
+API reference
 =============
 
-This section contains the complete API reference for cubie.
+.. autosummary::
+   :toctree: generated
+   :recursive:
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Modules:
-
-   cubie
-   integrators
-   batchsolving
-   systemmodels
-   utils
+   cubie.integrators
+   cubie.batchsolving
+   cubie.systemmodels
+   cubie.outputhandling
+   cubie.memory
