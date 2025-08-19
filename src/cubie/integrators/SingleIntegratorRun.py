@@ -147,7 +147,7 @@ class SingleIntegratorRun:
 
         Returns
         -------
-        object
+        OutputArrayHeights
             Output array height configuration from the OutputFunctions object.
         """
         return self._output_functions.output_array_heights
@@ -159,7 +159,7 @@ class SingleIntegratorRun:
 
         Returns
         -------
-        object
+        SummaryBufferSizes
             Summary buffer size configuration from the OutputFunctions object.
         """
         return self._output_functions.summaries_buffer_sizes
@@ -261,7 +261,7 @@ class SingleIntegratorRun:
 
         Returns
         -------
-        object
+        CUDA device function
             The compiled loop device function.
         """
 
@@ -279,7 +279,7 @@ class SingleIntegratorRun:
 
         Returns
         -------
-        object
+        CUDA device function
             The compiled CUDA device function for the integration loop.
         """
         if not self._loop_cache_valid or self._compiled_loop is None:

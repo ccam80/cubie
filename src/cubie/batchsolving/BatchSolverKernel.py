@@ -76,7 +76,7 @@ class BatchSolverKernel(CUDAFactory):
         Numerical precision to use.
     profileCUDA : bool, default=False
         Whether to enable CUDA profiling.
-    memory_manager : object, default=default_memmgr
+    memory_manager : MemoryManager, default=default_memmgr
         Memory manager instance to use.
     stream_group : str, default='solver'
         CUDA stream group identifier.
@@ -165,7 +165,7 @@ class BatchSolverKernel(CUDAFactory):
 
         Parameters
         ----------
-        response : object
+        response : ArrayResponse
             Memory allocation response containing chunk information.
         """
         self.chunks = response.chunks
@@ -177,7 +177,7 @@ class BatchSolverKernel(CUDAFactory):
 
         Returns
         -------
-        object
+        OutputArrayHeights
             Output array heights from the child SingleIntegratorRun object.
 
         Notes
@@ -205,7 +205,7 @@ class BatchSolverKernel(CUDAFactory):
 
         Returns
         -------
-        object
+        CUDA device function
             The built integration kernel.
         """
         return self.build_kernel()
@@ -217,7 +217,7 @@ class BatchSolverKernel(CUDAFactory):
 
         Returns
         -------
-        object
+        MemoryManager
             The memory manager the solver is registered with.
         """
         return self._memory_manager
@@ -241,7 +241,7 @@ class BatchSolverKernel(CUDAFactory):
 
         Returns
         -------
-        object
+        Stream
             The CUDA stream assigned to the solver.
         """
         return self.memory_manager.get_stream(self)
@@ -424,6 +424,7 @@ class BatchSolverKernel(CUDAFactory):
                                observables_output, state_summaries_output,
                                observables_summaries_output, duration_samples,
                                warmup_samples=0, n_runs=1, ):
+            # no cover: start
             tx = int16(cuda.threadIdx.x)
             ty = int16(cuda.threadIdx.y)
 
@@ -457,7 +458,7 @@ class BatchSolverKernel(CUDAFactory):
                     duration_samples, warmup_samples, )
 
             return None
-
+            # no cover: end
         return integration_kernel
 
     def update(self, updates_dict=None, silent=False, **kwargs):

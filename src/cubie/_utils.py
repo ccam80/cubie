@@ -204,12 +204,14 @@ def clamp_64(
     float64
         Clamped value.
     """
+    # no cover: start
     if value <= clip_value and value >= -clip_value:
         return value
     elif value > clip_value:
         return clip_value
     else:
         return -clip_value
+    # no cover: end
 
 
 @cuda.jit(float32(float32, float32, ), device=True, inline=True, )
@@ -228,13 +230,14 @@ def clamp_32(value, clip_value, ):
     float32
         Clamped value.
     """
+    # no cover: start
     if value <= clip_value and value >= -clip_value:
         return value
     elif value > clip_value:
         return clip_value
     else:
         return -clip_value
-
+    # no cover: end
 
 @cuda.jit(
     (float64[:], float64[:], int32, xoro_type[:]),
@@ -260,9 +263,11 @@ def get_noise_64(
     RNG : xoro_type[:]
         RNG state array.
     """
+    # no cover: start
     for i in range(len(noise_array)):
         if sigmas[i] != 0.0:
             noise_array[i] = xoroshiro128p_normal_float64(RNG, idx) * sigmas[i]
+    # no cover: end
 
 
 @cuda.jit(
@@ -289,9 +294,11 @@ def get_noise_32(
     RNG : xoro_type[:]
         RNG state array.
     """
+    # no cover: start
     for i in range(len(noise_array)):
         if sigmas[i] != 0.0:
             noise_array[i] = xoroshiro128p_normal_float32(RNG, idx) * sigmas[i]
+    # no cover: end
 
 
 def round_sf(num, sf):
