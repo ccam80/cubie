@@ -1,3 +1,12 @@
+"""
+Array sizing classes for output buffer and array management.
+
+This module provides classes for calculating and managing the sizes of various
+arrays used in CUDA batch solving, including buffers for intermediate
+calculations and output arrays for results. All classes inherit from
+ArraySizingClass which provides utilities for memory allocation.
+"""
+
 from typing import Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -12,12 +21,36 @@ from abc import ABC
 
 @attrs.define
 class ArraySizingClass(ABC):
-    """Base class for all array sizing classes. Provides a nonzero method
-    which returns a copy of the object where
-    all sizes have a minimum of one element, useful for allocating memory.."""
+    """
+    Base class for array sizing with memory allocation utilities.
+
+    This abstract base class provides common functionality for all array
+    sizing classes, including a method to ensure minimum array sizes for
+    memory allocation purposes.
+
+    Notes
+    -----
+    All derived classes inherit the nonzero property which is useful for
+    allocating memory where zero-sized arrays would cause issues.
+    """
 
     @property
     def nonzero(self) -> "ArraySizingClass":
+        """
+        Return a copy with all sizes having a minimum of one element.
+
+        Returns
+        -------
+        ArraySizingClass
+            Copy of the object with all integer and tuple sizes ensured
+            to be at least 1, useful for memory allocation.
+
+        Notes
+        -----
+        This method creates a new object instance with modified size values
+        to prevent zero-sized array allocations which can cause issues in
+        CUDA memory management.
+        """
         new_obj = attrs.evolve(self)
         for field in attrs.fields(self.__class__):
             value = getattr(new_obj, field.name)
@@ -28,11 +61,27 @@ class ArraySizingClass(ABC):
 
 @attrs.define
 class SummariesBufferSizes(ArraySizingClass):
-    """Given heights of buffers, return them directly under state and
-    observable aliases. Most useful when called
-    with an adapter factory - for example, give it an output_functions
-    object, and it returns sizes without awkward
-    property names from a more cluttered namespace"""
+    """
+    Buffer sizes for summary metric calculations.
+
+    This class provides a clean interface for accessing summary buffer sizes
+    with descriptive names rather than accessing them through more complex
+    object hierarchies.
+
+    Attributes
+    ----------
+    state : int, default 1
+        Buffer size required for state variable summaries.
+    observables : int, default 1
+        Buffer size required for observable variable summaries.
+    per_variable : int, default 1
+        Buffer size required per individual variable for summaries.
+
+    Notes
+    -----
+    Most commonly used via the from_output_fns class method which extracts
+    the relevant sizes from an OutputFunctions object.
+    """
     state: Optional[int] = attrs.field(
         default=1,
         validator=attrs.validators.instance_of(int))
@@ -47,6 +96,19 @@ class SummariesBufferSizes(ArraySizingClass):
     def from_output_fns(cls,
                         output_fns: "OutputFunctions") -> \
             "SummariesBufferSizes":
+        """
+        Create buffer sizes from an OutputFunctions object.
+
+        Parameters
+        ----------
+        output_fns : OutputFunctions
+            Output functions object containing buffer size information.
+
+        Returns
+        -------
+        SummariesBufferSizes
+            Buffer sizes extracted from the output functions configuration.
+        """
         return cls(output_fns.state_summaries_buffer_height,
                    output_fns.observable_summaries_buffer_height,
                    output_fns.summaries_buffer_height_per_var, )
@@ -54,10 +116,35 @@ class SummariesBufferSizes(ArraySizingClass):
 
 @attrs.define
 class LoopBufferSizes(ArraySizingClass):
-    """Dataclass which presents the sizes of all buffers used in the inner
-    loop of an integrator - system-size based
-    buffers like state, dxdt and summary buffers derived from output
-    functions information."""
+    """
+    Buffer sizes for integrator inner loop calculations.
+
+    This class holds the sizes of all buffers used in the main integration
+    loop, including system state buffers and summary calculation buffers.
+
+    Attributes
+    ----------
+    state_summaries : int, default 1
+        Buffer size for state summary calculations.
+    observable_summaries : int, default 1
+        Buffer size for observable summary calculations.
+    state : int, default 1
+        Buffer size for current state values.
+    observables : int, default 1
+        Buffer size for current observable values.
+    dxdt : int, default 1
+        Buffer size for state derivatives.
+    parameters : int, default 1
+        Buffer size for system parameters.
+    drivers : int, default 1
+        Buffer size for external driving forces.
+
+    Notes
+    -----
+    Combines system-based buffer sizes (state, dxdt, parameters) with
+    output-derived buffer sizes (summaries) to provide a complete view
+    of memory requirements for the integration loop.
+    """
     state_summaries: Optional[int] = attrs.field(
         default=1,
         validator=attrs.validators.instance_of(int))
@@ -84,6 +171,21 @@ class LoopBufferSizes(ArraySizingClass):
     def from_system_and_output_fns(cls, system: "GenericODE",
                                    output_fns: "OutputFunctions",
                                    ) -> "LoopBufferSizes":
+        """
+        Create buffer sizes from system and output function objects.
+
+        Parameters
+        ----------
+        system : GenericODE
+            System model containing state and parameter dimensions.
+        output_fns : OutputFunctions
+            Output functions containing summary buffer requirements.
+
+        Returns
+        -------
+        LoopBufferSizes
+            Combined buffer sizes for the integration loop.
+        """
         summary_sizes = SummariesBufferSizes.from_output_fns(output_fns)
         system_sizes = system.sizes
         obj = cls(summary_sizes.state, summary_sizes.observables,
@@ -96,7 +198,17 @@ class LoopBufferSizes(ArraySizingClass):
     def from_solver(cls,
                     solver_instance: "BatchSolverKernel") -> "LoopBufferSizes":
         """
-        Create a LoopBufferSizes instance from a BatchSolverKernel object.
+        Create buffer sizes from a BatchSolverKernel object.
+
+        Parameters
+        ----------
+        solver_instance : BatchSolverKernel
+            Solver instance containing system and output configuration.
+
+        Returns
+        -------
+        LoopBufferSizes
+            Buffer sizes extracted from the solver configuration.
         """
         system_sizes = solver_instance.system_sizes
         summary_sizes = solver_instance.summaries_buffer_sizes
@@ -108,6 +220,25 @@ class LoopBufferSizes(ArraySizingClass):
 
 @attrs.define
 class OutputArrayHeights(ArraySizingClass):
+    """
+    Heights of output arrays for different variable types.
+
+    This class specifies the height (number of elements) required for
+    output arrays storing results from batch integrations.
+
+    Attributes
+    ----------
+    state : int, default 1
+        Height of state variable output arrays.
+    observables : int, default 1
+        Height of observable variable output arrays.
+    state_summaries : int, default 1
+        Height of state summary output arrays.
+    observable_summaries : int, default 1
+        Height of observable summary output arrays.
+    per_variable : int, default 1
+        Height per variable for summary outputs.
+    """
     state: int = attrs.field(
         default=1,
         validator=attrs.validators.instance_of(int))
@@ -127,6 +258,23 @@ class OutputArrayHeights(ArraySizingClass):
     @classmethod
     def from_output_fns(cls,
                         output_fns: "OutputFunctions") -> "OutputArrayHeights":
+        """
+        Create output array heights from an OutputFunctions object.
+
+        Parameters
+        ----------
+        output_fns : OutputFunctions
+            Output functions object containing configuration information.
+
+        Returns
+        -------
+        OutputArrayHeights
+            Array heights calculated from the output configuration.
+
+        Notes
+        -----
+        The state height includes an extra element if time saving is enabled.
+        """
         state = output_fns.n_saved_states + 1 * output_fns.save_time
         observables = output_fns.n_saved_observables
         state_summaries = output_fns.state_summaries_output_height
@@ -139,8 +287,25 @@ class OutputArrayHeights(ArraySizingClass):
 
 @attrs.define
 class SingleRunOutputSizes(ArraySizingClass):
-    """ Returns 2d single-slice output array sizes for a single integration
-    run."""
+    """
+    Output array sizes for a single integration run.
+
+    This class provides 2D array sizes (time × variable) for output arrays
+    from a single integration run.
+
+    Attributes
+    ----------
+    state : tuple[int, int], default (1, 1)
+        Shape of state output array as (time_samples, n_variables).
+    observables : tuple[int, int], default (1, 1)
+        Shape of observable output array as (time_samples, n_variables).
+    state_summaries : tuple[int, int], default (1, 1)
+        Shape of state summary array as (summary_samples, n_summaries).
+    observable_summaries : tuple[int, int], default (1, 1)
+        Shape of observable summary array as (summary_samples, n_summaries).
+    stride_order : tuple[str, ...], default ("time", "variable")
+        Order of dimensions in the arrays.
+    """
     state: Tuple[int, int] = attrs.field(
         default=(1, 1),
         validator=attrs.validators.instance_of(Tuple))
@@ -163,7 +328,17 @@ class SingleRunOutputSizes(ArraySizingClass):
                     solver_instance: "BatchSolverKernel") -> \
             "SingleRunOutputSizes":
         """
-        Create a SingleRunOutputSizes instance from a BatchSolverKernel object.
+        Create output sizes from a BatchSolverKernel object.
+
+        Parameters
+        ----------
+        solver_instance : BatchSolverKernel
+            Solver instance containing timing and output configuration.
+
+        Returns
+        -------
+        SingleRunOutputSizes
+            Output array sizes for a single run.
         """
         heights = solver_instance.output_array_heights
         output_samples = solver_instance.output_length
@@ -180,8 +355,26 @@ class SingleRunOutputSizes(ArraySizingClass):
 
     @classmethod
     def from_output_fns_and_run_settings(cls, output_fns, run_settings):
-        """Only used for testing, otherwise the higher-level from_solver
-        method is used"""
+        """
+        Create output sizes from output functions and run settings.
+
+        Parameters
+        ----------
+        output_fns : OutputFunctions
+            Output functions containing variable configuration.
+        run_settings : IntegratorRunSettings
+            Run settings containing timing information.
+
+        Returns
+        -------
+        SingleRunOutputSizes
+            Output array sizes for a single run.
+
+        Notes
+        -----
+        This method is primarily used for testing. In normal operation,
+        the from_solver method is preferred.
+        """
         heights = OutputArrayHeights.from_output_fns(output_fns)
         output_samples = int(
                 ceil(run_settings.duration / run_settings.dt_save))
@@ -200,9 +393,23 @@ class SingleRunOutputSizes(ArraySizingClass):
 
 @attrs.define
 class BatchInputSizes(ArraySizingClass):
-    """ Returns 3d output array sizes for a batch of integration runs,
-    given a singleintegrator sizes object and
-    num_runs"""
+    """
+    Input array sizes for batch integration runs.
+
+    This class specifies the sizes of input arrays needed for batch
+    processing, including initial conditions, parameters, and forcing terms.
+
+    Attributes
+    ----------
+    initial_values : tuple[int, int], default (1, 1)
+        Shape of initial values array as (n_runs, n_states).
+    parameters : tuple[int, int], default (1, 1)
+        Shape of parameters array as (n_runs, n_parameters).
+    forcing_vectors : tuple[int, int or None], default (1, None)
+        Shape of forcing vectors array as (n_drivers, time_steps).
+    stride_order : tuple[str, ...], default ("run", "variable")
+        Order of dimensions in the input arrays.
+    """
     initial_values: Tuple[int, int] = attrs.field(
         default=(1, 1),
         validator=attrs.validators.instance_of(Tuple))
@@ -223,7 +430,17 @@ class BatchInputSizes(ArraySizingClass):
             cls,
             solver_instance: "BatchSolverKernel") -> "BatchInputSizes":
         """
-        Create a BatchInputSizes instance from a BatchSolverKernel object.
+        Create input array sizes from a BatchSolverKernel object.
+
+        Parameters
+        ----------
+        solver_instance : BatchSolverKernel
+            Solver instance containing batch and system configuration.
+
+        Returns
+        -------
+        BatchInputSizes
+            Input array sizes for the batch run.
         """
         loopBufferSizes = LoopBufferSizes.from_solver(solver_instance)
         num_runs = solver_instance.num_runs
@@ -237,9 +454,29 @@ class BatchInputSizes(ArraySizingClass):
 
 @attrs.define
 class BatchOutputSizes(ArraySizingClass):
-    """ Returns 3d output array sizes for a batch of integration runs,
-    given a singleintegrator sizes object and
-    num_runs"""
+    """
+    Output array sizes for batch integration runs.
+
+    This class provides 3D array sizes (time × run × variable) for output
+    arrays from batch integration runs.
+
+    Attributes
+    ----------
+    state : tuple[int, int, int], default (1, 1, 1)
+        Shape of state output array as (time_samples, n_runs,
+         n_variables).
+    observables : tuple[int, int, int], default (1, 1, 1)
+        Shape of observable output array as (time_samples, n_runs,
+        n_variables).
+    state_summaries : tuple[int, int, int], default (1, 1, 1)
+        Shape of state summary array as (summary_samples, n_runs,
+        n_summaries).
+    observable_summaries : tuple[int, int, int], default (1, 1, 1)
+        Shape of observable summary array as (summary_samples, n_runs,
+        n_summaries).
+    stride_order : tuple[str, ...], default ("time", "run", "variable")
+        Order of dimensions in the output arrays.
+    """
     state: Tuple[int, int, int] = attrs.field(
         default=(1, 1, 1),
         validator=attrs.validators.instance_of(Tuple))
@@ -262,7 +499,22 @@ class BatchOutputSizes(ArraySizingClass):
                     solver_instance: "BatchSolverKernel") -> \
             "BatchOutputSizes":
         """
-        Create a BatchOutputSizes instance from a SingleIntegratorRun object.
+        Create batch output sizes from a BatchSolverKernel object.
+
+        Parameters
+        ----------
+        solver_instance : BatchSolverKernel
+            Solver instance containing batch and output configuration.
+
+        Returns
+        -------
+        BatchOutputSizes
+            Output array sizes for the batch run.
+
+        Notes
+        -----
+        Constructs 3D array sizes by combining single run sizes with
+        the number of runs in the batch.
         """
         single_run_sizes = SingleRunOutputSizes.from_solver(solver_instance)
         num_runs = solver_instance.num_runs

@@ -1,18 +1,9 @@
-""" Fixtures for pytest and the functions that they use - any functions called by test modules should instead live
-in tests/_utils.py"""
-
 import pytest
 import numpy as np
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.memory import default_memmgr
-
-"""Fixtures for instantiating lower-level components with default values that can be overriden through
-indirect parametrization of the "override" fixture."""
-
-
-
 
 @pytest.fixture(scope="function")
 def precision_override(request):

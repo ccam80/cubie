@@ -6,8 +6,6 @@ the base class for all ODE integration algorithms. It handles building and
 caching of algorithm functions that are incorporated into CUDA kernels,
 and provides the interface that specific algorithms must implement.
 """
-from abc import abstractmethod
-
 from numba import cuda, int32, from_dtype
 
 from cubie.CUDAFactory import CUDAFactory

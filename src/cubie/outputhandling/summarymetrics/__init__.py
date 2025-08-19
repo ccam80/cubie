@@ -1,3 +1,7 @@
+"""Summary metrics.
+
+This module provides a collection of summary metrics for calculating
+statistics during integration."""
 from cubie.outputhandling.summarymetrics.metrics import \
     SummaryMetrics, register_metric
 

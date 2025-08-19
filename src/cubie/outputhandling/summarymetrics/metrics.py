@@ -1,10 +1,36 @@
+"""
+Summary metrics system for CUDA-accelerated batch integration.
+
+This module provides the core infrastructure for summary metrics in the cubie
+integrator system, including registration and function dispatch for CUDA
+device functions.
+"""
+
 from typing import Optional, Callable, Union, Any
 from warnings import warn
-
+from abc import ABC, abstractmethod
 import attrs
 
 
 def register_metric(registry):
+    """
+    Decorator factory for registering summary metrics.
+
+    Parameters
+    ----------
+    registry : SummaryMetrics
+        The registry instance to register the metric with.
+
+    Returns
+    -------
+    callable
+        Decorator function that registers a metric class.
+
+    Notes
+    -----
+    This decorator automatically creates an instance of the decorated
+    class and registers it with the provided registry.
+    """
     def decorator(cls):
         instance = cls()
         registry.register_metric(instance)
@@ -14,49 +40,239 @@ def register_metric(registry):
 
 
 @attrs.define
-class SummaryMetric:
+class SummaryMetric(ABC):
     """
-    Base class for summary metrics in the cubie integrator system. Holds
-    memory requirements in buffer and output
-    arrays, as well as dispatchers for the update and save functions. Not intended to be mutable or even instantiated
-    by the user, but as a dataclass to provide compile-critical information with less boilerplate.
+    Abstract base class for summary metrics in the cubie integrator system.
+
+    This class defines the interface for all summary metrics and holds memory
+    requirements for buffer and output arrays, as well as dispatchers for update
+    and save functions. All concrete metric implementations must inherit from
+    this class and implement the abstract methods.
+
+    Attributes
+    ----------
+    buffer_size : int or callable, default 0
+        Size required in the summary buffer, or a callable that computes
+        the size based on parameters. For parameterized metrics (like peaks),
+        use a lambda function: `lambda n: 3 + n`.
+    output_size : int or callable, default 0
+        Size required in the output array, or a callable that computes
+        the size based on parameters. For parameterized metrics (like peaks),
+        use a lambda function: `lambda n: n`.
+    update_device_func : callable, default None
+        CUDA device function for updating the metric during integration.
+        Set by CUDA_factory() during initialization.
+    save_device_func : callable, default None
+        CUDA device function for saving final metric results.
+        Set by CUDA_factory() during initialization.
+    name : str, default ""
+        Name identifier for the metric (e.g., "max", "mean", "peaks").
+    input_variable : dict[str, int] or None, default None
+        Optional input variable specifications.
+
+    Notes
+    -----
+    All concrete implementations must:
+    1. Implement __init__() to call CUDA_factory() and configure the metric
+    2. Implement CUDA_factory() to generate the required CUDA device
+    functions
+    3. Follow the exact function signatures for update and save functions
+    4. Register the metric using the @register_metric(summary_metrics)
+    decorator
+
+    The CUDA device functions must have these exact signatures:
+    - update(value, buffer, current_index, customisable_variable)
+    - save(buffer, output_array, summarise_every, customisable_variable)
+
+    Not included in this base class is an abstract init method, as it breaks
+    the attrs init method. The docstring for such a method is:
+    Initialize the summary metric.
+
+    This method must be implemented by all concrete metric classes.
+    It should call CUDA_factory() to generate the CUDA device functions
+    and then call super().__init__() with the appropriate parameters.
+
+    Notes
+    -----
+    The standard implementation pattern is:
+
+    1. Call self.CUDA_factory() to get update and save functions
+    2. Call super().__init__() with:
+       - name: string identifier for the metric
+       - buffer_size: int or callable for buffer memory requirements
+       - output_size: int or callable for output memory requirements
+       - update_device_func: CUDA function from CUDA_factory()
+       - save_device_func: CUDA function from CUDA_factory()
+
+    Examples
+    --------
+    For a simple metric with fixed sizes:
+    ```python
+    def __init__(self):
+        update_func, save_func = self.CUDA_factory()
+        super().__init__(name="mean", buffer_size=1, output_size=1,
+                       update_device_func=update_func,
+                       save_device_func=save_func)
+    ```
+
+        For a parameterized metric:
+        ```python
+        def __init__(self):
+            update_func, save_func = self.CUDA_factory()
+            super().__init__(name="peaks",
+                           buffer_size=lambda n: 3 + n,
+                           output_size=lambda n: n,
+                           update_device_func=update_func,
+                           save_device_func=save_func)
+        ```
+
+    Examples
+    --------
+    See the implemented metrics (Max, Mean, RMS, Peaks) for concrete examples
+    of how to properly implement this interface.
     """
 
-    buffer_size: Union[int, Callable] = attrs.field(default=0,
-                                                    validator=attrs.validators.instance_of(
-                                                            Union[
-                                                                int, Callable], ), )
-    output_size: Union[int, Callable] = attrs.field(default=0,
-                                                    validator=attrs.validators.instance_of(
-                                                            Union[
-                                                                int, Callable]), )
+    buffer_size: Union[int, Callable] = attrs.field(
+            default=0,
+            validator=attrs.validators.instance_of(Union[int, Callable]))
+    output_size: Union[int, Callable] = attrs.field(
+            default=0,
+            validator=attrs.validators.instance_of(Union[int, Callable]))
     update_device_func: Callable = attrs.field(
-            validator=attrs.validators.instance_of(Callable), default=None)
+            default=None,
+            validator=attrs.validators.instance_of(Callable))
     save_device_func: Callable = attrs.field(
-            validator=attrs.validators.instance_of(Callable), default=None)
-    name: str = attrs.field(validator=attrs.validators.instance_of(str),
-                            default="")
+            default=None,
+            validator=attrs.validators.instance_of(Callable))
+    name: str = attrs.field(
+            default="",
+            validator=attrs.validators.instance_of(str))
     input_variable: Optional[dict[str, int]] = attrs.field(
-            validator=attrs.validators.instance_of(Optional[dict]),
-            default=None, )
+            default=None,
+            validator=attrs.validators.instance_of(Optional[dict]))
 
+
+    @abstractmethod
+    def CUDA_factory(self):
+        """
+        Generate CUDA device functions for the metric.
+
+        This method must be implemented by all concrete metric classes.
+        It should create and return the CUDA-compiled update and save
+        functions with the exact required signatures.
+
+        Returns
+        -------
+        tuple[callable, callable]
+            Tuple containing (update_function, save_function) for CUDA
+            execution. Both functions must be compiled with @cuda.jit
+            decorators.
+
+        Notes
+        -----
+        The generated functions must have these exact signatures:
+
+        update(value, buffer, current_index, customisable_variable):
+            Called during each integration step to update running
+            calculations.
+
+            Parameters:
+            - value (float): New variable value to process
+            - buffer (array): Buffer for storing intermediate calculations
+            - current_index (int): Current integration step number
+            - customisable_variable (int): Parameter for metric configuration
+
+        save(buffer, output_array, summarise_every, customisable_variable):
+            Called at summary intervals to compute final results and reset
+            buffers.
+
+            Parameters:
+            - buffer (array): Buffer containing intermediate calculations
+            - output_array (array): Array to store final metric results
+            - summarise_every (int): Number of steps between summary saves
+            - customisable_variable (int): Parameter for metric configuration
+
+        Both functions must be decorated with:
+        @cuda.jit(["float32, float32[::1], int64, int64",
+                   "float64, float64[::1], int64, int64"],
+                  device=True, inline=True)
+
+        Examples
+        --------
+        For a simple maximum value metric:
+        ```python
+        def CUDA_factory(self):
+            @cuda.jit([...], device=True, inline=True)
+            def update(value, buffer, current_index, customisable_variable):
+                if value > buffer[0]:
+                    buffer[0] = value
+
+            @cuda.jit([...], device=True, inline=True)
+            def save(buffer, output_array, summarise_every,
+                     customisable_variable):
+                output_array[0] = buffer[0]
+                buffer[0] = -1.0e30  # Reset for next period
+
+            return update, save
+        ```
+
+        For a mean calculation metric:
+        ```python
+        def CUDA_factory(self):
+            @cuda.jit([...], device=True, inline=True)
+            def update(value, buffer, current_index, customisable_variable):
+                buffer[0] += value  # Accumulate sum
+
+            @cuda.jit([...], device=True, inline=True)
+            def save(buffer, output_array, summarise_every,
+                     customisable_variable):
+                output_array[0] = buffer[0] / summarise_every
+                buffer[0] = 0.0  # Reset for next period
+
+            return update, save
+        ```
+        """
+        pass
 
 @attrs.define
 class SummaryMetrics:
     """
-    Holds the full set of implemented summary metrics, and presents summary information to the rest of the modules.
-    Presents:
-    - .implemented_metrics: a list of strings to check requested metric types against (done internally for other
-    requests)
-    - .buffer_offsets(output_types_requested): Returns (total_buffer_size, offsets_tuple) for requested metrics only
-    - .output_offsets(output_types_requested): Returns (total_output_size, offsets_tuple) for requested metrics only
-    - .buffer_sizes(output_types_requested): Returns sizes tuple for requested metrics only
-    - .output_sizes(output_types_requested): Returns sizes tuple for requested metrics only
-    - .save_functions(output_types_requested): Returns function tuple for requested metrics only
-    - .update_functions(output_types_requested): Returns function tuple for requested metrics only
-    - .params(output_types_requested): Returns parameter tuple for requested metrics only
+    Registry and dispatcher for summary metrics.
 
-    All methods consistently return data only for the requested metrics, not for all implemented metrics.
+    This class holds the complete set of implemented summary metrics and
+    provides summary information to other modules. It manages memory
+    layout, function dispatch, and parameter handling for all registered
+    metrics.
+
+    Attributes
+    ----------
+    _names : list[str]
+        List of registered metric names.
+    _buffer_sizes : dict[str, int or callable]
+        Buffer size requirements for each metric.
+    _output_sizes : dict[str, int or callable]
+        Output size requirements for each metric.
+    _save_functions : dict[str, callable]
+        Save functions for each metric.
+    _update_functions : dict[str, callable]
+        Update functions for each metric.
+    _metric_objects : dict[str, SummaryMetric]
+        Complete metric objects for each registered metric.
+    _params : dict[str, Any]
+        Parameters for each metric.
+
+    Notes
+    -----
+    All methods consistently return data only for requested metrics,
+    not for all implemented metrics. This allows efficient compilation
+    of only the needed functionality.
+
+    The class provides:
+    - implemented_metrics: List of available metric names
+    - buffer_offsets/sizes: Memory layout for summary buffers
+    - output_offsets/sizes: Memory layout for output arrays
+    - save/update_functions: CUDA device functions for metrics
+    - params: Parameter values for parameterized metrics
     """
     _names: list[str] = attrs.field(
             validator=attrs.validators.instance_of(list), factory=list,
@@ -80,16 +296,28 @@ class SummaryMetrics:
             init=False, )
 
     def __attrs_post_init__(self):
+        """Initialize the parameters dictionary."""
         self._params = {}
 
     def register_metric(self, metric: SummaryMetric):
         """
-        Register a new summary metric. Once you've created a SummaryMetric, register it with the total set of
-        summarymetrics by calling this method. It will then be included in the list of summary metrics available,
-        and slot into the update and save functions automatically when included in an outputs list.
+        Register a new summary metric with the system.
 
-        Args:
-            metric: An instance of SummaryMetric to register.
+        Parameters
+        ----------
+        metric : SummaryMetric
+            A SummaryMetric instance to register.
+
+        Raises
+        ------
+        ValueError
+            If a metric with the same name is already registered.
+
+        Notes
+        -----
+        Once registered, the metric becomes available for use in output
+        configurations and will be automatically included in update and
+        save function chains when requested.
         """
 
         if metric.name in self._names:
@@ -104,7 +332,25 @@ class SummaryMetrics:
         self._params[metric.name] = 0
 
     def preprocess_request(self, request):
-        """Parse parameters and validate the request."""
+        """
+        Parse parameters from metric specifications and validate.
+
+        Parameters
+        ----------
+        request : list[str]
+            List of metric specifications, potentially with parameters.
+
+        Returns
+        -------
+        list[str]
+            List of validated metric names with parameters extracted.
+
+        Notes
+        -----
+        Parses metric specifications like 'peaks[3]' to extract parameters
+        and validates that all requested metrics are registered. Issues
+        warnings for unregistered metrics.
+        """
         clean_request = self.parse_string_for_params(request)
         # Validate that all metrics exist and filter out unregistered ones
         validated_request = []
@@ -119,19 +365,28 @@ class SummaryMetrics:
     @property
     def implemented_metrics(self):
         """
-        Returns a list of names of all registered summary metrics.
+        Get list of all registered summary metric names.
+
+        Returns
+        -------
+        list[str]
+            Names of all registered summary metrics.
         """
         return self._names
 
     def summaries_buffer_height(self, output_types_requested):
         """
-        Returns the total buffer size for the requested summary metrics.
+        Calculate total buffer size for requested summary metrics.
 
-        Args:
-            output_types_requested: A list of metric names to calculate total buffer size for.
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to calculate total buffer size for.
 
-        Returns:
-            An integer representing the total buffer size needed.
+        Returns
+        -------
+        int
+            Total buffer size needed for all requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
 
@@ -143,13 +398,17 @@ class SummaryMetrics:
 
     def buffer_offsets(self, output_types_requested):
         """
-        Returns a tuple of buffer starting offsets for the requested summary metrics.
+        Get buffer starting offsets for requested summary metrics.
 
-        Args:
-            output_types_requested: A list of metric names to generate offsets for.
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to generate offsets for.
 
-        Returns:
-            A tuple of offsets for the requested metrics.
+        Returns
+        -------
+        tuple[int]
+            Buffer starting offsets for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
 
@@ -163,13 +422,17 @@ class SummaryMetrics:
 
     def buffer_sizes(self, output_types_requested):
         """
-        Returns a tuple of buffer sizes for the requested summary metrics.
+        Get buffer sizes for requested summary metrics.
 
-        Args:
-            output_types_requested: A list of metric names to generate sizes for.
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to generate sizes for.
 
-        Returns:
-            A tuple with metric sizes in the buffer.
+        Returns
+        -------
+        tuple[int]
+            Buffer sizes for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
         return tuple(self._get_size(metric, self._buffer_sizes) for metric in
@@ -177,13 +440,17 @@ class SummaryMetrics:
 
     def output_offsets(self, output_types_requested):
         """
-        Returns a tuple of output array starting offsets for the requested summary metrics.
+        Get output array starting offsets for requested summary metrics.
 
-        Args:
-            output_types_requested: A list of metric names to generate offsets for.
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to generate offsets for.
 
-        Returns:
-            A tuple of offsets for the requested metrics.
+        Returns
+        -------
+        tuple[int]
+            Output array starting offsets for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
 
@@ -197,13 +464,17 @@ class SummaryMetrics:
 
     def output_offsets_dict(self, output_types_requested):
         """
-        Returns a dictionary of output array starting offsets for the requested summary metrics.
+        Get output array offsets as a dictionary for requested metrics.
 
-        Args:
-            output_types_requested: A list of metric names to generate offsets for.
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to generate offsets for.
 
-        Returns:
-            A dictionary with metric names as keys and their offsets as values.
+        Returns
+        -------
+        dict[str, int]
+            Dictionary with metric names as keys and their offsets as values.
         """
         parsed_request = self.preprocess_request(output_types_requested)
 
@@ -217,13 +488,17 @@ class SummaryMetrics:
 
     def summaries_output_height(self, output_types_requested):
         """
-        Returns the total output size for the requested summaries_array metrics.
+        Calculate total output size for requested summary metrics.
 
-        Args:
-            output_types_requested: A list of metric names to calculate total output size for.
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to calculate total output size for.
 
-        Returns:
-            An integer representing the total output size needed.
+        Returns
+        -------
+        int
+            Total output size needed for all requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
 
@@ -234,30 +509,57 @@ class SummaryMetrics:
         return total_size
 
     def _get_size(self, metric_name, size_dict):
-        """Calculate size based on parameters if needed."""
+        """
+        Calculate size based on parameters if needed.
+
+        Parameters
+        ----------
+        metric_name : str
+            Name of the metric.
+        size_dict : dict
+            Dictionary containing size specifications.
+
+        Returns
+        -------
+        int
+            Calculated size for the metric.
+
+        Warnings
+        --------
+        UserWarning
+            If a callable size has parameter set to 0.
+        """
         size = size_dict.get(metric_name)
         if callable(size):
             param = self._params.get(metric_name)
             if param == 0:
-                warn(f"Metric '{metric_name}' has a callable size but parameter is set to 0. This resuts in a size"
+                warn(f"Metric '{metric_name}' has a callable size "
+                     f"but parameter is set to 0. This results in a size"
                      "of 0, which is likely not what you want", UserWarning,
-                        stacklevel=2, )
+                        stacklevel=2)
             return size(param)
 
         return size
 
     def legend(self, output_types_requested):
         """
-        Returns a list of column headings for the requested summary metrics.
+        Generate column headings for requested summary metrics.
 
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to generate headings for.
+
+        Returns
+        -------
+        list[str]
+            Column headings for the metrics in order.
+
+        Notes
+        -----
         For metrics with output_size=1, the heading is just the metric name.
-        For metrics with output_size>1, the headings are {name}_1, {name}_2, etc.
-
-        Args:
-            output_types_requested: A list of metric names to generate headings for.
-
-        Returns:
-            A list of column headings for the metrics in the order they appear.
+        For metrics with output_size>1, the headings are {name}_1, {name}_2,
+        etc.
         """
         parsed_request = self.preprocess_request(output_types_requested)
         headings = []
@@ -275,13 +577,17 @@ class SummaryMetrics:
 
     def output_sizes(self, output_types_requested):
         """
-        Returns a tuple of output array sizes for the requested summary metrics.
+        Get output array sizes for requested summary metrics.
 
-        Args:
-            output_types_requested: A list of metric names to generate sizes for.
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to generate sizes for.
 
-        Returns:
-            A tuple with metric sizes in the output array.
+        Returns
+        -------
+        tuple[int]
+            Output array sizes for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
         return tuple(self._get_size(metric, self._output_sizes) for metric in
@@ -289,26 +595,34 @@ class SummaryMetrics:
 
     def save_functions(self, output_types_requested):
         """
-        Returns a tuple of save functions for the requested summary metrics.
+        Get save functions for requested summary metrics.
 
-        Args:
-            output_types_requested: A list of metric names to generate save functions for.
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to get save functions for.
 
-        Returns:
-            A tuple with save functions for the requested metrics.
+        Returns
+        -------
+        tuple[callable]
+            CUDA device save functions for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
         return tuple(self._save_functions[metric] for metric in parsed_request)
 
     def update_functions(self, output_types_requested):
         """
-        Returns a tuple of update functions for the requested summary metrics.
+        Get update functions for requested summary metrics.
 
-        Args:
-            output_types_requested: A list of metric names to generate update functions for.
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to get update functions for.
 
-        Returns:
-            A tuple with update functions for the requested metrics.
+        Returns
+        -------
+        tuple[callable]
+            CUDA device update functions for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
         return tuple(
@@ -316,14 +630,41 @@ class SummaryMetrics:
 
     def params(self, output_types_requested: list[str]):
         """
-        Returns a tuple of params from the provided request string.
+        Get parameters for requested summary metrics.
+
+        Parameters
+        ----------
+        output_types_requested : list[str]
+            List of metric names to get parameters for.
+
+        Returns
+        -------
+        tuple[Any]
+            Parameter values for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
         return tuple(self._params[metric] for metric in parsed_request)
 
     def parse_string_for_params(self, dirty_request: list[str]):
-        """Get single integer metric from specification string like 'peaks[3]', and return the list of strings with
-        parameters removed, saving the parameter to self._params under the cleaned key."""
+        """
+        Extract parameters from metric specification strings.
+
+        Parameters
+        ----------
+        dirty_request : list[str]
+            List of metric specifications that may contain parameters
+            in the format 'metric[param]'.
+
+        Returns
+        -------
+        list[str]
+            List of metrics with any [param] stripped
+
+        Notes
+        -----
+        Any params stripped from the string are saved in self._params, keyed
+        by 'metric' name.
+        """
         clean_request = []
         self._params = {}
         for string in dirty_request:

@@ -46,6 +46,11 @@ def mock_metric_settings(request):
 
     return defaults
 
+class ConcreteMetric(SummaryMetric):
+    def __init__(self,*args, **kwargs):
+        super().__init__(*args, **kwargs)
+    def CUDA_factory(self):
+        pass
 
 @pytest.fixture(scope="function")
 def mock_metric(mock_functions, mock_metric_settings):
@@ -55,7 +60,7 @@ def mock_metric(mock_functions, mock_metric_settings):
     buffer_size = mock_metric_settings['buffer_size']
     output_size = mock_metric_settings['output_size']
 
-    return SummaryMetric(
+    return ConcreteMetric(
         name=name,
         buffer_size=buffer_size,
         output_size=output_size,
@@ -75,7 +80,7 @@ def mock_parametrized_metric(mock_functions, mock_metric_settings):
     def output_size(param):
         return 2 * param
 
-    return SummaryMetric(
+    return ConcreteMetric(
             name=name,
             buffer_size=buffer_size,
             output_size=output_size,
@@ -106,8 +111,8 @@ def test_register_metrics_success(empty_metrics, mock_metric, mock_parametrized_
 def test_register_metric_duplicate_name_raises_error(empty_metrics, mock_functions):
     """Test that registering a metric with duplicate name raises ValueError."""
     update, save = mock_functions
-    metric1 = SummaryMetric(name="duplicate", buffer_size=5, output_size=3, save_device_func=save, update_device_func=update)
-    metric2 = SummaryMetric(name="duplicate", buffer_size=10, output_size=6, save_device_func=save, update_device_func=update)
+    metric1 = ConcreteMetric(name="duplicate", buffer_size=5, output_size=3, save_device_func=save, update_device_func=update)
+    metric2 = ConcreteMetric(name="duplicate", buffer_size=10, output_size=6, save_device_func=save, update_device_func=update)
 
     empty_metrics.register_metric(metric1)
 
@@ -330,7 +335,7 @@ def test_complex_parameter_scenarios(mock_metrics, mock_functions):
             raise ValueError("Parameter required")
         return param + 10
 
-    complex_metric = SummaryMetric(
+    complex_metric = ConcreteMetric(
         name="complex",
         buffer_size=complex_buffer_size,
         output_size=5,

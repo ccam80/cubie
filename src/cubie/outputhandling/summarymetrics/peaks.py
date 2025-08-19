@@ -1,3 +1,10 @@
+"""
+Peak detection summary metric for CUDA-accelerated batch integration.
+
+This module implements a summary metric that detects and records the timing
+of local maxima (peaks) in variable values during integration.
+"""
+
 from numba import cuda
 
 from cubie.outputhandling.summarymetrics import summary_metrics
@@ -8,68 +15,96 @@ from cubie.outputhandling.summarymetrics.metrics import \
 @register_metric(summary_metrics)
 class Peaks(SummaryMetric):
     """
-    Summary metric to calculate the mean of a set of values.
+    Summary metric to detect and record peak locations in a variable.
+
+    This metric identifies local maxima by tracking when a value is greater
+    than both its predecessor and successor values. It records the time
+    indices where peaks occur, up to a configurable maximum number.
+
+    Notes
+    -----
+    The metric uses a parameterized buffer size that depends on the maximum
+    number of peaks to detect. The buffer stores: previous value,
+    previous-previous value, peak counter, and the time indices of detected
+    peaks.
+
+    The peak detection algorithm requires at least 2 previous values and
+    assumes no natural 0.0 values in the data (uses 0.0 as initialization
+    marker).
     """
 
     def __init__(self):
+        """
+        Initialize the Peaks summary metric.
+
+        Creates CUDA device functions for peak detection and result saving,
+        and configures the metric with parameterized buffer and output sizes
+        based on the maximum number of peaks to detect.
+        """
         update_func, save_func = self.CUDA_factory()
 
-        # For metrics with a variable number of outputs, define sizes as
-        # functions of a parameter to be passed when
-        # requesting sizes.
-
-        def buffer_size_func(n):
-            return 3 + n
-
-        def output_size_func(n):
-            return n
-
-        super().__init__(name="peaks", buffer_size=buffer_size_func,
-                         output_size=output_size_func,
+        super().__init__(name="peaks",
+                         buffer_size=lambda n: 3 + n,
+                         output_size=lambda n: n,
                          update_device_func=update_func,
                          save_device_func=save_func, )
 
     def CUDA_factory(self):
         """
-        Generate the CUDA functions to calculate the metric. The signatures of the functions are fixed:
+        Generate CUDA device functions for peak detection.
 
-        - update(value, buffer, current_index, customisable_variable)
-            Perform math required to maintain a running prerequisite for the metric, like a sum or a count.
-            Args:
-                value (float): The new value to add to the running sum
-                buffer (CUDA device array): buffer location (will be sized to accomodate self.buffer_size 
-                values)
-                current_index (int): Current index or time, given by the loop, for saving times at which things occur
-                customisable_variable (scalar): An extra variable that can be used for metric-specific calculations,
-                like the number of peaks to count or similar.
-            Returns:
-                nothing, modifies the buffer in-place.
+        Creates optimized CUDA device functions with fixed signatures for
+        detecting peaks during integration and saving peak time indices.
 
-        - save(buffer, output_array, summarise_every, customisable_variable):
-            Perform final math to transform running variable into the metric, then reset buffer to a starting state.
-            Args:
-                buffer (CUDA device array): buffer location which contains the running value
-                output_array (CUDA device array): Output array location (will be sized to accomodate self.output_size values)
-                summarise_every (int): Number of steps between saves, for calculating average metrics.
-                customisable_variable (scalar): An extra variable that can be used for metric-specific calculations,
-            Returns:
-                nothing, modifies the output array in-place.
+        Returns
+        -------
+        tuple[callable, callable]
+            Tuple containing (update_function, save_function) for CUDA
+            execution.
+
+        Notes
+        -----
+        The generated functions have the following signatures:
+
+        update(value, buffer, current_index, customisable_variable):
+            Detects peaks by comparing current value with previous values.
+
+        save(buffer, output_array, summarise_every, customisable_variable):
+            Saves detected peak time indices to output and resets buffer.
         """
 
         @cuda.jit(["float32, float32[::1], int64, int64",
                    "float64, float64[::1], int64, int64"], device=True,
                   inline=True, )
         def update(value, buffer, current_index, customisable_variable, ):
-            """Update running sum - 1 buffer memory slot required per state"""
+            """
+            Update peak detection with new value.
+
+            Parameters
+            ----------
+            value : float
+                New value to analyze for peak detection.
+            buffer : array-like
+                Buffer containing: [prev_value, prev_prev_value, peak_count,
+                peak_times...].
+            current_index : int
+                Current integration step index, used for recording peak times.
+            customisable_variable : int
+                Maximum number of peaks to detect (n_peaks parameter).
+
+            Notes
+            -----
+            Detects peaks by checking if previous value is greater than both
+            the current value and the value before that. Records the time index
+            of detected peaks in buffer positions 3 onwards. Requires at least
+            2 previous values and assumes no natural 0.0 values in the data.
+            Buffer layout: [prev, prev_prev, peak_counter, peak_times...]
+            """
             npeaks = customisable_variable
             prev = buffer[0]
             prev_prev = buffer[1]
             peak_counter = int(buffer[2])
 
-            # Check if we have enough points and we haven't already maxed out the counter, and that we're not working
-            # with
-            # a 0.0 value (at the start of the run, for example). This assumes no natural 0.0 values, which seems realistic
-            # for many systems. A more robust implementation would check if we're within 3 samples of summarise_every, probably.
             if (current_index >= 2) and (peak_counter < npeaks) and (
                     prev_prev != 0.0):
                 if prev > value and prev_prev < prev:
@@ -84,7 +119,27 @@ class Peaks(SummaryMetric):
                   inline=True, )
         def save(buffer, output_array, summarise_every,
                  customisable_variable, ):
-            """Calculate mean from running sum - 1 output memory slot required per state"""
+            """
+            Save detected peak time indices and reset buffer.
+
+            Parameters
+            ----------
+            buffer : array-like
+                Buffer containing detected peak time indices.
+            output_array : array-like
+                Output array for saving peak time indices.
+            summarise_every : int
+                Number of steps between saves (unused for peak detection).
+            customisable_variable : int
+                Maximum number of peaks to detect (n_peaks parameter).
+
+            Notes
+            -----
+            Copies peak time indices from buffer positions 3 onwards to the
+            output array, then resets the peak storage and counter for the
+            next summary period. Output size equals the maximum number of
+            peaks that can be detected.
+            """
             n_peaks = customisable_variable
             for p in range(n_peaks):
                 output_array[p] = buffer[3 + p]
