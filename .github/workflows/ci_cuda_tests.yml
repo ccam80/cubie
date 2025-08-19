@@ -68,7 +68,7 @@ jobs:
               f'git -C \"$PUSH\" remote set-url origin \"{git_url_push}\"; '   # idempotent
               f'git -C \"$PUSH\" add -A \"runs/{run_id}\"; '
               f'git -C \"$PUSH\" commit -m \"artifacts {run_id}\" || true; '
-              f'git -C \"$PUSH\" push -u origin ci-artifacts; '
+              f'git -C \"$PUSH\" push -u --force origin ci-artifacts; '
               f"exit $ec'"
           )
           
