@@ -1,14 +1,20 @@
-from typing import Optional, Union, List
-from typing import TYPE_CHECKING
-import warnings
+"""High level batch-solver interface.
+
+This module exposes the user-facing :class:`Solver` class and a convenience
+wrapper :func:`solve_ivp` for solving batches of initial value problems on the
+GPU.
+"""
+
+from typing import Optional, Union, List, TYPE_CHECKING
 
 import numpy as np
+
 from cubie.memory import default_memmgr
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
-from cubie.batchsolving.solveresult import SolveResult
+from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.solveresult import SolveSpec
 
 
@@ -25,14 +31,33 @@ def solve_ivp(
     settling_time=0.0,
     **options,
 ) -> SolveResult:
-    """ Solve a batch problem using the provided system model and
-    parameters. This is a convenience function that
-    creates a Solver instance and calls its solve method. It is intended for
-    one-off batch solves where the user
-    doesn't mind the overhead of creating and destroying a Solver instance.
-    For repeated solves, it is recommended to
-    instantiate a Solver object and use its solve method, to take advantage
-    of it reusing some expensive components.
+    """Solve a batch initial value problem.
+
+        Parameters
+        ----------
+        system : object
+            System model defining the differential equations.
+        y0 : array-like
+            Initial state values for each run.
+        parameters : array-like or dict
+            Parameter values for each run.
+        forcing_vectors : array-like
+            External forcing values to apply during integration.
+        dt_eval : float
+            Interval at which solution values are stored.
+        method : str, optional
+            Integration algorithm to use. Default is ``"euler"``.
+        duration : float, optional
+            Total integration time. Default is ``1.0``.
+        settling_time : float, optional
+            Warm-up period prior to storing outputs. Default is ``0.0``.
+        **options
+            Additional keyword arguments passed to :class:`Solver`.
+
+        Returns
+        -------
+        SolveResult
+            Results returned from :meth:`Solver.solve`.
     """
     solver = Solver(system,
                     algorithm=method,
@@ -50,16 +75,54 @@ def solve_ivp(
 
 
 class Solver:
-    """
-    User-facing class for batch-solving systems of ODEs. Accepts and
-    sanitises user-world inputs, and passes them to
-    GPU-world integrating functions. This class instantiates and owns a
-    SolverKernel, which in turn interfaces
-    distributes parameter and initial value sets to a groupd of
-    SingleIntegratorRun device functions that perform
-    each integration. The only part of this machine that the user must
-    configure themself before using is the system
-    model, which contains the ODEs to be solved.
+    """User-facing interface for solving batches of ODE systems.
+
+    Parameters
+    ----------
+    system : object
+        System model containing the ODEs to integrate.
+    algorithm : str, optional
+        Integration algorithm to use. Defaults to ``"euler"``.
+    duration : float, optional
+        Total integration time. Defaults to ``1.0``.
+    warmup : float, optional
+        Warm-up period before outputs are stored. Defaults to ``0.0``.
+    dt_min, dt_max : float, optional
+        Minimum and maximum timestep sizes. Defaults are ``0.01`` and ``0.1``.
+    dt_save : float, optional
+        Sampling interval for storing state values. Default is ``0.1``.
+    dt_summarise : float, optional
+        Interval for computing summary outputs. Default is ``1.0``.
+    atol, rtol : float, optional
+        Absolute and relative error tolerances. Defaults are ``1e-6``.
+    saved_states, saved_observables : list of str or int, optional
+        Variables to save verbatim at each output step.
+    summarised_states, summarised_observables : list of str or int, optional
+        Variables for which summary statistics are computed.
+    output_types : list of str, optional
+        Output arrays to generate (e.g. ``["state"]``).
+    precision : type, optional
+        Floating point precision. Defaults to ``numpy.float64``.
+    profileCUDA : bool, optional
+        Enable CUDA profiling. Defaults to ``False``.
+    memory_manager : object, optional
+        Manager responsible for CUDA memory allocations.
+    stream_group : str, optional
+        Name of the CUDA stream group used by the solver. Defaults to
+        ``"solver"``.
+    mem_proportion : float, optional
+        Proportion of GPU memory reserved for the solver.
+    **kwargs
+        Additional keyword arguments forwarded to internal components.
+
+    Attributes
+    ----------
+    system_interface : SystemInterface
+        Object translating between user-world and GPU-world variables.
+    grid_builder : BatchGridBuilder
+        Helper that constructs integration grids from user inputs.
+    kernel : BatchSolverKernel
+        Low-level component that executes integrations on the GPU.
     """
 
     def __init__(
@@ -130,7 +193,20 @@ class Solver:
                                     saved_observables,
                                     summarised_states,
                                     summarised_observables):
-        """Get integer indices from SystemInterface given a list of labels"""
+        """Translate variable labels into index arrays.
+
+        Parameters
+        ----------
+        saved_states, saved_observables, summarised_states,
+        summarised_observables : list[str] or None
+            Lists of variable labels. ``None`` leaves the corresponding
+            selection unchanged.
+
+        Returns
+        -------
+        tuple of ndarray or None
+            Index arrays for each variable list in the order provided.
+        """
         if saved_states is not None:
             saved_state_indices = self.system_interface.state_indices(saved_states)
         else:
@@ -168,8 +244,40 @@ class Solver:
               grid_type: str = 'combinatorial',
               results_type: str = 'full',
               **kwargs):
-        """Solve a batch IVP problem using the Solver's settings and the
-        provided inputs."""
+        """Solve a batch initial value problem.
+
+        Parameters
+        ----------
+        initial_values : array-like or dict
+            Initial state values for each integration run.
+        parameters : array-like or dict
+            Parameter values for each run.
+        forcing_vectors : array-like, optional
+            External forcing applied during integration.
+        duration : float, optional
+            Total integration time. Default is ``1.0``.
+        settling_time : float, optional
+            Warm-up period before recording outputs. Default ``0.0``.
+        blocksize : int, optional
+            CUDA block size used for kernel launch. Default ``256``.
+        stream : cuda.stream or None, optional
+            Stream on which to execute the kernel. ``None`` uses the solver's
+            default stream.
+        chunk_axis : {'run', 'time'}, optional
+            Dimension along which to chunk when memory is limited. Default
+            ``'run'``.
+        grid_type : {'combinatorial', 'verbatim'}, optional
+            Strategy for constructing the integration grid from inputs.
+        results_type : {'full', 'numpy', 'numpy_per_summary', 'pandas'}, optional
+            Format of returned results. Default ``'full'``.
+        **kwargs
+            Additional options forwarded to :meth:`update`.
+
+        Returns
+        -------
+        SolveResult
+            Collected results from the integration run.
+        """
         if kwargs:
             self.update(kwargs)
 
@@ -190,10 +298,22 @@ class Solver:
         return SolveResult.from_solver(self, results_type=results_type)
 
     def update(self, updates_dict, silent=False, **kwargs):
-        """Update settings in this and all children of this solver.
+        """Update solver, integrator and system settings.
 
-        Any settings in the integrator or system can be modified through
-        this function, including those that are not exposed directly.
+        Parameters
+        ----------
+        updates_dict : dict
+            Mapping of attribute names to new values.
+        silent : bool, optional
+            If ``True`` unknown keys are ignored instead of raising
+            ``KeyError``. Defaults to ``False``.
+        **kwargs
+            Additional updates supplied as keyword arguments.
+
+        Returns
+        -------
+        set
+            Set of keys that were successfully updated.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -225,7 +345,20 @@ class Solver:
         return recognised
 
     def update_saved_variables(self, updates_dict):
-        """Interprets list of labels or indices and returns updates dict"""
+        """Interpret label lists and insert resolved indices.
+
+        Parameters
+        ----------
+        updates_dict : dict
+            Dictionary potentially containing ``saved_states``,
+            ``saved_observables``, ``summarised_states`` or
+            ``summarised_observables`` entries as labels.
+
+        Returns
+        -------
+        dict
+            Updated dictionary with label lists replaced by index arrays.
+        """
         saved_states = updates_dict.pop("saved_states", None)
         saved_observables = updates_dict.pop("saved_observables", None)
         summarised_states = updates_dict.pop("summarised_states", None)
@@ -258,11 +391,21 @@ class Solver:
                                updates_dict=None,
                                silent=False,
                                **kwargs):
-        """
-        Update memory manager parameters. Possible keys:
-        - mem_proportion: float, the proportion of the GPU VRAM to set aside for
-        the solver
-        - allocator: str, the allocator to use for memory allocation.
+        """Update memory manager parameters.
+
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Mapping of settings to update.
+        silent : bool, optional
+            If ``True`` unknown keys are ignored. Default ``False``.
+        **kwargs
+            Additional updates supplied as keyword arguments.
+
+        Returns
+        -------
+        set
+            Set of keys that were successfully updated.
         """
         if updates_dict is None:
 
@@ -290,38 +433,53 @@ class Solver:
         return recognised
 
     def enable_profiling(self):
-        """
-        Enable CUDA profiling for the solver. This will allow you to profile
-        the performance of the solver on the
-        GPU, but will slow things down.
+        """Enable CUDA profiling for the solver.
+
+        Profiling collects detailed performance information but can slow down
+        execution considerably.
         """
         # Consider disabling optimisation and enabling debug and line info
         # for profiling
         self.kernel.enable_profiling()
 
     def disable_profiling(self):
-        """
-        Disable CUDA profiling for the solver. This will stop profiling the
-        performance of the solver on the GPU,
-        but will speed things up.
+        """Disable CUDA profiling for the solver.
+
+        This reverts the effect of :meth:`enable_profiling` and returns the
+        solver to normal execution speed.
         """
         self.kernel.disable_profiling()
 
     def get_state_indices(self,
                           state_labels: Optional[List[str]] = None):
-        """
-        Get the indices of the states in the system based on the provided
-        state labels.
-        If no labels are provided, returns all state indices.
+        """Return indices for the specified state variables.
+
+        Parameters
+        ----------
+        state_labels : list[str], optional
+            Labels of states to query. ``None`` returns indices for all states.
+
+        Returns
+        -------
+        ndarray
+            Integer indices corresponding to the requested states.
         """
         return self.system_interface.get_state_indices(state_labels)
 
     def get_observable_indices(self,
                                observable_labels: Optional[List[str]] = None):
-        """
-        Get the indices of the observables in the system based on the provided
-        observable labels.
-        If no labels are provided, returns all observable indices.
+        """Return indices for the specified observables.
+
+        Parameters
+        ----------
+        observable_labels : list[str], optional
+            Labels of observables to query. ``None`` returns indices for all
+            observables.
+
+        Returns
+        -------
+        ndarray
+            Integer indices corresponding to the requested observables.
         """
         return self.system_interface.get_observable_indices(observable_labels)
 

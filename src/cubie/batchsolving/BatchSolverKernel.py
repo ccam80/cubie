@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """
+Batch Solver Kernel Module.
+
+This module provides the BatchSolverKernel class, which manages GPU-based
+batch integration of ODE systems using CUDA. The kernel handles the distribution
+of work across GPU threads and manages memory allocation for batched integrations.
+
 Created on Tue May 27 17:45:03 2025
 
 @author: cca79
@@ -26,22 +32,71 @@ from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 
 
 class BatchSolverKernel(CUDAFactory):
-    """Class which builds and holds the integrating kernel and interfaces
-    with lower-level modules: loop
-    algorithms, ODE systems, and output functions
-    The kernel function accepts single or batched sets of inputs,
-    and distributes those amongst the threads on the
-    GPU. It runs the loop device function on a given slice of its allocated
-    memory, and serves as the distributor
-    of work amongst the individual runs of the integrators.
+    """
+    CUDA-based batch solver kernel for ODE integration.
+
+    This class builds and holds the integrating kernel and interfaces with
+    lower-level modules including loop algorithms, ODE systems, and output
+    functions. The kernel function accepts single or batched sets of inputs
+    and distributes those amongst the threads on the GPU.
+
+    Parameters
+    ----------
+    system : object
+        The ODE system to be integrated.
+    algorithm : str, default='euler'
+        Integration algorithm to use.
+    duration : float, default=1.0
+        Duration of the simulation.
+    warmup : float, default=0.0
+        Warmup time before the main simulation.
+    dt_min : float, default=0.01
+        Minimum allowed time step.
+    dt_max : float, default=0.1
+        Maximum allowed time step.
+    dt_save : float, default=0.1
+        Time step for saving output.
+    dt_summarise : float, default=1.0
+        Time step for saving summaries.
+    atol : float, default=1e-6
+        Absolute tolerance for adaptive stepping.
+    rtol : float, default=1e-6
+        Relative tolerance for adaptive stepping.
+    saved_state_indices : NDArray[np.int_], optional
+        Indices of state variables to save.
+    saved_observable_indices : NDArray[np.int_], optional
+        Indices of observable variables to save.
+    summarised_state_indices : ArrayLike, optional
+        Indices of state variables to summarise.
+    summarised_observable_indices : ArrayLike, optional
+        Indices of observable variables to summarise.
+    output_types : list[str], optional
+        Types of outputs to generate. Default is ["state"].
+    precision : type, default=np.float64
+        Numerical precision to use.
+    profileCUDA : bool, default=False
+        Whether to enable CUDA profiling.
+    memory_manager : object, default=default_memmgr
+        Memory manager instance to use.
+    stream_group : str, default='solver'
+        CUDA stream group identifier.
+    mem_proportion : float, optional
+        Proportion of GPU memory to allocate.
+
+    Notes
+    -----
     This class is one level down from the user, managing sanitised inputs
-    and handling the machinery of batching and
-    running integrators. It does not handle:
-     - Integration logic/algorithms - these are handled in
-     SingleIntegratorRun, and below
-     - Input sanitisation / batch construction - this is handled in the
-     solver api.
-     - System equations - these are handled in the system model classes.
+    and handling the machinery of batching and running integrators. It does
+    not handle:
+
+    - Integration logic/algorithms - these are handled in SingleIntegratorRun
+      and below
+    - Input sanitisation / batch construction - this is handled in the solver api
+    - System equations - these are handled in the system model classes
+
+    The class runs the loop device function on a given slice of its allocated
+    memory and serves as the distributor of work amongst the individual runs
+    of the integrators.
     """
 
     def __init__(self, system,
@@ -105,40 +160,102 @@ class BatchSolverKernel(CUDAFactory):
         self.output_arrays = OutputArrays.from_solver(self)
 
     def _on_allocation(self, response):
+        """
+        Handle memory allocation response.
+
+        Parameters
+        ----------
+        response : object
+            Memory allocation response containing chunk information.
+        """
         self.chunks = response.chunks
 
     @property
     def output_heights(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .output_array_heights` from the child SingleIntegratorRun object."""
+        """
+        Get output array heights.
+
+        Returns
+        -------
+        object
+            Output array heights from the child SingleIntegratorRun object.
+
+        Notes
+        -----
+        Exposes the output_array_heights attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.output_array_heights
 
     @property
     def kernel(self):
+        """
+        Get the device function kernel.
+
+        Returns
+        -------
+        object
+            The compiled CUDA device function.
+        """
         return self.device_function
 
     def build(self):
+        """
+        Build the integration kernel.
+
+        Returns
+        -------
+        object
+            The built integration kernel.
+        """
         return self.build_kernel()
 
     @property
     def memory_manager(self):
-        """Returns the memory manager the solver is registered with."""
+        """
+        Get the memory manager.
+
+        Returns
+        -------
+        object
+            The memory manager the solver is registered with.
+        """
         return self._memory_manager
 
     @property
     def stream_group(self):
-        """Returns the stream_group the solver is in."""
+        """
+        Get the stream group.
+
+        Returns
+        -------
+        str
+            The stream group the solver is in.
+        """
         return self.memory_manager.get_stream_group(self)
 
     @property
     def stream(self):
-        """Return the stream assigned to the solver."""
-        return self.memory_manager.get_stream(self)
+        """
+        Get the assigned CUDA stream.
 
+        Returns
+        -------
+        object
+            The CUDA stream assigned to the solver.
+        """
+        return self.memory_manager.get_stream(self)
 
     @property
     def mem_proportion(self):
-        """Returns the memory proportion the solver is assigned."""
+        """
+        Get the memory proportion.
+
+        Returns
+        -------
+        float
+            The memory proportion the solver is assigned.
+        """
         return self.memory_manager.proportion(self)
 
     def run(self,
@@ -150,7 +267,39 @@ class BatchSolverKernel(CUDAFactory):
             stream=None,
             warmup=0.0,
             chunk_axis='run'):
-        """Run the solver kernel."""
+        """
+        Execute the solver kernel for batch integration.
+
+        Parameters
+        ----------
+        inits : array_like
+            Initial conditions for each run. Shape should be (n_runs, n_states).
+        params : array_like
+            Parameters for each run. Shape should be (n_runs, n_params).
+        forcing_vectors : array_like
+            Forcing vectors for each run.
+        duration : float
+            Duration of the simulation.
+        blocksize : int, default=256
+            CUDA block size for kernel execution.
+        stream : object, optional
+            CUDA stream to use. If None, uses the solver's assigned stream.
+        warmup : float, default=0.0
+            Warmup time before the main simulation.
+        chunk_axis : str, default='run'
+            Axis along which to chunk the computation ('run' or 'time').
+
+        Notes
+        -----
+        This method performs the main batch integration by:
+        1. Setting up input and output arrays
+        2. Allocating GPU memory in chunks
+        3. Executing the CUDA kernel for each chunk
+        4. Handling memory management and synchronization
+
+        The method automatically adjusts block size if shared memory requirements
+        exceed GPU limits, warning the user about potential performance impacts.
+        """
         if stream is None:
             stream = self.stream
 
@@ -238,7 +387,26 @@ class BatchSolverKernel(CUDAFactory):
             cuda.profile_stop()
 
     def build_kernel(self):
-        """Build the integration kernel."""
+        """
+        Build and compile the CUDA integration kernel.
+
+        Returns
+        -------
+        function
+            Compiled CUDA kernel function for integration.
+
+        Notes
+        -----
+        This method creates a CUDA kernel that:
+        1. Distributes work across GPU threads
+        2. Manages shared memory allocation
+        3. Calls the underlying integration loop function
+        4. Handles output array indexing and slicing
+
+        The kernel uses a 2D thread block structure where:
+        - x-dimension handles intra-run parallelism
+        - y-dimension handles different runs
+        """
         precision = from_dtype(self.precision)
         loopfunction = self.single_integrator.device_function
         shared_elements_per_run = self.shared_memory_elements_per_run
@@ -256,8 +424,6 @@ class BatchSolverKernel(CUDAFactory):
                                observables_output, state_summaries_output,
                                observables_summaries_output, duration_samples,
                                warmup_samples=0, n_runs=1, ):
-            """Master integration kernel - calls integratorLoop and dxdt
-            device functions."""
             tx = int16(cuda.threadIdx.x)
             ty = int16(cuda.threadIdx.y)
 
@@ -295,6 +461,34 @@ class BatchSolverKernel(CUDAFactory):
         return integration_kernel
 
     def update(self, updates_dict=None, silent=False, **kwargs):
+        """
+        Update solver configuration parameters.
+
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Dictionary of parameter updates.
+        silent : bool, default=False
+            If True, suppresses error messages for unrecognized parameters.
+        **kwargs
+            Additional parameter updates passed as keyword arguments.
+
+        Returns
+        -------
+        set
+            Set of recognized parameter names that were updated.
+
+        Raises
+        ------
+        KeyError
+            If unrecognized parameters are provided and silent=False.
+
+        Notes
+        -----
+        This method attempts to update parameters in both the compile settings
+        and the single integrator instance. Unrecognized parameters are
+        collected and reported as an error unless silent mode is enabled.
+        """
         if updates_dict is None:
             updates_dict = {}
         if kwargs:
@@ -316,264 +510,646 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def shared_memory_bytes_per_run(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .shared_memory_bytes` from the child SingleIntegratorRun object."""
+        """
+        Get shared memory bytes per run.
+
+        Returns
+        -------
+        int
+            Shared memory bytes required per run.
+
+        Notes
+        -----
+        Exposes the shared_memory_bytes attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.shared_memory_bytes
 
     @property
     def shared_memory_elements_per_run(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .shared_memory_elements` from the child SingleIntegratorRun object."""
+        """
+        Get shared memory elements per run.
+
+        Returns
+        -------
+        int
+            Number of shared memory elements required per run.
+
+        Notes
+        -----
+        Exposes the shared_memory_elements attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.shared_memory_elements
 
     @property
     def precision(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .precision` from the child SingleIntegratorRun object."""
+        """
+        Get numerical precision type.
+
+        Returns
+        -------
+        type
+            Numerical precision type (e.g., np.float64).
+
+        Notes
+        -----
+        Exposes the precision attribute from the child SingleIntegratorRun object.
+        """
         return self.single_integrator.precision
 
     @property
     def threads_per_loop(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .threads_per_loop` from the child SingleIntegratorRun object."""
+        """
+        Get threads per loop.
+
+        Returns
+        -------
+        int
+            Number of threads per integration loop.
+
+        Notes
+        -----
+        Exposes the threads_per_loop attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.threads_per_loop
 
     @property
     def duration(self):
-        """Returns the duration of the simulation."""
+        """
+        Get simulation duration.
+
+        Returns
+        -------
+        float
+            Duration of the simulation.
+        """
         return self.compile_settings.duration
 
     @duration.setter
     def duration(self, value):
-        """Sets the duration of the simulation."""
+        """
+        Set simulation duration.
+
+        Parameters
+        ----------
+        value : float
+            Duration of the simulation.
+        """
         self.compile_settings.duration = value
 
     @property
     def warmup(self):
-        """Returns the warmup time of the simulation."""
+        """
+        Get warmup time.
+
+        Returns
+        -------
+        float
+            Warmup time of the simulation.
+        """
         return self.compile_settings.warmup
 
     @warmup.setter
     def warmup(self, value):
-        """Sets the warmup time of the simulation."""
+        """
+        Set warmup time.
+
+        Parameters
+        ----------
+        value : float
+            Warmup time of the simulation.
+        """
         self.compile_settings.warmup = value
 
     @property
     def output_length(self):
-        """Returns the number of output samples per run."""
+        """
+        Get number of output samples per run.
+
+        Returns
+        -------
+        int
+            Number of output samples per run.
+        """
         return int(
                 np.ceil(self.compile_settings.duration /
                         self.single_integrator.dt_save))
 
     @property
     def summaries_length(self):
-        """Returns the number of summary samples per run."""
+        """
+        Get number of summary samples per run.
+
+        Returns
+        -------
+        int
+            Number of summary samples per run.
+        """
         return int(
                 np.ceil(self.compile_settings.duration /
                         self.single_integrator.dt_summarise))
 
     @property
     def warmup_length(self):
+        """
+        Get number of warmup samples.
+
+        Returns
+        -------
+        int
+            Number of warmup samples.
+        """
         return int(
                 np.ceil(self.compile_settings.warmup /
                         self.single_integrator.dt_save))
 
     @property
     def system(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .system` from the SingleIntegratorRun
-        instance."""
+        """
+        Get the ODE system.
+
+        Returns
+        -------
+        object
+            The ODE system being integrated.
+
+        Notes
+        -----
+        Exposes the system attribute from the SingleIntegratorRun instance.
+        """
         return self.single_integrator.system
 
     @property
     def algorithm(self):
-        """Returns the integration algorithm being used."""
+        """
+        Get the integration algorithm.
+
+        Returns
+        -------
+        str
+            The integration algorithm being used.
+        """
         return self.single_integrator.algorithm_key
 
     @property
     def fixed_step_size(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .step_size` from the child SingleIntegratorRun object."""
+        """
+        Get the fixed step size.
+
+        Returns
+        -------
+        float
+            Fixed step size for the solver.
+
+        Notes
+        -----
+        Exposes the step_size attribute from the child SingleIntegratorRun object.
+        """
         return self.single_integrator.fixed_step_size
 
     @property
     def dt_min(self):
-        """Minimum step size allowed for the solver."""
+        """
+        Get minimum step size.
+
+        Returns
+        -------
+        float
+            Minimum step size allowed for the solver.
+        """
         return self.single_integrator.config.dt_min
 
     @property
     def dt_max(self):
-        """Maximum step size allowed for the solver."""
+        """
+        Get maximum step size.
+
+        Returns
+        -------
+        float
+            Maximum step size allowed for the solver.
+        """
         return self.single_integrator.config.dt_max
 
     @property
     def atol(self):
-        """Absolute tolerance for the solver."""
+        """
+        Get absolute tolerance.
+
+        Returns
+        -------
+        float
+            Absolute tolerance for the solver.
+        """
         return self.single_integrator.config.atol
 
     @property
     def rtol(self):
-        """Relative tolerance for the solver."""
+        """
+        Get relative tolerance.
+
+        Returns
+        -------
+        float
+            Relative tolerance for the solver.
+        """
         return self.single_integrator.config.rtol
 
     @property
     def dt_save(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .dt_save` from the child SingleIntegratorRun object."""
+        """
+        Get save time step.
+
+        Returns
+        -------
+        float
+            Time step for saving output.
+
+        Notes
+        -----
+        Exposes the dt_save attribute from the child SingleIntegratorRun object.
+        """
         return self.single_integrator.dt_save
 
     @property
     def dt_summarise(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .dt_summarise` from the child SingleIntegratorRun object."""
+        """
+        Get summary time step.
+
+        Returns
+        -------
+        float
+            Time step for saving summaries.
+
+        Notes
+        -----
+        Exposes the dt_summarise attribute from the child SingleIntegratorRun object.
+        """
         return self.single_integrator.dt_summarise
 
     @property
     def system_sizes(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .system_sizes` from the child SingleIntegratorRun object."""
+        """
+        Get system sizes.
+
+        Returns
+        -------
+        object
+            System sizes information.
+
+        Notes
+        -----
+        Exposes the system_sizes attribute from the child SingleIntegratorRun object.
+        """
         return self.single_integrator.system_sizes
 
     @property
     def output_array_heights(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators
-        .SingleIntegratorRun.output_array_heights` from the child
+        """
+        Get output array heights.
+
+        Returns
+        -------
+        object
+            Output array heights information.
+
+        Notes
+        -----
+        Exposes the output_array_heights attribute from the child
         SingleIntegratorRun object.
         """
         return self.single_integrator.output_array_heights
 
     @property
     def ouput_array_sizes_2d(self):
-        """Returns the 2D output array sizes for a single run."""
+        """
+        Get 2D output array sizes.
+
+        Returns
+        -------
+        object
+            The 2D output array sizes for a single run.
+        """
         return SingleRunOutputSizes.from_solver(self)
 
     @property
     def output_array_sizes_3d(self):
-        """Returns the 3D output array sizes for a batch of runs."""
+        """
+        Get 3D output array sizes.
+
+        Returns
+        -------
+        object
+            The 3D output array sizes for a batch of runs.
+        """
         return BatchOutputSizes.from_solver(self)
 
     @property
     def summaries_buffer_sizes(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators
-        .SingleIntegratorRun.summaries_buffer_sizes` from the child"""
+        """
+        Get summaries buffer sizes.
+
+        Returns
+        -------
+        object
+            Summaries buffer sizes information.
+
+        Notes
+        -----
+        Exposes the summaries_buffer_sizes attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.summaries_buffer_sizes
 
     @property
     def summary_legend_per_variable(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .summary_legend_per_variable` from the child SingleIntegratorRun
-        object."""
+        """
+        Get summary legend per variable.
+
+        Returns
+        -------
+        object
+            Summary legend per variable information.
+
+        Notes
+        -----
+        Exposes the summary_legend_per_variable attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.summary_legend_per_variable
 
     @property
     def saved_state_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .saved_state_indices` from the child SingleIntegratorRun object."""
+        """
+        Get saved state indices.
+
+        Returns
+        -------
+        NDArray[np.int_]
+            Indices of state variables to save.
+
+        Notes
+        -----
+        Exposes the saved_state_indices attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.saved_state_indices
 
     @property
     def saved_observable_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .saved_observable_indices` from the child SingleIntegratorRun
-        object."""
+        """
+        Get saved observable indices.
+
+        Returns
+        -------
+        NDArray[np.int_]
+            Indices of observable variables to save.
+
+        Notes
+        -----
+        Exposes the saved_observable_indices attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.saved_observable_indices
 
     @property
     def summarised_state_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .summarised_state_indices` from the child SingleIntegratorRun
-        object."""
+        """
+        Get summarised state indices.
+
+        Returns
+        -------
+        ArrayLike
+            Indices of state variables to summarise.
+
+        Notes
+        -----
+        Exposes the summarised_state_indices attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.summarised_state_indices
 
     @property
     def summarised_observable_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .summarised_observable_indices` from the child SingleIntegratorRun
-        object."""
+        """
+        Get summarised observable indices.
+
+        Returns
+        -------
+        ArrayLike
+            Indices of observable variables to summarise.
+
+        Notes
+        -----
+        Exposes the summarised_observable_indices attribute from the child
+        SingleIntegratorRun object.
+        """
         return self.single_integrator.summarised_observable_indices
 
     @property
     def active_output_arrays(self) -> "ActiveOutputs":
-        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
-        ._active_outputs` from the child OutputArrays object."""
+        """
+        Get active output arrays.
+
+        Returns
+        -------
+        ActiveOutputs
+            Active output arrays configuration.
+
+        Notes
+        -----
+        Exposes the _active_outputs attribute from the child OutputArrays object.
+        """
         self.output_arrays.allocate()
         return self.output_arrays.active_outputs
 
     @property
     def device_state_array(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
-        .state` from the child OutputArrays object."""
+        """
+        Get device state array.
+
+        Returns
+        -------
+        object
+            Device state array.
+
+        Notes
+        -----
+        Exposes the state attribute from the child OutputArrays object.
+        """
         return self.output_arrays.device_state
 
     @property
     def device_observables_array(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
-        .observables` from the child OutputArrays object."""
+        """
+        Get device observables array.
+
+        Returns
+        -------
+        object
+            Device observables array.
+
+        Notes
+        -----
+        Exposes the observables attribute from the child OutputArrays object.
+        """
         return self.output_arrays.device_observables
 
     @property
     def device_state_summaries_array(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
-        .state_summaries` from the child OutputArrays object."""
+        """
+        Get device state summaries array.
+
+        Returns
+        -------
+        object
+            Device state summaries array.
+
+        Notes
+        -----
+        Exposes the state_summaries attribute from the child OutputArrays object.
+        """
         return self.output_arrays.device_state_summaries
 
     @property
     def device_observable_summaries_array(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchOutputArrays.OutputArrays
-        .observable_summaries` from the child OutputArrays object."""
+        """
+        Get device observable summaries array.
+
+        Returns
+        -------
+        object
+            Device observable summaries array.
+
+        Notes
+        -----
+        Exposes the observable_summaries attribute from the child OutputArrays object.
+        """
         return self.output_arrays.device_observable_summaries
 
     @property
     def state(self):
-        """Returns the state array."""
+        """
+        Get state array.
+
+        Returns
+        -------
+        array_like
+            The state array.
+        """
         return self.output_arrays.state
 
     @property
     def observables(self):
-        """Returns the observables array."""
+        """
+        Get observables array.
+
+        Returns
+        -------
+        array_like
+            The observables array.
+        """
         return self.output_arrays.observables
 
     @property
     def state_summaries(self):
-        """Returns the state summaries_array array."""
+        """
+        Get state summaries array.
+
+        Returns
+        -------
+        array_like
+            The state summaries array.
+        """
         return self.output_arrays.state_summaries
 
     @property
     def observable_summaries(self):
-        """Returns the observable summaries_array array."""
+        """
+        Get observable summaries array.
+
+        Returns
+        -------
+        array_like
+            The observable summaries array.
+        """
         return self.output_arrays.observable_summaries
 
     @property
     def initial_values(self):
-        """Returns the initial values array."""
+        """
+        Get initial values array.
+
+        Returns
+        -------
+        array_like
+            The initial values array.
+        """
         return self.input_arrays.initial_values
 
     @property
     def parameters(self):
-        """Returns the parameters array."""
+        """
+        Get parameters array.
+
+        Returns
+        -------
+        array_like
+            The parameters array.
+        """
         return self.input_arrays.parameters
 
     @property
     def forcing_vectors(self):
-        """Returns the forcing vectors array."""
+        """
+        Get forcing vectors array.
+
+        Returns
+        -------
+        array_like
+            The forcing vectors array.
+        """
         return self.input_arrays.forcing_vectors
 
     @property
     def output_stride_order(self):
-        """Returns the axis order of the output arrays."""
+        """
+        Get output stride order.
+
+        Returns
+        -------
+        str
+            The axis order of the output arrays.
+        """
         return self.output_arrays.host.stride_order
 
     @property
     def save_time(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .save_time` from the child SingleIntegratorRun object."""
+        """
+        Get save time array.
+
+        Returns
+        -------
+        array_like
+            Time points for saved output.
+
+        Notes
+        -----
+        Exposes the save_time attribute from the child SingleIntegratorRun object.
+        """
         return self.single_integrator.save_time
 
     def enable_profiling(self):
         """
-        Enable CUDA profiling for the solver. This will allow you to profile
-        the performance of the solver on the
-        GPU, but will slow things down.
+        Enable CUDA profiling for the solver.
+
+        Notes
+        -----
+        This will allow you to profile the performance of the solver on the
+        GPU, but will slow things down. Consider disabling optimisation and
+        enabling debug and line info for profiling.
         """
         # Consider disabling optimisation and enabling debug and line info
         # for profiling
@@ -581,14 +1157,27 @@ class BatchSolverKernel(CUDAFactory):
 
     def disable_profiling(self):
         """
-        Disable CUDA profiling for the solver. This will stop profiling the
-        performance of the solver on the GPU,
+        Disable CUDA profiling for the solver.
+
+        Notes
+        -----
+        This will stop profiling the performance of the solver on the GPU,
         but will speed things up.
         """
         self.compile_settings.profileCUDA = False
 
     @property
     def output_types(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.SingleIntegratorRun
-        .output_types` from the child SingleIntegratorRun object."""
+        """
+        Get output types.
+
+        Returns
+        -------
+        list[str]
+            Types of outputs generated.
+
+        Notes
+        -----
+        Exposes the output_types attribute from the child SingleIntegratorRun object.
+        """
         return self.single_integrator.output_types

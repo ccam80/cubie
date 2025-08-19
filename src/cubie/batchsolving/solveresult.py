@@ -1,3 +1,9 @@
+"""Structures used for returning results from the batch solver.
+
+The :class:`SolveSpec` class stores the configuration of a solver run while
+the :class:`SolveResult` class aggregates output arrays and related metadata.
+"""
+
 from typing import Optional, TYPE_CHECKING, Union, List, Any
 
 if TYPE_CHECKING:
@@ -15,7 +21,31 @@ from cubie._utils import slice_variable_dimension
 
 @attrs.define
 class SolveSpec:
-    """Container for details of the solver run for return with data"""
+    """Container describing a solver run.
+
+    Attributes
+    ----------
+    dt_min, dt_max : float
+        Minimum and maximum time step sizes.
+    dt_save : float
+        Interval at which state values are stored.
+    dt_summarise : float
+        Interval for computing summary outputs.
+    atol, rtol : float
+        Absolute and relative error tolerances.
+    duration, warmup : float
+        Total integration time and initial warm-up period.
+    algorithm : str
+        Name of the integration algorithm.
+    saved_states, saved_observables : list of str or None
+        Labels of variables saved verbatim.
+    summarised_states, summarised_observables : list of str or None
+        Labels of variables for which summaries were computed.
+    output_types : list of str or None
+        Types of output arrays generated during the run.
+    precision : type
+        Floating point precision used.
+    """
     dt_min: float = attrs.field(validator=val.instance_of(float))
     dt_max: float = attrs.field(validator=val.instance_of(float))
     dt_save: float = attrs.field(validator=val.instance_of(float))
@@ -35,6 +65,30 @@ class SolveSpec:
 
 @attrs.define
 class SolveResult:
+    """
+    Aggregates output arrays and related metadata for a solver run.
+
+    Parameters
+    ----------
+    time_domain_array : Optional[NDArray]
+        NumPy array containing time-domain results.
+    summaries_array : Optional[NDArray]
+        NumPy array containing summary results.
+    time : Optional[NDArray]
+        NumPy array containing time values.
+    time_domain_legend : Optional[dict[int, str]]
+        Legend mapping time-domain indices to labels.
+    summaries_legend : Optional[dict[int, str]]
+        Legend mapping summary indices to labels.
+    solve_settings : Optional[SolveSpec]
+        Solver run configuration.
+    _singlevar_summary_legend : Optional[dict[int, str]]
+        Legend mapping summary offset indices to labels.
+    _active_outputs : Optional[ActiveOutputs]
+        Active outputs flags.
+    _stride_order : tuple[str, ...]
+        Tuple specifying the order of variables in the host arrays..
+    """
     time_domain_array: Optional[NDArray] = attrs.field(
             default=attrs.Factory(lambda: np.array([])),
             validator=val.optional(val.instance_of(np.ndarray)),
@@ -61,7 +115,7 @@ class SolveResult:
             validator=val.optional(val.instance_of(dict)))
     _active_outputs: Optional[ActiveOutputs] = attrs.field(
             default=attrs.Factory(lambda: ActiveOutputs()))
-    _stride_order: tuple[str, ...] = attrs.field(
+    _stride_order: Union[tuple[str, ...], list[str]] = attrs.field(
             default=("time", "run", "variable"))
 
     @classmethod
@@ -69,22 +123,20 @@ class SolveResult:
                     solver: Union["Solver", "BatchSolverKernel"],
                     results_type: str = 'full',
                     ) -> Union["SolveResult", dict[str,Any]]:
-        """
-        Create user_arrays from a Solver instance.
+        """Create a :class:`SolveResult` from a solver instance.
 
-        Args:
-            solver (Solver): The solver instance to extract results from.
-            results_type(str): 'full' or 'numpy' or 'pandas'
-                - 'full' returns a SolveResult instance with all arrays.
-                - 'numpy' returns a dictionary of NumPy Arrays.
-                - "numpy_per_summary" returns a dictionary of NumPy Arrays,
-                where the summaries array is split into one array per
-                summary type.
-                - 'pandas' returns a dictionary of Pandas DataFrames.
+        Parameters
+        ----------
+        solver : Solver or BatchSolverKernel
+            Object providing access to output arrays and metadata.
+        results_type : {'full', 'numpy', 'numpy_per_summary', 'pandas'}, optional
+            Format of the returned results. Default ``'full'``.
 
-        Returns:
-            SolveResult: An instance of user_arrays containing the data from
-            the solver.
+        Returns
+        -------
+        SolveResult or dict
+            ``SolveResult`` when ``results_type`` is ``'full'``; otherwise a
+            dictionary containing the requested representation of the data.
         """
 
         active_outputs = solver.active_output_arrays
@@ -139,6 +191,20 @@ class SolveResult:
 
     @property
     def as_pandas(self):
+        """
+        Convert the results to Pandas DataFrames.
+
+        Returns
+        -------
+        dict[str, DataFrame]
+            Dictionary with keys 'time_domain' and 'summaries' containing the
+            corresponding DataFrames.
+
+        Raises
+        ------
+        ImportError
+            If the pandas package is not available.
+        """
         try:
             import pandas as pd
         except ImportError:
@@ -192,8 +258,8 @@ class SolveResult:
             else:
                 summaries_dfs.append(pd.DataFrame)
 
-            time_domain_df = pd.concat(time_dfs, axis=1)
-            summaries_df = pd.concat(summaries_dfs, axis=1)
+        time_domain_df = pd.concat(time_dfs, axis=1)
+        summaries_df = pd.concat(summaries_dfs, axis=1)
 
         return {"time_domain": time_domain_df,
                 "summaries": summaries_df}
@@ -201,11 +267,13 @@ class SolveResult:
     @property
     def as_numpy(self) -> dict[str, Optional[NDArray]]:
         """
-        Returns the arrays instance as a dictionary of NumPy arrays.
+        Return the results as copies of NumPy arrays.
 
-        Returns:
-            dict[str, NDArray]: A dictionary containing the time domain and
-            summaries_array arrays.
+        Returns
+        -------
+        dict[str, Optional[NDArray]]
+            Dictionary containing copies of time, time_domain_array, summaries_array,
+            time_domain_legend, and summaries_legend.
         """
         return {"time": self.time.copy() if self.time is not None else None,
                 "time_domain_array": self.time_domain_array.copy(),
@@ -217,13 +285,13 @@ class SolveResult:
     @property
     def as_numpy_per_summary(self) -> dict[str, Optional[NDArray]]:
         """
-        Returns the arrays as a dictionary of NumPy arrays, where the
-        summaries array has been split into one array per summary type.
+        Return the results as separate NumPy arrays per summary type.
 
-        Returns:
-            dict[str, NDArray]: A dictionary containing one array for
-            time-domain results, time, and each summary type keyed by summary
-            type.
+        Returns
+        -------
+        dict[str, Optional[NDArray]]
+            Dictionary containing time, time_domain_array, time_domain_legend,
+            and individual summary arrays.
         """
         arrays = {"time": self.time.copy() if self.time is not None else None,
                   "time_domain_array":  self.time_domain_array.copy(),
@@ -236,13 +304,14 @@ class SolveResult:
     @property
     def per_summary_arrays(self) -> dict[str, NDArray]:
         """
-        Returns each summary as a separate array, keyed by summary type.
+        Split summaries_array into separate arrays keyed by summary type.
 
-        Returns:
-            dict[str, NDArray]: A dictionary containing one array for each
-            summary type. If a summary type has
-            multiple entries, such as multiple peaks, then each entry is
-            returned as a separate array.
+        Returns
+        -------
+        dict[str, NDArray]
+            Dictionary where each key is a summary type and the value is the
+            corresponding NumPy array. The dictionary also includes a key
+            'summary_legend' mapping to the variable legend.
         """
         if (self._active_outputs.state_summaries is False and
                 self._active_outputs.observable_summaries is False):
@@ -269,7 +338,12 @@ class SolveResult:
     @property
     def active_outputs(self):
         """
-        Flags indicating which device arrays are nonzero.
+        Get flags indicating which device arrays are active.
+
+        Returns
+        -------
+        ActiveOutputs
+            Object storing active output flags.
         """
         return self._active_outputs
 
@@ -278,17 +352,24 @@ class SolveResult:
                     time_saved: bool = False,
                     stride_order: Optional[list[str]] = None) \
             -> (tuple[Optional[NDArray], NDArray]):
-        """If time has been saved, remove it from the state array and return.
+        """
+        Remove time from the state array if saved.
 
-        Parameters:
-            state (ArrayTypes): The state array to cleave.
-            time_saved (bool): Whether time has been saved in the state array.
-            stride_order (Optional[list[str]]): The order of dimensions in the
-            host arrays.
+        Parameters
+        ----------
+        state : ArrayTypes
+            The state array to cleave.
+        time_saved : bool, optional
+            Flag indicating if time is saved in the state array.
+        stride_order : Optional[list[str]], optional
+            The order of dimensions in the array. Defaults to
+            ['time', 'run', 'variable'] if None.
 
-        Returns:
-            tuple[Optional[NDArray], NDArray]: A tuple containing the time (
-            if saved, otherwise None) and the state array with time removed.
+        Returns
+        -------
+        tuple[Optional[NDArray], NDArray]
+            Tuple containing the time array (or None) and the state array with
+            time removed.
         """
         if stride_order is None:
             stride_order = ["time", "run", "variable"]
@@ -308,10 +389,28 @@ class SolveResult:
             return None, state
 
     @staticmethod
-    def combine_time_domain_arrays(state,
-                                   observables,
-                                   state_active=True,
-                                   observables_active=True) -> NDArray:
+    def combine_time_domain_arrays(
+        state, observables, state_active=True, observables_active=True
+    ) -> NDArray:
+        """
+        Combine state and observable arrays into a single time-domain array.
+
+        Parameters
+        ----------
+        state : NDArray
+            Array of state values.
+        observables : NDArray
+            Array of observables.
+        state_active : bool, optional
+            Flag indicating if state is active.
+        observables_active : bool, optional
+            Flag indicating if observables are active.
+
+        Returns
+        -------
+        NDArray
+            Combined array along the last axis or a copy of the active array.
+        """
         if state_active and observables_active:
             return np.concatenate((state, observables), axis=-1)
         elif state_active:
@@ -322,12 +421,28 @@ class SolveResult:
             return np.array([])
 
     @staticmethod
-    def combine_summaries_array(state_summaries,
-                        observable_summaries, summarise_states,
-                                summarise_observables
-                                ) -> np.ndarray:
-        """ Combine state and observable summaries_array into a single array. """
+    def combine_summaries_array(
+        state_summaries, observable_summaries, summarise_states, summarise_observables
+    ) -> np.ndarray:
+        """
+        Combine state and observable summary arrays into a single array.
 
+        Parameters
+        ----------
+        state_summaries : NDArray
+            Array containing state summaries.
+        observable_summaries : NDArray
+            Array containing observable summaries.
+        summarise_states : bool
+            Flag indicating if state summaries are active.
+        summarise_observables : bool
+            Flag indicating if observable summaries are active.
+
+        Returns
+        -------
+        np.ndarray
+            Combined summary array.
+        """
         if summarise_states and summarise_observables:
             return np.concatenate((state_summaries, observable_summaries),
                                   axis=-1)
@@ -341,15 +456,17 @@ class SolveResult:
     @staticmethod
     def summary_legend_from_solver(solver: "Solver") -> dict[int, str]:
         """
-        Get the summary array legend from a Solver instance.
+        Generate a summary legend from the solver instance.
 
+        Parameters
+        ----------
+        solver : Solver
+            Solver instance providing saved states, observables, and summary legends.
 
-        Args:
-            solver (BatchSolverKernel): The solver instance to extract the
-            time domain legend from.
-
-        Returns:
-            dict[int, str]: A dictionary mapping indices to time domain labels.
+        Returns
+        -------
+        dict[int, str]
+            Dictionary mapping summary array indices to labels.
         """
         singlevar_legend = solver.summary_legend_per_variable
         state_labels = solver.saved_states
@@ -372,16 +489,17 @@ class SolveResult:
     @staticmethod
     def time_domain_legend_from_solver(solver: "Solver") -> dict[int, str]:
         """
-        Get the time domain legend from a Solver instance.
-        Returns a dict mapping time domain indices to labels, including time
-        if saved.
+        Generate a time domain legend from the solver instance.
 
-        Args:
-            solver (BatchSolverKernel): The solver instance to extract the
-            time domain legend from.
+        Parameters
+        ----------
+        solver : Solver
+            Solver instance providing saved states and observables.
 
-        Returns:
-            dict[int, str]: A dictionary mapping indices to time domain labels.
+        Returns
+        -------
+        dict[int, str]
+            Dictionary mapping time domain indices to labels.
         """
         time_domain_legend = {}
         state_labels = solver.saved_states

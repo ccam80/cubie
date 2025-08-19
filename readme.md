@@ -1,7 +1,7 @@
 # CuBIE
 ## CUDA batch integration engine for python
 
-[![docs](https://github.com/ccam80/smc/actions/workflows/documentation.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/documentation.yml) [![CUDA tests](https://github.com/ccam80/cubie/actions/workflows/ci_cuda_tests.yml/badge.svg)](https://github.com/ccam80/cubie/actions/workflows/ci_cuda_tests.yml)  [![Python Tests](https://github.com/ccam80/cubie/actions/workflows/ci_nocuda_tests.yml/badge.svg)](https://github.com/ccam80/cubie/actions/workflows/ci_nocuda_tests.yml)  [![test build](https://github.com/ccam80/cubie/actions/workflows/test_pypi.yml/badge.svg)](https://github.com/ccam80/cubie/actions/workflows/test_pypi.yml)
+[![docs](https://github.com/ccam80/smc/actions/workflows/documentation.yml/badge.svg)](https://github.com/ccam80/smc/actions/workflows/documentation.yml) [![CUDA tests](https://github.com/ccam80/cubie/actions/workflows/ci_cuda_tests.yml/badge.svg)](https://github.com/ccam80/cubie/actions/workflows/ci_cuda_tests.yml)  [![Python Tests](https://github.com/ccam80/cubie/actions/workflows/ci_nocuda_tests.yml/badge.svg)](https://github.com/ccam80/cubie/actions/workflows/ci_nocuda_tests.yml)  [![test build](https://github.com/ccam80/cubie/actions/workflows/test_pypi.yml/badge.svg)](https://github.com/ccam80/cubie/actions/workflows/test_pypi.yml)  [![codecov](https://codecov.io/gh/ccam80/cubie/graph/badge.svg?token=VG6SFXJ3MW)](https://codecov.io/gh/ccam80/cubie)
 
 A batch integration system for systems of ODEs and SDEs, for when elegant solutions fail and you would like to simulate 
 1,000,000 systems, fast. This package was designed to simulate a large electrophysiological model as part of a 
@@ -12,7 +12,9 @@ The most basic use case is to define a system of ODEs or SDEs, and then call cub
 Defining a system of ODEs is the most cumbersome part of using this library. Like in MATLAB or SciPy, we need to create a dxdt function that takes the current state and parameters, and returns the rate of change of the state. Unlike MATLAB and SciPy, this function needs to be CUDA-compatible, which means it cannot use some of the features of Python and numpy. Creating a system is done by subclassing cubie.SystemModel.GenericODE, and implementing the dxdt method. See ThreeCM.py for an example of a small system. Fabbri_linder.py for an example of a large system.
 
 ## Installation:
+```
 pip install cubie
+```
 
 ## System Requirements:
 - Python 3.8 or later

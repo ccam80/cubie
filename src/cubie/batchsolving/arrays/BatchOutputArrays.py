@@ -1,3 +1,11 @@
+"""
+Batch Output Arrays Module.
+
+This module provides classes for managing output arrays in batch integration
+operations, including containers for storing results and managers for handling
+memory allocation and data transfer between host and device.
+"""
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -14,7 +22,32 @@ from cubie.batchsolving import ArrayTypes
 
 @attrs.define(slots=False)
 class OutputArrayContainer(ArrayContainer):
-    """Container for output arrays"""
+    """
+    Container for batch output arrays.
+
+    This container holds the output arrays generated during batch integration,
+    including state trajectories, observables, and their summaries.
+
+    Parameters
+    ----------
+    state : ArrayTypes, optional
+        State variable trajectories over time.
+    observables : ArrayTypes, optional
+        Observable variable trajectories over time.
+    state_summaries : ArrayTypes, optional
+        Summary statistics for state variables.
+    observable_summaries : ArrayTypes, optional
+        Summary statistics for observable variables.
+    stride_order : tuple[str, ...], default=("time", "run", "variable")
+        Order of array dimensions.
+    _memory_type : str, default="device"
+        Type of memory allocation.
+
+    Notes
+    -----
+    This class uses attrs for automatic initialization and validation.
+    The stride_order specifies how the 3D arrays are organized in memory.
+    """
     state: ArrayTypes = attrs.field(
             default=None)
     observables: ArrayTypes = attrs.field(
@@ -32,16 +65,47 @@ class OutputArrayContainer(ArrayContainer):
 
     @classmethod
     def host_factory(cls):
-        """Factory method for creating a new array"""
+        """
+        Create a new host memory container.
+
+        Returns
+        -------
+        OutputArrayContainer
+            A new container configured for host memory.
+        """
         return cls(memory_type="host")
 
     @classmethod
     def device_factory(cls):
-        """Factory method for creating a new array"""
+        """
+        Create a new device memory container.
+
+        Returns
+        -------
+        OutputArrayContainer
+            A new container configured for mapped memory.
+        """
         return cls(memory_type="mapped")
 
 @attrs.define
 class ActiveOutputs:
+    """
+    Track which output arrays are actively being used.
+
+    This class provides boolean flags indicating which output types are
+    currently active based on array sizes and allocation status.
+
+    Parameters
+    ----------
+    state : bool, default=False
+        Whether state output is active.
+    observables : bool, default=False
+        Whether observables output is active.
+    state_summaries : bool, default=False
+        Whether state summaries output is active.
+    observable_summaries : bool, default=False
+        Whether observable summaries output is active.
+    """
     state: bool = attrs.field(
             default=False,
             validator=val.instance_of(bool))
@@ -56,8 +120,19 @@ class ActiveOutputs:
             validator=val.instance_of(bool))
 
     def update_from_outputarrays(self, output_arrays: "OutputArrays"):
-        """Update the active outputs based on the provided OutputArrays
-        instance."""
+        """
+        Update active outputs based on OutputArrays instance.
+
+        Parameters
+        ----------
+        output_arrays : OutputArrays
+            The OutputArrays instance to check for active outputs.
+
+        Notes
+        -----
+        An output is considered active if the corresponding array exists
+        and has more than one element (size > 1).
+        """
         self.state = (output_arrays.host.state is not None and
                       output_arrays.host.state.size > 1)
         self.observables = (output_arrays.host.observables is not None and
@@ -71,11 +146,30 @@ class ActiveOutputs:
 
 @attrs.define
 class OutputArrays(BaseArrayManager):
-    """ Manages batch integration output arrays between the host and device.
-    This class is initialised with a BatchOutputSizes instance (which is drawn
+    """
+    Manage batch integration output arrays between host and device.
+
+    This class manages the allocation, transfer, and synchronization of output
+    arrays generated during batch integration operations. It handles state
+    trajectories, observables, and summary statistics.
+
+    Parameters
+    ----------
+    _sizes : BatchOutputSizes
+        Size specifications for the output arrays.
+    host : OutputArrayContainer
+        Container for host-side arrays.
+    device : OutputArrayContainer
+        Container for device-side arrays.
+    _active_outputs : ActiveOutputs
+        Tracker for which outputs are currently active.
+
+    Notes
+    -----
+    This class is initialized with a BatchOutputSizes instance (which is drawn
     from a solver instance using the from_solver factory method), which sets
-    the allowable 3d array sizes from the ODE system's data and run settings.
-    Once initialised, the object can be updated with a solver instance to
+    the allowable 3D array sizes from the ODE system's data and run settings.
+    Once initialized, the object can be updated with a solver instance to
     update the expected sizes, check the cache, and allocate if required.
     """
     _sizes: BatchOutputSizes = attrs.field(
@@ -101,54 +195,153 @@ class OutputArrays(BaseArrayManager):
 
     def update(self,
                  solver_instance) -> "OutputArrays":
+        """
+        Update output arrays from solver instance.
+
+        Parameters
+        ----------
+        solver_instance : BatchSolverKernel
+            The solver instance providing configuration and sizing information.
+
+        Returns
+        -------
+        OutputArrays
+            Self, for method chaining.
+        """
         self.update_from_solver(solver_instance)
         self.allocate()
 
     @property
     def active_outputs(self) -> ActiveOutputs:
-        """ Check which outputs are requested, treating size-1 arrays as an
-        artefact of the default allocation."""
+        """
+        Get currently active output types.
+
+        Returns
+        -------
+        ActiveOutputs
+            Object indicating which output arrays are active.
+
+        Notes
+        -----
+        Checks which outputs are requested, treating size-1 arrays as an
+        artifact of the default allocation.
+        """
         self._active_outputs.update_from_outputarrays(self)
         return self._active_outputs
 
     @property
     def state(self):
+        """
+        Get host state array.
+
+        Returns
+        -------
+        ArrayTypes
+            The state array from the host container.
+        """
         return self.host.state
 
     @property
     def observables(self):
+        """
+        Get host observables array.
+
+        Returns
+        -------
+        ArrayTypes
+            The observables array from the host container.
+        """
         return self.host.observables
 
     @property
     def state_summaries(self):
+        """
+        Get host state summaries array.
+
+        Returns
+        -------
+        ArrayTypes
+            The state summaries array from the host container.
+        """
         return self.host.state_summaries
 
     @property
     def observable_summaries(self):
+        """
+        Get host observable summaries array.
+
+        Returns
+        -------
+        ArrayTypes
+            The observable summaries array from the host container.
+        """
         return self.host.observable_summaries
 
     @property
     def device_state(self):
+        """
+        Get device state array.
+
+        Returns
+        -------
+        ArrayTypes
+            The state array from the device container.
+        """
         return self.device.state
 
     @property
     def device_observables(self):
+        """
+        Get device observables array.
+
+        Returns
+        -------
+        ArrayTypes
+            The observables array from the device container.
+        """
         return self.device.observables
 
     @property
     def device_state_summaries(self):
+        """
+        Get device state summaries array.
+
+        Returns
+        -------
+        ArrayTypes
+            The state summaries array from the device container.
+        """
         return self.device.state_summaries
 
     @property
     def device_observable_summaries(self):
+        """
+        Get device observable summaries array.
+
+        Returns
+        -------
+        ArrayTypes
+            The observable summaries array from the device container.
+        """
         return self.device.observable_summaries
 
     @classmethod
     def from_solver(cls,
                     solver_instance: "BatchSolverKernel") -> "OutputArrays":
         """
-        Create a OutputArrays instance from a solver instance. Does not
-        allocate, just sets up sizes
+        Create an OutputArrays instance from a solver.
+
+        Does not allocate arrays, just sets up size specifications.
+
+        Parameters
+        ----------
+        solver_instance : BatchSolverKernel
+            The solver instance to extract configuration from.
+
+        Returns
+        -------
+        OutputArrays
+            A new OutputArrays instance configured for the solver.
         """
         sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         return cls(sizes=sizes,
@@ -158,9 +351,17 @@ class OutputArrays(BaseArrayManager):
 
     def update_from_solver(self, solver_instance: "BatchSolverKernel"):
         """
-        Update the sizes and precision of the OutputArrays instance from a
-        solver instance.
+        Update sizes and precision from solver instance.
 
+        Parameters
+        ----------
+        solver_instance : BatchSolverKernel
+            The solver instance to update from.
+
+        Notes
+        -----
+        This method updates the array sizes and precision, and reallocates
+        host arrays if their sizes don't match the expected dimensions.
         """
         self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         host_dict = {k: v for k, v in self.host.__dict__.items()
@@ -174,7 +375,20 @@ class OutputArrays(BaseArrayManager):
         self._precision = solver_instance.precision
 
     def finalise(self, host_indices):
-        """ Copy mapped array over slice of host array """
+        """
+        Copy mapped arrays to host array slices.
+
+        Parameters
+        ----------
+        host_indices : slice or array-like
+            Indices for the chunk being finalized.
+
+        Notes
+        -----
+        This method copies mapped device arrays over the specified slice
+        of host arrays. The copy operation may trigger CUDA runtime
+        synchronization.
+        """
         chunk_index = self.host.stride_order.index(self._chunk_axis)
         slice_tuple = [slice(None)] * 3
         slice_tuple[chunk_index] = host_indices
@@ -186,8 +400,17 @@ class OutputArrays(BaseArrayManager):
                 # that might jog the cuda runtime to synchronize.
 
     def initialise(self, host_indices):
-        """ No need to initialise device to zeros.
+        """
+        Initialize device arrays before kernel execution.
 
-        Unless chunk calculations in time leave a dangling sample at the
-        end. Which I guess is possible, but not expected."""
+        Parameters
+        ----------
+        host_indices : slice or array-like
+            Indices for the chunk being initialized.
+
+        Notes
+        -----
+        No initialization to zeros is needed unless chunk calculations in time
+        leave a dangling sample at the end, which is possible but not expected.
+        """
         pass

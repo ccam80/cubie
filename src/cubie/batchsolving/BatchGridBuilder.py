@@ -1,42 +1,61 @@
-"""Utilities for building grids of state and parameter values.
+"""
+Batch Grid Builder Module.
 
-The :class:`BatchGridBuilder` class converts user-supplied dictionaries or
-arrays into the 2D numpy arrays expected by the solver. The user primarily
-interacts with this class through the Solver class, unless they have very
-specific needs. Interaction with the BatchConfigurator is primarily through
-the `__call__` method, which accepts four arguments:
+This module provides utilities for building grids of state and parameter values.
+The BatchGridBuilder class converts user-supplied dictionaries or arrays into
+the 2D numpy arrays expected by the solver.
+
+Notes
+-----
+The user primarily interacts with this class through the Solver class, unless
+they have very specific needs. Interaction with the BatchConfigurator is
+primarily through the `__call__` method, which accepts four arguments:
 
 - `request`: A dictionary of (potentially mixed) parameter and state names
-mapped to sequences of values. Says: "Integrate from combinations of
-these named variables"
+  mapped to sequences of values. Says: "Integrate from combinations of
+  these named variables"
 - 'params': A dictionary of purely parameter variable names, a 1D sequence to
-set one set of values for every integration, or a 2D array of all
-combinations to integrate from.
+  set one set of values for every integration, or a 2D array of all
+  combinations to integrate from.
 - 'states': A dictionary of purely state variable names, a 1D sequence to
-set one set of values for every integration, or a 2D array of all
-combinations to integrate from.
+  set one set of values for every integration, or a 2D array of all
+  combinations to integrate from.
 - 'kind': A string indicating how to combine the parameters and states.
   - 'combinatorial' constructs a grid of all combinations of the values
-  provided
+    provided
   - 'verbatim' constructs a grid of [[all variables[0]],[all variables[1]],...]
-  when the conbinations have been intentionally constructed already.
+    when the combinations have been intentionally constructed already.
+
+There is a subtle difference between a 'combinatorial' combination of two
+input arrays the same values given as per-variable arrays in a dict,
+as demonstrated in the examples above. If the user provides arrays as an
+argument, it is assumed that all within-array combinations have already been
+constructed. When the user provides a dict, it is assumed that they want a
+combinatorial combination of the values. In the array case, the method will
+return arrays which contain all combinations of the rows of the arrays (
+i.e. nrows x nrows combinations). The dictionary case first constructs
+combinations of values, resulting in an array of height nvals1 * nvals2 *
+... * nvalsk for k variables, then combines these in the same fashion as
+the array case.
+
+For more fine-grained control, you can call the grid_arrays and
+combine_grids methods directly, or construct the full arrays outside of
+this method and let them pass through verbatim.
 
 Examples
 --------
-''''
-import numpy as np
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
-from cubie.systemmodels.systems.decays import Decays
-systm = Decays(coefficients=[1.0, 2.0])
-grid_builder = BatchGridBuilder.from_system(system)
-params = {'p0': [0.1, 0.2], 'p1': [10, 20]}
-states = {'x0': [1.0, 2.0], 'x1': [0.5, 1.5]}
-inits, params = grid_builder(params=params, states=states,
-                                                kind='combinatorial')
-'''
->>>print(inits.shape)
+>>> import numpy as np
+>>> from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+>>> from cubie.systemmodels.systems.decays import Decays
+>>> system = Decays(coefficients=[1.0, 2.0])
+>>> grid_builder = BatchGridBuilder.from_system(system)
+>>> params = {'p0': [0.1, 0.2], 'p1': [10, 20]}
+>>> states = {'x0': [1.0, 2.0], 'x1': [0.5, 1.5]}
+>>> inits, params = grid_builder(params=params, states=states,
+...                              kind='combinatorial')
+>>> print(inits.shape)
 (16, 2)
->>>print(inits)
+>>> print(inits)
 [[1.  0.5]
  [1.  0.5]
  [1.  0.5]
@@ -53,9 +72,9 @@ inits, params = grid_builder(params=params, states=states,
  [2.  1.5]
  [2.  1.5]
  [2.  1.5]]
->>>print(params.shape)
+>>> print(params.shape)
 (16, 2)
->>>print(params)
+>>> print(params)
 [[ 0.1 10. ]
  [ 0.1 20. ]
  [ 0.2 10. ]
@@ -73,84 +92,65 @@ inits, params = grid_builder(params=params, states=states,
  [ 0.2 10. ]
  [ 0.2 20. ]]
 
- '''
- # Example 2: verbatim arrays
-params = np.array([[0.1, 0.2], [10, 20]])
-states = np.array([[1.0, 2.0], [0.5, 1.5]])
-inits, params = grid_builder(params=params, states=states,
-                                                kind='verbatim')
-'''
->>>print(inits.shape)
+Example 2: verbatim arrays
+
+>>> params = np.array([[0.1, 0.2], [10, 20]])
+>>> states = np.array([[1.0, 2.0], [0.5, 1.5]])
+>>> inits, params = grid_builder(params=params, states=states,
+...                              kind='verbatim')
+>>> print(inits.shape)
 (2, 2)
->>>print(inits)
+>>> print(inits)
 [[1.  2. ]
  [0.5 1.5]]
->>>print(params.shape)
+>>> print(params.shape)
 (2, 2)
->>>print(params)
+>>> print(params)
 [[ 0.1  0.2]
  [10.  20. ]]
 
-
->>>inits, params = grid_builder(params=params, states=states,
-                                                kind='combinatorial')
-
->>>print(inits.shape)
+>>> inits, params = grid_builder(params=params, states=states,
+...                              kind='combinatorial')
+>>> print(inits.shape)
 (4, 2)
->>>print(inits)
+>>> print(inits)
 [[1.  2. ]
  [1.  2. ]
  [0.5 1.5]
  [0.5 1.5]]
->>>print(params.shape)
+>>> print(params.shape)
 (4, 2)
->>>print(params)
+>>> print(params)
 [[ 0.1  0.2]
  [10.  20. ]
  [ 0.1  0.2]
  [10.  20. ]]
 
-#Same as individual dictionaries
->>>request = {'p0': [0.1, 0.2], 'p1': [10, 20], 'x0': [1.0, 2.0],
-           'x1': [0.5, 1.5]}
->>>inits, params = grid_builder(request=request,
-                                                kind='combinatorial')
->>>print(inits.shape)
+Same as individual dictionaries
+
+>>> request = {'p0': [0.1, 0.2], 'p1': [10, 20], 'x0': [1.0, 2.0],
+...            'x1': [0.5, 1.5]}
+>>> inits, params = grid_builder(request=request,
+...                              kind='combinatorial')
+>>> print(inits.shape)
 (16, 2)
->>>print(params.shape)
+>>> print(params.shape)
 (16, 2)
 
->>>request = {'p0': [0.1, 0.2]}
->>>inits, params = grid_builder(request=request,
-                                                kind='combinatorial')
->>>print(inits.shape)
+>>> request = {'p0': [0.1, 0.2]}
+>>> inits, params = grid_builder(request=request,
+...                              kind='combinatorial')
+>>> print(inits.shape)
 (2, 2)
->>>print(inits)  # unspecified variables are filled with defaults from system
+>>> print(inits)  # unspecified variables are filled with defaults from system
 [[1. 1.]
  [1. 1.]]
->>>print(params.shape)
+>>> print(params.shape)
 (2, 2)
->>>print(params)
+>>> print(params)
 [[0.1 2. ]
  [0.2 2. ]]
-
-Notes
------
-There is a subtle difference between a 'combinatorial' combination of two
-input arrays the same values given as per-variable arrays in a dict,
-as demonstrated in the examples above. If the user provides arrays as an
-argument, it is assumed that all within-array combinations have already been
-constructed. When the user provides a dict, it is assumed that they want a
-combinatorial combination of the values. In the array case, the method will
-return arrays which contain all combinations of the crows of the arrays (
-i.e. nrows x nrows combinations). The dictionary case first constructs
-combinations of values, resulting in an array of height nvals1 * nvals2 *
-... * nvalsk for k variables, then combines these in the same fashion as
-the array case.
-
-For more fine-grained control, you can call the grid_arrays and
-combine_grids methods directly, or construct the full arrays outside of
-this method and let them pass through verbatim."""
+"""
 
 
 from itertools import product
@@ -166,36 +166,39 @@ from cubie.batchsolving.SystemInterface import SystemInterface
 
 
 def unique_cartesian_product(arrays: List[np.ndarray]):
-    """Return a 2D array of each unique combination of elements from a list
-    of 1d input arrays.
+    """
+    Return unique combinations of elements from input arrays.
+
     Each input array can have duplicates, but the output will not contain
-    any duplicate rows.
-    The order of the input arrays is preserved, and the output will have the
-    same order of elements as the input.
+    any duplicate rows. The order of the input arrays is preserved, and the
+    output will have the same order of elements as the input.
+
     Parameters
     ----------
     arrays : List[np.ndarray]
         A list of 1D numpy arrays, each containing elements to be combined.
+
     Returns
     -------
     combos : np.ndarray
         A 2D numpy array where each row is a unique combination of elements
-        from the inputs
+        from the inputs.
+
+    Notes
+    -----
+    This function removes duplicates by creating a dict with the elements of
+    the input array as keys. It then casts that to a list, getting the
+    de-duplicated values. It then uses `itertools.product` to generate the
+    Cartesian product of the input arrays.
+
     Examples
     --------
     >>> unique_cartesian_product([np.array([1, 2, 2]), np.array([3, 4])])
     array([[1, 3],
-        [1, 4],
-        [2, 3],
-        [2, 4]])
-    Notes
-    -----
-    This function removes duplicates by creating a dict with the elements of
-    the input array as keys. It then casts
-    that to a list, getting the de-duplicated values. It  then uses
-    `itertools.product` to generate the Cartesian
-    product of  the input arrays.
-    ."""
+           [1, 4],
+           [2, 3],
+           [2, 4]])
+    """
     deduplicated_inputs = [list(dict.fromkeys(a)) for a in
                            arrays]  # preserve order, remove dups
     return np.array([list(t) for t in product(*deduplicated_inputs)])
@@ -206,54 +209,50 @@ def combinatorial_grid(
         values_instance: SystemValues, silent: bool = False, ) -> tuple[
     np.ndarray, np.ndarray]:
     """
-    Build a grid of all unique combinations of values based on a dictionary
-    keyed by parameter name or index,
-    and with values comprising the entire set of parameter values.
+    Build a grid of all unique combinations of values from a request dictionary.
 
     Parameters
     ----------
     request : Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]]
         Dictionary where keys are parameter names or indices, and values are
-        either a single value or an array of
-        values for that parameter.
+        either a single value or an array of values for that parameter.
         For a combinatorial grid, the arrays of values need not be equal in
         length.
-    values_instance: SystemValues
+    values_instance : SystemValues
         The SystemValues instance in which to find the indices for the keys
         in the request.
-    silent: bool
+    silent : bool, default=False
         If True, suppress warnings about unrecognized parameters in the
         request.
 
     Returns
     -------
-    grid: np.ndarray
-        A 2D array of shape (n_runs, n_requested_parameters) where each row
-        corresponds to a set of parameters
-        for a run.
-    indices: np.ndarray
+    indices : np.ndarray
         A 1D array of indices corresponding to the gridded parameters.
+    grid : np.ndarray
+        A 2D array of shape (n_runs, n_requested_parameters) where each row
+        corresponds to a set of parameters for a run.
 
+    Notes
+    -----
     Unspecified parameters are filled with their default values from the
-    system. n_runs is the combinatorial
-    of the lengths of all of the value types - for example, if the request
-    contains two parameters with 3, 2,
-    and 4 values, then n_runs would be 3 * 2 * 4 = 24
+    system. n_runs is the combinatorial product of the lengths of all of the
+    value arrays - for example, if the request contains two parameters with
+    3, 2, and 4 values, then n_runs would be 3 * 2 * 4 = 24.
+
     Examples
     --------
-    ```
     >>> combinatorial_grid({
-        'param1': [0.1, 0.2, 0.3],
-        'param2': [10, 20]
-    }, system.parameters)
-    ```
-    (array([[ 0.1, 10. ],
-           [ 0.1, 20. ],
-           [ 0.2, 10. ],
-           [ 0.2, 20. ],
-           [ 0.3, 10. ],
-           [ 0.3, 20. ]]),
-         array([0, 1]))
+    ...     'param1': [0.1, 0.2, 0.3],
+    ...     'param2': [10, 20]
+    ... }, system.parameters)
+    (array([0, 1]),
+     array([[ 0.1, 10. ],
+            [ 0.1, 20. ],
+            [ 0.2, 10. ],
+            [ 0.2, 20. ],
+            [ 0.3, 10. ],
+            [ 0.3, 20. ]]))
     """
     cleaned_request = {k: v for k, v in request.items() if
                        np.asarray(v).size > 0}
@@ -268,48 +267,47 @@ def verbatim_grid(
         request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
         values_instance: SystemValues, silent: bool = False, ) -> tuple[
     np.ndarray, np.ndarray]:
-    """ Build a grid of parameters for a batch of runs based on a dictionary
-    keyed by parameter name or index,
-    and values the entire set of parameter values. Parameters vary together,
-    but not combinatorially. All values
-    arrays must be of equal length.
+    """
+    Build a grid where parameters vary together, not combinatorially.
+
+    Parameters vary together, but not combinatorially. All value arrays
+    must be of equal length.
+
     Parameters
     ----------
     request : Dict[Union[str, int], Union[float, ArrayLike, NDArray]]
         Dictionary where keys are parameter names or indices, and values are
-        either a single value or an array of
-        values for that parameter.
-    values_instance: SystemValues
+        either a single value or an array of values for that parameter.
+    values_instance : SystemValues
         The SystemValues instance in which to find the indices for the keys
         in the request.
-    silent: bool
+    silent : bool, default=False
         If True, suppress warnings about unrecognized parameters in the
         request.
 
     Returns
     -------
-    grid: np.ndarray
-        A 2D array of shape (n_runs, n_requested_parameters) where each row
-        corresponds to a set of parameters
-        for a run.
-    indices: np.ndarray
+    indices : np.ndarray
         A 1D array of indices corresponding to the gridded parameters.
+    grid : np.ndarray
+        A 2D array of shape (n_runs, n_requested_parameters) where each row
+        corresponds to a set of parameters for a run.
+
+    Notes
+    -----
     Unspecified parameters are filled with their default values from the
-    system. n_runs is the length of _all_
-    value arrays, which must be equal.
+    system. n_runs is the length of all value arrays, which must be equal.
+
     Examples
     --------
-    ```
-    >>>verbatim_grid({
-        'param1': [0.1, 0.2, 0.3],
-        'param2': [10, 20, 30]
-    }, system.parameters)
-    (array([[ 0.1, 10. ],
-           [ 0.2, 20. ],
-           [ 0.3, 30. ]]),
-           array([0, 1]))
-
-    ```
+    >>> verbatim_grid({
+    ...     'param1': [0.1, 0.2, 0.3],
+    ...     'param2': [10, 20, 30]
+    ... }, system.parameters)
+    (array([0, 1]),
+     array([[ 0.1, 10. ],
+            [ 0.2, 20. ],
+            [ 0.3, 30. ]]))
     """
     cleaned_request = {k: v for k, v in request.items() if
                        np.asarray(v).size > 0}
@@ -324,39 +322,35 @@ def generate_grid(
         values_instance: SystemValues, kind: str = 'combinatorial',
         silent: bool = False, ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Generate a grid of parameters for a batch of runs based on a dictionary
-    keyed by parameter name or index,
-    and with values comprising the entire set of parameter values.
+    Generate a parameter grid for batch runs from a request dictionary.
 
     Parameters
     ----------
     request : Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]]
         Dictionary where keys are parameter names or indices, and values are
-        either a single value or an array of
-        values for that parameter.
-    values_instance: SystemValues
+        either a single value or an array of values for that parameter.
+    values_instance : SystemValues
         The SystemValues instance in which to find the indices for the keys
         in the request.
-    kind : str
+    kind : str, default='combinatorial'
         The type of grid to generate. Can be 'combinatorial' or 'verbatim'.
-    silent: bool
+    silent : bool, default=False
         If True, suppress warnings about unrecognized parameters in the
         request.
 
     Returns
     -------
-    grid: np.ndarray
-        A 2D array of shape (n_runs, n_requested_parameters) where each row
-        corresponds to a set of parameters
-        for a run.
-    indices: np.ndarray
+    indices : np.ndarray
         A 1D array of indices corresponding to the gridded parameters.
+    grid : np.ndarray
+        A 2D array of shape (n_runs, n_requested_parameters) where each row
+        corresponds to a set of parameters for a run.
 
     Notes
     -----
     The `kind` parameter determines how the grid is constructed:
-    - 'combinatorial': see BatchGridBuilder.combinatorial_grid
-    - 'verbatim': see BatchGridBuilder.verbatim_grid
+    - 'combinatorial': see combinatorial_grid function
+    - 'verbatim': see verbatim_grid function
     """
     if kind == 'combinatorial':
         return combinatorial_grid(request, values_instance, silent=silent)
@@ -372,7 +366,7 @@ def combine_grids(grid1: np.ndarray, grid2: np.ndarray,
                   kind: str = 'combinatorial') -> tuple[
     np.ndarray, np.ndarray]:
     """
-    Combine two grids (e.g., parameter and state grids) into a single grid.
+    Combine two grids into extended grids.
 
     Parameters
     ----------
@@ -380,13 +374,21 @@ def combine_grids(grid1: np.ndarray, grid2: np.ndarray,
         First grid (e.g., parameter grid).
     grid2 : np.ndarray
         Second grid (e.g., state grid).
-    kind : str
+    kind : str, default='combinatorial'
         'combinatorial' for cartesian product, 'verbatim' for row-wise pairing.
 
     Returns
     -------
-    np.ndarray, np.ndarray
-        Extended grids grid1, grid2
+    grid1_extended : np.ndarray
+        Extended first grid.
+    grid2_extended : np.ndarray
+        Extended second grid.
+
+    Raises
+    ------
+    ValueError
+        If kind is 'verbatim' and grids have different numbers of rows.
+        If kind is not 'combinatorial' or 'verbatim'.
     """
     if kind == 'combinatorial':
         # Cartesian product: all combinations of rows from each grid
@@ -407,10 +409,12 @@ def combine_grids(grid1: np.ndarray, grid2: np.ndarray,
 
 def extend_grid_to_array(grid: np.ndarray, indices: np.ndarray,
                          default_values: np.ndarray, ):
-    """Join a grid of values with the an array of default values, creating a
-    2D array where each row has a full
-    set of parameters, and non-gridded parameters are set to their default
-    values.
+    """
+    Join a grid with default values to create complete parameter arrays.
+
+    Creates a 2D array where each row has a full set of parameters, and
+    non-gridded parameters are set to their default values.
+
     Parameters
     ----------
     grid : np.ndarray
@@ -420,13 +424,19 @@ def extend_grid_to_array(grid: np.ndarray, indices: np.ndarray,
         A 1D array of indices corresponding to the gridded parameters.
     default_values : np.ndarray
         A 1D array of default values for the parameters.
+
     Returns
     -------
-    np.ndarray
+    array : np.ndarray
         A 2D array of shape (n_runs, n_parameters) where each row
-        corresponds to a set of parameters for a run.
-        Parameters not specified in the grid are filled with their default
-        values from the system.
+        corresponds to a set of parameters for a run. Parameters not
+        specified in the grid are filled with their default values from
+        the system.
+
+    Raises
+    ------
+    ValueError
+        If grid shape does not match indices shape.
     """
     if grid.ndim == 1:
         array = default_values[np.newaxis, :]
@@ -444,34 +454,50 @@ def generate_array(
         values_instance: SystemValues,
         kind: str = 'combinatorial', ) -> np.ndarray:
     """
-    Create a 2D array of requested parameters or states based on a
-    dictionary of requests.
+    Create a complete 2D array from a request dictionary.
+
     Parameters
     ----------
     request : Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]]
         Dictionary where keys are parameter names or indices, and values are
-        either a single value or an array of
-        values for that parameter.
-    values_instance: SystemValues
+        either a single value or an array of values for that parameter.
+    values_instance : SystemValues
         The SystemValues instance in which to find the indices for the keys
         in the request.
-    kind : str
+    kind : str, default='combinatorial'
         The type of grid to generate. Can be 'combinatorial' or 'verbatim'.
 
     Returns
     -------
-    np.ndarray
+    array : np.ndarray
         A 2D array of shape (n_runs, n_parameters) where each row
-        corresponds to a set of parameters
-        for a run. Parameters not specified in the request are filled with
-        their default values from the system.
+        corresponds to a set of parameters for a run. Parameters not
+        specified in the request are filled with their default values from
+        the system.
     """
     indices, grid = generate_grid(request, values_instance, kind=kind)
     return extend_grid_to_array(grid, indices, values_instance.values_array)
 
 
 class BatchGridBuilder:
-    """Build grids of parameter and state values for batch runs."""
+    """
+    Build grids of parameter and state values for batch runs.
+
+    This class converts user-supplied dictionaries or arrays into the 2D
+    numpy arrays expected by the solver for batch integration runs.
+
+    Parameters
+    ----------
+    interface : SystemInterface
+        System interface containing parameter and state information.
+
+    Attributes
+    ----------
+    parameters : SystemValues
+        Parameter values and metadata from the interface.
+    states : SystemValues
+        State values and metadata from the interface.
+    """
 
     def __init__(self, interface: SystemInterface):
         self.parameters = interface.parameters
@@ -479,7 +505,19 @@ class BatchGridBuilder:
 
     @classmethod
     def from_system(cls, system: GenericODE):
-        """Create a ``BatchGridBuilder`` from a system model."""
+        """
+        Create a BatchGridBuilder from a system model.
+
+        Parameters
+        ----------
+        system : GenericODE
+            The system model to create the grid builder from.
+
+        Returns
+        -------
+        BatchGridBuilder
+            A new BatchGridBuilder instance configured for the given system.
+        """
         interface = SystemInterface.from_system(system)
         return cls(interface)
 
@@ -489,17 +527,22 @@ class BatchGridBuilder:
                     kind: str = 'combinatorial'
                     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Build a grid of parameters for a batch of runs based on a dictionary
-        keyed by parameter name or index,
+        Build parameter and state grids from a mixed request dictionary.
+
         Parameters
         ----------
-        request
-        kind
+        request : Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]]
+            Dictionary keyed by parameter or state name or index, with values
+            being the parameter/state values for the grid.
+        kind : str, default='combinatorial'
+            The type of grid to generate. Can be 'combinatorial' or 'verbatim'.
 
         Returns
         -------
-        np.ndarray, np.ndarray
-            2d state and parameter arrays for input into the integrator
+        initial_values_array : np.ndarray
+            2D state array for input into the integrator.
+        params_array : np.ndarray
+            2D parameter array for input into the integrator.
         """
         param_request = {k: v for k, v in request.items() if
                          k in self.parameters.names}
@@ -628,7 +671,21 @@ class BatchGridBuilder:
                         self.parameters.values_array[np.newaxis, :])
 
     def _trim_or_extend(self, arr: NDArray, values_object: SystemValues):
-        """ Extends an incomplete array with defaults or trims extra values."""
+        """
+        Extend incomplete arrays with defaults or trim extra values.
+
+        Parameters
+        ----------
+        arr : NDArray
+            Input array to be trimmed or extended.
+        values_object : SystemValues
+            System values object containing default values and size information.
+
+        Returns
+        -------
+        NDArray
+            Array with correct dimensions, either trimmed or extended.
+        """
         if arr.shape[1] < values_object.n:
             # If the array is shorter than the number of values, extend it
             # with default values
@@ -641,7 +698,31 @@ class BatchGridBuilder:
         return arr
 
     def _sanitise_arraylike(self, arr, values_object: SystemValues):
-        """Converts to 2D array if <2D and ensures the correct height."""
+        """
+        Convert to 2D array if needed and ensure correct dimensions.
+
+        Parameters
+        ----------
+        arr : array_like
+            Input array-like object to be sanitized.
+        values_object : SystemValues
+            System values object containing size and default information.
+
+        Returns
+        -------
+        np.ndarray or None
+            Properly sized 2D array, or None if input array is empty.
+
+        Raises
+        ------
+        ValueError
+            If input has more than 2 dimensions.
+
+        Warns
+        -----
+        UserWarning
+            If provided input data has incorrect number of columns.
+        """
         if arr is None:
             return arr
         elif not isinstance(arr, np.ndarray):
