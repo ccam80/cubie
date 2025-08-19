@@ -40,19 +40,38 @@ jobs:
           branch = os.environ.get("GITHUB_REF_NAME", "main")
           run_id = os.environ.get("GITHUB_RUN_ID", "manual")
           gh_pat = os.getenv("GH_PAT")
-          git_url = f"https://{gh_pat}@github.com/{repo}.git"
           image  = f"ghcr.io/{owner}/ci-test-env:latest"
-
-
+          git_url_clone = f"https://{gh_pat}@github.com/{repo}.git"
+          git_url_push  = f"https://{owner}:{gh_pat}@github.com/{repo}.git"  # username:token
+          
           cmd = (
-              'bash -lc "'
-              f'git clone --depth 1 --branch {branch} {git_url} repo && '
-              'cd repo && '
-              'python -m pip install -e . && '
-              'mkdir -p /artifacts && '
-              'pytest --cov --cov-branch -vv -ra --junitxml=/artifacts/pytest-results.xml --cov-report=xml:coverage.xml | tee /artifacts/pytest-output.log"'
+              f"bash -lc '"
+              f"set -o pipefail; "
+              f"export GIT_TERMINAL_PROMPT=0; "                # never prompt
+              f"git clone --depth 1 --branch {branch} {git_url_clone} repo && "
+              f"cd repo && "
+              f"python -m pip install -e . && "
+              f"mkdir -p /artifacts && "
+              f"pytest --cov --cov-branch -vv -ra "
+              f"--junitxml=/artifacts/pytest-results.xml "
+              f"--cov-report=xml:coverage.xml | tee /artifacts/pytest-output.log; "
+              f"ec=$?; "
+              f"cp -f coverage.xml /artifacts/coverage.xml || true; "
+              f'PUSH=/tmp/push_artifacts; '
+              f'rm -rf \"$PUSH\" && mkdir -p \"$PUSH/runs/{run_id}\"; '
+              f'cp -r /artifacts/. \"$PUSH/runs/{run_id}/\" || true; '
+              f'git -C \"$PUSH\" init -q; '
+              f'git -C \"$PUSH\" config user.email ci@bot; '
+              f'git -C \"$PUSH\" config user.name ci-bot; '
+              f'git -C \"$PUSH\" checkout -b ci-artifacts || true; '
+              f'git -C \"$PUSH\" remote add origin \"{git_url_push}\" || '
+              f'git -C \"$PUSH\" remote set-url origin \"{git_url_push}\"; '   # idempotent
+              f'git -C \"$PUSH\" add -A \"runs/{run_id}\"; '
+              f'git -C \"$PUSH\" commit -m \"artifacts {run_id}\" || true; '
+              f'git -C \"$PUSH\" push -u origin ci-artifacts; '
+              f"exit $ec'"
           )
-
+          
           job = Job.run(command=cmd, 
                         user=os.environ["LIGHTNING_USERNAME"],
                         name=f"ci-job-{run_id}", 
@@ -60,10 +79,6 @@ jobs:
                         teamspace="Vision-model",
                         image=image)
           job.wait()
-
-          path = "lightning-job.log"
-          with open(path, "w", encoding="utf-8") as f:
-              f.write(job.logs)
 
           path = "lightning-job.log"
           with open(path, "w", encoding="utf-8") as f:
@@ -84,19 +99,26 @@ jobs:
           path: |
             lightning-job.log
 
-      # - name: Download coverage artifact
-      #   uses: actions/download-artifact@v4
-      #   with:
-      #     name: coverage.xml
-      #     path: .
+      - name: Checkout artifacts branch
+        if: always()
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: ci-artifacts
+          path: artifacts_branch
 
-      # - name: Upload coverage reports to Codecov
-      #   uses: codecov/codecov-action@v5
-      #   with:
-      #     files: ./coverage.xml
-
-      # - name: Upload test results to Codecov
-      #   if: ${{ !cancelled() }}
-      #   uses: codecov/test-results-action@v1
-      #   with:
-      #     files: ./pytest-results
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: artifacts_branch/runs/${{ github.run_id }}/coverage.xml
+          disable_search: true
+          fail_ci_if_error: false
+      
+      - name: Upload test results to Codecov
+        if: always()
+        uses: codecov/test-results-action@v1
+        with:
+          files: artifacts_branch/runs/${{ github.run_id }}/pytest-results.xml
+          disable_search: true
+          fail_ci_if_error: false
