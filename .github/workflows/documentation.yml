@@ -14,6 +14,15 @@ jobs:
       - name: Install dependencies
         run: |
           pip install sphinx sphinx_rtd_theme myst_parser numba .[dev]
+      - name: Try importing cubie and catch/log errors
+        run: |
+          python -c "try:
+                       import cubie
+                       print('cubie imported successfully')
+                     except Exception as e:
+                       print('FAILED TO IMPORT CUBIE:', e)
+                       import traceback; traceback.print_exc()
+                       exit(1)"
       - name: Sphinx build
         run: |
           sphinx-build ./docs/source ./docs/build
