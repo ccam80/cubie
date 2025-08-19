@@ -17,7 +17,7 @@ from cubie.integrators.algorithms.genericIntegratorAlgorithm import \
 class _ImplementedAlgorithms:
     """
     Container for implemented integrator algorithms.
-
+    
     This class provides a registry of available integration algorithms
     that can be accessed by name. It supports both attribute and
     dictionary-style access to algorithms.

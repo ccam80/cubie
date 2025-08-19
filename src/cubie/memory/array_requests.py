@@ -1,3 +1,10 @@
+"""
+Array request and response data structures for memory management.
+
+This module provides data structures for requesting and managing GPU memory
+allocations with specific shapes, data types, and memory location requirements.
+"""
+
 from os import environ
 from typing import Optional
 
@@ -13,7 +20,43 @@ else:
 
 @attrs.define
 class ArrayRequest:
-    """Requested array spec: shape, dtype, memory location, stride order."""
+    """
+    Specification for requesting array allocation with shape, dtype, and memory location.
+
+    Parameters
+    ----------
+    shape : tuple of int, default (1, 1, 1)
+        The shape of the requested array.
+    dtype : numpy.dtype, default np.float64
+        The data type for the array elements.
+    memory : str, default "device"
+        Memory location type. Must be one of "device", "mapped", "pinned", or "managed".
+    stride_order : tuple of str or None, default None
+        The order of strides for the array dimensions. If None, will be set
+        automatically based on shape length.
+
+    Attributes
+    ----------
+    shape : tuple of int
+        The shape of the requested array.
+    dtype : numpy.dtype
+        The data type for the array elements.
+    memory : str
+        Memory location type.
+    stride_order : tuple of str or None
+        The order of strides for the array dimensions.
+
+    Properties
+    ----------
+    size : int
+        Total size of the array in bytes.
+
+    Notes
+    -----
+    When stride_order is None, it will be automatically set during initialization:
+    - For 3D arrays: ("time", "run", "variable")
+    - For 2D arrays: ("variable", "run")
+    """
     shape: tuple[int,...] = attrs.field(
             default=(1, 1, 1),
             validator=val.deep_iterable(
@@ -40,11 +83,39 @@ class ArrayRequest:
 
     @property
     def size(self):
+        """
+        Calculate the total size of the array in bytes.
+
+        Returns
+        -------
+        int
+            Total size in bytes including element size and shape.
+        """
         return np.prod(self.shape, dtype=np.int64) * self.dtype().itemsize
 
 @attrs.define
 class ArrayResponse:
-    """ Result of an array allocation: an array, and a number of chunks """
+    """
+    Result of an array allocation containing arrays and chunking information.
+
+    Parameters
+    ----------
+    arr : dict of str to DeviceNDArrayBase, default empty dict
+        Dictionary mapping array labels to allocated device arrays.
+    chunks : int, default empty dict
+        Number of chunks the allocation was divided into.
+    chunk_axis : str, default "run"
+        The axis along which chunking was performed.
+
+    Attributes
+    ----------
+    arr : dict of str to DeviceNDArrayBase
+        Dictionary mapping array labels to allocated device arrays.
+    chunks : int
+        Number of chunks the allocation was divided into.
+    chunk_axis : str
+        The axis along which chunking was performed.
+    """
     arr: dict[str, DeviceNDArrayBase] = attrs.field(
             default=attrs.Factory(dict),
             validator=val.instance_of(dict))

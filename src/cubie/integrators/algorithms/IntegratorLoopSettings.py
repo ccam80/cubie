@@ -22,7 +22,7 @@ from cubie.integrators.algorithms.LoopStepConfig import \
 class IntegratorLoopSettings:
     """
     Compile-critical settings for the integrator loop.
-
+    
     This class manages configuration settings that are critical for compiling
     integrator loops, including timing parameters, buffer sizes, precision,
     and function references. The integrator loop is not the source of truth

@@ -1,3 +1,12 @@
+"""
+Comprehensive GPU memory management system for cubie.
+
+This module provides a singleton interface for managing GPU memory allocation,
+stream coordination, and memory pool management. It integrates with CuPy memory
+pools (if desired) and provides passive or active splitting of VRAM amongst
+different processes/stream groups. All requests for allocation made through
+this interface are "chunked" to fit alotted memory.
+"""
 from os import environ
 from typing import Optional, Callable, Union, Dict
 from warnings import warn
@@ -33,40 +42,73 @@ else:
 
 MIN_AUTOPOOL_SIZE = 0.05
 
-def dummy_invalidate()->None:
-    """Default dummy invalidate hook, does nothing."""
+def placeholder_invalidate()->None:
+    """
+    Default placeholder invalidate hook that performs no operations.
+
+    Returns
+    -------
+    None
+    """
     pass
 
-def dummy_dataready(response: ArrayResponse) -> None:
-    """Default dummy dataready hook, does nothing."""
+def placeholder_dataready(response: ArrayResponse) -> None:
+    """
+    Default placeholder data ready hook that performs no operations.
+
+    Parameters
+    ----------
+    response : ArrayResponse
+        Array response object (unused).
+
+    Returns
+    -------
+    None
+    """
 
 # These will be keys to a dict, so must be hashable: eq=False
 @attrs.define(eq=False)
 class InstanceMemorySettings:
-    """Memory registry information for a registered class
+    """
+    Memory registry information for a registered instance.
 
-    Attributes:
-    ==========
-        proportion: float
-            Proportion of total VRAM assigned to this instance
-        allocations: dict
-            A dictionary, keyed by a label for the array (given in an
-            ArrayRequest), with values a reference to the array itself,
-            of all current allocations. Both functions as a "keepalive"
-            reference and a way to calculate the total allocated memory.
-        invalidate_hook: callable
-            A function to call when a change to the CUDA memory system
-            occurs; when the allocator/memory manager is changed,
-            for example, every stream and array and kernel will be invalidated,
-            and will need to be re-allocated or redefined.
-        cap: int
-            Maximum allocatable bytes for this instance (set by manager based
-            on total VRAM and proportion)
+    Parameters
+    ----------
+    proportion : float, default 1.0
+        Proportion of total VRAM assigned to this instance.
+    allocations : dict, default empty dict
+        Dictionary of current allocations keyed by label.
+    invalidate_hook : callable, default dummy_invalidate
+        Function to call when CUDA memory system changes occur.
+    allocation_ready_hook : callable, default dummy_dataready
+        Function to call when allocations are ready.
+    cap : int or None, default None
+        Maximum allocatable bytes for this instance.
+
+    Attributes
+    ----------
+    proportion : float
+        Proportion of total VRAM assigned to this instance.
+    allocations : dict
+        Dictionary of current allocations keyed by array label.
+    invalidate_hook : callable
+        Function to call when CUDA memory system changes.
+    allocation_ready_hook : callable
+        Function to call when allocations are ready.
+    cap : int or None
+        Maximum allocatable bytes for this instance.
 
     Properties
-    ==========
-        allocated_bytes: int
-            Total number of bytes across all allocated arrays for the instance
+    ----------
+    allocated_bytes : int
+        Total number of bytes across all allocated arrays for the instance.
+
+    Notes
+    -----
+    The allocations dictionary serves both as a "keepalive" reference and a way
+    to calculate total allocated memory. The invalidate_hook is called when the
+    allocator/memory manager changes, requiring arrays and kernels to be
+    re-allocated or redefined.
     """
     proportion: float = attrs.field(
             default=1.0,
@@ -75,22 +117,32 @@ class InstanceMemorySettings:
             default=Factory(dict),
             validator=val.instance_of(dict))
     invalidate_hook: Callable[[None], None] = attrs.field(
-            default=dummy_invalidate,
+            default=placeholder_invalidate,
             validator=val.instance_of(Callable))
     allocation_ready_hook: Callable[[ArrayResponse], None] = attrs.field(
-            default=dummy_dataready,
-    )
+            default=placeholder_dataready)
     cap: int = attrs.field(
             default=None,
             validator=val.optional(val.instance_of(int)))
 
 
     def add_allocation(self, key, arr):
-        """Add an allocation to the instance's allocations list
+        """
+        Add an allocation to the instance's allocations list.
 
-        NOTE: This will just overwrite the previous allocation, which should
-        function as intended, but suggests that the previous batch has not been
-        properly deallocated. This emits a warning, so that you're aware."""
+        Parameters
+        ----------
+        key : str
+            Label for the allocation.
+        arr : array-like
+            The allocated array.
+
+        Notes
+        -----
+        This will overwrite any previous allocation with the same key, which
+        should function as intended but suggests the previous batch has not been
+        properly deallocated. A warning is emitted in this case.
+        """
 
         if key in self.allocations:
             warn(
@@ -102,22 +154,49 @@ class InstanceMemorySettings:
         self.allocations[key] = arr
 
     def free(self, key):
-        """Free an allocation by key"""
+        """
+        Free an allocation by key.
+
+        Parameters
+        ----------
+        key : str
+            Label of the allocation to free.
+
+        Notes
+        -----
+        Emits a warning if the key is not found in allocations.
+        """
         if key in self.allocations:
             newalloc = {k: v for k, v in self.allocations.items() if k != key}
         else:
-            warn(f"Attempted to free allocation for {key}, but "
-                          f"it was not found in the allocations list.")
+            warn(
+                f"Attempted to free allocation for {key}, but "
+                f"it was not found in the allocations list."
+            )
             newalloc = self.allocations
         self.allocations = newalloc
 
     def free_all(self):
-        """Drop all references to allocated arrays"""
+        """
+        Drop all references to allocated arrays.
+
+        Returns
+        -------
+        None
+        """
         for key in self.allocations:
             self.free(key)
 
     @property
     def allocated_bytes(self):
+        """
+        Calculate total allocated bytes across all arrays.
+
+        Returns
+        -------
+        int
+            Total bytes allocated for this instance.
+        """
         total = 0
         for arr in self.allocations.values():
             total += arr.nbytes
@@ -125,30 +204,53 @@ class InstanceMemorySettings:
 
 @attrs.define
 class MemoryManager:
-    """Singleton interface for managing memory allocation in cubie,
-    and between cubie and other modules. In it's most basic form, it just
-    provides a way to change numba's allocator and "chunks" allocation
-    requests based on available memory.
+    """
+    Singleton interface for managing GPU memory allocation and stream coordination.
 
-    In active management mode, it manages the proportion of total VRAM each
-    instance can be allocated, in case of greedy memory processes that can
-    be down-prioritised (run over more chunks, more slowly). Processes can
-    be manually assigned a proportion of VRAM, or the manager can split the
-    memory evenly.
-
-    Any array allocation comes through this module. The MemoryManager
-    accepts an ArrayRequest object, and returns an ArrayResponse object,
-    which has a reference to the array and the number of chunks to divide
-    the problem into.
-
-    MemoryManager assigns each response a stream, so that different areas of
-    software can run asynchronously. To combine streams, so that (for
-    example) a solver is in the same stream as it's array allocator, assign
-    them to a "stream group" when registering.
+    Provides memory management for cubie with support for passive or active
+    memory limiting modes. In passive mode, it simply provides chunked
+    allocations based on available memory. In active mode, it manages VRAM
+    proportions between instances with support for manual and automatic
+    allocation.
 
     Parameters
-    ==========
+    ----------
+    totalmem : int, optional
+        Total GPU memory in bytes. If None, will be determined automatically.
+    registry : dict of int to InstanceMemorySettings, optional
+        Registry of instances and their memory settings.
+    stream_groups : StreamGroups, optional
+        Manager for organizing instances into stream groups.
+    _mode : str, default "passive"
+        Memory management mode, either "passive" or "active".
+    _allocator : BaseCUDAMemoryManager, default NumbaCUDAMemoryManager
+        The memory allocator to use.
+    _auto_pool : list of int, optional
+        List of instance IDs using automatic memory allocation.
+    _manual_pool : list of int, optional
+        List of instance IDs using manual memory allocation.
+    _stride_order : tuple of str, default ("time", "run", "variable")
+        Default stride ordering for 3D arrays.
+    _queued_allocations : dict of str to dict, optional
+        Queued allocation requests organized by stream group.
 
+    Attributes
+    ----------
+    totalmem : int
+        Total GPU memory in bytes.
+    registry : dict of int to InstanceMemorySettings
+        Registry of instances and their memory settings.
+    stream_groups : StreamGroups
+        Manager for organizing instances into stream groups.
+
+    Notes
+    -----
+    The MemoryManager accepts ArrayRequest objects and returns ArrayResponse
+    objects with references to allocated arrays and chunking information.
+    Each instance is assigned to a stream group for coordinated operations.
+
+    In active management mode, instances can be assigned specific VRAM
+    proportions or automatically allocated equal shares of available memory.
     """
 
     totalmem: int = attrs.field(default=None,
@@ -178,32 +280,40 @@ class MemoryManager:
         validator=val.instance_of(dict))
 
     def __attrs_post_init__(self):
+        """Initialize memory manager with current GPU memory information."""
         free, total = self.get_memory_info()
         self.totalmem = total
         self.registry = {}
-        # self.set_allocator("default")
 
     def register(self,
                  instance,
                  proportion: Optional[float] = None,
-                 invalidate_cache_hook: Callable = dummy_invalidate,
-                 allocation_ready_hook: Callable = dummy_dataready,
+                 invalidate_cache_hook: Callable = placeholder_invalidate,
+                 allocation_ready_hook: Callable = placeholder_dataready,
                  stream_group: str = "default",
                  ):
         """
-        Register an instance and set its memory allocation settings.
+        Register an instance and configure its memory allocation settings.
 
         Parameters
         ----------
-        instance: object
-            The instance to register.
-        proportion: float, optional
-            Proportion of VRAM to allocate to this instance. If not specified,
-            instance will automatically be assigned an equal portion of the
-            total VRAM to other auto-assigned instances
-        stream_group: str, optional
-        invalidate_cache_hook: callable, optional
-        allocation_ready_hook: callable, optional
+        instance : object
+            The instance to register for memory management.
+        proportion : float, optional
+            Proportion of VRAM to allocate (0.0 to 1.0). If None, instance
+            will be automatically assigned an equal portion with other
+            auto-assigned instances.
+        invalidate_cache_hook : callable, optional
+            Function to call when CUDA memory system changes occur.
+        allocation_ready_hook : callable, optional
+            Function to call when allocations are ready.
+        stream_group : str, default "default"
+            Name of the stream group to assign the instance to.
+
+        Raises
+        ------
+        ValueError
+            If instance is already registered or proportion is not between 0 and 1.
         """
         instance_id = id(instance)
         if instance_id in self.registry:
@@ -226,22 +336,28 @@ class MemoryManager:
 
 
     def set_allocator(self, name: str):
-        """ Set the external memory manager in Numba
+        """
+        Set the external memory allocator in Numba.
 
         Parameters
         ----------
-        name: str
-            - "cupy_async": use CuPy's MemoryAsyncPool, see:
-            https://docs.cupy.dev/en/latest/reference/generated/cupy.cuda.MemoryAsyncPool.html
-            warning: experimental!
-            - "cupy": use CuPy's MemoryPool, see:
-            https://docs.cupy.dev/en/latest/reference/generated/cupy.cuda.MemoryPool.html
-            - "default": use Numba's default memory manager.
+        name : str
+            Memory allocator type:
+            - "cupy_async": Use CuPy's MemoryAsyncPool (experimental)
+            - "cupy": Use CuPy's MemoryPool
+            - "default": Use Numba's default memory manager
 
-        WARNING: A change to the memory manager requires the cuda context to be
-        closed and a new one opened. This means that everything previously
-        compiled or allocated will become invalidated, and a full rebuild from
-        scratch will be required.
+        Raises
+        ------
+        ValueError
+            If allocator name is not recognized.
+
+        Warnings
+        --------
+        UserWarning
+            A change to the memory manager requires the CUDA context to be
+            closed and reopened. This invalidates all previously compiled
+            kernels and allocated arrays, requiring a full rebuild.
         """
         if name == "cupy_async":
             # use CuPy async memory pool
@@ -265,31 +381,79 @@ class MemoryManager:
         self.reinit_streams()
 
     def set_limit_mode(self, mode: str):
-        """Sets the memory allocation limiting to active or pasive."""
+        """
+        Set the memory allocation limiting mode.
+
+        Parameters
+        ----------
+        mode : str
+            Either "passive" or "active" memory management mode.
+
+        Raises
+        ------
+        ValueError
+            If mode is not "passive" or "active".
+        """
         if mode not in ["passive", "active"]:
             raise ValueError(f"Unknown mode: {mode}")
         self._mode = mode
 
     def get_stream(self, instance):
-        """Gets the stream associated with an instance"""
+        """
+        Get the CUDA stream associated with an instance.
+
+        Parameters
+        ----------
+        instance : object
+            The instance to get the stream for.
+
+        Returns
+        -------
+        Stream
+            CUDA stream associated with the instance.
+        """
         return self.stream_groups.get_stream(instance)
 
     def change_stream_group(self, instance, new_group):
-        """Move instance onto another stream"""
+        """
+        Move instance to another stream group.
+
+        Parameters
+        ----------
+        instance : object
+            The instance to move.
+        new_group : str
+            Name of the new stream group.
+        """
         self.stream_groups.change_group(instance, new_group)
 
     def reinit_streams(self):
-        """Gets a fresh set of streams if the context has been closed."""
+        """Reinitialize all streams after CUDA context reset."""
         self.stream_groups.reinit_streams()
 
     def invalidate_all(self):
-        """Calls each registered instance's invalidate hook"""
+        """Call each registered instance's invalidate hook and free all
+        allocations."""
         self.free_all()
         for registered_instance in self.registry.values():
             registered_instance.invalidate_hook()
 
     def set_manual_proportion(self, instance: object, proportion: float):
-        """Set manual allocation proportion for an already-manual instance"""
+        """
+        Set manual allocation proportion for an already-manual instance.
+
+        Parameters
+        ----------
+        instance : object
+            Instance to update proportion for.
+        proportion : float
+            New proportion between 0 and 1.
+
+        Raises
+        ------
+        ValueError
+            If proportion is not between 0 and 1.
+        """
         instance_id = id(instance)
         if proportion < 0 or proportion > 1:
             raise ValueError("Proportion must be between 0 and 1")
@@ -298,7 +462,21 @@ class MemoryManager:
         self.registry[instance_id].proportion = proportion
 
     def set_manual_limit_mode(self, instance: object, proportion: float):
-        """Set an auto-limited instance to manual allocation mode"""
+        """
+        Convert an auto-limited instance to manual allocation mode.
+
+        Parameters
+        ----------
+        instance : object
+            Instance to convert to manual mode.
+        proportion : float
+            Memory proportion to assign (0.0 to 1.0).
+
+        Raises
+        ------
+        ValueError
+            If instance is already in manual allocation pool.
+        """
         instance_id = id(instance)
         settings = self.registry[instance_id]
         if instance_id in self._manual_pool:
@@ -308,7 +486,19 @@ class MemoryManager:
         settings.proportion = proportion
 
     def set_auto_limit_mode(self, instance):
-        """Set an manual-limited instance to auto allocation mode"""
+        """
+        Convert a manual-limited instance to auto allocation mode.
+
+        Parameters
+        ----------
+        instance : object
+            Instance to convert to auto mode.
+
+        Raises
+        ------
+        ValueError
+            If instance is already in auto allocation pool.
+        """
         instance_id = id(instance)
         settings = self.registry[instance_id]
         if instance_id in self._auto_pool:
@@ -317,19 +507,50 @@ class MemoryManager:
         settings.proportion = self._add_auto_proportion(instance)
 
     def proportion(self, instance):
-        """Returns the maximum proportion of VRAM allocated to this instance"""
+        """
+        Get the maximum proportion of VRAM allocated to an instance.
+
+        Parameters
+        ----------
+        instance : object
+            Instance to query.
+
+        Returns
+        -------
+        float
+            Proportion of VRAM allocated to this instance.
+        """
         instance_id = id(instance)
         return self.registry[instance_id].proportion
 
     def cap(self, instance):
-        """Returns the maximum allocatable bytes for this instance"""
+        """
+        Get the maximum allocatable bytes for an instance.
+
+        Parameters
+        ----------
+        instance : object
+            Instance to query.
+
+        Returns
+        -------
+        int
+            Maximum allocatable bytes for this instance.
+        """
         instance_id = id(instance)
         settings = self.registry.get(instance_id)
         return settings.cap
 
     @property
     def manual_pool_proportion(self):
-        """The total proportion of VRAM currently manually assigned"""
+        """
+        Get total proportion of VRAM currently manually assigned.
+
+        Returns
+        -------
+        float
+            Sum of all manual allocation proportions.
+        """
         manual_settings = [self.registry[instance_id] for instance_id
                            in self._manual_pool]
         pool_proportion = sum([settings.proportion for settings in manual_settings])
@@ -337,7 +558,14 @@ class MemoryManager:
 
     @property
     def auto_pool_proportion(self):
-        """The total proportion of VRAM automatically distributed"""
+        """
+        Get total proportion of VRAM automatically distributed.
+
+        Returns
+        -------
+        float
+            Sum of all automatic allocation proportions.
+        """
         auto_settings = [self.registry[instance_id] for instance_id in
                          self._auto_pool]
         pool_proportion = sum(
@@ -345,7 +573,32 @@ class MemoryManager:
         return pool_proportion
 
     def _add_manual_proportion(self, instance: object, proportion: float):
-        """Add an instance to the manual allocation pool"""
+        """
+        Add an instance to the manual allocation pool with specified proportion.
+
+        Parameters
+        ----------
+        instance : object
+            Instance to add to manual allocation pool.
+        proportion : float
+            Memory proportion to assign (0.0 to 1.0).
+
+        Raises
+        ------
+        ValueError
+            If manual proportion would exceed total available memory or leave
+            insufficient memory for auto-allocated processes.
+
+        Warnings
+        --------
+        UserWarning
+            If manual proportion leaves less than 5% of memory for auto allocation.
+
+        Notes
+        -----
+        Updates the instance's proportion and cap, then rebalances the auto pool.
+        Enforces minimum auto pool size constraints.
+        """
         instance_id = id(instance)
         new_manual_pool_size = self.manual_pool_proportion + proportion
         if new_manual_pool_size > 1.0:
@@ -369,7 +622,29 @@ class MemoryManager:
         self._rebalance_auto_pool()
 
     def _add_auto_proportion(self, instance):
-        """Splits non-manually-allocated portion of VRAM amongst the rest"""
+        """
+        Add an instance to the auto allocation pool with equal share.
+
+        Parameters
+        ----------
+        instance : object
+            Instance to add to auto allocation pool.
+
+        Returns
+        -------
+        float
+            Proportion assigned to this instance.
+
+        Raises
+        ------
+        ValueError
+            If available auto-allocation pool is less than minimum required size.
+
+        Notes
+        -----
+        Splits the non-manually-allocated portion of VRAM equally among all
+        auto-allocated instances. Triggers rebalancing of the auto pool.
+        """
         instance_id = id(instance)
         autopool_available = 1.0 - self.manual_pool_proportion
         if autopool_available <= MIN_AUTOPOOL_SIZE:
@@ -382,6 +657,15 @@ class MemoryManager:
         return self.registry[instance_id].proportion
 
     def _rebalance_auto_pool(self):
+        """
+        Redistribute available memory equally among auto-allocated instances.
+
+        Notes
+        -----
+        Calculates the available proportion after manual allocations and
+        divides it equally among all instances in the auto pool. Updates
+        both proportion and cap for each auto-allocated instance.
+        """
         available_proportion = 1.0 - self.manual_pool_proportion
         if len(self._auto_pool) == 0:
             return
@@ -393,7 +677,24 @@ class MemoryManager:
 
 
     def set_global_stride_ordering(self, ordering: tuple[str, str, str]):
-        """ Sets the ordering of arrays in memory"""
+        """
+        Set the global memory stride ordering for arrays.
+
+        Parameters
+        ----------
+        ordering : tuple of str
+            Tuple containing 'time', 'run', and 'variable' in desired order.
+
+        Raises
+        ------
+        ValueError
+            If ordering doesn't contain exactly 'time', 'run', and 'variable'.
+
+        Notes
+        -----
+        This invalidates all current allocations as arrays need to be
+        reallocated with new stride patterns.
+        """
         if not all(elem in ("time", "run", "variable") for elem in ordering):
             raise ValueError("Invalid stride ordering - must containt 'time', "
                              f"'run', 'variable' but got {ordering}")
@@ -403,16 +704,37 @@ class MemoryManager:
         self.invalidate_all()
 
     def free(self, array_label: str):
+        """
+        Free an allocation by label across all instances.
+
+        Parameters
+        ----------
+        array_label : str
+            Label of the allocation to free.
+        """
         for settings in self.registry.values():
             if array_label in settings.allocations:
                 settings.free(array_label)
 
     def free_all(self):
+        """Free all allocations across all registered instances."""
         for settings in self.registry.values():
             settings.free_all()
 
     def _check_requests(self, requests):
-        """Check that all requests are valid"""
+        """
+        Validate that all requests are properly formatted.
+
+        Parameters
+        ----------
+        requests : dict
+            Dictionary of requests to validate.
+
+        Raises
+        ------
+        TypeError
+            If requests is not a dict or contains invalid ArrayRequest objects.
+        """
         if not isinstance(requests, dict):
             raise TypeError(f"Expected dict for requests, got "
                             f"{type(requests)}")
@@ -422,7 +744,24 @@ class MemoryManager:
                                 f"got {type(request)}")
 
     def get_strides(self, request):
-        """Determine the strides for a given request"""
+        """
+        Calculate memory strides for a given access pattern (stride order).
+
+        Parameters
+        ----------
+        request : ArrayRequest
+            Array request to calculate strides for.
+
+        Returns
+        -------
+        tuple or None
+            Stride tuple for the array, or None if no custom strides needed.
+
+        Notes
+        -----
+        Only 3D arrays get custom stride optimization. 2D arrays use
+        default strides as they are not performance-critical.
+        """
         # 2D arrays (in the cubie sytem) are not hammered like the 3d ones,
         # so they're not worth optimising.
         if len(request.shape) != 3:
@@ -451,6 +790,24 @@ class MemoryManager:
         return strides
 
     def get_available_single(self, instance_id):
+        """
+        Get available memory for a single instance.
+
+        Parameters
+        ----------
+        instance_id : int
+            ID of the instance to check.
+
+        Returns
+        -------
+        int
+            Available memory in bytes for this instance.
+
+        Warnings
+        --------
+        UserWarning
+            If instance has used more than 95% of allocated memory.
+        """
         free, total = self.get_memory_info()
         if self._mode == "passive":
             return free
@@ -466,6 +823,24 @@ class MemoryManager:
             return min(headroom, free)
 
     def get_available_group(self, group: str):
+        """
+        Get available memory for an entire stream group.
+
+        Parameters
+        ----------
+        group : str
+            Name of the stream group.
+
+        Returns
+        -------
+        int
+            Available memory in bytes for the group.
+
+        Warnings
+        --------
+        UserWarning
+            If group has used more than 95% of allocated memory.
+        """
         free, total = self.get_memory_info()
         instances = self.stream_groups.get_instances_in_group(group)
         if self._mode == "passive":
@@ -484,7 +859,25 @@ class MemoryManager:
             return min(headroom, free)
 
     def get_chunks(self, request_size: int, available: int=0):
-        """Determine the number of "chunks" required to store a request
+        """
+        Calculate number of chunks needed for a memory request.
+
+        Parameters
+        ----------
+        request_size : int
+            Total size of the request in bytes.
+        available : int, default 0
+            Available memory in bytes.
+
+        Returns
+        -------
+        int
+            Number of chunks needed to fit the request.
+
+        Warnings
+        --------
+        UserWarning
+            If request exceeds available VRAM by more than 20x.
         """
         free, total = self.get_memory_info()
         if request_size / free > 20:
@@ -494,15 +887,46 @@ class MemoryManager:
         return int(np.ceil(request_size / available))
 
     def get_memory_info(self):
-        """ Get free and total memory from GPU context"""
+        """
+        Get free and total GPU memory information.
+
+        Returns
+        -------
+        tuple of int
+            (free_memory, total_memory) in bytes.
+        """
         return current_mem_info()
 
     def get_stream_group(self, instance):
-        """ Get name of the stream group for an instance """
+        """
+        Get the name of the stream group for an instance.
+
+        Parameters
+        ----------
+        instance : object
+            Instance to query.
+
+        Returns
+        -------
+        str
+            Name of the stream group.
+        """
         return self.stream_groups.get_group(instance)
 
     def is_grouped(self, instance):
-        """Returns True if instance is grouped with others in named stream."""
+        """
+        Check if instance is grouped with others in a named stream.
+
+        Parameters
+        ----------
+        instance : object
+            Instance to check.
+
+        Returns
+        -------
+        bool
+            True if instance shares a stream group with other instances.
+        """
         group = self.get_stream_group(instance)
         if group == 'default':
             return False
@@ -512,7 +936,23 @@ class MemoryManager:
         return True
 
     def allocate_all(self, requests, instance_id, stream):
-        """Allocate a dict of arrays based on a dict of requests"""
+        """
+        Allocate multiple arrays based on a dictionary of requests.
+
+        Parameters
+        ----------
+        requests : dict of str to ArrayRequest
+            Dictionary mapping labels to array requests.
+        instance_id : int
+            ID of the requesting instance.
+        stream : Stream
+            CUDA stream for the allocations.
+
+        Returns
+        -------
+        dict of str to array
+            Dictionary mapping labels to allocated arrays.
+        """
         responses={}
         instance_settings = self.registry[instance_id]
         for key, request in requests.items():
@@ -529,7 +969,34 @@ class MemoryManager:
         return responses
 
     def allocate(self, shape, dtype, memory_type, stream=0, strides=None):
-        """Allocate a single array according to request parameters."""
+        """
+        Allocate a single array with specified parameters.
+
+        Parameters
+        ----------
+        shape : tuple of int
+            Shape of the array to allocate.
+        dtype : numpy.dtype
+            Data type for array elements.
+        memory_type : str
+            Type of memory: "device", "mapped", "pinned", or "managed".
+        stream : Stream, default 0
+            CUDA stream for the allocation.
+        strides : tuple of int, optional
+            Custom strides for the array.
+
+        Returns
+        -------
+        array
+            Allocated GPU array.
+
+        Raises
+        ------
+        ValueError
+            If memory_type is not recognized.
+        NotImplementedError
+            If memory_type is "managed" (not yet supported).
+        """
         cupy_ = self._allocator == CuPyAsyncNumbaManager
         with current_cupy_stream(stream) if cupy_ else contextlib.nullcontext():
             if memory_type == "device":
@@ -544,18 +1011,21 @@ class MemoryManager:
                 raise ValueError(f"Invalid memory type: {memory_type}")
 
     def queue_request(self, instance, requests: dict[str, ArrayRequest]):
-        """Enter a request into the queue for a stream group.
-
-        Adds the request to a pending request dict for a whole stream group,
-        so that multiple components can contribute to a single request and
-        the whole group can be "chunked" together.
+        """
+        Queue allocation requests for batched stream group processing.
 
         Parameters
         ----------
-        instance: object
-            The instance making the request
-        requests:
-            A dictionary of the same form accepted by process_requests
+        instance : object
+            The instance making the request.
+        requests : dict of str to ArrayRequest
+            Dictionary mapping labels to array requests.
+
+        Notes
+        -----
+        Requests are queued per stream group, allowing multiple components
+        to contribute to a single coordinated allocation that can be
+        optimally chunked together.
         """
         self._check_requests(requests)
         stream_group = self.get_stream_group(instance)
@@ -568,23 +1038,27 @@ class MemoryManager:
                      requests: dict[str, ArrayRequest],
                      numchunks: int,
                      axis: str="run"):
-        """Divide an array by a number of chunks along a given axis
+        """
+        Divide array requests into smaller chunks along a specified axis.
 
         Parameters
-        ==========
-        requests: dict[str, ArrayRequest]
-            A dictionary keying a label to an ArrayRequest object.
-        numchunks: int
-            Factor to divide size by
-        axis: str
-            An axis label along which to divide the array - for example,
-            you might want to batch in time, or batch by runs, depending on
-            your system. The string must match a label in _stride_order.
+        ----------
+        requests : dict of str to ArrayRequest
+            Dictionary mapping labels to array requests.
+        numchunks : int
+            Number of chunks to divide arrays into.
+        axis : str, default "run"
+            Axis name along which to chunk the arrays.
 
         Returns
-        =======
-        dict[str, ArrayRequest]
-            A new dict of requests with modified shapes.
+        -------
+        dict of str to ArrayRequest
+            New dictionary with modified array shapes for chunking.
+
+        Notes
+        -----
+        The axis must match a label in the stride ordering. Chunking is
+        done conservatively with ceiling division to ensure no data is lost.
         """
         chunked_requests = deepcopy(requests)
         for key, request in chunked_requests.items():
@@ -603,48 +1077,28 @@ class MemoryManager:
                        instance: Union[object, int],
                        requests: dict[str, ArrayRequest],
                        chunk_axis: str="run"):
-        """Converts a dictionary of ArrayRequests into allocated arrays
+        """
+        Process a single allocation request with automatic chunking.
 
-        Accepts a dictionary of ArrayRequests and:
-
-        1) Calculates the memory available to the instance
-        2) Divides the request into a number of "chunks" of the size of the
-        currently available memory
-        3) Divides the requested sizes into chunks
-        4) Calculates strides for the array to achieve the memory layout
-        dictated by MemoryManager._stride_ordering.
-        5) Allocates arrays of requested memory types
-        6) Calls the instance's allocation_ready_hook with an ArrayResponse
-        containing the arrays and chunk count
-
-        Arguments
-        =========
-        instance: Union[object, int]
-            The instance (or instance id) for which the request is being
-            processed. This is used to determine the memory available to the
-            instance, to assign the arrays to the correct stream, and to
-            record the allocation.
-        requests: dict[str, ArrayRequest]
-            A dictionary of ArrayRequest objects, where the keys are labels
-            for the requests (to return the arrays under so that the caller
-            can sort them) and the values are the ArrayRequest objects.
-        chunk_axis: str
-            An axis label along which to divide the array - for example,
-            you might want to batch in time, or batch by runs, depending on
-            your system. The string must match a label in _stride_order.
-
-        Returns
-        =======
-        None
-            This method does not return a value. Instead, it calls the
-            allocation_ready_hook for the instance with an ArrayResponse
-            object containing the allocated arrays and chunk count.
+        Parameters
+        ----------
+        instance : object or int
+            The requesting instance or its ID.
+        requests : dict of str to ArrayRequest
+            Dictionary mapping labels to array requests.
+        chunk_axis : str, default "run"
+            Axis along which to chunk if memory is insufficient.
 
         Raises
-        ======
+        ------
         TypeError
-            If requests is not a dict, or the values of a request are not
-            ArrayRequests.
+            If requests is not a dict or contains invalid ArrayRequest objects.
+
+        Notes
+        -----
+        This method calculates available memory, determines chunking needs,
+        allocates arrays with optimal strides, and calls the instance's
+        allocation_ready_hook with the results.
         """
         self._check_requests(requests)
         if isinstance(instance, int):
@@ -670,29 +1124,24 @@ class MemoryManager:
                        triggering_instance: object,
                        limit_type: str="group",
                        chunk_axis: str="run"):
-        """ Process queued requests for the stream group *instance* is in.
+        """
+        Process all queued requests for a stream group with coordinated chunking.
 
         Parameters
-        ==========
-        triggering_instance: object
-            The instance making the request
-        limit_type: str
-            Whether to calculate the aggregate limit for the whole group (
-            "group"), or to ensure that no individual instance exceeds its
-            limit ("instance").
-        chunk_axis: str
-            An axis label along which to divide the array - for example,
-            you might want to batch in time, or batch by runs, depending on
-            your system. The string must match a label in _stride_order.
+        ----------
+        triggering_instance : object
+            The instance that triggered queue processing.
+        limit_type : str, default "group"
+            Limiting strategy: "group" for aggregate limits or "instance"
+            for individual instance limits.
+        chunk_axis : str, default "run"
+            Axis along which to chunk arrays if needed.
 
-        This function does not return, but calls the allocation_ready_hook
-        for each instance registered in the same stream group as *instance*
-        with the ArrayResponse object for their request.
-
-        If the memory manager is actively limiting memory, allocations will
-        be "chunked" so as not to exceed either the combined "group" limit
-        or any individuals "instance" limit, depending on the limit_type
-        string.
+        Notes
+        -----
+        Processes all pending requests in the same stream group, applying
+        coordinated chunking based on the specified limit type. Calls
+        allocation_ready_hook for each instance with their results.
         """
         stream_group = self.get_stream_group(triggering_instance)
         peers = self.stream_groups.get_instances_in_group(stream_group)
@@ -742,7 +1191,18 @@ class MemoryManager:
         return None
 
     def to_device(self, instance: object, from_arrays: list, to_arrays: list):
-        """Copy values to device array in the groups stream. """
+        """
+        Copy data to device arrays using the instance's stream.
+
+        Parameters
+        ----------
+        instance : object
+            Instance whose stream to use for copying.
+        from_arrays : list
+            Source arrays to copy from.
+        to_arrays : list
+            Destination device arrays to copy to.
+        """
         stream = self.get_stream(instance)
         is_cupy = self._allocator == CuPyAsyncNumbaManager
         with (current_cupy_stream(stream) if is_cupy else
@@ -754,7 +1214,18 @@ class MemoryManager:
                     instance: object,
                     from_arrays: list,
                     to_arrays: list):
-        """Copy values from device array in the groups stream. """
+        """
+        Copy data from device arrays using the instance's stream.
+
+        Parameters
+        ----------
+        instance : object
+            Instance whose stream to use for copying.
+        from_arrays : list
+            Source device arrays to copy from.
+        to_arrays : list
+            Destination arrays to copy to.
+        """
         stream = self.get_stream(instance)
         is_cupy = self._allocator == CuPyAsyncNumbaManager
         with (current_cupy_stream(stream) if is_cupy else
@@ -763,10 +1234,30 @@ class MemoryManager:
                 from_array.copy_to_host(to_arrays[i], stream=stream)
 
     def sync_stream(self, instance):
+        """
+        Synchronize the CUDA stream for an instance.
+
+        Parameters
+        ----------
+        instance : object
+            Instance whose stream to synchronize.
+        """
         stream = self.get_stream(instance)
         stream.synchronize()
 
 def get_total_request_size(request: dict[str, ArrayRequest]):
-    """Returns the total size of a request in bytes"""
+    """
+    Calculate the total memory size of a request in bytes.
+
+    Parameters
+    ----------
+    request : dict of str to ArrayRequest
+        Dictionary of array requests to sum.
+
+    Returns
+    -------
+    int
+        Total size in bytes across all requests.
+    """
     return sum(prod(request.shape) * request.dtype().itemsize
                for request in request.values())
