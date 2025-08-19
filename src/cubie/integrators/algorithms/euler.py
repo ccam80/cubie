@@ -127,7 +127,7 @@ class Euler(GenericIntegratorAlgorithm):
         end_index = observable_summaries_start_index + observables_summary_buffer_size
 
         numba_precision = from_dtype(precision)
-
+        # no cover: start
         @cuda.jit(
                 (numba_precision[:], numba_precision[:], numba_precision[:, :],
                  numba_precision[:], numba_precision[:, :],
@@ -236,15 +236,20 @@ class Euler(GenericIntegratorAlgorithm):
                     if (i + 1) % summarise_steps == 0:
                         summary_sample = (
                                                  output_sample + 1) // summarise_steps - 1
-                        save_summaries_func(state_summary_buffer,
-                                            observable_summary_buffer,
-                                            state_summaries_output[
-                                            summary_sample * summarise_state_bool,
-                                            :], observables_summaries_output[
-                                                summary_sample * summarise_observables_bool,
-                                                :], summarise_steps, )
+                        save_summaries_func(
+                            state_summary_buffer,
+                            observable_summary_buffer,
+                            state_summaries_output[
+                                summary_sample * summarise_state_bool, :
+                            ],
+                            observables_summaries_output[
+                                summary_sample * summarise_observables_bool, :
+                            ],
+                            summarise_steps,
+                        )
 
         return euler_loop
+        # no cover: stop
 
     @property
     def shared_memory_required(self):

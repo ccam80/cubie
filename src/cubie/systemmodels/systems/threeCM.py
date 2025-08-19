@@ -52,11 +52,12 @@ class ThreeChamberModel(GenericODE):
 
         numba_precision = from_dtype(self.precision)
 
+        # no cover: start
         @cuda.jit((numba_precision[:], numba_precision[:], numba_precision[:],
                    numba_precision[:], numba_precision[:]), device=True,
                   inline=True, )
         def three_chamber_model_dv(state, parameters, driver, observables,
-                                   dxdt, ):
+                                   dxdt, ):  # pragma: no cover
             """
 
                 0: V_h: Volume in heart - dV_h/dt = Q_i - Q_o
@@ -138,6 +139,7 @@ class ThreeChamberModel(GenericODE):
             dxdt[2] = dV_v
 
         return three_chamber_model_dv
+        # no cover: stop
 
     def correct_answer_python(self, states, parameters, drivers):
         """ More-direct port of Nic Davey's MATLAB implementation.         """

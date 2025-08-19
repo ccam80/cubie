@@ -163,6 +163,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
         numba_precision = from_dtype(precision)
 
+        # no cover: start
         @cuda.jit(
                 (numba_precision[:], numba_precision[:], numba_precision[:, :],
                  numba_precision[:], numba_precision[:, :],
@@ -206,14 +207,16 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
                 if (i + 1) % summary_steps == 0:
                     summary_sample = (i + 1) // summary_steps - 1
-                    save_summaries_func(state_summary_buffer,
-                                        obs_summary_buffer,
-                                        state_summaries_output[summary_sample,
-                                        :], observables_summaries_output[
-                                            summary_sample, :],
-                                        summary_steps, )
+                    save_summaries_func(
+                        state_summary_buffer,
+                        obs_summary_buffer,
+                        state_summaries_output[summary_sample, :],
+                        observables_summaries_output[summary_sample, :],
+                        summary_steps,
+                    )
 
         return dummy_loop
+        # no cover: stop
 
     def update(self, updates_dict=None, silent=False, **kwargs):
         """

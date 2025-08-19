@@ -158,6 +158,7 @@ class GenericODE(CUDAFactory):
         n_drivers = sizes.drivers
         numba_precision = from_dtype(self.precision)
 
+        # no cover: start
         @cuda.jit((numba_precision[:], numba_precision[:], numba_precision[:],
                    numba_precision[:], numba_precision[:]), device=True,
                 inline=True, )
@@ -203,6 +204,7 @@ class GenericODE(CUDAFactory):
                 observables[i] = constant + driver
 
         return dummy_model_dxdt
+        # no cover: stop
 
     def correct_answer_python(self, states, parameters, drivers):
         """This function is used in testing. Overload this with a simpler, Python version of the dxdt function.
