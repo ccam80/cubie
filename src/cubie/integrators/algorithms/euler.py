@@ -1,3 +1,11 @@
+"""
+Euler method implementation for numerical integration.
+
+This module provides the Euler class, which implements the simple first-order
+Euler method for integrating ordinary differential equations on CUDA devices.
+The implementation is suitable for systems where high accuracy is not required
+and the dynamics are not too stiff.
+"""
 from numba import cuda, int32, from_dtype
 
 from cubie.integrators.algorithms.genericIntegratorAlgorithm import \
@@ -5,11 +13,48 @@ from cubie.integrators.algorithms.genericIntegratorAlgorithm import \
 
 
 class Euler(GenericIntegratorAlgorithm):
-    """Euler integrator algorithm for fixed-step integration.
+    """
+    Euler integrator algorithm for fixed-step integration.
 
-    This is a simple, first-order integrator that uses the Euler method to
-    update the state of the system.
-    It is suitable for systems where the dynamics are not too stiff and where high accuracy is not required.
+    This class implements the simple, first-order Euler method for updating
+    the state of dynamical systems. It uses a fixed time step and is suitable
+    for systems where the dynamics are not too stiff and where high accuracy
+    is not required.
+
+    Parameters
+    ----------
+    precision : type
+        Numerical precision type (float32, float64, etc.).
+    dxdt_function : callable
+        Function that computes the time derivative of the state.
+    buffer_sizes : object
+        Configuration object specifying buffer sizes for integration.
+    loop_step_config : object
+        Configuration object for loop step parameters.
+    save_state_func : callable
+        Function for saving state values during integration.
+    update_summaries_func : callable
+        Function for updating summary statistics.
+    save_summaries_func : callable
+        Function for saving summary statistics.
+    compile_flags : object, optional
+        Compilation flags for CUDA device function generation.
+    **kwargs
+        Additional keyword arguments passed to parent class.
+
+    Notes
+    -----
+    The Euler method approximates the solution to the differential equation
+    dy/dt = f(t, y) using the update rule:
+
+    y_{n+1} = y_n + h * f(t_n, y_n)
+
+    where h is the step size. This is a first-order method with local
+    truncation error O(h²) and global error O(h).
+
+    See Also
+    --------
+    GenericIntegratorAlgorithm : Base class for integration algorithms
     """
 
     def __init__(self, precision, dxdt_function, buffer_sizes,
@@ -24,6 +69,36 @@ class Euler(GenericIntegratorAlgorithm):
 
     def build_loop(self, precision, dxdt_function, save_state_func,
                    update_summaries_func, save_summaries_func, ):
+        """
+        Build the CUDA device function for the Euler integration loop.
+
+        This method constructs a numba-compiled CUDA device function that
+        implements the Euler integration algorithm with output handling.
+
+        Parameters
+        ----------
+        precision : type
+            Numerical precision type for the integration.
+        dxdt_function : callable
+            Function that computes time derivatives.
+        save_state_func : callable
+            Function for saving state values.
+        update_summaries_func : callable
+            Function for updating summary statistics.
+        save_summaries_func : callable
+            Function for saving summary statistics.
+
+        Returns
+        -------
+        callable
+            Compiled CUDA device function for Euler integration.
+
+        Notes
+        -----
+        The generated function handles memory allocation, state initialization,
+        the main integration loop, and output generation according to the
+        configured step sizes and buffer requirements.
+        """
 
         save_steps, summarise_steps, step_size = self.compile_settings.fixed_steps
 
@@ -64,7 +139,40 @@ class Euler(GenericIntegratorAlgorithm):
                        state_summaries_output, observables_summaries_output,
                        output_length, warmup_samples=0, ):
             """
+            CUDA device function implementing the Euler integration loop.
 
+            This function performs the actual Euler integration on the GPU,
+            handling state updates, output saving, and summary calculations.
+
+            Parameters
+            ----------
+            inits : array_like
+                Initial values for the state variables.
+            parameters : array_like
+                System parameters for the integration.
+            forcing_vec : array_like, shape (n_steps, n_drivers)
+                External forcing/driving values over time.
+            shared_memory : array_like
+                Shared GPU memory buffer for intermediate calculations.
+            state_output : array_like, shape (n_samples, n_states)
+                Output array for saving state trajectories.
+            observables_output : array_like, shape (n_samples, n_observables)
+                Output array for saving observable trajectories.
+            state_summaries_output : array_like, shape (n_summaries, n_states)
+                Output array for saving state summaries.
+            observables_summaries_output : array_like, shape (n_summaries, n_observables)
+                Output array for saving observable summaries.
+            output_length : int
+                Number of output samples to generate.
+            warmup_samples : int, default=0
+                Number of initial samples to skip (for transient removal).
+
+            Notes
+            -----
+            This function is compiled as a CUDA device function and runs
+            entirely on the GPU. It manages shared memory allocation,
+            performs the Euler stepping, and handles all output generation
+            according to the configured sampling intervals.
             """
 
             # Allocate shared memory slices
@@ -141,11 +249,16 @@ class Euler(GenericIntegratorAlgorithm):
     @property
     def shared_memory_required(self):
         """
-        Calculate the number of items in shared memory required for the loop - don't include summaries_array, they are handled
-        outside the loop as they are common to all algorithms. This is just the number of items stored in shared memory
-        for state, dxdt, observables, drivers, which will change between algorithms.
-        """
+        Calculate the number of shared memory elements required for the loop.
 
+        Returns
+        -------
+        int
+            Number of elements in shared memory required for state, derivatives,
+            observables, drivers, and summary buffers. Does not include summary
+            arrays as they are handled outside the loop and are common to all
+            algorithms.
+        """
         sizes = self.compile_settings.buffer_sizes
         loop_shared_memory = (
                     sizes.state + sizes.dxdt + sizes.observables + sizes.drivers + sizes.state_summaries + sizes.observable_summaries)

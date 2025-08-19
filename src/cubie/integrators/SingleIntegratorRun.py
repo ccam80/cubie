@@ -5,6 +5,16 @@ Created on Tue May 27 17:45:03 2025
 @author: cca79
 """
 
+"""
+Single integrator run coordination for CUDA-based ODE solving.
+
+This module provides the SingleIntegratorRun class which coordinates the
+low-level CUDA machinery to create device functions for running individual
+ODE integration runs. It handles dependency injection to integrator loop
+algorithms and manages light-weight caching to ensure changes in subfunctions
+are properly communicated.
+"""
+
 from typing import Optional
 
 from numpy.typing import ArrayLike
@@ -19,46 +29,68 @@ from cubie._utils import in_attr
 
 
 class SingleIntegratorRun:
-    """ Coordinates the low-level CUDA machinery to create a device function
-    that runs a single run of an ODE
-    integration. Doesn't compile its own device function, but instead
-    performs dependency injection to the integrator
-    loop algorithm. Contains light-weight cache management to ensure that a
-    change in one subfunction is communicated
-    to the others, but does not inherit from CUDAFactory as it performs a
-    different role than the others.
+    """
+    Coordinates low-level CUDA machinery for single ODE integration runs.
 
-    This class presents the interface to lower-level CUDA code.
-    Modifications that invalidate the currently compiled
-    loop are passed to this class. Namely, those are:
+    This class presents the interface to lower-level CUDA code and performs
+    dependency injection to integrator loop algorithms. It contains light-weight
+    cache management to ensure that changes in one subfunction are communicated
+    to others, but does not inherit from CUDAFactory as it performs a different
+    role than other factory classes.
 
-    - Changes to the system constants (the compiled-in parameters, not the
-    "parameters", "initial_values",
-    or "drivers" which are passed as inputs to the loop function)
-    - Changes to the outputs of the loop - specifically adding or removing
-    an output type, such as a summary (max,
-    min), whether we save time, state, or observables, or which states we
-    should save (if we're only saving a subset).
-    - Changes to algorithm parameters - things like step size, tolerances,
-    or the algorithm itself.
+    Parameters
+    ----------
+    system : GenericODE object
+        The ODE system to integrate.
+    algorithm : str, default='euler'
+        Name of the integration algorithm to use.
+    dt_min : float, default=0.01
+        Minimum time step size.
+    dt_max : float, default=0.1
+        Maximum time step size.
+    dt_save : float, default=0.1
+        Time interval between saved outputs.
+    dt_summarise : float, default=1.0
+        Time interval between summary calculations.
+    atol : float, default=1e-6
+        Absolute tolerance for integration.
+    rtol : float, default=1e-6
+        Relative tolerance for integration.
+    saved_state_indices : ArrayLike, optional
+        Indices of states to save during integration.
+    saved_observable_indices : ArrayLike, optional
+        Indices of observables to save during integration.
+    summarised_state_indices : ArrayLike, optional
+        Indices of states to summarise during integration.
+    summarised_observable_indices : ArrayLike, optional
+        Indices of observables to summarise during integration.
+    output_types : list of str or tuple of str, optional
+        Types of outputs to generate.
 
-    This class also maintains a list of currently implemented algorithms.
-    Select an algorithm by passing a string
-    which specifies which algorithm to use.
-    Additional algorithms can be added by adding an object that builds the
-    loop function given a set of common
-    parameters (subclassed from GenericIntegratorAlgorithm, which contains
-    instructions, see euler.py for an example).
+    Notes
+    -----
+    This class handles modifications that invalidate the currently compiled
+    loop, including:
 
-    This class is not typically exposed to the user directly, and so does
-    not have a lot in the way of input
-    sanitisation. The user-facing API is the above the Solver class,
-    which handles the batching up of runs and
-    management of input/output memory.
+    - Changes to system constants (compiled-in parameters)
+    - Changes to loop outputs (adding/removing output types, summary types)
+    - Changes to algorithm parameters (step size, tolerances, algorithm type)
+
+    The class maintains a list of currently implemented algorithms accessible
+    through the ImplementedAlgorithms registry. Additional algorithms can be
+    added by subclassing GenericIntegratorAlgorithm.
+
+    This class is not typically exposed to users directly - the user-facing
+    API is through the Solver class which handles batching and memory management.
 
     All device functions maintain a local cache of their output functions
-    and compile-sensitive attributes,
-    and will invalidate and rebuild if any of these are updated.
+    and compile-sensitive attributes, and will invalidate and rebuild if any
+    of these are updated.
+
+    See Also
+    --------
+    IntegratorRunSettings : Runtime configuration settings
+    ImplementedAlgorithms : Registry of available integration algorithms
     """
 
     def __init__(self, system, algorithm: str = 'euler', dt_min: float = 0.01,
@@ -90,10 +122,6 @@ class SingleIntegratorRun:
                                                  dt_summarise=dt_summarise,
                                                  atol=atol, rtol=rtol,
                                                  output_types=output_types,
-                                                 # saved_state_indices=saved_state_indices,
-                                                 # saved_observable_indices=saved_observable_indices,
-                                                 # summarised_state_indices=summarised_state_indices,
-                                                 # summarised_observable_indices=summarised_observable_indices,
                                                  )
 
         self.config = compile_settings
@@ -108,40 +136,67 @@ class SingleIntegratorRun:
 
     @property
     def loop_buffer_sizes(self):
+        """
+        Get buffer sizes required for the integration loop.
+
+        Returns
+        -------
+        LoopBufferSizes
+            Buffer size configuration for the integration loop.
+        """
         return LoopBufferSizes.from_system_and_output_fns(self._system,
                                                           self._output_functions)
 
     @property
     def output_array_heights(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.output_array_heights` from the child
-        OutputFunctions object."""
+        """
+        Get the heights of output arrays.
+
+        Returns
+        -------
+        object
+            Output array height configuration from the OutputFunctions object.
+        """
         return self._output_functions.output_array_heights
 
     @property
     def summaries_buffer_sizes(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.summaries_buffer_sizes` from the child
-        OutputFunctions object."""
+        """
+        Get buffer sizes for summary calculations.
+
+        Returns
+        -------
+        object
+            Summary buffer size configuration from the OutputFunctions object.
+        """
         return self._output_functions.summaries_buffer_sizes
 
     def update(self, updates_dict=None, silent=False, **kwargs):
         """
-        Update parameters across all components..
+        Update parameters across all components.
 
         This method sends all parameters to all child components with
-        silent=True
-        to avoid spurious warnings, then checks if any parameters were not
-        recognized by any component.
+        silent=True to avoid spurious warnings, then checks if any parameters
+        were not recognized by any component.
 
-        Args:
-            update_dict (dict): Dictionary of parameters to update
-            silent (bool): If True, suppress warnings about unrecognized
-            parameters
-            **kwargs: Parameter updates to apply
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Dictionary of parameters to update.
+        silent : bool, default=False
+            If True, suppress warnings about unrecognized parameters.
+        **kwargs
+            Parameter updates to apply as keyword arguments.
 
-        Raises:
-            ValueError: If no parameters are recognized by any component
+        Returns
+        -------
+        set
+            Set of parameter names that were recognized and updated.
+
+        Raises
+        ------
+        KeyError
+            If parameters are not recognized by any component and silent=False.
         """
         if updates_dict == None:
             updates_dict = {}
@@ -196,12 +251,26 @@ class SingleIntegratorRun:
         return recognized
 
     def _invalidate_cache(self):
-        """Invalidate the compiled loop cache."""
+        """
+        Invalidate the compiled loop cache.
+
+        Marks the current compiled loop as invalid, forcing a rebuild
+        on the next access.
+        """
         self._loop_cache_valid = False
         self._compiled_loop = None
 
     def build(self):
-        """Build the complete integrator loop."""
+        """
+        Build the complete integrator loop.
+
+        Compiles the integrator loop device function and updates the cache.
+
+        Returns
+        -------
+        object
+            The compiled loop device function.
+        """
 
         # Update with latest function references
 
@@ -212,20 +281,41 @@ class SingleIntegratorRun:
 
     @property
     def device_function(self):
-        """Get the compiled loop function, building if necessary."""
+        """
+        Get the compiled loop function, building if necessary.
+
+        Returns
+        -------
+        object
+            The compiled CUDA device function for the integration loop.
+        """
         if not self._loop_cache_valid or self._compiled_loop is None:
             self.build()
         return self._compiled_loop
 
     @property
     def cache_valid(self):
-        """Check if the compiled loop is current."""
+        """
+        Check if the compiled loop is current.
+
+        Returns
+        -------
+        bool
+            True if the cached loop is valid, False otherwise.
+        """
         return self._loop_cache_valid
 
     @property
     def shared_memory_elements(self):
-        """Get the number of elements of shared memory required for a single
-        run of the integrator."""
+        """
+        Get the number of shared memory elements required for integration.
+
+        Returns
+        -------
+        int
+            Number of elements of shared memory required for a single
+            integrator run.
+        """
         if not self.cache_valid:
             self.build()
         loop_memory = self._integrator_instance.shared_memory_required
@@ -238,8 +328,15 @@ class SingleIntegratorRun:
 
     @property
     def shared_memory_bytes(self):
-        """Returns the number of bytes of dynamic shared memory required for
-        a single run of the integrator"""
+        """
+        Get the number of bytes of dynamic shared memory required.
+
+        Returns
+        -------
+        int
+            Number of bytes of dynamic shared memory required for a single
+            integrator run.
+        """
         if not self.cache_valid:
             self.build()
         datasize = self.precision(0.0).nbytes
@@ -248,130 +345,242 @@ class SingleIntegratorRun:
     # Reach through this interface class to get lower level features:
     @property
     def precision(self):
-        """Exposes :attr:`~cubie.systemmodels.systems.GenericODE.GenericODE
-        .precision` from the child GenericODE object."""
+        """
+        Get the numerical precision type from the system.
+
+        Returns
+        -------
+        type
+            Numerical precision type (e.g., float32, float64) from the
+            child GenericODE object.
+        """
         return self._system.precision
 
     @property
     def threads_per_loop(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.algorithms
-        .genericIntegratorAlgorithm.GenericIntegratorAlgorithm
-        .threads_per_loop` from the child GenericIntegratorAlgorithm object."""
+        """
+        Get the number of threads required by the loop algorithm.
+
+        Returns
+        -------
+        int
+            Number of threads per loop from the child GenericIntegratorAlgorithm
+            object.
+        """
         return self._integrator_instance.threads_per_loop
 
     @property
     def dxdt_function(self):
-        """Exposes :attr:`~cubie.systemmodels.systems.GenericODE.GenericODE
-        .dxdt_function` from the child GenericODE object."""
+        """
+        Get the derivative function from the system.
+
+        Returns
+        -------
+        callable
+            The dxdt function from the child GenericODE object.
+        """
         return self._system.dxdt_function
 
     @property
     def save_state_func(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctionCache.save_state_function` from the child
-        OutputFunctionCache object."""
+        """
+        Get the state saving function.
+
+        Returns
+        -------
+        callable
+            State saving function from the child OutputFunctions object.
+        """
         return self._output_functions.save_state_func
 
     @property
     def update_summaries_func(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctionCache.update_summaries_function` from the child
-        OutputFunctionCache object."""
+        """
+        Get the summary update function.
+
+        Returns
+        -------
+        callable
+            Summary update function from the child OutputFunctions object.
+        """
         return self._output_functions.update_summaries_func
 
     @property
     def save_summaries_func(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctionCache.save_summaries_function` from the child
-        OutputFunctionCache object."""
+        """
+        Get the summary saving function.
+
+        Returns
+        -------
+        callable
+            Summary saving function from the child OutputFunctions object.
+        """
         return self._output_functions.save_summary_metrics_func
 
     @property
     def loop_step_config(self):
-        """Get the loop step configuration."""
+        """
+        Get the loop step configuration.
+
+        Returns
+        -------
+        LoopStepConfig
+            Step configuration object for the integration loop.
+        """
         return self.config.loop_step_config
 
     @property
     def fixed_step_size(self):
-        """Exposes :attr:`~cubie.batchsolving.integrators.algorithms
-        .genericIntegratorAlgorithm.GenericIntegratorAlgorithm.step_size`
-        from the child GenericIntegratorAlgorithm object."""
+        """
+        Get the fixed step size for integration.
+
+        Returns
+        -------
+        float
+            Fixed step size from the child GenericIntegratorAlgorithm object.
+        """
         return self._integrator_instance.fixed_step_size
 
     @property
     def dt_save(self):
-        """Get the time step size for saving states and observables."""
+        """
+        Get the time step size for saving states and observables.
+
+        Returns
+        -------
+        float
+            Time interval between saved outputs.
+        """
         return self.config.dt_save
 
     @property
     def dt_summarise(self):
-        """Get the time step size for summarising states and observables."""
+        """
+        Get the time step size for summarising states and observables.
+
+        Returns
+        -------
+        float
+            Time interval between summary calculations.
+        """
         return self.config.dt_summarise
 
     @property
     def system_sizes(self) -> SystemSizes:
-        """Exposes :attr:`~cubie.systemmodels.systems.GenericODE.GenericODE
-        .sizes` from the child GenericODE object."""
+        """
+        Get the system size information.
+
+        Returns
+        -------
+        SystemSizes
+            Size information from the child GenericODE object.
+        """
         return self._system.sizes
 
     @property
     def compile_flags(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.compile_flags` from the child OutputFunctions
-        object."""
+        """
+        Get the compilation flags for output functions.
+
+        Returns
+        -------
+        object
+            Compilation flags from the child OutputFunctions object.
+        """
         return self._output_functions.compile_flags
 
     @property
     def output_types(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.output_types` from the child OutputFunctions
-        object."""
+        """
+        Get the configured output types.
+
+        Returns
+        -------
+        list
+            List of output types from the child OutputFunctions object.
+        """
         return self._output_functions.output_types
 
     @property
     def summary_legend_per_variable(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.summary_legend_per_variable` from the child
-        OutputFunctions object."""
+        """
+        Get the summary legend for each variable.
+
+        Returns
+        -------
+        object
+            Summary legend mapping from the child OutputFunctions object.
+        """
         return self._output_functions.summary_legend_per_variable
 
     @property
     def saved_state_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.saved_state_indices` from the child OutputFunctions
-        object."""
+        """
+        Get indices of states to save.
+
+        Returns
+        -------
+        ArrayLike
+            Indices of states to save from the child OutputFunctions object.
+        """
         return self._output_functions.saved_state_indices
 
     @property
     def saved_observable_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.saved_observable_indices` from the child
-        OutputFunctions object."""
+        """
+        Get indices of observables to save.
+
+        Returns
+        -------
+        ArrayLike
+            Indices of observables to save from the child OutputFunctions object.
+        """
         return self._output_functions.saved_observable_indices
 
     @property
     def summarised_state_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.summarised_state_indices` from the child
-        OutputFunctions object."""
+        """
+        Get indices of states to summarise.
+
+        Returns
+        -------
+        ArrayLike
+            Indices of states to summarise from the child OutputFunctions object.
+        """
         return self._output_functions.summarised_state_indices
 
     @property
     def summarised_observable_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.summarised_observable_indices` from the child
-        OutputFunctionCache object."""
+        """
+        Get indices of observables to summarise.
+
+        Returns
+        -------
+        ArrayLike
+            Indices of observables to summarise from the child OutputFunctions object.
+        """
         return self._output_functions.summarised_observable_indices
 
     @property
     def save_time(self):
-        """Exposes :attr:`~cubie.batchsolving.outputhandling.output_functions
-        .OutputFunctions.save_time` from the child OutputFunctions object."""
+        """
+        Get whether time values should be saved.
+
+        Returns
+        -------
+        bool
+            True if time should be saved, from the child OutputFunctions object.
+        """
         return self._output_functions.save_time
 
     @property
     def system(self):
-        """Exposes child :attr:`~cubie.systemmodels.systems.GenericODE
-        .GenericODE` object
-        object."""
+        """
+        Get the ODE system object.
+
+        Returns
+        -------
+        object
+            The child GenericODE system object.
+        """
         return self._system

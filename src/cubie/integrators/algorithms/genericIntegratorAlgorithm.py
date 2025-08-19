@@ -1,3 +1,13 @@
+"""
+Base class for integration algorithm implementations.
+
+This module provides the GenericIntegratorAlgorithm class, which serves as
+the base class for all ODE integration algorithms. It handles building and
+caching of algorithm functions that are incorporated into CUDA kernels,
+and provides the interface that specific algorithms must implement.
+"""
+from abc import abstractmethod
+
 from numba import cuda, int32, from_dtype
 
 from cubie.CUDAFactory import CUDAFactory
@@ -8,22 +18,48 @@ from cubie._utils import in_attr
 
 class GenericIntegratorAlgorithm(CUDAFactory):
     """
-    Base class for the inner "loop" algorithm for an ODE solving algorithm.
-    This class handles building and caching
-    of the algorithm function, which is incorporated into a CUDA kernel (like the one in BatchSolverKernel.py) for use.
-    Any integration algorithms (e.g. Euler, Runge-Kutta) should subclass this class and override the following
-    attributes/methods:
+    Base class for the inner "loop" algorithm for ODE solving algorithms.
 
-    - _threads_per_loop: How many threads does the algorithm use? A simple loop will use 1, but a computationally
-    intensive algorithm might calculate dxdt at each point in its own thread, and then use a shuffle operation to add
-    the parallel results together from shared memory.
-    - build_loop() - factory method that builds the CUDA device function
-    - shared_memory_required - How much shared memory your device allocates - usually a function of the number of states
-     of our system, depending on where you store your numbers.
+    This class handles building and caching of the algorithm function, which
+    is incorporated into a CUDA kernel for GPU execution. All integration
+    algorithms (e.g. Euler, Runge-Kutta) should subclass this class and
+    override specific attributes and methods.
 
-    Data used in compiling and controlling the loop is handled by the IntegratorLoopSettings class. This class
-    presents a few relevant attributes of the data class to higher-level components as properties.
+    Parameters
+    ----------
+    precision : type
+        Numerical precision type for computations.
+    dxdt_function : CUDA device function
+        Function that computes time derivatives of the state.
+    buffer_sizes : LoopBufferSizes
+        Configuration object specifying buffer sizes.
+    loop_step_config : LoopStepConfig
+        Configuration object for loop step parameters.
+    save_state_func : CUDA device function
+        Function for saving state values during integration.
+    update_summaries_func : CUDA device function
+        Function for updating summary statistics.
+    save_summaries_func : CUDA device function
+        Function for saving summary statistics.
+    compile_flags : OutputCompileFlags
+        Compilation flags for device function generation.
 
+    Notes
+    -----
+    Subclasses must override:
+
+    - `_threads_per_loop` : Number of threads the algorithm uses
+    - `build_loop()` : Factory method that builds the CUDA device function
+    - `shared_memory_required` : Amount of shared memory the device allocates
+
+    Data used in compiling and controlling the loop is handled by the
+    IntegratorLoopSettings class. This class presents relevant attributes
+    of the data class to higher-level components as properties.
+
+    See Also
+    --------
+    IntegratorLoopSettings : Configuration data for loop compilation
+    CUDAFactory : Base factory class for CUDA device functions
     """
 
     def __init__(self, precision, dxdt_function, buffer_sizes,
@@ -31,9 +67,12 @@ class GenericIntegratorAlgorithm(CUDAFactory):
                  save_summaries_func, compile_flags, ):
         super().__init__()
 
-        compile_settings = IntegratorLoopSettings(precision=precision,
-                loop_step_config=loop_step_config, buffer_sizes=buffer_sizes,
-                dxdt_function=dxdt_function, save_state_func=save_state_func,
+        compile_settings = IntegratorLoopSettings(
+                precision=precision,
+                loop_step_config=loop_step_config,
+                buffer_sizes=buffer_sizes,
+                dxdt_function=dxdt_function,
+                save_state_func=save_state_func,
                 update_summaries_func=update_summaries_func,
                 save_summaries_func=save_summaries_func,
                 compile_flags=compile_flags, )
@@ -45,7 +84,14 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         self._threads_per_loop = 1
 
     def build(self):
-        """Build the integrator loop, unpacking config for local scope."""
+        """
+        Build the integrator loop, unpacking config for local scope.
+
+        Returns
+        -------
+        callable
+            The compiled integrator loop device function.
+        """
         config = self.compile_settings
 
         integrator_loop = self.build_loop(precision=config.precision,
@@ -58,11 +104,49 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
     @property
     def threads_per_loop(self):
-        """Number of threads required by loop algorithm."""
+        """
+        Get the number of threads required by loop algorithm.
+
+        Returns
+        -------
+        int
+            Number of threads required per integration loop.
+        """
         return self._threads_per_loop
 
     def build_loop(self, precision, dxdt_function, save_state_func,
                    update_summaries_func, save_summaries_func, ):
+        """
+        Build the CUDA device function for the integration loop.
+
+        This is a template method that provides a dummy implementation.
+        Subclasses should override this method to implement specific
+        integration algorithms.
+
+        Parameters
+        ----------
+        precision : type
+            Numerical precision type for the integration.
+        dxdt_function : callable
+            Function that computes time derivatives.
+        save_state_func : callable
+            Function for saving state values.
+        update_summaries_func : callable
+            Function for updating summary statistics.
+        save_summaries_func : callable
+            Function for saving summary statistics.
+
+        Returns
+        -------
+        callable
+            Compiled CUDA device function implementing the integration algorithm.
+
+        Notes
+        -----
+        This base implementation provides a dummy loop that can be used
+        for testing but does not perform actual integration. Real algorithms
+        should override this method with their specific implementation.
+        """
         save_steps, summary_steps, step_size = self.compile_settings.fixed_steps
 
         sizes = self.compile_settings.buffer_sizes.nonzero
@@ -133,16 +217,26 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
     def update(self, updates_dict=None, silent=False, **kwargs):
         """
-        Pass updates to compile settings through the CUDAFactory interface, which will invalidate cache if an update
-        is successful. Pass silent=True if doing a bulk update with other component's params to suppress warnings
-        about keys not found.
+        Pass updates to compile settings through the CUDAFactory interface.
 
-        Args:
-            silent (bool): If True, suppress warnings about unrecognized parameters
-            **kwargs: Parameter updates to apply
+        This method will invalidate the cache if an update is successful.
+        Use silent=True when doing bulk updates with other component parameters
+        to suppress warnings about unrecognized keys.
 
-        Returns:
-            list: recognized_params"""
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Dictionary of parameters to update.
+        silent : bool, default=False
+            If True, suppress warnings about unrecognized parameters.
+        **kwargs
+            Parameter updates to apply as keyword arguments.
+
+        Returns
+        -------
+        set
+            Set of parameter names that were recognized and updated.
+        """
         if updates_dict is None:
             updates_dict = {}
         if kwargs:
@@ -165,12 +259,36 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
     @property
     def shared_memory_required(self):
-        """Calculate shared memory requirements. Dummy implementation returns 0."""
+        """
+        Calculate shared memory requirements for the integration algorithm.
+
+        This is a dummy implementation that returns 0. Subclasses should
+        override this method to calculate the actual shared memory requirements
+        based on their specific algorithm needs.
+
+        Returns
+        -------
+        int
+            Number of shared memory elements required (dummy implementation returns 0).
+        """
         return 0
 
     @classmethod
     def from_single_integrator_run(cls, run_object):
-        """Create an instance of the integrator algorithm from a SingleIntegratorRun object."""
+        """
+        Create an instance of the integrator algorithm from a SingleIntegratorRun object.
+
+        Parameters
+        ----------
+        run_object : SingleIntegratorRun
+            The SingleIntegratorRun object containing configuration parameters.
+
+        Returns
+        -------
+        GenericIntegratorAlgorithm
+            New instance of the integrator algorithm configured with parameters
+            from the run object.
+        """
         return cls(precision=run_object.precision,
                 dxdt_function=run_object.dxdt_function,
                 buffer_sizes=run_object.loop_buffer_sizes,
@@ -182,5 +300,12 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
     @property
     def fixed_step_size(self):
-        """Return the fixed step size used in the loop."""
+        """
+        Get the fixed step size used in the integration loop.
+
+        Returns
+        -------
+        float
+            The fixed step size from the compile settings.
+        """
         return self.compile_settings.fixed_step_size
