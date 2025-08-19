@@ -447,3 +447,220 @@ class BaseArrayManager(ABC):
                 matches[array_name] = True
         return matches
 
+    def check_sizes(self,
+                    new_arrays: Dict[str, NDArray],
+                    location: str = "host") -> Dict[str, bool]:
+        """Check if provided arrays match the system along the "variable" axis.
+
+        Args:
+            new_arrays: Dictionary of array_name -> array
+            location: 'host' or 'device'
+
+        Returns:
+            True if all arrays match their expected sizes, False otherwise
+        """
+        try:
+            container = getattr(self, location)
+        except AttributeError:
+            raise AttributeError(
+                f"Invalid location: {location} - must be 'host' or 'device'"
+            )
+        expected_sizes = self._sizes
+        source_stride_order = getattr(expected_sizes, "_stride_order", None)
+        target_stride_order = container._stride_order
+        chunk_axis_name = self._chunk_axis
+        matches = {}
+
+        for array_name, array in new_arrays.items():
+            if array_name not in container.__dict__.keys():
+                matches[array_name] = False
+                continue
+            else:
+                array_shape = array.shape
+                expected_size_tuple = getattr(expected_sizes,array_name)
+                if expected_size_tuple is None:
+                    continue  # No size information for this array
+                expected_shape = list(expected_size_tuple)
+
+                # Reorder expected_shape to match the container's stride order
+                if (source_stride_order and target_stride_order
+                        and source_stride_order != target_stride_order):
+                    size_map = {axis: size for axis, size in
+                                zip(source_stride_order, expected_shape)}
+                    expected_shape = [
+                        size_map[axis]
+                        for axis in target_stride_order
+                        if axis in size_map
+                    ]
+
+                # Chunk if needed and arrays are device arrays
+                if location == "device" and self._chunks > 0:
+                    if chunk_axis_name in container._stride_order:
+                        chunk_axis_index = container._stride_order.index(chunk_axis_name)
+                        if expected_shape[chunk_axis_index] is not None:
+                            expected_shape[chunk_axis_index] = int(
+                                np.ceil(expected_shape[chunk_axis_index] / self._chunks)
+                            )
+
+                if len(array_shape) != len(expected_shape):
+                    matches[array_name] = False
+                else:
+                    shape_matches = True
+                    for actual_dim, expected_dim in zip(array_shape, expected_shape):
+                        if expected_dim is not None and actual_dim != expected_dim:
+                            shape_matches = False
+                            break
+                    matches[array_name] = shape_matches
+        return matches
+
+
+    @abstractmethod
+    def finalise(self, indices):
+        """Override with the desired behaviour after a chunk is executed.
+
+        For most output arrays, this is a copy back to the host,
+        and potentially a remap if mapped.
+        For input arrays, this is a typically no-op."""
+
+    @abstractmethod
+    def initialise(self, indices):
+        """Override with the desired behaviour before a chunk is executed.
+
+        For most input arrays, this is a copy to device.
+        For output arrays, this is typically a no-op."""
+
+    def check_incoming_arrays(self, arrays: Dict[str, NDArray], location:
+    str = "host") -> Dict[str, bool]:
+        """Check dimensions and dtype of provided arrays match expected sizes and precision.
+
+        Args:
+            arrays: Dictionary of array_name -> array to check
+            location: "host" or "device" - which container to check against
+        Returns:
+            True if all arrays match expected sizes and precision, False otherwise
+        """
+        dims_ok = self.check_sizes(arrays, location=location)
+        types_ok = self.check_type(arrays)
+        all_ok = {}
+        for array_name in arrays:
+            all_ok[array_name] = dims_ok[array_name] and types_ok[array_name]
+        return all_ok
+
+    def attach_external_arrays(self, arrays: Dict[str, NDArray],
+                               location: str = "host") -> bool:
+        """Attach existing arrays to the specified container (host or device).
+
+        Args:
+            arrays: Dictionary of array_name -> array to attach
+            location: "host" or "device" - which container to attach to
+
+        Returns:
+            True if arrays were successfully attached, False if validation failed
+        """
+        matches = self.check_incoming_arrays(arrays, location=location)
+        container = getattr(self, location)
+        not_attached = []
+        for array_name, array in arrays.items():
+            if matches[array_name]:
+                container.attach(array_name, array)
+            else:
+                not_attached.append(array_name)
+        if not_attached:
+            warn(f"The following arrays did not match the expected data "
+                 f"type and size, and so were not used"
+                 f" {', '.join(not_attached)}", UserWarning)
+        return True
+
+    def _update_host_array(
+        self, new_array: NDArray, current_array: NDArray, label: str
+    ) -> NoneType:
+        """Assign for reallocation or overwriting by shape/value change.
+
+        Check for equality and shape equality, append to reallocation or
+        overwrite lists accordingly. Attaches changed array to host array
+        container."""
+        if new_array is None:
+            raise ValueError("New array is None")
+        elif current_array is None:
+            self._needs_reallocation.append(label)
+            self._needs_overwrite.append(label)
+            self.host.attach(label, new_array)
+        elif not self._arrays_equal(new_array, current_array):
+            if current_array.shape != new_array.shape:
+                if label not in self._needs_reallocation:
+                    self._needs_reallocation.append(label)
+                if label not in self._needs_overwrite:
+                    self._needs_overwrite.append(label)
+                if 0 in new_array.shape:
+                    new_array = np.zeros((1, 1, 1), dtype=self._precision)
+            else:
+                self._needs_overwrite.append(label)
+            self.host.attach(label, new_array)
+        return None
+
+    def update_host_arrays(self, new_arrays: Dict[str, NDArray]) -> bool:
+        """Updates host arrays with new data, assigns for realloc or overwrite.
+
+        Args:
+            new_arrays: Dictionary of array_name -> new_array
+
+        Returns:
+            None
+        """
+        badnames = [array_name for array_name in new_arrays
+                    if array_name not in self.host.__dict__.keys()]
+        new_arrays = {k: v for k, v in new_arrays.items() if
+                      k in self.host.__dict__.keys()}
+        if any(badnames):
+            warn(f"Host arrays '{badnames}' does not exist, "
+                 f"ignoring update", UserWarning)
+        if not any([check for check in self.check_sizes(new_arrays).values()]):
+            warn("Provided arrays do not match the expected system "
+                 "sizes, ignoring update", UserWarning)
+        for array_name in new_arrays:
+            current_array = getattr(self.host, array_name)
+            self._update_host_array(new_arrays[array_name], current_array,
+                                        array_name)
+
+    def allocate(self):
+        """Queue allocation requests for arrays that need reallocation."""
+        requests = {}
+
+        for array_label in set(self._needs_reallocation):
+            host_array = getattr(self.host, array_label, None)
+            if host_array is not None:
+                request = ArrayRequest(
+                    shape=host_array.shape,
+                    dtype=self._precision,
+                    memory=self.device.memory_type,
+                    stride_order=self.device.stride_order
+                )
+                requests[array_label] = request
+
+        if requests:
+            self.request_allocation(requests)
+
+    def initialize_device_zeros(self):
+        """Initialize device arrays to zero values."""
+        for name, array in self.device.__dict__.items():
+            if not name.startswith('_') and array is not None:
+                if len(array.shape) >= 3:
+                    array[:, :, :] = self._precision(0.0)
+                elif  len(array.shape) >= 2:
+                    array[:, :] = self._precision(0.0)
+
+    def reset(self):
+        """Clear all cached arrays and reset allocation tracking."""
+        self.host.delete_all()
+        self.device.delete_all()
+        self._needs_reallocation.clear()
+        self._needs_overwrite.clear()
+
+    def to_device(self, from_arrays: list, to_arrays: list):
+        self._memory_manager.to_device(self, from_arrays, to_arrays)
+
+    def from_device(self,
+                    instance: object,
+                    from_arrays: list,
+                    to_arrays: list):
+        self._memory_manager.from_device(self, from_arrays, to_arrays)
