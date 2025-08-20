@@ -23,8 +23,9 @@ jobs:
       !github.event.head_commit.message ||
       contains(github.event.head_commit.message, 'test_python') ||
       contains(github.event.head_commit.message, 'test_all') ||
-      github.base_ref # this is true if the request is a pull request
-
+      github.base_ref 
+    # github.base_ref is only true if the current event is a pull request
+      
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
