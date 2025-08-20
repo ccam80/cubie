@@ -1,4 +1,4 @@
-"""Symbolic example of the ThreeCM class"""
+"""Symbolic example of the ThreeCM class
 
 observables = ["P_a", "P_v", "P_h", "Q_i", "Q_o", "Q_c"]
 parameters = {
@@ -22,7 +22,7 @@ states = {"V_h": 1.0,
 incomplete_system = symbolic.setup_system(observables, parameters, constants,
                                     driver, states)
 #make symbols available in local scope maybe?
-dxdt = """P_a = E_a * V_a
+dxdt = """"""P_a = E_a * V_a
           P_v = E_v * V_v
           P_h = E_h * V_h * driver[0]
           Q_i = ((P_v - P_h) / R_i) if (P_v > P_h) else 0
@@ -32,7 +32,7 @@ dxdt = """P_a = E_a * V_a
           dV_h = Q_i - Q_o
           dV_a = Q_o - Q_c
           dV_v = Q_c - Q_i
-"""
+""""""
 #OR
 dxdt = ["P_a = E_a * V_a",
         "P_v = E_v * V_v",
@@ -134,3 +134,4 @@ from numba import cuda
     # jacobian of dxdt wrt state + parameters, evaluated analytically with
     # operators swapped for save operators
 
+"""
