@@ -9,6 +9,9 @@ initial value problems.
    :caption: Contents
 
    usage
+   systems
+   cuda
+   Algorithms
    api/index
 
 Indices and tables
