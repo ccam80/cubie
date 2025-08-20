@@ -53,6 +53,7 @@ def noise_tester_64(sigmas, precision):
     """Test helper for get_noise_64 function."""
     n_elements = len(sigmas)
     noise_array = cuda.device_array(n_elements, dtype=precision)
+    noise_array[:] = 0.0
     d_sigmas = cuda.to_device(np.array(sigmas, dtype=precision))
 
     # Create RNG state
@@ -71,6 +72,7 @@ def noise_tester_32(sigmas, precision):
     """Test helper for get_noise_32 function."""
     n_elements = len(sigmas)
     noise_array = cuda.device_array(n_elements, dtype=precision)
+    noise_array[:] = 0.0
     d_sigmas = cuda.to_device(np.array(sigmas, dtype=precision))
 
     # Create RNG state
@@ -82,7 +84,7 @@ def noise_tester_32(sigmas, precision):
         if idx < noise_arr.size:
             get_noise_32(noise_arr, sig_arr, idx, rng)
 
-    noise_test_kernel[1, 1](noise_array, d_sigmas, rng_states)
+    noise_test_kernel[1, n_elements](noise_array, d_sigmas, rng_states)
     return noise_array.copy_to_host()
 
 @pytest.mark.nocudasim
