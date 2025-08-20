@@ -3,7 +3,8 @@
 This module extends the basic symbolic prototype by adding support for a
 restricted set of mathematical operators, automatic Jacobian generation and a
 Numba CUDA implementation.  The implementation of placeholder math functions
-and Jacobian generation borrows ideas from `chaste-codegen <https://github.com/ModellingWebLab/chaste-codegen>`_.
+and Jacobian generation borrows ideas from
+`chaste-codegen <https://github.com/ModellingWebLab/chaste-codegen>`_.
 
 The code copied from *chaste-codegen* is licensed under the MIT licence and has
 been adapted for use in this project.
@@ -12,6 +13,7 @@ been adapted for use in this project.
 import numpy as np
 import sympy as sp
 from numba import cuda, from_dtype
+import re
 
 from cubie.systemmodels.systems.GenericODE import GenericODE
 from cubie.systemmodels.symbolic.math_functions import (
@@ -31,18 +33,26 @@ class SymbolicODESystem(GenericODE):
     """
 
     def __init__(self, *, constants=None, parameters=None, states=None,
-                 observables=None, equations=None, precision=np.float64,
-                 num_drivers=1):
+                 observables=None, equations=None, drivers=None,
+                 precision=np.float64, num_drivers=None):
         if equations is None:
             raise ValueError("equations must be provided")
 
         # Store the original SymPy symbols for later use
         self.state_symbols, state_vals = self._prepare_container(states)
-        self.parameter_symbols, param_vals = self._prepare_container(parameters)
+        self.parameter_symbols, param_vals = self._prepare_container(
+            parameters
+        )
         self.constant_symbols, const_vals = self._prepare_container(constants)
-        self.observable_symbols, obs_vals = self._prepare_container(observables)
+        self.observable_symbols, obs_vals = self._prepare_container(
+            observables
+        )
+        self.driver_symbols = list(drivers) if drivers is not None else []
 
         self.equations = equations
+
+        if num_drivers is None:
+            num_drivers = max(1, len(self.driver_symbols))
 
         super().__init__(
             initial_values=state_vals,
@@ -77,7 +87,8 @@ class SymbolicODESystem(GenericODE):
 
     def _validate_equations(self):
         allowed = set(self.state_symbols + self.parameter_symbols +
-                      self.constant_symbols + self.observable_symbols)
+                      self.constant_symbols + self.observable_symbols +
+                      self.driver_symbols)
         for eq in self.equations:
             if not isinstance(eq, sp.Eq):
                 raise TypeError("equations must be sympy.Eq instances")
@@ -85,7 +96,9 @@ class SymbolicODESystem(GenericODE):
                 raise ValueError("Equation LHS must be a state or observable")
             undefined = eq.rhs.free_symbols - allowed
             if undefined:
-                raise ValueError(f"Equation RHS contains undefined symbols: {undefined}")
+                raise ValueError(
+                    f"Equation RHS contains undefined symbols: {undefined}"
+                )
 
     def build(self):
         """Compile the system into CUDA device functions.
@@ -110,7 +123,9 @@ class SymbolicODESystem(GenericODE):
         numba_precision = from_dtype(self.precision)
 
         code_lines = self._generate_code_lines()
-        func_code = ["def sympy_dxdt(state, parameters, driver, observables, dxdt):"]
+        func_code = [
+            "def sympy_dxdt(state, parameters, driver, observables, dxdt):"
+        ]
         func_code.extend([f"    {line}" for line in code_lines])
         ns = {}
         exec("\n".join(func_code), {}, ns)
@@ -157,6 +172,7 @@ class SymbolicODESystem(GenericODE):
     def _generate_code_lines(self):
         state_idx = {s: i for i, s in enumerate(self.state_symbols)}
         obs_idx = {s: i for i, s in enumerate(self.observable_symbols)}
+        driver_idx = {s: i for i, s in enumerate(self.driver_symbols)}
         param_idx = {s: i for i, s in enumerate(self.parameter_symbols)}
         const_idx = {s: i for i, s in enumerate(self.constant_symbols)}
 
@@ -164,11 +180,13 @@ class SymbolicODESystem(GenericODE):
         param_arr = sp.IndexedBase('parameters')
         const_arr = sp.IndexedBase('global_constants')
         obs_arr = sp.IndexedBase('observables')
+        driver_arr = sp.IndexedBase('driver')
 
         repl = {s: state_arr[i] for s, i in state_idx.items()}
         repl.update({s: param_arr[i] for s, i in param_idx.items()})
         repl.update({s: const_arr[i] for s, i in const_idx.items()})
         repl.update({s: obs_arr[i] for s, i in obs_idx.items()})
+        repl.update({s: driver_arr[i] for s, i in driver_idx.items()})
 
         lines = []
         for eq in self.equations:
@@ -183,7 +201,10 @@ class SymbolicODESystem(GenericODE):
     @property
     def jacobian_function(self):
         """Return the compiled Jacobian device function."""
-        if getattr(self, "_jacobian_function", None) is None and not self.cache_valid:
+        if (
+            getattr(self, "_jacobian_function", None) is None
+            and not self.cache_valid
+        ):
             self.device_function  # triggers build
         return getattr(self, "_jacobian_function", None)
 
@@ -192,6 +213,7 @@ class SymbolicODESystem(GenericODE):
         param_idx = {s: i for i, s in enumerate(self.parameter_symbols)}
         const_idx = {s: i for i, s in enumerate(self.constant_symbols)}
         obs_idx = {s: i for i, s in enumerate(self.observable_symbols)}
+        driver_idx = {s: i for i, s in enumerate(self.driver_symbols)}
 
         values = {}
         for sym, i in state_idx.items():
@@ -200,6 +222,8 @@ class SymbolicODESystem(GenericODE):
             values[sym] = parameters[i]
         for sym, i in const_idx.items():
             values[sym] = self.compile_settings.constants.values_array[i]
+        for sym, i in driver_idx.items():
+            values[sym] = drivers[i]
 
         dxdt = np.zeros(self.num_states, dtype=self.precision)
         observables = np.zeros(self.num_observables, dtype=self.precision)
@@ -222,16 +246,19 @@ class SymbolicODESystem(GenericODE):
         param_idx = {s: i for i, s in enumerate(self.parameter_symbols)}
         const_idx = {s: i for i, s in enumerate(self.constant_symbols)}
         obs_idx = {s: i for i, s in enumerate(self.observable_symbols)}
+        driver_idx = {s: i for i, s in enumerate(self.driver_symbols)}
 
         state_arr = sp.IndexedBase("state")
         param_arr = sp.IndexedBase("parameters")
         const_arr = sp.IndexedBase("global_constants")
         obs_arr = sp.IndexedBase("observables")
+        driver_arr = sp.IndexedBase("driver")
 
         repl = {s: state_arr[i] for s, i in state_idx.items()}
         repl.update({s: param_arr[i] for s, i in param_idx.items()})
         repl.update({s: const_arr[i] for s, i in const_idx.items()})
         repl.update({s: obs_arr[i] for s, i in obs_idx.items()})
+        repl.update({s: driver_arr[i] for s, i in driver_idx.items()})
 
         deriv_eqs = [eq for eq in self.equations if eq.lhs in state_idx]
         cse_eqs, J = get_jacobian_matrix(self.state_symbols, deriv_eqs)
@@ -252,6 +279,7 @@ class SymbolicODESystem(GenericODE):
         state_idx = {s: i for i, s in enumerate(self.state_symbols)}
         param_idx = {s: i for i, s in enumerate(self.parameter_symbols)}
         const_idx = {s: i for i, s in enumerate(self.constant_symbols)}
+        driver_idx = {s: i for i, s in enumerate(self.driver_symbols)}
 
         values = {}
         for sym, i in state_idx.items():
@@ -260,9 +288,86 @@ class SymbolicODESystem(GenericODE):
             values[sym] = parameters[i]
         for sym, i in const_idx.items():
             values[sym] = self.compile_settings.constants.values_array[i]
+        for sym, i in driver_idx.items():
+            values[sym] = drivers[i]
 
         deriv_eqs = [eq for eq in self.equations if eq.lhs in state_idx]
         rhs = [subs_math_func_placeholders(eq.rhs) for eq in deriv_eqs]
         J = sp.Matrix(rhs).jacobian(sp.Matrix(self.state_symbols))
         J_num = np.array(J.subs(values)).astype(self.precision)
         return J_num
+
+
+def setup_system(observables, parameters, constants, drivers, states, dxdt,
+                 precision=np.float64):
+    """Create a :class:`SymbolicODESystem` from manual string input."""
+
+    def _replace_if(expr_str):
+        match = re.search(r"(.+?) if (.+?) else (.+)", expr_str)
+        if match:
+            true_str = _replace_if(match.group(1).strip())
+            cond_str = _replace_if(match.group(2).strip())
+            false_str = _replace_if(match.group(3).strip())
+            return (
+                f"Piecewise(({true_str}, {cond_str}), ({false_str}, True))"
+            )
+        return expr_str
+
+    symbol_names = (
+        set(observables)
+        | set(parameters)
+        | set(constants)
+        | set(drivers)
+        | set(states)
+    )
+    symbols = {name: sp.symbols(name) for name in symbol_names}
+
+    if isinstance(dxdt, str):
+        lines = [l.strip() for l in dxdt.strip().splitlines() if l.strip()]
+    else:
+        lines = [l.strip() for l in dxdt if l.strip()]
+
+    equations = []
+    assigned_obs = set()
+    deriv_states = set()
+    for line in lines:
+        lhs, rhs = [p.strip() for p in line.split("=", 1)]
+        rhs_expr = eval(
+            _replace_if(rhs), {"Piecewise": sp.Piecewise}, symbols
+        )
+        if lhs.startswith("d"):
+            state_name = lhs[1:]
+            if state_name not in states:
+                raise ValueError(f"Unknown state derivative: {state_name}")
+            equations.append(sp.Eq(symbols[state_name], rhs_expr))
+            deriv_states.add(state_name)
+        elif lhs in states:
+            raise ValueError(f"State {lhs} cannot be assigned directly")
+        else:
+            if lhs not in observables:
+                raise ValueError(f"Unknown observable: {lhs}")
+            equations.append(sp.Eq(symbols[lhs], rhs_expr))
+            assigned_obs.add(lhs)
+
+    missing_obs = set(observables) - assigned_obs
+    if missing_obs:
+        raise ValueError(f"Observables without assignment: {missing_obs}")
+    missing_states = set(states) - deriv_states
+    if missing_states:
+        raise ValueError(f"States without derivatives: {missing_states}")
+
+    state_syms = {symbols[n]: v for n, v in states.items()}
+    param_syms = {symbols[n]: v for n, v in parameters.items()}
+    const_syms = {symbols[n]: v for n, v in (constants or {}).items()}
+    obs_syms = [symbols[n] for n in observables]
+    driver_syms = [symbols[n] for n in drivers]
+
+    return SymbolicODESystem(
+        states=state_syms,
+        parameters=param_syms,
+        constants=const_syms,
+        observables=obs_syms,
+        drivers=driver_syms,
+        equations=equations,
+        precision=precision,
+    )
