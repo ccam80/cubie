@@ -124,16 +124,19 @@ class SystemInterface:
         return recognized
 
     def state_indices(self,
-                      keys_or_indices: Union[List[Union[str, int]], str, int],
+                      keys_or_indices: Optional[Union[List[Union[str, int]],
+                      str, int]] = None,
                       silent: bool = False
                       ) -> np.ndarray:
         """Convert state labels or indices to a numeric array.
 
         Parameters
         ----------
-        keys_or_indices : list of {str, int} or str or int
-            State names, indices, or a mix of both. Can be a single name/index
-            or a list containing strings (state names) and/or integers (indices).
+        keys_or_indices : list of {str, int} or str or int or None, default
+        None.
+            State names, indices, or a mix of both. Can be a single
+            name/index or a list containing strings (state names) and/or
+            integers (indices). None returns all state indices.
         silent : bool, default False
             If True, suppresses warnings for unrecognized keys or indices.
 
@@ -143,6 +146,8 @@ class SystemInterface:
             Array of integer indices corresponding to the provided state
             names or indices. Always returns a 1D array, even for single inputs.
         """
+        if keys_or_indices is None:
+            keys_or_indices = self.states.names
         return self.states.get_indices(keys_or_indices, silent=silent)
 
     def observable_indices(
@@ -154,12 +159,13 @@ class SystemInterface:
 
         Parameters
         ----------
-        keys_or_indices : list of {str, int} or str or int
-            Observable names, indices, or a mix of both. Can be a single name/index
-            or a list containing strings (observable names) and/or integers (indices).
+        keys_or_indices : list of {str, int} or str or int or None, default
+        None.
+            Observable names, indices, or a mix of both. Can be a single
+            name/index or a list containing strings (observable names)
+            and/or integers (indices). None returns all observable indices.
         silent : bool, default False
             If True, suppresses warnings for unrecognized keys or indices.
-
         Returns
         -------
         np.ndarray
@@ -167,6 +173,8 @@ class SystemInterface:
             names or indices. Always returns a 1D array, even for single inputs.
 
         """
+        if keys_or_indices is None:
+            keys_or_indices = self.observables.names
         return self.observables.get_indices(keys_or_indices, silent=silent)
 
     def parameter_indices(

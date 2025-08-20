@@ -598,7 +598,7 @@ class BaseArrayManager(ABC):
             self.host.attach(label, new_array)
         return None
 
-    def update_host_arrays(self, new_arrays: Dict[str, NDArray]) -> bool:
+    def update_host_arrays(self, new_arrays: Dict[str, NDArray]):
         """Updates host arrays with new data, assigns for realloc or overwrite.
 
         Args:

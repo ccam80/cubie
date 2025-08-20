@@ -451,8 +451,10 @@ class MemoryManager:
 
     def set_manual_proportion(self, instance: object, proportion: float):
         """
-        Set manual allocation proportion for an already-manual instance.
+        Set manual allocation proportion for an instance.
 
+        If instance is currently in the auto-allocation pool, shift it to
+        manual.
         Parameters
         ----------
         instance : object
@@ -468,9 +470,12 @@ class MemoryManager:
         instance_id = id(instance)
         if proportion < 0 or proportion > 1:
             raise ValueError("Proportion must be between 0 and 1")
-        self._manual_pool.remove(instance_id)
-        self._add_manual_proportion(instance, proportion)
-        self.registry[instance_id].proportion = proportion
+        if instance_id in self._auto_pool:
+            self._add_manual_proportion(instance, proportion)
+        else:
+            self._manual_pool.remove(instance_id)
+            self._add_manual_proportion(instance, proportion)
+            self.registry[instance_id].proportion = proportion
 
     def set_manual_limit_mode(self, instance: object, proportion: float):
         """

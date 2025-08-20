@@ -71,7 +71,7 @@ def solve_ivp(
                          duration=duration,
                          warmup=settling_time,
                          **options)
-
+    return results
 
 
 class Solver:
@@ -79,7 +79,7 @@ class Solver:
 
     Parameters
     ----------
-    system : object
+    system : GenericODE
         System model containing the ODEs to integrate.
     algorithm : str, optional
         Integration algorithm to use. Defaults to ``"euler"``.
@@ -105,7 +105,7 @@ class Solver:
         Floating point precision. Defaults to ``numpy.float64``.
     profileCUDA : bool, optional
         Enable CUDA profiling. Defaults to ``False``.
-    memory_manager : object, optional
+    memory_manager : MemoryManager, optional
         Manager responsible for CUDA memory allocations.
     stream_group : str, optional
         Name of the CUDA stream group used by the solver. Defaults to
@@ -222,8 +222,8 @@ class Solver:
         else:
             summarised_state_indices = None
         if summarised_observables is not None:
-            summarised_observable_indices = self.system_interface.observable_indices(
-                    summarised_observables)
+            summarised_observable_indices = (
+                self.system_interface.observable_indices(summarised_observables))
         else:
             summarised_observable_indices = None
 
@@ -376,13 +376,13 @@ class Solver:
         )
 
         if saved_state_indices is not None:
-            updates_dict[saved_state_indices] = saved_state_indices
+            updates_dict['saved_state_indices'] = saved_state_indices
         if saved_observable_indices is not None:
-            updates_dict[saved_observable_indices] = saved_observable_indices
+            updates_dict['saved_observable_indices'] = saved_observable_indices
         if summarised_state_indices is not None:
-            updates_dict[summarised_state_indices] = summarised_state_indices
+            updates_dict['summarised_state_indices'] = summarised_state_indices
         if summarised_observable_indices is not None:
-            updates_dict[summarised_observable_indices] = \
+            updates_dict['summarised_observable_indices'] = \
                 summarised_observable_indices
 
         return updates_dict
@@ -418,11 +418,12 @@ class Solver:
         recognised = set()
 
         if "mem_proportion" in updates_dict:
-            self.memory_manager.set_manual_proportion(
+            self.memory_manager.set_manual_proportion(self.kernel,
                     updates_dict["mem_proportion"])
             recognised.add("mem_proportion")
         if "allocator" in updates_dict:
-            self.memory_manager.set_allocator(updates_dict["allocator"])
+            self.memory_manager.set_allocator(self.kernel, updates_dict[
+                "allocator"])
             recognised.add("allocator")
 
         recognised = set(recognised)
@@ -464,7 +465,7 @@ class Solver:
         ndarray
             Integer indices corresponding to the requested states.
         """
-        return self.system_interface.get_state_indices(state_labels)
+        return self.system_interface.state_indices(state_labels)
 
     def get_observable_indices(self,
                                observable_labels: Optional[List[str]] = None):
@@ -481,7 +482,7 @@ class Solver:
         ndarray
             Integer indices corresponding to the requested observables.
         """
-        return self.system_interface.get_observable_indices(observable_labels)
+        return self.system_interface.observable_indices(observable_labels)
 
     @property
     def precision(self) -> type:
@@ -702,7 +703,7 @@ class Solver:
                 saved_states = self.saved_states,
                 saved_observables = self.saved_observables,
                 summarised_states = self.summarised_states,
-                summarised_observables = self.summarised_states,
+                summarised_observables = self.summarised_observables,
                 output_types = self.kernel.output_types,
                 precision = self.precision
         )

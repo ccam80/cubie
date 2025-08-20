@@ -1,10 +1,12 @@
 from os import environ
 import pytest
 
-from cubie.batchsolving.arrays.BaseArrayManager import BaseArrayManager, ArrayContainer
 import attrs
 import numpy as np
+from numba import cuda
 
+from cubie.batchsolving.arrays.BaseArrayManager import (BaseArrayManager,
+                                                        ArrayContainer)
 from cubie.memory.array_requests import ArrayResponse, ArrayRequest
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
@@ -42,6 +44,7 @@ class TestArraysSimple(ArrayContainer):
     arr1 = attrs.field(default=None)
     arr2 = attrs.field(default=None)
     stride_order = ("time", "run", "variable")
+    location = 'host'
 
 @pytest.fixture(scope='function')
 def arraytest_overrides(request):
@@ -119,7 +122,8 @@ def test_memory_manager():
     return mem_mgr
 
 @pytest.fixture(scope='function')
-def test_arrmgr(hostarrays, devarrays, precision, arraytest_settings, test_memory_manager, batch_output_sizes):
+def test_arrmgr(hostarrays, devarrays, precision, arraytest_settings,
+                test_memory_manager, batch_output_sizes):
     return ConcreteArrayManager(
             precision=precision,
             sizes=batch_output_sizes,
@@ -162,6 +166,23 @@ def array_requests(arraytest_settings, precision):
         )
     }
 
+@pytest.fixture(scope='function')
+def array_requests_sized(arraytest_settings, precision):
+    """Create ArrayRequest objects based on arraytest_settings"""
+    return {
+        'state': ArrayRequest(
+            shape=arraytest_settings['devshape1'],
+            dtype=precision,
+            memory=arraytest_settings['memory'],
+            stride_order=arraytest_settings['_stride_order']
+        ),
+        'observables': ArrayRequest(
+            shape=arraytest_settings['devshape2'],
+            dtype=precision,
+            memory=arraytest_settings['memory'],
+            stride_order=arraytest_settings['_stride_order']
+        )
+    }
 @pytest.fixture(scope='function')
 def second_arrmgr(test_memory_manager, precision, arraytest_settings, batch_output_sizes):
     """Create a second array manager for testing grouping behavior"""
@@ -416,8 +437,35 @@ class TestBaseArrayManager:
         """Test next_chunk method (placeholder implementation)"""
         # This is a placeholder method, so just ensure it exists and is callable
         assert test_arrmgr.initialise('test1', 'test2') == ('test1', 'test2')
-        assert test_arrmgr.finalise('test1', 'test2') == ('test1', 'test2')
+        assert test_arrmgr.finalise("test1", "test2") == ("test1", "test2")
 
+    def test_initialize_device_zeros(
+        self, test_manager_with_sizing, array_requests_sized,
+            arraytest_settings
+    ):
+        """Test initialize_device with zeros"""
+        test_arrmgr = test_manager_with_sizing
+        array_requests = array_requests_sized
+        # This method should initialize device arrays to zeros
+        test_arrmgr.request_allocation(array_requests)
+        test_arrmgr.update_host_arrays(
+            {'state': np.ones(arraytest_settings['hostshape1'],
+                              dtype=arraytest_settings['dtype']),
+             'observables': np.ones(arraytest_settings['hostshape2'],
+                                    dtype=arraytest_settings['dtype'])})
+        cuda.to_device(test_arrmgr.host.state, to=test_arrmgr.device.state)
+        cuda.to_device(test_arrmgr.host.observables, to=test_arrmgr.device.observables)
+
+        test1 = test_arrmgr.device.state.copy_to_host()
+        test2 = test_arrmgr.device.observables.copy_to_host()
+        assert not np.any(test1 == 0)
+        assert not np.any(test2 == 0)
+
+        test_arrmgr.initialize_device_zeros()
+        test1 = test_arrmgr.device.state.copy_to_host()
+        test2 = test_arrmgr.device.observables.copy_to_host()
+        assert np.all(test1 == 0)
+        assert np.all(test2 == 0)
 
 @pytest.fixture(scope='function')
 def batch_output_sizes(arraytest_settings):
@@ -429,6 +477,7 @@ def batch_output_sizes(arraytest_settings):
         observable_summaries=arraytest_settings['hostshape4'],
         stride_order=arraytest_settings['_stride_order']
     )
+
 
 @pytest.fixture(scope='function')
 def test_arrays_with_stride_order(arraytest_settings):

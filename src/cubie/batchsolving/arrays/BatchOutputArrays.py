@@ -19,6 +19,7 @@ from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (BaseArrayManager,
                                                         ArrayContainer)
 from cubie.batchsolving import ArrayTypes
+from cubie._utils import slice_variable_dimension
 
 @attrs.define(slots=False)
 class OutputArrayContainer(ArrayContainer):
@@ -208,7 +209,8 @@ class OutputArrays(BaseArrayManager):
         OutputArrays
             Self, for method chaining.
         """
-        self.update_from_solver(solver_instance)
+        new_arrays = self.update_from_solver(solver_instance)
+        self.update_host_arrays(new_arrays)
         self.allocate()
 
     @property
@@ -351,28 +353,27 @@ class OutputArrays(BaseArrayManager):
 
     def update_from_solver(self, solver_instance: "BatchSolverKernel"):
         """
-        Update sizes and precision from solver instance.
+        Update sizes and precision from solver, returning new host arrays
 
         Parameters
         ----------
         solver_instance : BatchSolverKernel
             The solver instance to update from.
 
-        Notes
-        -----
-        This method updates the array sizes and precision, and reallocates
-        host arrays if their sizes don't match the expected dimensions.
+        Returns
+        -------
+        dict:
+            A dict of host arrays; np.zeros with updated sizes for the
+            update_host_arrays method to interpret.
         """
         self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
-        host_dict = {k: v for k, v in self.host.__dict__.items()
-                     if not k.startswith("_")}
-        size_matches = self.check_sizes(host_dict, location="host")
-        for array, match in size_matches.items():
-            if not match:
-                shape = getattr(self._sizes, array)
-                setattr(self.host, array, np.zeros(shape=shape,
-                                                     dtype=self._precision))
+        new_arrays = {}
+        for name in self.host.__dict__:
+            if not name.startswith("_"):
+                newshape = getattr(self._sizes, name)
+                new_arrays[name] = np.zeros(newshape, self._precision)
         self._precision = solver_instance.precision
+        return new_arrays
 
     def finalise(self, host_indices):
         """
@@ -390,14 +391,17 @@ class OutputArrays(BaseArrayManager):
         synchronization.
         """
         chunk_index = self.host.stride_order.index(self._chunk_axis)
-        slice_tuple = [slice(None)] * 3
-        slice_tuple[chunk_index] = host_indices
-        slice_tuple = tuple(slice_tuple)
+        slice_tuple = slice_variable_dimension(host_indices,
+                                               chunk_index,
+                                               len(self.host.stride_order))
+
         for array_name, array in self.host.__dict__.items():
             if not array_name.startswith("_"):
-                array[slice_tuple] = getattr(self.device, array_name).copy()
-                # I'm not sure that I can stream this? If I just overwrite,
-                # that might jog the cuda runtime to synchronize.
+                if getattr(self.active_outputs, array_name):
+                    array[slice_tuple] = getattr(self.device, array_name).copy()
+                    # I'm not sure that we can stream a Mapped transfer,
+                    # as transfer is managed by the CUDA runtime. If we just
+                    # overwrite, that might jog the cuda runtime to synchronize.
 
     def initialise(self, host_indices):
         """
