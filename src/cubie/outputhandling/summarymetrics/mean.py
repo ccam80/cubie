@@ -66,7 +66,7 @@ class Mean(SummaryMetric):
             Calculates mean by dividing sum by number of steps and resets
             buffer.
         """
-
+        # no cover: start
         @cuda.jit(["float32, float32[::1], int64, int64",
                    "float64, float64[::1], int64, int64"], device=True,
                   inline=True, )
@@ -123,5 +123,5 @@ class Mean(SummaryMetric):
             """
             output_array[0] = buffer[0] / summarise_every
             buffer[0] = 0.0
-
+        # no cover: end
         return update, save

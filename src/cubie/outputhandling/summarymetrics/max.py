@@ -64,7 +64,7 @@ class Max(SummaryMetric):
         save(buffer, output_array, summarise_every, customisable_variable):
             Saves the current maximum to output and resets buffer.
         """
-
+        # no cover: start
         @cuda.jit(["float32, float32[::1], int64, int64",
                    "float64, float64[::1], int64, int64"], device=True,
                   inline=True, )
@@ -121,4 +121,5 @@ class Max(SummaryMetric):
             """
             output_array[0] = buffer[0]
             buffer[0] = -1.0e30  # A very non-maximal number
+        # no cover: end
         return update, save

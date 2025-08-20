@@ -417,6 +417,7 @@ class BatchSolverKernel(CUDAFactory):
         save_state_summaries = output_flags.state_summaries
         save_observable_summaries = output_flags.observable_summaries
 
+        # no cover: start
         @cuda.jit((precision[:, :], precision[:, :], precision[:, :],
                    precision[:, :, :], precision[:, :, :], precision[:, :, :],
                    precision[:, :, :], int32, int32, int32), )
@@ -424,7 +425,6 @@ class BatchSolverKernel(CUDAFactory):
                                observables_output, state_summaries_output,
                                observables_summaries_output, duration_samples,
                                warmup_samples=0, n_runs=1, ):
-            # no cover: start
             tx = int16(cuda.threadIdx.x)
             ty = int16(cuda.threadIdx.y)
 
@@ -458,7 +458,7 @@ class BatchSolverKernel(CUDAFactory):
                     duration_samples, warmup_samples, )
 
             return None
-            # no cover: end
+        # no cover: end
         return integration_kernel
 
     def update(self, updates_dict=None, silent=False, **kwargs):

@@ -72,7 +72,7 @@ class Peaks(SummaryMetric):
         save(buffer, output_array, summarise_every, customisable_variable):
             Saves detected peak time indices to output and resets buffer.
         """
-
+        # no cover: start
         @cuda.jit(["float32, float32[::1], int64, int64",
                    "float64, float64[::1], int64, int64"], device=True,
                   inline=True, )
@@ -145,5 +145,5 @@ class Peaks(SummaryMetric):
                 output_array[p] = buffer[3 + p]
                 buffer[3 + p] = 0.0
             buffer[2] = 0.0
-
+        # no cover: end
         return update, save

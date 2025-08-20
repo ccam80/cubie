@@ -66,7 +66,7 @@ class RMS(SummaryMetric):
             Calculates RMS by taking square root of mean of squares and
             resets buffer.
         """
-
+        # no cover: start
         @cuda.jit(["float32, float32[::1], int64, int64",
                    "float64, float64[::1], int64, int64"], device=True,
                   inline=True, )
@@ -128,5 +128,5 @@ class RMS(SummaryMetric):
             """
             output_array[0] = sqrt(buffer[0] / summarise_every)
             buffer[0] = 0.0
-
+        # no cover: end
         return update, save
