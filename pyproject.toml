@@ -37,6 +37,7 @@ dev = [
     "pytest-durations",
     "pytest-json-report",
     "flake8",
+    "ruff",
     "cupy-cuda12x",
     "pandas"
 
