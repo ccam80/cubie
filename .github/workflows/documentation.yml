@@ -7,6 +7,9 @@ permissions:
 
 jobs:
   docs:
+    env:
+          NUMBA_ENABLE_CUDASIM: "1"        # run Numba’s GPU simulator on GPU-less runner
+          NUMBA_CUDA_USE_NVIDIA_BINDING: "0"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
