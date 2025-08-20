@@ -84,7 +84,8 @@ exclude_also = [
     "pragma: no cover",
     'no cover: start(?s:.)*?no cover: stop',
     'no cover: start(?s:.)*?no cover: end',
-    'if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":(?s:.)*?else',
+    'if environ.get(:(?s:.)*?else', # omit cudasim checks - possibly too broad
+    'if (environ.get(:(?s:.)*?else',
     "def __repr__",
     "if self.debug:",
     "if settings.DEBUG",
