@@ -12,7 +12,7 @@ been adapted for use in this project.
 
 import numpy as np
 import sympy as sp
-from numba import cuda, from_dtype
+from numba import from_dtype
 
 from cubie.systemmodels.systems.GenericODE import GenericODE
 from cubie.systemmodels.symbolic.math_functions import (
@@ -21,7 +21,6 @@ from cubie.systemmodels.symbolic.math_functions import (
 from cubie.systemmodels.symbolic.jacobian import get_jacobian_matrix
 from cubie.systemmodels.symbolic.function_generation import (
     generate_dxdt_function,
-    generate_jacobian_function,
 )
 
 
@@ -103,14 +102,14 @@ class SymbolicODE(GenericODE):
                     f"Equation RHS contains undefined symbols: {undefined}"
                 )
 
-    def build(self):
+    def build(self, jacobian=False):
         """Compile the system into CUDA device functions.
 
         Returns the compiled derivative function.  The Jacobian device function
         is available as :attr:`jacobian_function`.
         """
-        global global_constants
-        global_constants = self.compile_settings.constants.values_array.astype(
+        global constants
+        constants = self.compile_settings.constants.values_array.astype(
             self.precision
         )
 
@@ -124,40 +123,23 @@ class SymbolicODE(GenericODE):
 
     def _build_dxdt(self):
         numba_precision = from_dtype(self.precision)
-
+        constants = self.compile_settings.constants.values_array.astype(
+                self.precision)
         code_lines = self._generate_dxdt_lines()
         python_func = generate_dxdt_function(code_lines)
 
-        jitted = cuda.jit(
-            (
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-            ),
-            device=True,
-            inline=True,
-        )(python_func)
+        jitted = python_func(constants, numba_precision)
         return jitted
 
     def _build_jacobian(self):
         numba_precision = from_dtype(self.precision)
+        constants = self.compile_settings.constants.values_array.astype(
+            self.precision
+        )
+        code_lines = self._generate_dxdt_lines()
+        python_func = generate_dxdt_function(code_lines)
 
-        code_lines = self._generate_jacobian_code_lines()
-        python_func = generate_jacobian_function(code_lines)
-
-        jitted = cuda.jit(
-            (
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:],
-                numba_precision[:, :],
-            ),
-            device=True,
-            inline=True,
-        )(python_func)
+        jitted = python_func(constants, numba_precision)
         return jitted
 
     def _generate_dxdt_lines(self):
@@ -169,7 +151,7 @@ class SymbolicODE(GenericODE):
 
         state_arr = sp.IndexedBase('state')
         param_arr = sp.IndexedBase('parameters')
-        const_arr = sp.IndexedBase('global_constants')
+        const_arr = sp.IndexedBase('constants')
         obs_arr = sp.IndexedBase('observables')
         driver_arr = sp.IndexedBase('driver')
 
@@ -184,9 +166,10 @@ class SymbolicODE(GenericODE):
             rhs = subs_math_func_placeholders(eq.rhs).subs(repl)
             rhs_code = sp.pycode(rhs)
             if eq.lhs in state_idx:
-                lines.append(f"dxdt[{state_idx[eq.lhs]}] = {rhs_code}")
+                lines.append(f"    dxdt[{state_idx[eq.lhs]}] = {rhs_code}")
             else:
-                lines.append(f"observables[{obs_idx[eq.lhs]}] = {rhs_code}")
+                lines.append(f"    observables[{obs_idx[eq.lhs]}] ="
+                             f" {rhs_code}")
         return lines
 
     @property
@@ -241,7 +224,7 @@ class SymbolicODE(GenericODE):
 
         state_arr = sp.IndexedBase("state")
         param_arr = sp.IndexedBase("parameters")
-        const_arr = sp.IndexedBase("global_constants")
+        const_arr = sp.IndexedBase("constants")
         obs_arr = sp.IndexedBase("observables")
         driver_arr = sp.IndexedBase("driver")
 

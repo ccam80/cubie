@@ -3,9 +3,11 @@
 import re
 import sympy as sp
 import numpy as np
-
+from warnings import warn
 from cubie.systemmodels.symbolic.symbolicODE import SymbolicODE
 
+class EquationWarning(Warning):
+    pass
 
 def setup_system(
     observables,
@@ -18,6 +20,7 @@ def setup_system(
 ):
     """Create a :class:`SymbolicODE` from manual string input."""
 
+    #TODO: Shift this to a preprocessing section
     def _replace_if(expr_str):
         match = re.search(r"(.+?) if (.+?) else (.+)", expr_str)
         if match:
@@ -29,6 +32,7 @@ def setup_system(
             )
         return expr_str
 
+    #TODO: this part is interpreting and processing parameters
     symbol_names = (
         set(observables)
         | set(parameters)
@@ -38,6 +42,8 @@ def setup_system(
     )
     symbols = {name: sp.symbols(name) for name in symbol_names}
 
+    # Allow triple-quoted multiline string or a list of strings
+    #TODO equation parsing starts here
     if isinstance(dxdt, str):
         lines = [l.strip() for l in dxdt.strip().splitlines() if l.strip()]
     else:
@@ -48,7 +54,7 @@ def setup_system(
     deriv_states = set()
     for line in lines:
         lhs, rhs = [p.strip() for p in line.split("=", 1)]
-        rhs_expr = eval(
+        rhs_expr = eval( # TODO: Sympify instead of eval
             _replace_if(rhs), {"Piecewise": sp.Piecewise}, symbols
         )
         if lhs.startswith("d"):
@@ -70,7 +76,18 @@ def setup_system(
         raise ValueError(f"Observables without assignment: {missing_obs}")
     missing_states = set(states) - deriv_states
     if missing_states:
-        raise ValueError(f"States without derivatives: {missing_states}")
+        warn(
+            f"States {missing_states} have no associated derivative "
+            f"term. In the Cubie world, this makes it an 'observable'. "
+            f"{missing_states} have been moved from states to observables.",
+            EquationWarning,
+        )
+        for state in missing_states:
+            if state in observables:
+                raise ValueError(f"State {state} is both observable and state")
+            observables.extend(missing_states)
+            states.pop(state, None)
+
 
     state_syms = {symbols[n]: v for n, v in states.items()}
     param_syms = {symbols[n]: v for n, v in parameters.items()}
