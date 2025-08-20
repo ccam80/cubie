@@ -1,18 +1,24 @@
 import numpy as np
 import pytest
+import numpy as np
+import pytest
 from sympy import symbols, Eq
 
-from cubie.systemmodels.symbolic.symbolic import SymbolicODESystem
+from cubie.systemmodels.symbolic import SymbolicODE
 from cubie.systemmodels.symbolic.math_functions import exp_
 
 
 def test_symbolic_basic():
     x, y, k = symbols('x y k')
-    equations = [Eq(x, -k*x), Eq(y, k*x)]
+    equations = [Eq(x, -k * x), Eq(y, k * x)]
+
+
 def test_symbolic_basic_and_jacobian():
     x, y, k = symbols("x y k")
     equations = [Eq(x, -k * x), Eq(y, k * x)]
-    system = SymbolicODESystem(states=[x, y], parameters={k: 1.0}, equations=equations)
+    system = SymbolicODE(
+        states=[x, y], parameters={k: 1.0}, equations=equations
+    )
     system.build()
     assert system.device_function is not None
     assert system.jacobian_function is not None
@@ -35,7 +41,7 @@ def test_symbolic_basic_and_jacobian():
 def test_allowed_operator():
     x, k = symbols("x k")
     equations = [Eq(x, -k * exp_(x))]
-    system = SymbolicODESystem(states=[x], parameters={k: 1.0}, equations=equations)
+    system = SymbolicODE(states=[x], parameters={k: 1.0}, equations=equations)
     states = np.array([1.0], dtype=system.precision)
     params = np.array([2.0], dtype=system.precision)
     drivers = np.zeros(1, dtype=system.precision)
