@@ -8,8 +8,10 @@ encountered during integration for each variable.
 from numba import cuda
 
 from cubie.outputhandling.summarymetrics import summary_metrics
-from cubie.outputhandling.summarymetrics.metrics import \
-    SummaryMetric, register_metric
+from cubie.outputhandling.summarymetrics.metrics import (
+    SummaryMetric,
+    register_metric,
+)
 
 
 @register_metric(summary_metrics)
@@ -37,9 +39,13 @@ class Max(SummaryMetric):
         """
         update_func, save_func = self.CUDA_factory()
 
-        super().__init__(name="max", buffer_size=1, output_size=1,
-                         update_device_func=update_func,
-                         save_device_func=save_func, )
+        super().__init__(
+            name="max",
+            buffer_size=1,
+            output_size=1,
+            update_device_func=update_func,
+            save_device_func=save_func,
+        )
 
     def CUDA_factory(self):
         """
@@ -64,11 +70,22 @@ class Max(SummaryMetric):
         save(buffer, output_array, summarise_every, customisable_variable):
             Saves the current maximum to output and resets buffer.
         """
+
         # no cover: start
-        @cuda.jit(["float32, float32[::1], int64, int64",
-                   "float64, float64[::1], int64, int64"], device=True,
-                  inline=True, )
-        def update(value, buffer, current_index, customisable_variable, ):
+        @cuda.jit(
+            [
+                "float32, float32[::1], int64, int64",
+                "float64, float64[::1], int64, int64",
+            ],
+            device=True,
+            inline=True,
+        )
+        def update(
+            value,
+            buffer,
+            current_index,
+            customisable_variable,
+        ):
             """
             Update running maximum with new value.
 
@@ -92,11 +109,20 @@ class Max(SummaryMetric):
             if value > buffer[0]:
                 buffer[0] = value
 
-        @cuda.jit(["float32[::1], float32[::1], int64, int64",
-                   "float64[::1], float64[::1], int64, int64"], device=True,
-                  inline=True, )
-        def save(buffer, output_array, summarise_every,
-                 customisable_variable, ):
+        @cuda.jit(
+            [
+                "float32[::1], float32[::1], int64, int64",
+                "float64[::1], float64[::1], int64, int64",
+            ],
+            device=True,
+            inline=True,
+        )
+        def save(
+            buffer,
+            output_array,
+            summarise_every,
+            customisable_variable,
+        ):
             """
             Save maximum value to output and reset buffer.
 
@@ -121,5 +147,6 @@ class Max(SummaryMetric):
             """
             output_array[0] = buffer[0]
             buffer[0] = -1.0e30  # A very non-maximal number
+
         # no cover: end
         return update, save

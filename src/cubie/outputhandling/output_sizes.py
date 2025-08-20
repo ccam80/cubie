@@ -19,6 +19,7 @@ from cubie.batchsolving._utils import ensure_nonzero_size
 from numpy import ceil
 from abc import ABC
 
+
 @attrs.define
 class ArraySizingClass(ABC):
     """
@@ -82,20 +83,21 @@ class SummariesBufferSizes(ArraySizingClass):
     Most commonly used via the from_output_fns class method which extracts
     the relevant sizes from an OutputFunctions object.
     """
+
     state: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     observables: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     per_variable: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
 
     @classmethod
-    def from_output_fns(cls,
-                        output_fns: "OutputFunctions") -> \
-            "SummariesBufferSizes":
+    def from_output_fns(
+        cls, output_fns: "OutputFunctions"
+    ) -> "SummariesBufferSizes":
         """
         Create buffer sizes from an OutputFunctions object.
 
@@ -109,9 +111,11 @@ class SummariesBufferSizes(ArraySizingClass):
         SummariesBufferSizes
             Buffer sizes extracted from the output functions configuration.
         """
-        return cls(output_fns.state_summaries_buffer_height,
-                   output_fns.observable_summaries_buffer_height,
-                   output_fns.summaries_buffer_height_per_var, )
+        return cls(
+            output_fns.state_summaries_buffer_height,
+            output_fns.observable_summaries_buffer_height,
+            output_fns.summaries_buffer_height_per_var,
+        )
 
 
 @attrs.define
@@ -145,32 +149,35 @@ class LoopBufferSizes(ArraySizingClass):
     output-derived buffer sizes (summaries) to provide a complete view
     of memory requirements for the integration loop.
     """
+
     state_summaries: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     observable_summaries: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     state: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     observables: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     dxdt: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     parameters: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     drivers: Optional[int] = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
 
     @classmethod
-    def from_system_and_output_fns(cls, system: "GenericODE",
-                                   output_fns: "OutputFunctions",
-                                   ) -> "LoopBufferSizes":
+    def from_system_and_output_fns(
+        cls,
+        system: "GenericODE",
+        output_fns: "OutputFunctions",
+    ) -> "LoopBufferSizes":
         """
         Create buffer sizes from system and output function objects.
 
@@ -188,15 +195,21 @@ class LoopBufferSizes(ArraySizingClass):
         """
         summary_sizes = SummariesBufferSizes.from_output_fns(output_fns)
         system_sizes = system.sizes
-        obj = cls(summary_sizes.state, summary_sizes.observables,
-                  system_sizes.states, system_sizes.observables,
-                  system_sizes.states, system_sizes.parameters,
-                  system_sizes.drivers, )
+        obj = cls(
+            summary_sizes.state,
+            summary_sizes.observables,
+            system_sizes.states,
+            system_sizes.observables,
+            system_sizes.states,
+            system_sizes.parameters,
+            system_sizes.drivers,
+        )
         return obj
 
     @classmethod
-    def from_solver(cls,
-                    solver_instance: "BatchSolverKernel") -> "LoopBufferSizes":
+    def from_solver(
+        cls, solver_instance: "BatchSolverKernel"
+    ) -> "LoopBufferSizes":
         """
         Create buffer sizes from a BatchSolverKernel object.
 
@@ -212,10 +225,15 @@ class LoopBufferSizes(ArraySizingClass):
         """
         system_sizes = solver_instance.system_sizes
         summary_sizes = solver_instance.summaries_buffer_sizes
-        return cls(summary_sizes.state, summary_sizes.observables,
-                   system_sizes.states, system_sizes.observables,
-                   system_sizes.states, system_sizes.parameters,
-                   system_sizes.drivers, )
+        return cls(
+            summary_sizes.state,
+            summary_sizes.observables,
+            system_sizes.states,
+            system_sizes.observables,
+            system_sizes.states,
+            system_sizes.parameters,
+            system_sizes.drivers,
+        )
 
 
 @attrs.define
@@ -239,25 +257,27 @@ class OutputArrayHeights(ArraySizingClass):
     per_variable : int, default 1
         Height per variable for summary outputs.
     """
+
     state: int = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     observables: int = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     state_summaries: int = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     observable_summaries: int = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
     per_variable: int = attrs.field(
-        default=1,
-        validator=attrs.validators.instance_of(int))
+        default=1, validator=attrs.validators.instance_of(int)
+    )
 
     @classmethod
-    def from_output_fns(cls,
-                        output_fns: "OutputFunctions") -> "OutputArrayHeights":
+    def from_output_fns(
+        cls, output_fns: "OutputFunctions"
+    ) -> "OutputArrayHeights":
         """
         Create output array heights from an OutputFunctions object.
 
@@ -280,8 +300,13 @@ class OutputArrayHeights(ArraySizingClass):
         state_summaries = output_fns.state_summaries_output_height
         observable_summaries = output_fns.observable_summaries_output_height
         per_variable = output_fns.summaries_output_height_per_var
-        obj = cls(state, observables, state_summaries, observable_summaries,
-                  per_variable, )
+        obj = cls(
+            state,
+            observables,
+            state_summaries,
+            observable_summaries,
+            per_variable,
+        )
         return obj
 
 
@@ -306,27 +331,30 @@ class SingleRunOutputSizes(ArraySizingClass):
     stride_order : tuple[str, ...], default ("time", "variable")
         Order of dimensions in the arrays.
     """
+
     state: Tuple[int, int] = attrs.field(
-        default=(1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     observables: Tuple[int, int] = attrs.field(
-        default=(1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     state_summaries: Tuple[int, int] = attrs.field(
-        default=(1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     observable_summaries: Tuple[int, int] = attrs.field(
-        default=(1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     stride_order: Tuple[str, ...] = attrs.field(
         default=("time", "variable"),
         validator=attrs.validators.deep_iterable(
-            attrs.validators.in_(["time", "variable"])))
+            attrs.validators.in_(["time", "variable"])
+        ),
+    )
 
     @classmethod
-    def from_solver(cls,
-                    solver_instance: "BatchSolverKernel") -> \
-            "SingleRunOutputSizes":
+    def from_solver(
+        cls, solver_instance: "BatchSolverKernel"
+    ) -> "SingleRunOutputSizes":
         """
         Create output sizes from a BatchSolverKernel object.
 
@@ -347,9 +375,16 @@ class SingleRunOutputSizes(ArraySizingClass):
         state = (output_samples, heights.state)
         observables = (output_samples, heights.observables)
         state_summaries = (summarise_samples, heights.state_summaries)
-        observable_summaries = (summarise_samples,
-                                heights.observable_summaries)
-        obj = cls(state, observables, state_summaries, observable_summaries, )
+        observable_summaries = (
+            summarise_samples,
+            heights.observable_summaries,
+        )
+        obj = cls(
+            state,
+            observables,
+            state_summaries,
+            observable_summaries,
+        )
 
         return obj
 
@@ -377,16 +412,25 @@ class SingleRunOutputSizes(ArraySizingClass):
         """
         heights = OutputArrayHeights.from_output_fns(output_fns)
         output_samples = int(
-                ceil(run_settings.duration / run_settings.dt_save))
+            ceil(run_settings.duration / run_settings.dt_save)
+        )
         summarise_samples = int(
-                ceil(run_settings.duration / run_settings.dt_summarise))
+            ceil(run_settings.duration / run_settings.dt_summarise)
+        )
 
         state = (output_samples, heights.state)
         observables = (output_samples, heights.observables)
         state_summaries = (summarise_samples, heights.state_summaries)
-        observable_summaries = (summarise_samples,
-                                heights.observable_summaries)
-        obj = cls(state, observables, state_summaries, observable_summaries, )
+        observable_summaries = (
+            summarise_samples,
+            heights.observable_summaries,
+        )
+        obj = cls(
+            state,
+            observables,
+            state_summaries,
+            observable_summaries,
+        )
 
         return obj
 
@@ -410,25 +454,28 @@ class BatchInputSizes(ArraySizingClass):
     stride_order : tuple[str, ...], default ("run", "variable")
         Order of dimensions in the input arrays.
     """
+
     initial_values: Tuple[int, int] = attrs.field(
-        default=(1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     parameters: Tuple[int, int] = attrs.field(
-        default=(1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     forcing_vectors: Tuple[int, Optional[int]] = attrs.field(
-        default=(1, None),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, None), validator=attrs.validators.instance_of(Tuple)
+    )
 
     stride_order: Tuple[str, ...] = attrs.field(
         default=("run", "variable"),
         validator=attrs.validators.deep_iterable(
-            attrs.validators.in_(["run", "variable"])))
+            attrs.validators.in_(["run", "variable"])
+        ),
+    )
 
     @classmethod
     def from_solver(
-            cls,
-            solver_instance: "BatchSolverKernel") -> "BatchInputSizes":
+        cls, solver_instance: "BatchSolverKernel"
+    ) -> "BatchInputSizes":
         """
         Create input array sizes from a BatchSolverKernel object.
 
@@ -477,27 +524,30 @@ class BatchOutputSizes(ArraySizingClass):
     stride_order : tuple[str, ...], default ("time", "run", "variable")
         Order of dimensions in the output arrays.
     """
+
     state: Tuple[int, int, int] = attrs.field(
-        default=(1, 1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     observables: Tuple[int, int, int] = attrs.field(
-        default=(1, 1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     state_summaries: Tuple[int, int, int] = attrs.field(
-        default=(1, 1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     observable_summaries: Tuple[int, int, int] = attrs.field(
-        default=(1, 1, 1),
-        validator=attrs.validators.instance_of(Tuple))
+        default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
     stride_order: Tuple[str, ...] = attrs.field(
         default=("time", "run", "variable"),
         validator=attrs.validators.deep_iterable(
-            attrs.validators.in_(["time", "run", "variable"])))
+            attrs.validators.in_(["time", "run", "variable"])
+        ),
+    )
 
     @classmethod
-    def from_solver(cls,
-                    solver_instance: "BatchSolverKernel") -> \
-            "BatchOutputSizes":
+    def from_solver(
+        cls, solver_instance: "BatchSolverKernel"
+    ) -> "BatchOutputSizes":
         """
         Create batch output sizes from a BatchSolverKernel object.
 
@@ -518,14 +568,30 @@ class BatchOutputSizes(ArraySizingClass):
         """
         single_run_sizes = SingleRunOutputSizes.from_solver(solver_instance)
         num_runs = solver_instance.num_runs
-        state = (single_run_sizes.state[0], num_runs,
-                 single_run_sizes.state[1])
-        observables = (single_run_sizes.observables[0], num_runs,
-                       single_run_sizes.observables[1])
-        state_summaries = (single_run_sizes.state_summaries[0], num_runs,
-                           single_run_sizes.state_summaries[1])
-        observable_summaries = (single_run_sizes.observable_summaries[0],
-                                num_runs,
-                                single_run_sizes.observable_summaries[1])
-        obj = cls(state, observables, state_summaries, observable_summaries, )
+        state = (
+            single_run_sizes.state[0],
+            num_runs,
+            single_run_sizes.state[1],
+        )
+        observables = (
+            single_run_sizes.observables[0],
+            num_runs,
+            single_run_sizes.observables[1],
+        )
+        state_summaries = (
+            single_run_sizes.state_summaries[0],
+            num_runs,
+            single_run_sizes.state_summaries[1],
+        )
+        observable_summaries = (
+            single_run_sizes.observable_summaries[0],
+            num_runs,
+            single_run_sizes.observable_summaries[1],
+        )
+        obj = cls(
+            state,
+            observables,
+            state_summaries,
+            observable_summaries,
+        )
         return obj

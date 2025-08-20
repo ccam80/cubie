@@ -20,6 +20,8 @@ from cubie.batchsolving.solveresult import SolveSpec
 
 if TYPE_CHECKING:
     from numba.cuda.cudadrv import MappedNDArray
+
+
 def solve_ivp(
     system,
     y0,
@@ -33,44 +35,48 @@ def solve_ivp(
 ) -> SolveResult:
     """Solve a batch initial value problem.
 
-        Parameters
-        ----------
-        system : object
-            System model defining the differential equations.
-        y0 : array-like
-            Initial state values for each run.
-        parameters : array-like or dict
-            Parameter values for each run.
-        forcing_vectors : array-like
-            External forcing values to apply during integration.
-        dt_eval : float
-            Interval at which solution values are stored.
-        method : str, optional
-            Integration algorithm to use. Default is ``"euler"``.
-        duration : float, optional
-            Total integration time. Default is ``1.0``.
-        settling_time : float, optional
-            Warm-up period prior to storing outputs. Default is ``0.0``.
-        **options
-            Additional keyword arguments passed to :class:`Solver`.
+    Parameters
+    ----------
+    system : object
+        System model defining the differential equations.
+    y0 : array-like
+        Initial state values for each run.
+    parameters : array-like or dict
+        Parameter values for each run.
+    forcing_vectors : array-like
+        External forcing values to apply during integration.
+    dt_eval : float
+        Interval at which solution values are stored.
+    method : str, optional
+        Integration algorithm to use. Default is ``"euler"``.
+    duration : float, optional
+        Total integration time. Default is ``1.0``.
+    settling_time : float, optional
+        Warm-up period prior to storing outputs. Default is ``0.0``.
+    **options
+        Additional keyword arguments passed to :class:`Solver`.
 
-        Returns
-        -------
-        SolveResult
-            Results returned from :meth:`Solver.solve`.
+    Returns
+    -------
+    SolveResult
+        Results returned from :meth:`Solver.solve`.
     """
-    solver = Solver(system,
-                    algorithm=method,
-                    dt_save=dt_eval,
-                    duration=duration,
-                    warmup=settling_time,
-                    **options)
-    results = solver.solve(y0,
-                         parameters,
-                         forcing_vectors,
-                         duration=duration,
-                         warmup=settling_time,
-                         **options)
+    solver = Solver(
+        system,
+        algorithm=method,
+        dt_save=dt_eval,
+        duration=duration,
+        warmup=settling_time,
+        **options,
+    )
+    results = solver.solve(
+        y0,
+        parameters,
+        forcing_vectors,
+        duration=duration,
+        warmup=settling_time,
+        **options,
+    )
     return results
 
 
@@ -153,15 +159,17 @@ class Solver:
         interface = SystemInterface.from_system(system)
         self.system_interface = interface
 
-        (saved_state_indices,
-         saved_observable_indices,
-         summarised_state_indices,
-         summarised_observable_indices) = self._variable_indices_from_list(
-                saved_states,
-                saved_observables,
-                summarised_states,
-                summarised_observables)
-
+        (
+            saved_state_indices,
+            saved_observable_indices,
+            summarised_state_indices,
+            summarised_observable_indices,
+        ) = self._variable_indices_from_list(
+            saved_states,
+            saved_observables,
+            summarised_states,
+            summarised_observables,
+        )
 
         self.grid_builder = BatchGridBuilder(interface)
 
@@ -188,11 +196,13 @@ class Solver:
             mem_proportion=mem_proportion,
         )
 
-    def _variable_indices_from_list(self,
-                                    saved_states,
-                                    saved_observables,
-                                    summarised_states,
-                                    summarised_observables):
+    def _variable_indices_from_list(
+        self,
+        saved_states,
+        saved_observables,
+        summarised_states,
+        summarised_observables,
+    ):
         """Translate variable labels into index arrays.
 
         Parameters
@@ -208,42 +218,53 @@ class Solver:
             Index arrays for each variable list in the order provided.
         """
         if saved_states is not None:
-            saved_state_indices = self.system_interface.state_indices(saved_states)
+            saved_state_indices = self.system_interface.state_indices(
+                saved_states
+            )
         else:
             saved_state_indices = None
         if saved_observables is not None:
-            saved_observable_indices = self.system_interface.observable_indices(
-                saved_observables)
+            saved_observable_indices = (
+                self.system_interface.observable_indices(saved_observables)
+            )
         else:
             saved_observable_indices = None
         if summarised_states is not None:
             summarised_state_indices = self.system_interface.state_indices(
-                    summarised_states)
+                summarised_states
+            )
         else:
             summarised_state_indices = None
         if summarised_observables is not None:
             summarised_observable_indices = (
-                self.system_interface.observable_indices(summarised_observables))
+                self.system_interface.observable_indices(
+                    summarised_observables
+                )
+            )
         else:
             summarised_observable_indices = None
 
-        return (saved_state_indices,
-                saved_observable_indices,
-                summarised_state_indices,
-                summarised_observable_indices)
+        return (
+            saved_state_indices,
+            saved_observable_indices,
+            summarised_state_indices,
+            summarised_observable_indices,
+        )
 
-    def solve(self,
-              initial_values,
-              parameters,
-              forcing_vectors=None,
-              duration=1.0,
-              settling_time=0.0,
-              blocksize=256,
-              stream=None,
-              chunk_axis='run',
-              grid_type: str = 'combinatorial',
-              results_type: str = 'full',
-              **kwargs):
+    def solve(
+        self,
+        initial_values,
+        parameters,
+        forcing_vectors=None,
+        duration=1.0,
+        settling_time=0.0,
+        blocksize=256,
+        stream=None,
+        chunk_axis="run",
+        grid_type: str = "combinatorial",
+        results_type: str = "full",
+        **kwargs,
+    ):
         """Solve a batch initial value problem.
 
         Parameters
@@ -281,9 +302,9 @@ class Solver:
         if kwargs:
             self.update(kwargs)
 
-        inits, params = self.grid_builder(states=initial_values,
-                                          params=parameters,
-                                          kind=grid_type)
+        inits, params = self.grid_builder(
+            states=initial_values, params=parameters, kind=grid_type
+        )
         self.kernel.run(
             inits=inits,
             params=params,
@@ -326,8 +347,12 @@ class Solver:
 
         recognised = set()
         all_unrecognized = set(updates_dict.keys())
-        all_unrecognized -= self.update_memory_settings(updates_dict, silent=True)
-        all_unrecognized -= self.system_interface.update(updates_dict, silent=True)
+        all_unrecognized -= self.update_memory_settings(
+            updates_dict, silent=True
+        )
+        all_unrecognized -= self.system_interface.update(
+            updates_dict, silent=True
+        )
         all_unrecognized -= self.kernel.update(updates_dict, silent=True)
 
         if "profileCUDA" in updates_dict:
@@ -362,35 +387,38 @@ class Solver:
         saved_states = updates_dict.pop("saved_states", None)
         saved_observables = updates_dict.pop("saved_observables", None)
         summarised_states = updates_dict.pop("summarised_states", None)
-        summarised_observables = updates_dict.pop("summarised_observables",
-                                                  None)
+        summarised_observables = updates_dict.pop(
+            "summarised_observables", None
+        )
 
-        (saved_state_indices,
-         saved_observable_indices,
-         summarised_state_indices,
-         summarised_observable_indices) = self._variable_indices_from_list(
+        (
+            saved_state_indices,
+            saved_observable_indices,
+            summarised_state_indices,
+            summarised_observable_indices,
+        ) = self._variable_indices_from_list(
             saved_states,
             saved_observables,
             summarised_states,
-            summarised_observables
+            summarised_observables,
         )
 
         if saved_state_indices is not None:
-            updates_dict['saved_state_indices'] = saved_state_indices
+            updates_dict["saved_state_indices"] = saved_state_indices
         if saved_observable_indices is not None:
-            updates_dict['saved_observable_indices'] = saved_observable_indices
+            updates_dict["saved_observable_indices"] = saved_observable_indices
         if summarised_state_indices is not None:
-            updates_dict['summarised_state_indices'] = summarised_state_indices
+            updates_dict["summarised_state_indices"] = summarised_state_indices
         if summarised_observable_indices is not None:
-            updates_dict['summarised_observable_indices'] = \
+            updates_dict["summarised_observable_indices"] = (
                 summarised_observable_indices
+            )
 
         return updates_dict
 
-    def update_memory_settings(self,
-                               updates_dict=None,
-                               silent=False,
-                               **kwargs):
+    def update_memory_settings(
+        self, updates_dict=None, silent=False, **kwargs
+    ):
         """Update memory manager parameters.
 
         Parameters
@@ -408,7 +436,6 @@ class Solver:
             Set of keys that were successfully updated.
         """
         if updates_dict is None:
-
             updates_dict = {}
         if kwargs:
             updates_dict.update(kwargs)
@@ -418,12 +445,14 @@ class Solver:
         recognised = set()
 
         if "mem_proportion" in updates_dict:
-            self.memory_manager.set_manual_proportion(self.kernel,
-                    updates_dict["mem_proportion"])
+            self.memory_manager.set_manual_proportion(
+                self.kernel, updates_dict["mem_proportion"]
+            )
             recognised.add("mem_proportion")
         if "allocator" in updates_dict:
-            self.memory_manager.set_allocator(self.kernel, updates_dict[
-                "allocator"])
+            self.memory_manager.set_allocator(
+                self.kernel, updates_dict["allocator"]
+            )
             recognised.add("allocator")
 
         recognised = set(recognised)
@@ -451,8 +480,7 @@ class Solver:
         """
         self.kernel.disable_profiling()
 
-    def get_state_indices(self,
-                          state_labels: Optional[List[str]] = None):
+    def get_state_indices(self, state_labels: Optional[List[str]] = None):
         """Return indices for the specified state variables.
 
         Parameters
@@ -467,8 +495,9 @@ class Solver:
         """
         return self.system_interface.state_indices(state_labels)
 
-    def get_observable_indices(self,
-                               observable_labels: Optional[List[str]] = None):
+    def get_observable_indices(
+        self, observable_labels: Optional[List[str]] = None
+    ):
         """Return indices for the specified observables.
 
         Parameters
@@ -543,8 +572,7 @@ class Solver:
     @property
     def saved_states(self):
         """Returns a list of state labels for the saved states."""
-        return self.system_interface.state_labels(
-                self.saved_state_indices)
+        return self.system_interface.state_labels(self.saved_state_indices)
 
     @property
     def saved_observable_indices(self):
@@ -556,7 +584,9 @@ class Solver:
     def saved_observables(self):
         """Returns a list of observable labels for the saved observables."""
         return self.system_interface.observable_labels(
-                self.saved_observable_indices)
+            self.saved_observable_indices
+        )
+
     @property
     def summarised_state_indices(self):
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
@@ -567,7 +597,8 @@ class Solver:
     def summarised_states(self):
         """Returns a list of state labels for the summarised states."""
         return self.system_interface.state_labels(
-                self.summarised_state_indices)
+            self.summarised_state_indices
+        )
 
     @property
     def summarised_observable_indices(self):
@@ -580,7 +611,8 @@ class Solver:
     def summarised_observables(self):
         """Returns a list of observable labels for the summarised observables."""
         return self.system_interface.observable_labels(
-                self.summarised_observable_indices)
+            self.summarised_observable_indices
+        )
 
     @property
     def active_output_arrays(self) -> ActiveOutputs:
@@ -594,6 +626,7 @@ class Solver:
         """Exposes :attr:~cubie.batchsolving.BatchSolverKernel.state from the
         child BatchSolverKernel object."""
         return self.kernel.state
+
     @property
     def observables(self):
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.observables`
@@ -627,7 +660,7 @@ class Solver:
     @property
     def forcing_vectors(self):
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.forcing_vectors`
-         from the child BatchSolverKernel object."""
+        from the child BatchSolverKernel object."""
         return self.kernel.forcing_vectors
 
     @property
@@ -691,20 +724,19 @@ class Solver:
     def solve_info(self):
         """Returns a SolveSpec object with details of the solver run."""
         return SolveSpec(
-                dt_min = self.kernel.dt_min,
-                dt_max = self.kernel.dt_max,
-                dt_save = self.kernel.dt_save,
-                dt_summarise = self.kernel.dt_summarise,
-                duration = self.kernel.duration,
-                warmup = self.kernel.warmup,
-                atol = self.kernel.atol,
-                rtol = self.kernel.rtol,
-                algorithm = self.kernel.algorithm,
-                saved_states = self.saved_states,
-                saved_observables = self.saved_observables,
-                summarised_states = self.summarised_states,
-                summarised_observables = self.summarised_observables,
-                output_types = self.kernel.output_types,
-                precision = self.precision
+            dt_min=self.kernel.dt_min,
+            dt_max=self.kernel.dt_max,
+            dt_save=self.kernel.dt_save,
+            dt_summarise=self.kernel.dt_summarise,
+            duration=self.kernel.duration,
+            warmup=self.kernel.warmup,
+            atol=self.kernel.atol,
+            rtol=self.kernel.rtol,
+            algorithm=self.kernel.algorithm,
+            saved_states=self.saved_states,
+            saved_observables=self.saved_observables,
+            summarised_states=self.summarised_states,
+            summarised_observables=self.summarised_observables,
+            output_types=self.kernel.output_types,
+            precision=self.precision,
         )
-

@@ -12,10 +12,13 @@ from numba import cuda
 from numpy.typing import ArrayLike
 
 
-def save_state_factory(saved_state_indices: Sequence[int] | ArrayLike,
-                       saved_observable_indices: Sequence[int] | ArrayLike,
-                       save_state: bool, save_observables: bool,
-                       save_time: bool, ):
+def save_state_factory(
+    saved_state_indices: Sequence[int] | ArrayLike,
+    saved_observable_indices: Sequence[int] | ArrayLike,
+    save_state: bool,
+    save_observables: bool,
+    save_time: bool,
+):
     """
     Factory function for creating CUDA device functions to save state data.
 
@@ -54,9 +57,13 @@ def save_state_factory(saved_state_indices: Sequence[int] | ArrayLike,
     nstates = len(saved_state_indices)
 
     @cuda.jit(device=True, inline=True)
-    def save_state_func(current_state, current_observables,
-                        output_states_slice, output_observables_slice,
-                        current_step, ):
+    def save_state_func(
+        current_state,
+        current_observables,
+        output_states_slice,
+        output_observables_slice,
+        current_step,
+    ):
         """
         Save current state and observables to output arrays.
 
@@ -87,10 +94,12 @@ def save_state_factory(saved_state_indices: Sequence[int] | ArrayLike,
         if save_observables:
             for m in range(nobs):
                 output_observables_slice[m] = current_observables[
-                    saved_observable_indices[m]]
+                    saved_observable_indices[m]
+                ]
 
         if save_time:
             # Append time at the end of the state output
             output_states_slice[nstates] = current_step
-        #no cover: stop
+        # no cover: stop
+
     return save_state_func

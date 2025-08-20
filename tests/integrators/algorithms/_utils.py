@@ -1,5 +1,6 @@
-def convert_times_to_fixed_steps(internal_step_size: float, dt_save: float, dt_summarise: float) -> tuple[
-    int, int, float, float]:
+def convert_times_to_fixed_steps(
+    internal_step_size: float, dt_save: float, dt_summarise: float
+) -> tuple[int, int, float, float]:
     """Convert time intervals to fixed step counts based on the internal step size.
 
     Args:

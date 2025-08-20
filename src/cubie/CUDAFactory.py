@@ -1,4 +1,5 @@
 """Base classes for constructing cached CUDA device functions with Numba."""
+
 from typing import Set
 from abc import ABC, abstractmethod
 import attrs
@@ -51,10 +52,8 @@ class CUDAFactory(ABC):
     ```
     Then, in your build method, return an instance of this class:
     ```python
-
     def build(self):
-        return MyCache(device_function=my_device_function,
-                        other_output=42)
+        return MyCache(device_function=my_device_function, other_output=42)
     ```
 
     The current cache validity can be checked using the `cache_valid` property,
@@ -95,7 +94,8 @@ class CUDAFactory(ABC):
         """
         if not attrs.has(compile_settings):
             raise TypeError(
-                    "Compile settings must be an attrs class instance.")
+                "Compile settings must be an attrs class instance."
+            )
         self._compile_settings = compile_settings
         self._invalidate_cache()
 
@@ -158,7 +158,8 @@ class CUDAFactory(ABC):
 
         if self._compile_settings is None:
             raise ValueError(
-                    "Compile settings must be set up using self.setup_compile_settings before updating.")
+                "Compile settings must be set up using self.setup_compile_settings before updating."
+            )
 
         recognized_params = []
 
@@ -172,8 +173,9 @@ class CUDAFactory(ABC):
         if unrecognised_params and not silent:
             invalid = ", ".join(sorted(unrecognised_params))
             raise KeyError(
-                    f"'{invalid}' is not a valid compile setting for this "
-                    "object, and so was not updated.", )
+                f"'{invalid}' is not a valid compile setting for this "
+                "object, and so was not updated.",
+            )
         if recognized_params:
             self._invalidate_cache()
 
@@ -191,7 +193,7 @@ class CUDAFactory(ABC):
         if is_attrs_class(build_result):
             self._cache = build_result
             # If 'device_function' is in the dict, make it an attribute
-            if in_attr('device_function', build_result):
+            if in_attr("device_function", build_result):
                 self._device_function = build_result.device_function
         else:
             self._device_function = build_result
@@ -218,10 +220,11 @@ class CUDAFactory(ABC):
         """
         if not self.cache_valid:
             self._build()
-        if output_name == 'device_function':
+        if output_name == "device_function":
             return self._device_function
         else:
             if not in_attr(output_name, self._cache):
                 raise KeyError(
-                        f"Output '{output_name}' not found in cached outputs.")
+                    f"Output '{output_name}' not found in cached outputs."
+                )
             return getattr(self._cache, output_name)

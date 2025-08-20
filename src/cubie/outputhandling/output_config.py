@@ -70,20 +70,22 @@ class OutputCompileFlags:
     summarise_state : bool, default False
         Whether to compute summaries for states.
     """
-    save_state: bool = attrs.field(default=False,
-                                   validator=attrs.validators.instance_of(
-                                           bool))
-    save_observables: bool = attrs.field(default=False,
-                                         validator=attrs.validators.instance_of(
-                                                 bool))
-    summarise: bool = attrs.field(default=False,
-                                  validator=attrs.validators.instance_of(bool))
-    summarise_observables: bool = attrs.field(default=False,
-                                              validator=attrs.validators.instance_of(
-                                                      bool))
-    summarise_state: bool = attrs.field(default=False,
-                                        validator=attrs.validators.instance_of(
-                                                bool))
+
+    save_state: bool = attrs.field(
+        default=False, validator=attrs.validators.instance_of(bool)
+    )
+    save_observables: bool = attrs.field(
+        default=False, validator=attrs.validators.instance_of(bool)
+    )
+    summarise: bool = attrs.field(
+        default=False, validator=attrs.validators.instance_of(bool)
+    )
+    summarise_observables: bool = attrs.field(
+        default=False, validator=attrs.validators.instance_of(bool)
+    )
+    summarise_state: bool = attrs.field(
+        default=False, validator=attrs.validators.instance_of(bool)
+    )
 
 
 @attrs.define
@@ -128,25 +130,35 @@ class OutputConfig:
     # System dimensions, used to validate indices
     _max_states: int = attrs.field(validator=attrs.validators.instance_of(int))
     _max_observables: int = attrs.field(
-            validator=attrs.validators.instance_of(int))
+        validator=attrs.validators.instance_of(int)
+    )
 
     _saved_state_indices: Optional[Union[List | NDArray]] = attrs.field(
-            default=attrs.Factory(list), eq=attrs.cmp_using(eq=array_equal), )
+        default=attrs.Factory(list),
+        eq=attrs.cmp_using(eq=array_equal),
+    )
     _saved_observable_indices: Optional[Union[List | NDArray]] = attrs.field(
-            default=attrs.Factory(list), eq=attrs.cmp_using(eq=array_equal), )
+        default=attrs.Factory(list),
+        eq=attrs.cmp_using(eq=array_equal),
+    )
     _summarised_state_indices: Optional[Union[List | NDArray]] = attrs.field(
-            default=attrs.Factory(list), eq=attrs.cmp_using(eq=array_equal), )
-    _summarised_observable_indices: Optional[
-        Union[List | NDArray]] = attrs.field(default=attrs.Factory(list),
-                                             eq=attrs.cmp_using(
-                                                     eq=array_equal), )
+        default=attrs.Factory(list),
+        eq=attrs.cmp_using(eq=array_equal),
+    )
+    _summarised_observable_indices: Optional[Union[List | NDArray]] = (
+        attrs.field(
+            default=attrs.Factory(list),
+            eq=attrs.cmp_using(eq=array_equal),
+        )
+    )
 
     _output_types: List[str] = attrs.field(default=attrs.Factory(list))
     _save_state: bool = attrs.field(default=True, init=False)
     _save_observables: bool = attrs.field(default=True, init=False)
     _save_time: bool = attrs.field(default=False, init=False)
-    _summary_types: Tuple[str] = attrs.field(default=attrs.Factory(tuple),
-                                             init=False)
+    _summary_types: Tuple[str] = attrs.field(
+        default=attrs.Factory(tuple), init=False
+    )
 
     def __attrs_post_init__(self):
         """
@@ -174,12 +186,18 @@ class OutputConfig:
         Called post-init to allow None arrays to be replaced with default
         arrays before validation.
         """
-        index_arrays = [self._saved_state_indices,
-                        self._saved_observable_indices,
-                        self._summarised_state_indices,
-                        self._summarised_observable_indices]
-        maxima = [self._max_states, self._max_observables, self._max_states,
-                  self._max_observables]
+        index_arrays = [
+            self._saved_state_indices,
+            self._saved_observable_indices,
+            self._summarised_state_indices,
+            self._summarised_observable_indices,
+        ]
+        maxima = [
+            self._max_states,
+            self._max_observables,
+            self._max_states,
+            self._max_observables,
+        ]
         for i, array in enumerate(index_arrays):
             _indices_validator(array, maxima[i])
 
@@ -193,12 +211,16 @@ class OutputConfig:
             If no output types are enabled.
         """
         any_output = (
-                self._save_state or self._save_observables
-                or self._save_time or self.save_summaries)
+            self._save_state
+            or self._save_observables
+            or self._save_time
+            or self.save_summaries
+        )
         if not any_output:
             raise ValueError(
-                    "At least one output type must be enabled (state, "
-                    "observables, time, summaries)")
+                "At least one output type must be enabled (state, "
+                "observables, time, summaries)"
+            )
 
     def _check_saved_indices(self):
         """
@@ -210,17 +232,21 @@ class OutputConfig:
         indices for the respective variable types.
         """
         if len(self._saved_state_indices) == 0:
-            self._saved_state_indices = np.arange(self._max_states,
-                                                  dtype=np.int_)
+            self._saved_state_indices = np.arange(
+                self._max_states, dtype=np.int_
+            )
         else:
-            self._saved_state_indices = np.asarray(self._saved_state_indices,
-                                                   dtype=np.int_)
+            self._saved_state_indices = np.asarray(
+                self._saved_state_indices, dtype=np.int_
+            )
         if len(self._saved_observable_indices) == 0:
-            self._saved_observable_indices = np.arange(self._max_observables,
-                                                       dtype=np.int_)
+            self._saved_observable_indices = np.arange(
+                self._max_observables, dtype=np.int_
+            )
         else:
             self._saved_observable_indices = np.asarray(
-                    self._saved_observable_indices, dtype=np.int_)
+                self._saved_observable_indices, dtype=np.int_
+            )
 
     def _check_summarised_indices(self):
         """
@@ -235,12 +261,16 @@ class OutputConfig:
             self._summarised_state_indices = self._saved_state_indices
         else:
             self._summarised_state_indices = np.asarray(
-                    self._summarised_state_indices, dtype=np.int_)
+                self._summarised_state_indices, dtype=np.int_
+            )
         if len(self._summarised_observable_indices) == 0:
-            self._summarised_observable_indices = self._saved_observable_indices
+            self._summarised_observable_indices = (
+                self._saved_observable_indices
+            )
         else:
             self._summarised_observable_indices = np.asarray(
-                    self._summarised_observable_indices, dtype=np.int_)
+                self._summarised_observable_indices, dtype=np.int_
+            )
 
     @property
     def max_states(self):
@@ -269,8 +299,10 @@ class OutputConfig:
         If saved state indices are currently set to the full range,
         automatically updates them to the new full range.
         """
-        if np.array_equal(self._saved_state_indices,
-                          np.arange(self.max_states, dtype=np.int_)):
+        if np.array_equal(
+            self._saved_state_indices,
+            np.arange(self.max_states, dtype=np.int_),
+        ):
             self._saved_state_indices = np.arange(value, dtype=np.int_)
         self._max_states = value
         self.__attrs_post_init__()
@@ -302,8 +334,10 @@ class OutputConfig:
         If saved observable indices are currently set to the full range,
         automatically updates them to the new full range.
         """
-        if np.array_equal(self._saved_observable_indices,
-                          np.arange(self.max_observables, dtype=np.int_)):
+        if np.array_equal(
+            self._saved_observable_indices,
+            np.arange(self.max_observables, dtype=np.int_),
+        ):
             self._saved_observable_indices = np.arange(value, dtype=np.int_)
         self._max_observables = value
         self.__attrs_post_init__()
@@ -331,7 +365,8 @@ class OutputConfig:
             True if observable saving is enabled and indices are available.
         """
         return self._save_observables and (
-                len(self._saved_observable_indices) > 0)
+            len(self._saved_observable_indices) > 0
+        )
 
     @property
     def save_time(self):
@@ -391,11 +426,13 @@ class OutputConfig:
         OutputCompileFlags
             Flags indicating which output features should be compiled.
         """
-        return OutputCompileFlags(save_state=self.save_state,
-                save_observables=self.save_observables,
-                summarise=self.save_summaries,
-                summarise_observables=self.summarise_observables,
-                summarise_state=self.summarise_state, )
+        return OutputCompileFlags(
+            save_state=self.save_state,
+            save_observables=self.save_observables,
+            summarise=self.save_summaries,
+            summarise_observables=self.summarise_observables,
+            summarise_state=self.summarise_state,
+        )
 
     @property
     def saved_state_indices(self):
@@ -532,8 +569,11 @@ class OutputConfig:
         int
             Number of observable variables to save in time-domain output.
         """
-        return len(
-                self._saved_observable_indices) if self._save_observables else 0
+        return (
+            len(self._saved_observable_indices)
+            if self._save_observables
+            else 0
+        )
 
     @property
     def n_summarised_states(self) -> int:
@@ -550,8 +590,9 @@ class OutputConfig:
         Returns the length of summarised_state_indices when save_summaries
         is active, otherwise 0.
         """
-        return (len(self._summarised_state_indices)
-                if self.save_summaries else 0)
+        return (
+            len(self._summarised_state_indices) if self.save_summaries else 0
+        )
 
     @property
     def n_summarised_observables(self) -> int:
@@ -563,8 +604,11 @@ class OutputConfig:
         int
             Number of observable variables for summary calculations.
         """
-        return (len(self._summarised_observable_indices)
-                if self.save_summaries else 0)
+        return (
+            len(self._summarised_observable_indices)
+            if self.save_summaries
+            else 0
+        )
 
     @property
     def summary_types(self):
@@ -621,7 +665,8 @@ class OutputConfig:
         # Convert summary_types set to list for summarymetrics
         summary_list = list(self._summary_types)
         total_buffer_size = summary_metrics.summaries_buffer_height(
-                summary_list)
+            summary_list
+        )
         return total_buffer_size
 
     @property
@@ -639,7 +684,8 @@ class OutputConfig:
         # Convert summary_types tuple to list for summarymetrics
         summary_list = list(self._summary_types)
         total_output_size = summary_metrics.summaries_output_height(
-                summary_list)
+            summary_list
+        )
         return total_output_size
 
     @property
@@ -664,8 +710,10 @@ class OutputConfig:
         int
             Total buffer height for all observable summary calculations.
         """
-        return (self.summaries_buffer_height_per_var
-                * self.n_summarised_observables)
+        return (
+            self.summaries_buffer_height_per_var
+            * self.n_summarised_observables
+        )
 
     @property
     def total_summary_buffer_size(self) -> int:
@@ -677,8 +725,10 @@ class OutputConfig:
         int
             Combined size of state and observable summary buffers.
         """
-        return (self.state_summaries_buffer_height
-                + self.observable_summaries_buffer_height)
+        return (
+            self.state_summaries_buffer_height
+            + self.observable_summaries_buffer_height
+        )
 
     @property
     def state_summaries_output_height(self) -> int:
@@ -702,8 +752,10 @@ class OutputConfig:
         int
             Total output height for all observable summary results.
         """
-        return (self.summaries_output_height_per_var
-                * self.n_summarised_observables)
+        return (
+            self.summaries_output_height_per_var
+            * self.n_summarised_observables
+        )
 
     @property
     def output_types(self) -> List[str]:
@@ -738,13 +790,17 @@ class OutputConfig:
             value = [value]
         if not isinstance(value, list):
             raise TypeError(
-                    f"Output types must be a list or tuple of strings, "
-                    f"or a single string. Got {type(value)}")
+                f"Output types must be a list or tuple of strings, "
+                f"or a single string. Got {type(value)}"
+            )
 
         self.update_from_outputs_list(value)
         self._check_for_no_outputs()
 
-    def update_from_outputs_list(self, output_types: list[str], ):
+    def update_from_outputs_list(
+        self,
+        output_types: list[str],
+    ):
         """
         Update configuration from a list of output type names.
 
@@ -774,27 +830,36 @@ class OutputConfig:
 
             summary_types = []
             for output_type in output_types:
-                if any((output_type.startswith(name) for name in
-                        summary_metrics.implemented_metrics)):
+                if any(
+                    (
+                        output_type.startswith(name)
+                        for name in summary_metrics.implemented_metrics
+                    )
+                ):
                     summary_types.append(output_type)
                 elif output_type in ["state", "observables", "time"]:
                     continue
                 else:
-                    warn(f"Summary type '{output_type}' is not implemented. "
-                         f"Ignoring.")
+                    warn(
+                        f"Summary type '{output_type}' is not implemented. "
+                        f"Ignoring."
+                    )
 
             self._summary_types = tuple(summary_types)
 
             self._check_for_no_outputs()
 
     @classmethod
-    def from_loop_settings(cls, output_types: List[str],
-                           saved_state_indices=None,
-                           saved_observable_indices=None,
-                           summarised_state_indices=None,
-                           summarised_observable_indices=None,
-                           max_states: int = 0,
-                           max_observables: int = 0, ) -> "OutputConfig":
+    def from_loop_settings(
+        cls,
+        output_types: List[str],
+        saved_state_indices=None,
+        saved_observable_indices=None,
+        summarised_state_indices=None,
+        summarised_observable_indices=None,
+        max_states: int = 0,
+        max_observables: int = 0,
+    ) -> "OutputConfig":
         """
         Create configuration from integrator-compatible specifications.
 
@@ -843,9 +908,12 @@ class OutputConfig:
         if summarised_observable_indices is None:
             summarised_observable_indices = np.asarray([], dtype=np.int_)
 
-        return cls(max_states=max_states, max_observables=max_observables,
-                saved_state_indices=saved_state_indices,
-                saved_observable_indices=saved_observable_indices,
-                summarised_state_indices=summarised_state_indices,
-                summarised_observable_indices=summarised_observable_indices,
-                output_types=output_types, )
+        return cls(
+            max_states=max_states,
+            max_observables=max_observables,
+            saved_state_indices=saved_state_indices,
+            saved_observable_indices=saved_observable_indices,
+            summarised_state_indices=summarised_state_indices,
+            summarised_observable_indices=summarised_observable_indices,
+            output_types=output_types,
+        )

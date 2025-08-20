@@ -10,8 +10,9 @@ from os import environ
 from typing import Union, Tuple
 
 
-def ensure_nonzero_size(value: Union[int, Tuple[int, ...]]) -> Union[
-    int, Tuple[int, ...]]:
+def ensure_nonzero_size(
+    value: Union[int, Tuple[int, ...]],
+) -> Union[int, Tuple[int, ...]]:
     """
     Replace zero-size shape with a one-size shape to ensure non-zero sizes.
 
@@ -50,6 +51,7 @@ def ensure_nonzero_size(value: Union[int, Tuple[int, ...]]) -> Union[
 
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
+
     def is_cuda_array(value):
         """
         Check if value is a CUDA array (simulation mode).
@@ -67,7 +69,7 @@ if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
         bool
             True if the value has a 'shape' attribute, False otherwise.
         """
-        return hasattr(value, 'shape')
+        return hasattr(value, "shape")
 else:
     from numba.cuda import is_cuda_array
 
@@ -166,8 +168,9 @@ def optional_cuda_array_validator_3d(instance, attribute, value):
     This is a convenience function that calls optional_cuda_array_validator
     with dimensions=3.
     """
-    return optional_cuda_array_validator(instance, attribute, value,
-                                         dimensions=3)
+    return optional_cuda_array_validator(
+        instance, attribute, value, dimensions=3
+    )
 
 
 def optional_cuda_array_validator_2d(instance, attribute, value):
@@ -193,8 +196,9 @@ def optional_cuda_array_validator_2d(instance, attribute, value):
     This is a convenience function that calls optional_cuda_array_validator
     with dimensions=2.
     """
-    return optional_cuda_array_validator(instance, attribute, value,
-                                         dimensions=2)
+    return optional_cuda_array_validator(
+        instance, attribute, value, dimensions=2
+    )
 
 
 def cuda_array_validator_3d(instance, attribute, value):

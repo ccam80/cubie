@@ -7,6 +7,7 @@ pools (if desired) and provides passive or active splitting of VRAM amongst
 different processes/stream groups. All requests for allocation made through
 this interface are "chunked" to fit alotted memory.
 """
+
 from os import environ
 from typing import Optional, Callable, Union, Dict
 from warnings import warn
@@ -26,23 +27,28 @@ from cubie.memory.array_requests import ArrayRequest, ArrayResponse
 from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import (FakeNumbaCUDAMemoryManager as
-                                     NumbaCUDAMemoryManager)
-    from cubie.cudasim_utils import (FakeBaseCUDAMemoryManager as
-                                     BaseCUDAMemoryManager)
+    from cubie.cudasim_utils import (
+        FakeNumbaCUDAMemoryManager as NumbaCUDAMemoryManager,
+    )
+    from cubie.cudasim_utils import (
+        FakeBaseCUDAMemoryManager as BaseCUDAMemoryManager,
+    )
     from cubie.cudasim_utils import fake_get_memory_info as current_mem_info
     from cubie.cudasim_utils import fake_set_manager as set_cuda_memory_manager
 else:
     from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
     from numba.cuda import BaseCUDAMemoryManager
+
     def current_mem_info():
         return cuda.current_context().get_memory_info()
+
     from numba.cuda import set_memory_manager as set_cuda_memory_manager
 
 
 MIN_AUTOPOOL_SIZE = 0.05
 
-def placeholder_invalidate()->None:
+
+def placeholder_invalidate() -> None:
     """
     Default placeholder invalidate hook that performs no operations.
 
@@ -51,6 +57,7 @@ def placeholder_invalidate()->None:
     None
     """
     pass
+
 
 def placeholder_dataready(response: ArrayResponse) -> None:
     """
@@ -65,6 +72,7 @@ def placeholder_dataready(response: ArrayResponse) -> None:
     -------
     None
     """
+
 
 # These will be keys to a dict, so must be hashable: eq=False
 @attrs.define(eq=False)
@@ -110,21 +118,22 @@ class InstanceMemorySettings:
     allocator/memory manager changes, requiring arrays and kernels to be
     re-allocated or redefined.
     """
-    proportion: float = attrs.field(
-            default=1.0,
-            validator=val.instance_of(float))
-    allocations: dict = attrs.field(
-            default=Factory(dict),
-            validator=val.instance_of(dict))
-    invalidate_hook: Callable[[None], None] = attrs.field(
-            default=placeholder_invalidate,
-            validator=val.instance_of(Callable))
-    allocation_ready_hook: Callable[[ArrayResponse], None] = attrs.field(
-            default=placeholder_dataready)
-    cap: int = attrs.field(
-            default=None,
-            validator=val.optional(val.instance_of(int)))
 
+    proportion: float = attrs.field(
+        default=1.0, validator=val.instance_of(float)
+    )
+    allocations: dict = attrs.field(
+        default=Factory(dict), validator=val.instance_of(dict)
+    )
+    invalidate_hook: Callable[[None], None] = attrs.field(
+        default=placeholder_invalidate, validator=val.instance_of(Callable)
+    )
+    allocation_ready_hook: Callable[[ArrayResponse], None] = attrs.field(
+        default=placeholder_dataready
+    )
+    cap: int = attrs.field(
+        default=None, validator=val.optional(val.instance_of(int))
+    )
 
     def add_allocation(self, key, arr):
         """
@@ -202,6 +211,7 @@ class InstanceMemorySettings:
             total += arr.nbytes
         return total
 
+
 @attrs.define
 class MemoryManager:
     """
@@ -253,31 +263,32 @@ class MemoryManager:
     proportions or automatically allocated equal shares of available memory.
     """
 
-    totalmem: int = attrs.field(default=None,
-                                validator=val.optional(val.instance_of(int)))
+    totalmem: int = attrs.field(
+        default=None, validator=val.optional(val.instance_of(int))
+    )
     registry: dict[int, InstanceMemorySettings] = attrs.field(
-            default=Factory(dict),
-            validator=val.optional(val.instance_of(dict)))
-    stream_groups: StreamGroups = attrs.field(
-            default=Factory(StreamGroups))
+        default=Factory(dict), validator=val.optional(val.instance_of(dict))
+    )
+    stream_groups: StreamGroups = attrs.field(default=Factory(StreamGroups))
     _mode: str = attrs.field(
-            default="passive",
-            validator=val.in_(["passive", "active"]))
+        default="passive", validator=val.in_(["passive", "active"])
+    )
     _allocator: BaseCUDAMemoryManager = attrs.field(
-            default=NumbaCUDAMemoryManager,
-            validator=val.optional(val.instance_of(object)))
+        default=NumbaCUDAMemoryManager,
+        validator=val.optional(val.instance_of(object)),
+    )
     _auto_pool: list[int] = attrs.field(
-            default=Factory(list),
-            validator=val.instance_of(list))
+        default=Factory(list), validator=val.instance_of(list)
+    )
     _manual_pool: list[int] = attrs.field(
-            default=Factory(list),
-            validator=val.instance_of(list))
+        default=Factory(list), validator=val.instance_of(list)
+    )
     _stride_order: tuple[str, str, str] = attrs.field(
-            default=("time", "run", "variable"),
-            validator=val.instance_of(tuple))
+        default=("time", "run", "variable"), validator=val.instance_of(tuple)
+    )
     _queued_allocations: Dict[str, Dict] = attrs.field(
-        default=Factory(dict),
-        validator=val.instance_of(dict))
+        default=Factory(dict), validator=val.instance_of(dict)
+    )
 
     def __attrs_post_init__(self):
         """Initialize memory manager with current GPU memory information."""
@@ -285,24 +296,29 @@ class MemoryManager:
             free, total = self.get_memory_info()
         except ValueError as e:
             if e.args[0].startswith("not enough values to unpack"):
-                warn("memory manager was initialised in a cuda-less "
-                     "environment - memory manager will allow import but not"
-                     "provide any memory (1 byte)")
+                warn(
+                    "memory manager was initialised in a cuda-less "
+                    "environment - memory manager will allow import but not"
+                    "provide any memory (1 byte)"
+                )
                 total = 1
         except Exception as e:
-            warn(f"Unexpected exception {e} encountered while instantiating "
-                 "memory manager")
+            warn(
+                f"Unexpected exception {e} encountered while instantiating "
+                "memory manager"
+            )
             total = 1
         self.totalmem = total
         self.registry = {}
 
-    def register(self,
-                 instance,
-                 proportion: Optional[float] = None,
-                 invalidate_cache_hook: Callable = placeholder_invalidate,
-                 allocation_ready_hook: Callable = placeholder_dataready,
-                 stream_group: str = "default",
-                 ):
+    def register(
+        self,
+        instance,
+        proportion: Optional[float] = None,
+        invalidate_cache_hook: Callable = placeholder_invalidate,
+        allocation_ready_hook: Callable = placeholder_dataready,
+        stream_group: str = "default",
+    ):
         """
         Register an instance and configure its memory allocation settings.
 
@@ -333,8 +349,9 @@ class MemoryManager:
         self.stream_groups.add_instance(instance, stream_group)
 
         settings = InstanceMemorySettings(
-                invalidate_hook=invalidate_cache_hook,
-                allocation_ready_hook=allocation_ready_hook)
+            invalidate_hook=invalidate_cache_hook,
+            allocation_ready_hook=allocation_ready_hook,
+        )
 
         self.registry[instance_id] = settings
 
@@ -344,7 +361,6 @@ class MemoryManager:
             self._add_manual_proportion(instance, proportion)
         else:
             self._add_auto_proportion(instance)
-
 
     def set_allocator(self, name: str):
         """
@@ -567,9 +583,12 @@ class MemoryManager:
         float
             Sum of all manual allocation proportions.
         """
-        manual_settings = [self.registry[instance_id] for instance_id
-                           in self._manual_pool]
-        pool_proportion = sum([settings.proportion for settings in manual_settings])
+        manual_settings = [
+            self.registry[instance_id] for instance_id in self._manual_pool
+        ]
+        pool_proportion = sum(
+            [settings.proportion for settings in manual_settings]
+        )
         return pool_proportion
 
     @property
@@ -582,10 +601,12 @@ class MemoryManager:
         float
             Sum of all automatic allocation proportions.
         """
-        auto_settings = [self.registry[instance_id] for instance_id in
-                         self._auto_pool]
+        auto_settings = [
+            self.registry[instance_id] for instance_id in self._auto_pool
+        ]
         pool_proportion = sum(
-                [settings.proportion for settings in auto_settings])
+            [settings.proportion for settings in auto_settings]
+        )
         return pool_proportion
 
     def _add_manual_proportion(self, instance: object, proportion: float):
@@ -618,8 +639,9 @@ class MemoryManager:
         instance_id = id(instance)
         new_manual_pool_size = self.manual_pool_proportion + proportion
         if new_manual_pool_size > 1.0:
-            raise ValueError("Manual proportion would exceed total "
-                             "available memory")
+            raise ValueError(
+                "Manual proportion would exceed total available memory"
+            )
         elif new_manual_pool_size > 1.0 - MIN_AUTOPOOL_SIZE:
             if len(self._auto_pool) > 0:
                 raise ValueError(
@@ -629,8 +651,10 @@ class MemoryManager:
                     "mem_manager.py."
                 )
             else:
-                warn("Manual proportion leaves less than 5% of memory for "
-                     "auto allocation if management mode == 'active'.")
+                warn(
+                    "Manual proportion leaves less than 5% of memory for "
+                    "auto allocation if management mode == 'active'."
+                )
         self._manual_pool.append(instance_id)
         self.registry[instance_id].proportion = proportion
         self.registry[instance_id].cap = int(proportion * self.totalmem)
@@ -664,10 +688,12 @@ class MemoryManager:
         instance_id = id(instance)
         autopool_available = 1.0 - self.manual_pool_proportion
         if autopool_available <= MIN_AUTOPOOL_SIZE:
-            raise ValueError("Available auto-allocation pool is less than "
-                             "5% of total due to manual allocations. If "
-                             "this is desired, adjust MIN_AUTOPOOL_SIZE in "
-                             "mem_manager.py.")
+            raise ValueError(
+                "Available auto-allocation pool is less than "
+                "5% of total due to manual allocations. If "
+                "this is desired, adjust MIN_AUTOPOOL_SIZE in "
+                "mem_manager.py."
+            )
         self._auto_pool.append(instance_id)
         self._rebalance_auto_pool()
         return self.registry[instance_id].proportion
@@ -691,7 +717,6 @@ class MemoryManager:
             self.registry[instance_id].proportion = each_proportion
             self.registry[instance_id].cap = cap
 
-
     def set_global_stride_ordering(self, ordering: tuple[str, str, str]):
         """
         Set the global memory stride ordering for arrays.
@@ -712,8 +737,10 @@ class MemoryManager:
         reallocated with new stride patterns.
         """
         if not all(elem in ("time", "run", "variable") for elem in ordering):
-            raise ValueError("Invalid stride ordering - must containt 'time', "
-                             f"'run', 'variable' but got {ordering}")
+            raise ValueError(
+                "Invalid stride ordering - must containt 'time', "
+                f"'run', 'variable' but got {ordering}"
+            )
         self._stride_order = ordering
         # This will also override 2D arrays, which are unaffected, but the
         # overhead is not significant compared to the 3D arrays.
@@ -752,12 +779,14 @@ class MemoryManager:
             If requests is not a dict or contains invalid ArrayRequest objects.
         """
         if not isinstance(requests, dict):
-            raise TypeError(f"Expected dict for requests, got "
-                            f"{type(requests)}")
+            raise TypeError(
+                f"Expected dict for requests, got {type(requests)}"
+            )
         for key, request in requests.items():
             if not isinstance(request, ArrayRequest):
-                raise TypeError(f"Expected ArrayRequest for {key}, "
-                                f"got {type(request)}")
+                raise TypeError(
+                    f"Expected ArrayRequest for {key}, got {type(request)}"
+                )
 
     def get_strides(self, request):
         """
@@ -791,8 +820,9 @@ class MemoryManager:
             if array_native_order == desired_order:
                 strides = None
             else:
-                dims = {name: size for name, size in
-                        zip(array_native_order, shape)}
+                dims = {
+                    name: size for name, size in zip(array_native_order, shape)
+                }
                 strides = {}
                 current_stride = itemsize
 
@@ -833,9 +863,11 @@ class MemoryManager:
             allocated = settings.allocated_bytes
             headroom = cap - allocated
             if headroom / cap < 0.05:
-                warn(f"Instance {instance_id} has used more than 95% of it's "
-                     "allotted memory already, and future requests will run "
-                     "slowly/in many chunks")
+                warn(
+                    f"Instance {instance_id} has used more than 95% of it's "
+                    "allotted memory already, and future requests will run "
+                    "slowly/in many chunks"
+                )
             return min(headroom, free)
 
     def get_available_group(self, group: str):
@@ -869,12 +901,14 @@ class MemoryManager:
                 cap += self.registry[instance_id].cap
             headroom = cap - allocated
             if headroom / cap < 0.05:
-                warn(f"Stream group {group} has used more than 95% of it's "
-                     "allotted memory already, and future requests will run "
-                     "slowly/in many chunks")
+                warn(
+                    f"Stream group {group} has used more than 95% of it's "
+                    "allotted memory already, and future requests will run "
+                    "slowly/in many chunks"
+                )
             return min(headroom, free)
 
-    def get_chunks(self, request_size: int, available: int=0):
+    def get_chunks(self, request_size: int, available: int = 0):
         """
         Calculate number of chunks needed for a memory request.
 
@@ -897,9 +931,11 @@ class MemoryManager:
         """
         free, total = self.get_memory_info()
         if request_size / free > 20:
-            warn("This request exceeds available VRAM by more than 20x. "
-                 f"Available VRAM = {free}, request size = {request_size}.",
-                 UserWarning)
+            warn(
+                "This request exceeds available VRAM by more than 20x. "
+                f"Available VRAM = {free}, request size = {request_size}.",
+                UserWarning,
+            )
         return int(np.ceil(request_size / available))
 
     def get_memory_info(self):
@@ -944,7 +980,7 @@ class MemoryManager:
             True if instance shares a stream group with other instances.
         """
         group = self.get_stream_group(instance)
-        if group == 'default':
+        if group == "default":
             return False
         peers = self.stream_groups.get_instances_in_group(group)
         if len(peers) == 1:
@@ -969,7 +1005,7 @@ class MemoryManager:
         dict of str to array
             Dictionary mapping labels to allocated arrays.
         """
-        responses={}
+        responses = {}
         instance_settings = self.registry[instance_id]
         for key, request in requests.items():
             strides = self.get_strides(request)
@@ -978,7 +1014,7 @@ class MemoryManager:
                 dtype=request.dtype,
                 memory_type=request.memory,
                 stream=stream,
-                strides=strides
+                strides=strides,
             )
             instance_settings.add_allocation(key, arr)
             responses[key] = arr
@@ -1014,7 +1050,9 @@ class MemoryManager:
             If memory_type is "managed" (not yet supported).
         """
         cupy_ = self._allocator == CuPyAsyncNumbaManager
-        with current_cupy_stream(stream) if cupy_ else contextlib.nullcontext():
+        with (
+            current_cupy_stream(stream) if cupy_ else contextlib.nullcontext()
+        ):
             if memory_type == "device":
                 return cuda.device_array(shape, dtype, strides=strides)
             elif memory_type == "mapped":
@@ -1050,10 +1088,12 @@ class MemoryManager:
         instance_id = id(instance)
         self._queued_allocations[stream_group].update({instance_id: requests})
 
-    def chunk_arrays(self,
-                     requests: dict[str, ArrayRequest],
-                     numchunks: int,
-                     axis: str="run"):
+    def chunk_arrays(
+        self,
+        requests: dict[str, ArrayRequest],
+        numchunks: int,
+        axis: str = "run",
+    ):
         """
         Divide array requests into smaller chunks along a specified axis.
 
@@ -1083,16 +1123,19 @@ class MemoryManager:
             # division to ensure we don't end up with one chunk too many.
             run_index = request.stride_order.index(axis)
             newshape = tuple(
-                    int(np.ceil(value / numchunks)) if i == run_index else
-                    value for i, value in enumerate(request.shape))
+                int(np.ceil(value / numchunks)) if i == run_index else value
+                for i, value in enumerate(request.shape)
+            )
             request.shape = newshape
             chunked_requests[key] = request
         return chunked_requests
 
-    def single_request(self,
-                       instance: Union[object, int],
-                       requests: dict[str, ArrayRequest],
-                       chunk_axis: str="run"):
+    def single_request(
+        self,
+        instance: Union[object, int],
+        requests: dict[str, ArrayRequest],
+        chunk_axis: str = "run",
+    ):
         """
         Process a single allocation request with automatic chunking.
 
@@ -1122,24 +1165,26 @@ class MemoryManager:
         else:
             instance_id = id(instance)
 
-        request_size= get_total_request_size(requests)
+        request_size = get_total_request_size(requests)
         available_memory = self.get_available_single(id(instance))
         numchunks = self.get_chunks(request_size, available_memory)
         chunked_requests = self.chunk_arrays(
-                requests, numchunks, axis=chunk_axis)
+            requests, numchunks, axis=chunk_axis
+        )
 
         arrays = self.allocate_all(
-            chunked_requests,
-            instance_id,
-            self.get_stream(instance)
+            chunked_requests, instance_id, self.get_stream(instance)
         )
-        self.registry[instance_id].allocation_ready_hook(ArrayResponse(
-                arr=arrays, chunks=numchunks, chunk_axis=chunk_axis))
+        self.registry[instance_id].allocation_ready_hook(
+            ArrayResponse(arr=arrays, chunks=numchunks, chunk_axis=chunk_axis)
+        )
 
-    def allocate_queue(self,
-                       triggering_instance: object,
-                       limit_type: str="group",
-                       chunk_axis: str="run"):
+    def allocate_queue(
+        self,
+        triggering_instance: object,
+        limit_type: str = "group",
+        chunk_axis: str = "run",
+    ):
         """
         Process all queued requests for a stream group with coordinated chunking.
 
@@ -1168,14 +1213,20 @@ class MemoryManager:
             return None
         elif n_queued == 1:
             for instance_id, requests_dict in queued_requests.items():
-                self.single_request(instance=instance_id,
-                     requests=requests_dict,
-                     chunk_axis=chunk_axis)
+                self.single_request(
+                    instance=instance_id,
+                    requests=requests_dict,
+                    chunk_axis=chunk_axis,
+                )
         else:
             if limit_type == "group":
                 available_memory = self.get_available_group(stream_group)
-                request_size = sum([get_total_request_size(request)
-                                    for request in queued_requests.values()])
+                request_size = sum(
+                    [
+                        get_total_request_size(request)
+                        for request in queued_requests.values()
+                    ]
+                )
                 numchunks = self.get_chunks(request_size, available_memory)
 
             elif limit_type == "instance":
@@ -1190,20 +1241,22 @@ class MemoryManager:
             notaries = set(peers) - set(queued_requests.keys())
             for instance_id, requests_dict in queued_requests.items():
                 chunked_request = self.chunk_arrays(
-                        requests_dict,
-                        numchunks,
-                        chunk_axis)
-                arrays = self.allocate_all(chunked_request,
-                                           instance_id,
-                                           stream=stream)
-                response = ArrayResponse(arr=arrays,
-                                         chunks=numchunks,
-                                         chunk_axis=chunk_axis)
+                    requests_dict, numchunks, chunk_axis
+                )
+                arrays = self.allocate_all(
+                    chunked_request, instance_id, stream=stream
+                )
+                response = ArrayResponse(
+                    arr=arrays, chunks=numchunks, chunk_axis=chunk_axis
+                )
                 self.registry[instance_id].allocation_ready_hook(response)
 
             for peer in notaries:
-                self.registry[peer].allocation_ready_hook(ArrayResponse(
-                        arr={}, chunks=numchunks, chunk_axis=chunk_axis))
+                self.registry[peer].allocation_ready_hook(
+                    ArrayResponse(
+                        arr={}, chunks=numchunks, chunk_axis=chunk_axis
+                    )
+                )
         return None
 
     def to_device(self, instance: object, from_arrays: list, to_arrays: list):
@@ -1221,15 +1274,17 @@ class MemoryManager:
         """
         stream = self.get_stream(instance)
         is_cupy = self._allocator == CuPyAsyncNumbaManager
-        with (current_cupy_stream(stream) if is_cupy else
-              contextlib.nullcontext()):
+        with (
+            current_cupy_stream(stream)
+            if is_cupy
+            else contextlib.nullcontext()
+        ):
             for i, from_array in enumerate(from_arrays):
                 cuda.to_device(from_array, stream=stream, to=to_arrays[i])
 
-    def from_device(self,
-                    instance: object,
-                    from_arrays: list,
-                    to_arrays: list):
+    def from_device(
+        self, instance: object, from_arrays: list, to_arrays: list
+    ):
         """
         Copy data from device arrays using the instance's stream.
 
@@ -1244,8 +1299,11 @@ class MemoryManager:
         """
         stream = self.get_stream(instance)
         is_cupy = self._allocator == CuPyAsyncNumbaManager
-        with (current_cupy_stream(stream) if is_cupy else
-              contextlib.nullcontext()):
+        with (
+            current_cupy_stream(stream)
+            if is_cupy
+            else contextlib.nullcontext()
+        ):
             for i, from_array in enumerate(from_arrays):
                 from_array.copy_to_host(to_arrays[i], stream=stream)
 
@@ -1261,6 +1319,7 @@ class MemoryManager:
         stream = self.get_stream(instance)
         stream.synchronize()
 
+
 def get_total_request_size(request: dict[str, ArrayRequest]):
     """
     Calculate the total memory size of a request in bytes.
@@ -1275,5 +1334,7 @@ def get_total_request_size(request: dict[str, ArrayRequest]):
     int
         Total size in bytes across all requests.
     """
-    return sum(prod(request.shape) * request.dtype().itemsize
-               for request in request.values())
+    return sum(
+        prod(request.shape) * request.dtype().itemsize
+        for request in request.values()
+    )

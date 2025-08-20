@@ -63,15 +63,23 @@ class GenericODE(CUDAFactory):
     effect on the system.
     """
 
-    def __init__(self, initial_values=None, parameters=None,
-                 # parameters that can change during simulation
-                 constants=None,
-                 # Parameters that are not expected to change during simulation
-                 observables=None,
-                 # Auxiliary variables you might want to track during simulation
-                 default_initial_values=None, default_parameters=None,
-                 default_constants=None, default_observable_names=None,
-                 precision=np.float64, num_drivers=1, **kwargs, ):
+    def __init__(
+        self,
+        initial_values=None,
+        parameters=None,
+        # parameters that can change during simulation
+        constants=None,
+        # Parameters that are not expected to change during simulation
+        observables=None,
+        # Auxiliary variables you might want to track during simulation
+        default_initial_values=None,
+        default_parameters=None,
+        default_constants=None,
+        default_observable_names=None,
+        precision=np.float64,
+        num_drivers=1,
+        **kwargs,
+    ):
         """Initialize the ODE system.
 
         Parameters
@@ -101,13 +109,17 @@ class GenericODE(CUDAFactory):
         """
         super().__init__()
         system_data = ODEData.from_genericODE_initargs(
-                initial_values=initial_values, parameters=parameters,
-                constants=constants, observables=observables,
-                default_initial_values=default_initial_values,
-                default_parameters=default_parameters,
-                default_constants=default_constants,
-                default_observable_names=default_observable_names,
-                precision=precision, num_drivers=num_drivers, )
+            initial_values=initial_values,
+            parameters=parameters,
+            constants=constants,
+            observables=observables,
+            default_initial_values=default_initial_values,
+            default_parameters=default_parameters,
+            default_constants=default_constants,
+            default_observable_names=default_observable_names,
+            precision=precision,
+            num_drivers=num_drivers,
+        )
         self.setup_compile_settings(system_data)
 
     @property
@@ -268,15 +280,24 @@ class GenericODE(CUDAFactory):
         numba_precision = from_dtype(self.precision)
 
         # no cover: start
-        @cuda.jit((
-                  numba_precision[:],
-                  numba_precision[:],
-                  numba_precision[:],
-                  numba_precision[:],
-                  numba_precision[:]),
-                device=True,
-                  inline=True, )
-        def dummy_model_dxdt(state, parameters, drivers, observables, dxdt, ):
+        @cuda.jit(
+            (
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+            ),
+            device=True,
+            inline=True,
+        )
+        def dummy_model_dxdt(
+            state,
+            parameters,
+            drivers,
+            observables,
+            dxdt,
+        ):
             """Placeholder model for testing purposes.
 
             Parameters
@@ -375,8 +396,9 @@ class GenericODE(CUDAFactory):
         for i, state in enumerate(states):
             dxdt[i] = state + parameters[i % n_parameters]
         for i in range(len(observables)):
-            observables[i] = drivers[i % n_drivers] + _constants[
-                i % n_constants]
+            observables[i] = (
+                drivers[i % n_drivers] + _constants[i % n_constants]
+            )
 
         return dxdt, observables
 
@@ -425,7 +447,8 @@ class GenericODE(CUDAFactory):
 
         if not silent and unrecognised:
             raise KeyError(
-                    f"Unrecognized parameters in update: {unrecognised}. "
-                    "These parameters were not updated.", )
+                f"Unrecognized parameters in update: {unrecognised}. "
+                "These parameters were not updated.",
+            )
 
         return recognised

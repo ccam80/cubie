@@ -27,7 +27,11 @@ from .output_sizes import SummariesBufferSizes
 
 
 @cuda.jit(device=True, inline=True)
-def do_nothing(buffer, output, summarise_every, ):
+def do_nothing(
+    buffer,
+    output,
+    summarise_every,
+):
     """
     No-operation function for empty metric chains.
 
@@ -49,9 +53,15 @@ def do_nothing(buffer, output, summarise_every, ):
     pass
 
 
-def chain_metrics(metric_functions: Sequence, buffer_offsets, buffer_sizes,
-        output_offsets, output_sizes, function_params,
-        inner_chain=do_nothing, ):
+def chain_metrics(
+    metric_functions: Sequence,
+    buffer_offsets,
+    buffer_sizes,
+    output_offsets,
+    output_sizes,
+    function_params,
+    inner_chain=do_nothing,
+):
     """
     Recursively chain summary metric functions for CUDA execution.
 
@@ -105,27 +115,50 @@ def chain_metrics(metric_functions: Sequence, buffer_offsets, buffer_sizes,
 
     # no cover: start
     @cuda.jit(device=True, inline=True)
-    def wrapper(buffer, output, summarise_every, ):
-        inner_chain(buffer, output, summarise_every, )
-        current_metric_fn(buffer[
-                          current_buffer_offset: current_buffer_offset + current_buffer_size],
-                output[
-                current_output_offset: current_output_offset + current_output_size],
-                summarise_every, current_metric_param, )
+    def wrapper(
+        buffer,
+        output,
+        summarise_every,
+    ):
+        inner_chain(
+            buffer,
+            output,
+            summarise_every,
+        )
+        current_metric_fn(
+            buffer[
+                current_buffer_offset : current_buffer_offset
+                + current_buffer_size
+            ],
+            output[
+                current_output_offset : current_output_offset
+                + current_output_size
+            ],
+            summarise_every,
+            current_metric_param,
+        )
 
     if remaining_metric_fns:
-        return chain_metrics(remaining_metric_fns, remaining_buffer_offsets,
-                             remaining_buffer_sizes, remaining_output_offsets,
-                             remaining_output_sizes, remaining_metric_params,
-                             wrapper, )
+        return chain_metrics(
+            remaining_metric_fns,
+            remaining_buffer_offsets,
+            remaining_buffer_sizes,
+            remaining_output_offsets,
+            remaining_output_sizes,
+            remaining_metric_params,
+            wrapper,
+        )
     else:
         return wrapper
     # no cover: stop
 
-def save_summary_factory(buffer_sizes: SummariesBufferSizes,
-        summarised_state_indices: Sequence[int] | ArrayLike,
-        summarised_observable_indices: Sequence[int] | ArrayLike,
-        summaries_list: Sequence[str], ):
+
+def save_summary_factory(
+    buffer_sizes: SummariesBufferSizes,
+    summarised_state_indices: Sequence[int] | ArrayLike,
+    summarised_observable_indices: Sequence[int] | ArrayLike,
+    summaries_list: Sequence[str],
+):
     """
     Factory function for creating CUDA device functions to save summary metrics.
 
@@ -171,19 +204,30 @@ def save_summary_factory(buffer_sizes: SummariesBufferSizes,
     num_summary_metrics = len(output_offsets)
 
     summarise_states = (num_summarised_states > 0) and (
-            num_summary_metrics > 0)
+        num_summary_metrics > 0
+    )
     summarise_observables = (num_summarised_observables > 0) and (
-            num_summary_metrics > 0)
+        num_summary_metrics > 0
+    )
 
-    summary_metric_chain = chain_metrics(save_functions, buffer_offsets,
-                                         buffer_sizes_list, output_offsets,
-                                         output_sizes, params, )
+    summary_metric_chain = chain_metrics(
+        save_functions,
+        buffer_offsets,
+        buffer_sizes_list,
+        output_offsets,
+        output_sizes,
+        params,
+    )
 
     # no cover: start
     @cuda.jit(device=True, inline=True)
-    def save_summary_metrics_func(buffer_state_summaries,
-            buffer_observable_summaries, output_state_summaries_window,
-            output_observable_summaries_window, summarise_every, ):
+    def save_summary_metrics_func(
+        buffer_state_summaries,
+        buffer_observable_summaries,
+        output_state_summaries_window,
+        output_observable_summaries_window,
+        summarise_every,
+    ):
         """
         Save summary metrics from buffers to output arrays.
 
@@ -211,21 +255,34 @@ def save_summary_factory(buffer_sizes: SummariesBufferSizes,
                 buffer_array_slice_start = state_index * total_buffer_size
                 out_array_slice_start = state_index * total_output_size
 
-                summary_metric_chain(buffer_state_summaries[
-                                     buffer_array_slice_start:buffer_array_slice_start + total_buffer_size],
-                        output_state_summaries_window[
-                        out_array_slice_start:out_array_slice_start + total_output_size],
-                        summarise_every, )
+                summary_metric_chain(
+                    buffer_state_summaries[
+                        buffer_array_slice_start : buffer_array_slice_start
+                        + total_buffer_size
+                    ],
+                    output_state_summaries_window[
+                        out_array_slice_start : out_array_slice_start
+                        + total_output_size
+                    ],
+                    summarise_every,
+                )
 
         if summarise_observables:
             for observable_index in range(num_summarised_observables):
                 buffer_array_slice_start = observable_index * total_buffer_size
                 out_array_slice_start = observable_index * total_output_size
 
-                summary_metric_chain(buffer_observable_summaries[
-                                     buffer_array_slice_start:buffer_array_slice_start + total_buffer_size],
-                        output_observable_summaries_window[
-                        out_array_slice_start:out_array_slice_start + total_output_size],
-                        summarise_every, )
+                summary_metric_chain(
+                    buffer_observable_summaries[
+                        buffer_array_slice_start : buffer_array_slice_start
+                        + total_buffer_size
+                    ],
+                    output_observable_summaries_window[
+                        out_array_slice_start : out_array_slice_start
+                        + total_output_size
+                    ],
+                    summarise_every,
+                )
+
     # no cover: stop
     return save_summary_metrics_func

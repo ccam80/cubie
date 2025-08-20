@@ -8,8 +8,10 @@ of local maxima (peaks) in variable values during integration.
 from numba import cuda
 
 from cubie.outputhandling.summarymetrics import summary_metrics
-from cubie.outputhandling.summarymetrics.metrics import \
-    SummaryMetric, register_metric
+from cubie.outputhandling.summarymetrics.metrics import (
+    SummaryMetric,
+    register_metric,
+)
 
 
 @register_metric(summary_metrics)
@@ -43,11 +45,13 @@ class Peaks(SummaryMetric):
         """
         update_func, save_func = self.CUDA_factory()
 
-        super().__init__(name="peaks",
-                         buffer_size=lambda n: 3 + n,
-                         output_size=lambda n: n,
-                         update_device_func=update_func,
-                         save_device_func=save_func, )
+        super().__init__(
+            name="peaks",
+            buffer_size=lambda n: 3 + n,
+            output_size=lambda n: n,
+            update_device_func=update_func,
+            save_device_func=save_func,
+        )
 
     def CUDA_factory(self):
         """
@@ -72,11 +76,22 @@ class Peaks(SummaryMetric):
         save(buffer, output_array, summarise_every, customisable_variable):
             Saves detected peak time indices to output and resets buffer.
         """
+
         # no cover: start
-        @cuda.jit(["float32, float32[::1], int64, int64",
-                   "float64, float64[::1], int64, int64"], device=True,
-                  inline=True, )
-        def update(value, buffer, current_index, customisable_variable, ):
+        @cuda.jit(
+            [
+                "float32, float32[::1], int64, int64",
+                "float64, float64[::1], int64, int64",
+            ],
+            device=True,
+            inline=True,
+        )
+        def update(
+            value,
+            buffer,
+            current_index,
+            customisable_variable,
+        ):
             """
             Update peak detection with new value.
 
@@ -105,8 +120,11 @@ class Peaks(SummaryMetric):
             prev_prev = buffer[1]
             peak_counter = int(buffer[2])
 
-            if (current_index >= 2) and (peak_counter < npeaks) and (
-                    prev_prev != 0.0):
+            if (
+                (current_index >= 2)
+                and (peak_counter < npeaks)
+                and (prev_prev != 0.0)
+            ):
                 if prev > value and prev_prev < prev:
                     # Bingo
                     buffer[3 + peak_counter] = float(current_index - 1)
@@ -114,11 +132,20 @@ class Peaks(SummaryMetric):
             buffer[0] = value  # Update previous value
             buffer[1] = prev  # Update previous previous value
 
-        @cuda.jit(["float32[::1], float32[::1], int64, int64",
-                   "float64[::1], float64[::1], int64, int64"], device=True,
-                  inline=True, )
-        def save(buffer, output_array, summarise_every,
-                 customisable_variable, ):
+        @cuda.jit(
+            [
+                "float32[::1], float32[::1], int64, int64",
+                "float64[::1], float64[::1], int64, int64",
+            ],
+            device=True,
+            inline=True,
+        )
+        def save(
+            buffer,
+            output_array,
+            summarise_every,
+            customisable_variable,
+        ):
             """
             Save detected peak time indices and reset buffer.
 
@@ -145,5 +172,6 @@ class Peaks(SummaryMetric):
                 output_array[p] = buffer[3 + p]
                 buffer[3 + p] = 0.0
             buffer[2] = 0.0
+
         # no cover: end
         return update, save

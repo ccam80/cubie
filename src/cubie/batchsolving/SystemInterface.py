@@ -15,6 +15,7 @@ The SystemInterface allows updating default state or parameter values without
 navigating the full system hierarchy, providing a simplified interface for
 common operations.
 """
+
 from typing import Dict, List, Optional, Union
 
 import numpy as np
@@ -64,12 +65,16 @@ class SystemInterface:
         SystemInterface
             A new SystemInterface instance wrapping the system's values.
         """
-        return cls(system.parameters, system.initial_values, system.observables)
+        return cls(
+            system.parameters, system.initial_values, system.observables
+        )
 
-    def update(self,
-               updates: Dict[str, float] | None = None,
-               silent: bool = False,
-               **kwargs) -> Optional[set]:
+    def update(
+        self,
+        updates: Dict[str, float] | None = None,
+        silent: bool = False,
+        **kwargs,
+    ) -> Optional[set]:
         """Update default parameter or state values.
 
         Parameters
@@ -123,11 +128,13 @@ class SystemInterface:
         recognized = set(updates.keys()) - all_unrecognized
         return recognized
 
-    def state_indices(self,
-                      keys_or_indices: Optional[Union[List[Union[str, int]],
-                      str, int]] = None,
-                      silent: bool = False
-                      ) -> np.ndarray:
+    def state_indices(
+        self,
+        keys_or_indices: Optional[
+            Union[List[Union[str, int]], str, int]
+        ] = None,
+        silent: bool = False,
+    ) -> np.ndarray:
         """Convert state labels or indices to a numeric array.
 
         Parameters
@@ -151,10 +158,10 @@ class SystemInterface:
         return self.states.get_indices(keys_or_indices, silent=silent)
 
     def observable_indices(
-            self,
-            keys_or_indices: Union[List[Union[str, int]], str, int],
-            silent: bool = False
-            ) -> np.ndarray:
+        self,
+        keys_or_indices: Union[List[Union[str, int]], str, int],
+        silent: bool = False,
+    ) -> np.ndarray:
         """Convert observable labels or indices to a numeric array.
 
         Parameters
@@ -178,9 +185,10 @@ class SystemInterface:
         return self.observables.get_indices(keys_or_indices, silent=silent)
 
     def parameter_indices(
-        self, keys_or_indices: Union[List[Union[str, int]], str, int],
-            silent: bool = False
-        ) -> np.ndarray:
+        self,
+        keys_or_indices: Union[List[Union[str, int]], str, int],
+        silent: bool = False,
+    ) -> np.ndarray:
         """Convert parameter labels or indices to a numeric array.
 
         Parameters
@@ -199,10 +207,9 @@ class SystemInterface:
         """
         return self.parameters.get_indices(keys_or_indices, silent=silent)
 
-    def get_labels(self,
-                   values_object: SystemValues,
-                   indices: np.ndarray
-                   ) -> List[str]:
+    def get_labels(
+        self, values_object: SystemValues, indices: np.ndarray
+    ) -> List[str]:
         """Return labels corresponding to the provided indices.
 
         Parameters
@@ -219,8 +226,7 @@ class SystemInterface:
         """
         return values_object.get_labels(indices)
 
-    def state_labels(self,
-                     indices: Optional[np.ndarray] = None) -> List[str]:
+    def state_labels(self, indices: Optional[np.ndarray] = None) -> List[str]:
         """Get the labels of the states corresponding to the provided indices.
 
         Parameters
@@ -238,8 +244,9 @@ class SystemInterface:
             return self.states.names
         return self.get_labels(self.states, indices)
 
-    def observable_labels(self,
-                          indices: Optional[np.ndarray] = None) -> List[str]:
+    def observable_labels(
+        self, indices: Optional[np.ndarray] = None
+    ) -> List[str]:
         """Get the labels of observables corresponding to the provided indices.
 
         Parameters
@@ -258,8 +265,9 @@ class SystemInterface:
             return self.observables.names
         return self.get_labels(self.observables, indices)
 
-    def parameter_labels(self,
-                         indices: Optional[np.ndarray] = None) -> List[str]:
+    def parameter_labels(
+        self, indices: Optional[np.ndarray] = None
+    ) -> List[str]:
         """Get the labels of parameters corresponding to the provided indices.
 
         Parameters

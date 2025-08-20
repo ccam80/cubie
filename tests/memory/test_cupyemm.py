@@ -2,8 +2,9 @@ import pytest
 from os import environ
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import (FakeNumbaCUDAMemoryManager as
-                                    NumbaCUDAMemoryManager)
+    from cubie.cudasim_utils import (
+        FakeNumbaCUDAMemoryManager as NumbaCUDAMemoryManager,
+    )
 else:
     from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
 
@@ -14,13 +15,16 @@ from numba import cuda
 import numpy as np
 import cupy as cp
 
+
 @pytest.fixture(scope="module")
 def stream1():
     return cuda.stream()
 
+
 @pytest.fixture(scope="module")
 def stream2():
     return cuda.stream()
+
 
 @pytest.mark.nocudasim
 def test_numba_stream_ptr(stream1):
@@ -30,14 +34,18 @@ def test_numba_stream_ptr(stream1):
         expected_ptr = int(stream1.handle)
     assert _numba_stream_ptr(stream1) == expected_ptr
 
+
 @pytest.fixture(scope="module")
 def cp_stream_nocheck():
     class monkeypatch_cp_stream(current_cupy_stream):
         """current_cupy_stream without check for a cupy memory manager"""
+
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self._mgr_is_cupy = True
+
     return monkeypatch_cp_stream
+
 
 @pytest.mark.nocudasim
 @pytest.mark.cupy
@@ -56,6 +64,7 @@ def test_cupy_stream_wrapper(stream1, stream2, cp_stream_nocheck):
     assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream1)
     assert cp.cuda.get_current_stream().ptr != _numba_stream_ptr(stream2)
 
+
 @pytest.mark.nocudasim
 @pytest.mark.cupy
 def test_cupy_wrapper_mgr_check(stream1, stream2):
@@ -72,7 +81,10 @@ def test_cupy_wrapper_mgr_check(stream1, stream2):
     cuda.set_memory_manager(NumbaCUDAMemoryManager)
     cuda.close()
     with current_cupy_stream(stream1) as cupy_stream:
-        assert cupy_stream._mgr_is_cupy is False, "Default manager not detected"
+        assert cupy_stream._mgr_is_cupy is False, (
+            "Default manager not detected"
+        )
+
 
 @pytest.mark.nocudasim
 @pytest.mark.cupy
@@ -84,7 +96,7 @@ def test_correct_memalloc():
     newstream1 = cuda.stream()
 
     with current_cupy_stream(newstream1):
-        testarr = cuda.device_array((10,10,10), dtype=np.float32)
+        testarr = cuda.device_array((10, 10, 10), dtype=np.float32)
         cuda.synchronize()
         assert mgr._testout == "async"
     del testarr
@@ -97,7 +109,7 @@ def test_correct_memalloc():
     newstream2 = cuda.stream()
 
     with current_cupy_stream(newstream2):
-        testarr = cuda.device_array((10,10,10), dtype=np.float32)
+        testarr = cuda.device_array((10, 10, 10), dtype=np.float32)
         cuda.synchronize()
         assert mgr._testout == "sync"
     del testarr
@@ -108,18 +120,20 @@ def test_correct_memalloc():
     mgr = cuda.current_context().memory_manager
     newstream3 = cuda.stream()
     with current_cupy_stream(newstream3):
-        testarr = cuda.device_array((10,10,10), dtype=np.float32)
+        testarr = cuda.device_array((10, 10, 10), dtype=np.float32)
         cuda.synchronize()
         with pytest.raises(AttributeError):
             test = mgr._testout
     del testarr
     cuda.synchronize()
 
+
 @pytest.mark.nocudasim
 @pytest.mark.cupy
-@pytest.mark.parametrize("mgr", [NumbaCUDAMemoryManager,
-                                 CuPySyncNumbaManager,
-                                 CuPyAsyncNumbaManager])
+@pytest.mark.parametrize(
+    "mgr",
+    [NumbaCUDAMemoryManager, CuPySyncNumbaManager, CuPyAsyncNumbaManager],
+)
 def test_allocation(mgr):
     cuda.set_memory_manager(mgr)
     cuda.close()
@@ -132,7 +146,6 @@ def test_allocation(mgr):
     testarr = np.zeros((256), dtype=np.float32)
     d_testarr = cuda.device_array_like(testarr)
     d_testarr.copy_to_device(testarr)
-    test_kernel[1, 256,0 ,0](d_testarr)
+    test_kernel[1, 256, 0, 0](d_testarr)
     d_testarr.copy_to_device(testarr)
-    assert not np.array_equal(testarr, np.zeros((256*256), dtype=np.float32))
-
+    assert not np.array_equal(testarr, np.zeros((256 * 256), dtype=np.float32))

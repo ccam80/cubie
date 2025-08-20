@@ -14,15 +14,14 @@ from numpy import float32, float16, float64
 
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.outputhandling.output_sizes import LoopBufferSizes
-from cubie.integrators.algorithms.LoopStepConfig import \
-    LoopStepConfig
+from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
 
 
 @define
 class IntegratorLoopSettings:
     """
     Compile-critical settings for the integrator loop.
-    
+
     This class manages configuration settings that are critical for compiling
     integrator loops, including timing parameters, buffer sizes, precision,
     and function references. The integrator loop is not the source of truth
@@ -63,15 +62,26 @@ class IntegratorLoopSettings:
 
     # Core system properties
     loop_step_config: LoopStepConfig = field(
-            validator=validators.instance_of(LoopStepConfig))
+        validator=validators.instance_of(LoopStepConfig)
+    )
     buffer_sizes: LoopBufferSizes = field(
-            validator=validators.instance_of(LoopBufferSizes))
-    precision: type = field(default=float32, validator=validators.and_(
+        validator=validators.instance_of(LoopBufferSizes)
+    )
+    precision: type = field(
+        default=float32,
+        validator=validators.and_(
             validators.instance_of(type),
-            validators.in_([float32, float64, float16], ), ), )
-    compile_flags: OutputCompileFlags = field(default=OutputCompileFlags(),
-                                              validator=validators.instance_of(
-                                                      OutputCompileFlags, ), )
+            validators.in_(
+                [float32, float64, float16],
+            ),
+        ),
+    )
+    compile_flags: OutputCompileFlags = field(
+        default=OutputCompileFlags(),
+        validator=validators.instance_of(
+            OutputCompileFlags,
+        ),
+    )
     dxdt_function: Optional[Callable] = field(default=None)
     save_state_func: Optional[Callable] = field(default=None)
     update_summaries_func: Optional[Callable] = field(default=None)
@@ -188,10 +198,12 @@ class IntegratorLoopSettings:
         IntegratorLoopSettings
             New instance configured with parameters from the run object.
         """
-        return cls(loop_step_config=run_object.loop_step_config,
-                buffer_sizes=run_object.loop_buffer_sizes,
-                precision=run_object.precision,
-                dxdt_function=run_object.dxdt_function,
-                save_state_func=run_object.save_state_func,
-                update_summaries_func=run_object.update_summaries_func,
-                save_summaries_func=run_object.save_summaries_func, )
+        return cls(
+            loop_step_config=run_object.loop_step_config,
+            buffer_sizes=run_object.loop_buffer_sizes,
+            precision=run_object.precision,
+            dxdt_function=run_object.dxdt_function,
+            save_state_func=run_object.save_state_func,
+            update_summaries_func=run_object.update_summaries_func,
+            save_summaries_func=run_object.save_summaries_func,
+        )

@@ -14,9 +14,11 @@ import numpy as np
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from numba.cuda.simulator.cudadrv.devicearray import (
-        FakeCUDAArray as DeviceNDArrayBase)
+        FakeCUDAArray as DeviceNDArrayBase,
+    )
 else:
     from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
+
 
 @attrs.define
 class ArrayRequest:
@@ -57,21 +59,25 @@ class ArrayRequest:
     - For 3D arrays: ("time", "run", "variable")
     - For 2D arrays: ("variable", "run")
     """
-    shape: tuple[int,...] = attrs.field(
-            default=(1, 1, 1),
-            validator=val.deep_iterable(
-                    val.instance_of(int), val.instance_of(tuple)))
+
+    shape: tuple[int, ...] = attrs.field(
+        default=(1, 1, 1),
+        validator=val.deep_iterable(
+            val.instance_of(int), val.instance_of(tuple)
+        ),
+    )
     # the np.float64 object being passed around is a "getset_descriptor",
     # not a dtype, and a type hint here just adds confusion or shows warnings.
     dtype = attrs.field(
-            default=np.float64,
-            validator=val.in_([np.float64, np.float32]))
+        default=np.float64, validator=val.in_([np.float64, np.float32])
+    )
     memory: str = attrs.field(
-            default="device",
-            validator=val.in_(["device", "mapped", "pinned", "managed"]))
+        default="device",
+        validator=val.in_(["device", "mapped", "pinned", "managed"]),
+    )
     stride_order: Optional[tuple[str, ...]] = attrs.field(
-            default=None,
-            validator=val.optional(val.instance_of(tuple)))
+        default=None, validator=val.optional(val.instance_of(tuple))
+    )
 
     def __attrs_post_init__(self):
         """Set cubie-native stride order if not set already."""
@@ -92,6 +98,7 @@ class ArrayRequest:
             Total size in bytes including element size and shape.
         """
         return np.prod(self.shape, dtype=np.int64) * self.dtype().itemsize
+
 
 @attrs.define
 class ArrayResponse:
@@ -116,11 +123,13 @@ class ArrayResponse:
     chunk_axis : str
         The axis along which chunking was performed.
     """
+
     arr: dict[str, DeviceNDArrayBase] = attrs.field(
-            default=attrs.Factory(dict),
-            validator=val.instance_of(dict))
-    chunks: int = attrs.field(
-            default=attrs.Factory(dict),
+        default=attrs.Factory(dict), validator=val.instance_of(dict)
     )
-    chunk_axis: str = attrs.field(default="run",
-                                  validator=val.in_(["run", "variable", "time"]))
+    chunks: int = attrs.field(
+        default=attrs.Factory(dict),
+    )
+    chunk_axis: str = attrs.field(
+        default="run", validator=val.in_(["run", "variable", "time"])
+    )

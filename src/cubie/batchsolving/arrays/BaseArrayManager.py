@@ -49,14 +49,15 @@ class ArrayContainer(ABC):
     """
 
     _stride_order: Optional[tuple[str, ...]] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of(tuple)))
+        default=None, validator=val.optional(val.instance_of(tuple))
+    )
     _memory_type: str = attrs.field(
         default="device",
-        validator=val.in_(["device", "mapped", "pinned", "managed", "host"]))
+        validator=val.in_(["device", "mapped", "pinned", "managed", "host"]),
+    )
     _unchunkable: tuple[str] = attrs.field(
-        factory=tuple,
-        validator=val.instance_of(tuple))
+        factory=tuple, validator=val.instance_of(tuple)
+    )
 
     @property
     def stride_order(self):
@@ -116,7 +117,9 @@ class ArrayContainer(ABC):
         effectively clearing all stored arrays.
         """
         for attr_name in list(self.__dict__.keys()):
-            if not attr_name.startswith('_') and not callable(getattr(self, attr_name)):
+            if not attr_name.startswith("_") and not callable(
+                getattr(self, attr_name)
+            ):
                 setattr(self, attr_name, None)
 
     def attach(self, label, array):
@@ -160,7 +163,9 @@ class ArrayContainer(ABC):
         if hasattr(self, label):
             setattr(self, label, None)
         else:
-            warn(f"Host array with label '{label}' does not exist.", UserWarning)
+            warn(
+                f"Host array with label '{label}' does not exist.", UserWarning
+            )
 
 
 @attrs.define
@@ -206,35 +211,29 @@ class BaseArrayManager(ABC):
     """
 
     _precision: type = attrs.field(
-        default=float32,
-        validator=val.instance_of(type))
+        default=float32, validator=val.instance_of(type)
+    )
     _sizes: Optional[ArraySizingClass] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of(ArraySizingClass)))
+        default=None, validator=val.optional(val.instance_of(ArraySizingClass))
+    )
     device: ArrayContainer = attrs.field(
-        factory=ArrayContainer,
-        validator=val.instance_of(ArrayContainer))
+        factory=ArrayContainer, validator=val.instance_of(ArrayContainer)
+    )
     host: ArrayContainer = attrs.field(
-        factory=ArrayContainer,
-        validator=val.instance_of(ArrayContainer))
-    _chunks: int = attrs.field(
-        default=0,
-        validator=val.instance_of(int))
+        factory=ArrayContainer, validator=val.instance_of(ArrayContainer)
+    )
+    _chunks: int = attrs.field(default=0, validator=val.instance_of(int))
     _chunk_axis: str = attrs.field(
-        default="run",
-        validator=val.in_(["run", "variable", "time"]))
+        default="run", validator=val.in_(["run", "variable", "time"])
+    )
     _stream_group: str = attrs.field(
-        default="default",
-        validator=val.instance_of(str))
+        default="default", validator=val.instance_of(str)
+    )
     _memory_proportion: Optional[float] = attrs.field(
-        default=None,
-        validator=val.optional(val.instance_of(float))    )
-    _needs_reallocation: list[str] = attrs.field(
-        factory=list,
-        init=False)
-    _needs_overwrite: list[str] = attrs.field(
-        factory=list,
-        init=False)
+        default=None, validator=val.optional(val.instance_of(float))
+    )
+    _needs_reallocation: list[str] = attrs.field(factory=list, init=False)
+    _needs_overwrite: list[str] = attrs.field(factory=list, init=False)
     _memory_manager: MemoryManager = attrs.field(default=default_memmgr)
 
     def __attrs_post_init__(self):
@@ -250,8 +249,9 @@ class BaseArrayManager(ABC):
         for name, arr in self.host.__dict__.items():
             if not name.startswith("_") and arr is None:
                 shape = (1,) * len(self.device.stride_order)
-                setattr(self.host, name, np.zeros(shape,
-                                               dtype=self._precision))
+                setattr(
+                    self.host, name, np.zeros(shape, dtype=self._precision)
+                )
         self._invalidate_hook()
 
     @abstractmethod
@@ -307,11 +307,13 @@ class BaseArrayManager(ABC):
             try:
                 self.device.attach(array_label, response.arr[array_label])
             except KeyError:
-                warn(f"Device array {array_label} not found in allocation "
-                     f"response. See "
-                     f"BaseArrayManager._on_allocation_complete docstring "
-                     f"for more info.",
-                     UserWarning)
+                warn(
+                    f"Device array {array_label} not found in allocation "
+                    f"response. See "
+                    f"BaseArrayManager._on_allocation_complete docstring "
+                    f"for more info.",
+                    UserWarning,
+                )
         self._chunks = response.chunks
         self._chunk_axis = response.chunk_axis
         self._needs_reallocation.clear()
@@ -326,15 +328,18 @@ class BaseArrayManager(ABC):
         management integration.
         """
         self._memory_manager.register(
-                self,
-                proportion=self._memory_proportion,
-                invalidate_cache_hook=self._invalidate_hook,
-                allocation_ready_hook=self._on_allocation_complete,
-                stream_group=self._stream_group)
+            self,
+            proportion=self._memory_proportion,
+            invalidate_cache_hook=self._invalidate_hook,
+            allocation_ready_hook=self._on_allocation_complete,
+            stream_group=self._stream_group,
+        )
 
-    def request_allocation(self,
-                           request: dict[str, ArrayRequest],
-                           force_type: Optional[str] = None):
+    def request_allocation(
+        self,
+        request: dict[str, ArrayRequest],
+        force_type: Optional[str] = None,
+    ):
         """
         Send a request for allocation of device arrays.
 
@@ -379,12 +384,17 @@ class BaseArrayManager(ABC):
         self._needs_reallocation.clear()
         self._needs_overwrite.clear()
         self.device.delete_all()
-        self._needs_reallocation.extend([
-            array for array in self.device.__dict__.keys() if not array.startswith('_')])
+        self._needs_reallocation.extend(
+            [
+                array
+                for array in self.device.__dict__.keys()
+                if not array.startswith("_")
+            ]
+        )
 
-    def _arrays_equal(self,
-                      arr1: Optional[NDArray],
-                      arr2: Optional[NDArray]) -> bool:
+    def _arrays_equal(
+        self, arr1: Optional[NDArray], arr2: Optional[NDArray]
+    ) -> bool:
         """
         Check if two arrays are equal in shape and content.
 
@@ -419,9 +429,11 @@ class BaseArrayManager(ABC):
             If the new sizes object is not the same size as the existing one.
         """
         if not isinstance(sizes, type(self._sizes)):
-            raise TypeError("Expected the new sizes object to be the "
-                            f"same size as the previous one "
-                            f"({type(self._sizes)}), got {type(sizes)}")
+            raise TypeError(
+                "Expected the new sizes object to be the "
+                f"same size as the previous one "
+                f"({type(self._sizes)}), got {type(sizes)}"
+            )
         self._sizes = sizes
 
     def check_type(self, arrays: Dict[str, NDArray]) -> Dict[str, bool]:
@@ -447,9 +459,9 @@ class BaseArrayManager(ABC):
                 matches[array_name] = True
         return matches
 
-    def check_sizes(self,
-                    new_arrays: Dict[str, NDArray],
-                    location: str = "host") -> Dict[str, bool]:
+    def check_sizes(
+        self, new_arrays: Dict[str, NDArray], location: str = "host"
+    ) -> Dict[str, bool]:
         """Check if provided arrays match the system along the "variable" axis.
 
         Args:
@@ -477,16 +489,23 @@ class BaseArrayManager(ABC):
                 continue
             else:
                 array_shape = array.shape
-                expected_size_tuple = getattr(expected_sizes,array_name)
+                expected_size_tuple = getattr(expected_sizes, array_name)
                 if expected_size_tuple is None:
                     continue  # No size information for this array
                 expected_shape = list(expected_size_tuple)
 
                 # Reorder expected_shape to match the container's stride order
-                if (source_stride_order and target_stride_order
-                        and source_stride_order != target_stride_order):
-                    size_map = {axis: size for axis, size in
-                                zip(source_stride_order, expected_shape)}
+                if (
+                    source_stride_order
+                    and target_stride_order
+                    and source_stride_order != target_stride_order
+                ):
+                    size_map = {
+                        axis: size
+                        for axis, size in zip(
+                            source_stride_order, expected_shape
+                        )
+                    }
                     expected_shape = [
                         size_map[axis]
                         for axis in target_stride_order
@@ -496,23 +515,32 @@ class BaseArrayManager(ABC):
                 # Chunk if needed and arrays are device arrays
                 if location == "device" and self._chunks > 0:
                     if chunk_axis_name in container._stride_order:
-                        chunk_axis_index = container._stride_order.index(chunk_axis_name)
+                        chunk_axis_index = container._stride_order.index(
+                            chunk_axis_name
+                        )
                         if expected_shape[chunk_axis_index] is not None:
                             expected_shape[chunk_axis_index] = int(
-                                np.ceil(expected_shape[chunk_axis_index] / self._chunks)
+                                np.ceil(
+                                    expected_shape[chunk_axis_index]
+                                    / self._chunks
+                                )
                             )
 
                 if len(array_shape) != len(expected_shape):
                     matches[array_name] = False
                 else:
                     shape_matches = True
-                    for actual_dim, expected_dim in zip(array_shape, expected_shape):
-                        if expected_dim is not None and actual_dim != expected_dim:
+                    for actual_dim, expected_dim in zip(
+                        array_shape, expected_shape
+                    ):
+                        if (
+                            expected_dim is not None
+                            and actual_dim != expected_dim
+                        ):
                             shape_matches = False
                             break
                     matches[array_name] = shape_matches
         return matches
-
 
     @abstractmethod
     def finalise(self, indices):
@@ -529,8 +557,9 @@ class BaseArrayManager(ABC):
         For most input arrays, this is a copy to device.
         For output arrays, this is typically a no-op."""
 
-    def check_incoming_arrays(self, arrays: Dict[str, NDArray], location:
-    str = "host") -> Dict[str, bool]:
+    def check_incoming_arrays(
+        self, arrays: Dict[str, NDArray], location: str = "host"
+    ) -> Dict[str, bool]:
         """Check dimensions and dtype of provided arrays match expected sizes and precision.
 
         Args:
@@ -546,8 +575,9 @@ class BaseArrayManager(ABC):
             all_ok[array_name] = dims_ok[array_name] and types_ok[array_name]
         return all_ok
 
-    def attach_external_arrays(self, arrays: Dict[str, NDArray],
-                               location: str = "host") -> bool:
+    def attach_external_arrays(
+        self, arrays: Dict[str, NDArray], location: str = "host"
+    ) -> bool:
         """Attach existing arrays to the specified container (host or device).
 
         Args:
@@ -566,9 +596,12 @@ class BaseArrayManager(ABC):
             else:
                 not_attached.append(array_name)
         if not_attached:
-            warn(f"The following arrays did not match the expected data "
-                 f"type and size, and so were not used"
-                 f" {', '.join(not_attached)}", UserWarning)
+            warn(
+                f"The following arrays did not match the expected data "
+                f"type and size, and so were not used"
+                f" {', '.join(not_attached)}",
+                UserWarning,
+            )
         return True
 
     def _update_host_array(
@@ -607,20 +640,32 @@ class BaseArrayManager(ABC):
         Returns:
             None
         """
-        badnames = [array_name for array_name in new_arrays
-                    if array_name not in self.host.__dict__.keys()]
-        new_arrays = {k: v for k, v in new_arrays.items() if
-                      k in self.host.__dict__.keys()}
+        badnames = [
+            array_name
+            for array_name in new_arrays
+            if array_name not in self.host.__dict__.keys()
+        ]
+        new_arrays = {
+            k: v
+            for k, v in new_arrays.items()
+            if k in self.host.__dict__.keys()
+        }
         if any(badnames):
-            warn(f"Host arrays '{badnames}' does not exist, "
-                 f"ignoring update", UserWarning)
+            warn(
+                f"Host arrays '{badnames}' does not exist, ignoring update",
+                UserWarning,
+            )
         if not any([check for check in self.check_sizes(new_arrays).values()]):
-            warn("Provided arrays do not match the expected system "
-                 "sizes, ignoring update", UserWarning)
+            warn(
+                "Provided arrays do not match the expected system "
+                "sizes, ignoring update",
+                UserWarning,
+            )
         for array_name in new_arrays:
             current_array = getattr(self.host, array_name)
-            self._update_host_array(new_arrays[array_name], current_array,
-                                        array_name)
+            self._update_host_array(
+                new_arrays[array_name], current_array, array_name
+            )
 
     def allocate(self):
         """Queue allocation requests for arrays that need reallocation."""
@@ -633,7 +678,7 @@ class BaseArrayManager(ABC):
                     shape=host_array.shape,
                     dtype=self._precision,
                     memory=self.device.memory_type,
-                    stride_order=self.device.stride_order
+                    stride_order=self.device.stride_order,
                 )
                 requests[array_label] = request
 
@@ -643,10 +688,10 @@ class BaseArrayManager(ABC):
     def initialize_device_zeros(self):
         """Initialize device arrays to zero values."""
         for name, array in self.device.__dict__.items():
-            if not name.startswith('_') and array is not None:
+            if not name.startswith("_") and array is not None:
                 if len(array.shape) >= 3:
                     array[:, :, :] = self._precision(0.0)
-                elif  len(array.shape) >= 2:
+                elif len(array.shape) >= 2:
                     array[:, :] = self._precision(0.0)
 
     def reset(self):
@@ -659,8 +704,7 @@ class BaseArrayManager(ABC):
     def to_device(self, from_arrays: list, to_arrays: list):
         self._memory_manager.to_device(self, from_arrays, to_arrays)
 
-    def from_device(self,
-                    instance: object,
-                    from_arrays: list,
-                    to_arrays: list):
+    def from_device(
+        self, instance: object, from_arrays: list, to_arrays: list
+    ):
         self._memory_manager.from_device(self, from_arrays, to_arrays)

@@ -14,8 +14,7 @@ from numpy.typing import ArrayLike
 
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.outputhandling.output_sizes import LoopBufferSizes
-from cubie.integrators.IntegratorRunSettings import \
-    IntegratorRunSettings
+from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import ImplementedAlgorithms
 from cubie.systemmodels.systems.ODEData import SystemSizes
 from cubie._utils import in_attr
@@ -86,36 +85,46 @@ class SingleIntegratorRun:
     ImplementedAlgorithms : Registry of available integration algorithms
     """
 
-    def __init__(self, system, algorithm: str = 'euler', dt_min: float = 0.01,
-                 dt_max: float = 0.1, dt_save: float = 0.1,
-                 dt_summarise: float = 1.0, atol: float = 1e-6,
-                 rtol: float = 1e-6,
-                 saved_state_indices: Optional[ArrayLike] = None,
-                 saved_observable_indices: Optional[ArrayLike] = None,
-                 summarised_state_indices: Optional[ArrayLike] = None,
-                 summarised_observable_indices: Optional[ArrayLike] = None,
-                 output_types: list[str] = None, ):
-
+    def __init__(
+        self,
+        system,
+        algorithm: str = "euler",
+        dt_min: float = 0.01,
+        dt_max: float = 0.1,
+        dt_save: float = 0.1,
+        dt_summarise: float = 1.0,
+        atol: float = 1e-6,
+        rtol: float = 1e-6,
+        saved_state_indices: Optional[ArrayLike] = None,
+        saved_observable_indices: Optional[ArrayLike] = None,
+        summarised_state_indices: Optional[ArrayLike] = None,
+        summarised_observable_indices: Optional[ArrayLike] = None,
+        output_types: list[str] = None,
+    ):
         # Store the system
         self._system = system
         system_sizes = system.sizes
 
         # Initialize output functions with shapes from system
         self._output_functions = OutputFunctions(
-                max_states=system_sizes.states,
-                max_observables=system_sizes.observables,
-                output_types=output_types,
-                saved_state_indices=saved_state_indices,
-                saved_observable_indices=saved_observable_indices,
-                summarised_state_indices=summarised_state_indices,
-                summarised_observable_indices=summarised_observable_indices, )
+            max_states=system_sizes.states,
+            max_observables=system_sizes.observables,
+            output_types=output_types,
+            saved_state_indices=saved_state_indices,
+            saved_observable_indices=saved_observable_indices,
+            summarised_state_indices=summarised_state_indices,
+            summarised_observable_indices=summarised_observable_indices,
+        )
 
-        compile_settings = IntegratorRunSettings(dt_min=dt_min, dt_max=dt_max,
-                                                 dt_save=dt_save,
-                                                 dt_summarise=dt_summarise,
-                                                 atol=atol, rtol=rtol,
-                                                 output_types=output_types,
-                                                 )
+        compile_settings = IntegratorRunSettings(
+            dt_min=dt_min,
+            dt_max=dt_max,
+            dt_save=dt_save,
+            dt_summarise=dt_summarise,
+            atol=atol,
+            rtol=rtol,
+            output_types=output_types,
+        )
 
         self.config = compile_settings
 
@@ -137,8 +146,9 @@ class SingleIntegratorRun:
         LoopBufferSizes
             Buffer size configuration for the integration loop.
         """
-        return LoopBufferSizes.from_system_and_output_fns(self._system,
-                                                          self._output_functions)
+        return LoopBufferSizes.from_system_and_output_fns(
+            self._system, self._output_functions
+        )
 
     @property
     def output_array_heights(self):
@@ -207,37 +217,42 @@ class SingleIntegratorRun:
                 setattr(self.config, key, value)
                 recognized.add(key)
 
-        if 'algorithm' in updates_dict.keys():
+        if "algorithm" in updates_dict.keys():
             # If the algorithm is being updated, we need to reset the
             # integrator instance
-            self.algorithm_key = updates_dict['algorithm'].lower()
+            self.algorithm_key = updates_dict["algorithm"].lower()
             algorithm = ImplementedAlgorithms[self.algorithm_key]
             self._integrator_instance = algorithm.from_single_integrator_run(
-                    self)
-            recognized.add('algorithm')
+                self
+            )
+            recognized.add("algorithm")
 
         recognized |= self._system.update(updates_dict, silent=True)
         recognized |= self._output_functions.update(updates_dict, silent=True)
 
-        cached_loop_updates = {'dxdt_function': self.dxdt_function,
-            'save_state_func'                 : self.save_state_func,
-            'update_summaries_func'           : self.update_summaries_func,
-            'save_summaries_func'             : self.save_summaries_func,
-            'buffer_sizes'                    : self.loop_buffer_sizes,
-            'loop_step_config'                : self.loop_step_config,
-            'precision'                       : self.precision,
-            'compile_flags'                   : self.compile_flags}
+        cached_loop_updates = {
+            "dxdt_function": self.dxdt_function,
+            "save_state_func": self.save_state_func,
+            "update_summaries_func": self.update_summaries_func,
+            "save_summaries_func": self.save_summaries_func,
+            "buffer_sizes": self.loop_buffer_sizes,
+            "loop_step_config": self.loop_step_config,
+            "precision": self.precision,
+            "compile_flags": self.compile_flags,
+        }
 
-        recognized |= self._integrator_instance.update(cached_loop_updates,
-                                                       silent=True)
+        recognized |= self._integrator_instance.update(
+            cached_loop_updates, silent=True
+        )
         all_unrecognized -= recognized
 
         if all_unrecognized:
             if not silent:
                 raise KeyError(
-                        f"The following updates were not recognized by any "
-                        f"component:"
-                        f" {all_unrecognized}", )
+                    f"The following updates were not recognized by any "
+                    f"component:"
+                    f" {all_unrecognized}",
+                )
 
         self.config.validate_settings()
         self._invalidate_cache()
@@ -316,8 +331,10 @@ class SingleIntegratorRun:
         total_elements = loop_memory + summary_buffers
         if total_elements % 2 == 0:
             total_elements += 1  # Make it odd to reduce bank conflicts
-        return (self._integrator_instance.shared_memory_required +
-                self._output_functions.total_summary_buffer_size)
+        return (
+            self._integrator_instance.shared_memory_required
+            + self._output_functions.total_summary_buffer_size
+        )
 
     @property
     def shared_memory_bytes(self):

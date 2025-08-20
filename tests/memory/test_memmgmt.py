@@ -6,13 +6,16 @@ import pytest
 from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import (FakeNumbaCUDAMemoryManager as
-                                     NumbaCUDAMemoryManager)
+    from cubie.cudasim_utils import (
+        FakeNumbaCUDAMemoryManager as NumbaCUDAMemoryManager,
+    )
     from cubie.cudasim_utils import FakeStream as Stream
-    from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
-                                               DeviceNDArrayBase)
-    from numba.cuda.simulator.cudadrv.devicearray import (FakeCUDAArray as
-                                               MappedNDArray)
+    from numba.cuda.simulator.cudadrv.devicearray import (
+        FakeCUDAArray as DeviceNDArrayBase,
+    )
+    from numba.cuda.simulator.cudadrv.devicearray import (
+        FakeCUDAArray as MappedNDArray,
+    )
 else:
     from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
     from numba.cuda.cudadrv.driver import Stream
@@ -34,15 +37,17 @@ class DummyClass:
         self.proportion = proportion
         self.invalidate_all_hook = invalidate_all_hook
 
+
 @pytest.fixture(scope="function")
 def instance_settings_override(request):
-    return request.param if hasattr(request, 'param') else {}
+    return request.param if hasattr(request, "param") else {}
+
 
 @pytest.fixture(scope="function")
 def instance_settings(instance_settings_override):
     defaults = {
-        'proportion': 0.5,
-        'invalidate_hook': lambda: None,
+        "proportion": 0.5,
+        "invalidate_hook": lambda: None,
     }
     if instance_settings_override:
         for key, value in instance_settings_override.items():
@@ -50,37 +55,41 @@ def instance_settings(instance_settings_override):
                 defaults[key] = value
     return defaults
 
+
 @pytest.fixture(scope="function")
 def instance_settings_obj(instance_settings):
     return InstanceMemorySettings(**instance_settings)
 
+
 class TestInstanceMemorySettings:
     def test_instantiation(self, instance_settings_obj, instance_settings):
         # Test that the settings in the object match the settings fixture
-        assert instance_settings_obj.proportion == instance_settings['proportion']
+        assert (
+            instance_settings_obj.proportion == instance_settings["proportion"]
+        )
         assert callable(instance_settings_obj.invalidate_hook)
         assert isinstance(instance_settings_obj.allocations, dict)
 
     def test_add_allocation(self, instance_settings_obj):
         # test that add_allocation adds the reference to the allocations dict
         arr = np.ndarray((10,), dtype=np.float64)
-        instance_settings_obj.add_allocation('foo', arr)
-        assert 'foo' in instance_settings_obj.allocations
-        assert instance_settings_obj.allocations['foo'] is arr
+        instance_settings_obj.add_allocation("foo", arr)
+        assert "foo" in instance_settings_obj.allocations
+        assert instance_settings_obj.allocations["foo"] is arr
 
     def test_free(self, instance_settings_obj):
         # test that free removes the reference to the allocations dict
         arr = np.ndarray((10,), dtype=np.float64)
-        instance_settings_obj.add_allocation('foo', arr)
-        instance_settings_obj.free('foo')
-        assert 'foo' not in instance_settings_obj.allocations
+        instance_settings_obj.add_allocation("foo", arr)
+        instance_settings_obj.free("foo")
+        assert "foo" not in instance_settings_obj.allocations
 
     def test_free_all(self, instance_settings_obj):
         # test that free_all removes all references to the allocations dict
         arr1 = np.ndarray((10,), dtype=np.float64)
         arr2 = np.ndarray((20,), dtype=np.float64)
-        instance_settings_obj.add_allocation('foo', arr1)
-        instance_settings_obj.add_allocation('bar', arr2)
+        instance_settings_obj.add_allocation("foo", arr1)
+        instance_settings_obj.add_allocation("bar", arr2)
         instance_settings_obj.free_all()
         assert instance_settings_obj.allocations == {}
 
@@ -89,40 +98,38 @@ class TestInstanceMemorySettings:
         # test that the allocated_bytes property returns the correct value
         arr1 = np.ndarray((100,), dtype=np.float64)
         arr2 = np.ndarray((25,), dtype=np.float64)
-        instance_settings_obj.add_allocation('foo', arr1)
-        instance_settings_obj.add_allocation('bar', arr2)
+        instance_settings_obj.add_allocation("foo", arr1)
+        instance_settings_obj.add_allocation("bar", arr2)
         expected_bytes = arr1.nbytes + arr2.nbytes
         assert instance_settings_obj.allocated_bytes == expected_bytes
-        instance_settings_obj.free('foo')
+        instance_settings_obj.free("foo")
         assert instance_settings_obj.allocated_bytes == arr2.nbytes
 
 
 # ========================= Memory Manager Class =========================== #
 @pytest.fixture
 def fixed_mem_override(request):
-    return request.param if hasattr(request, 'param') else {}
+    return request.param if hasattr(request, "param") else {}
+
 
 @pytest.fixture(scope="function")
 def fixed_mem_settings(fixed_mem_override):
-    defaults = {
-        'free': 1*1024**3,
-        'total': 8*1024**3}
+    defaults = {"free": 1 * 1024**3, "total": 8 * 1024**3}
     if fixed_mem_override:
         for key, value in fixed_mem_override.items():
             if key in defaults:
                 defaults[key] = value
     return defaults
 
+
 @pytest.fixture(scope="function")
 def mem_manager_override(request):
-    return request.param if hasattr(request, 'param') else {}
+    return request.param if hasattr(request, "param") else {}
+
 
 @pytest.fixture(scope="function")
 def mem_manager_settings(mem_manager_override):
-    defaults = {
-        'mode': 'passive',
-        'stride_order': ("time", "run", "variable")
-    }
+    defaults = {"mode": "passive", "stride_order": ("time", "run", "variable")}
     if mem_manager_override:
         for key, value in mem_manager_override.items():
             if key in defaults:
@@ -135,27 +142,31 @@ def mem_manager_settings(mem_manager_override):
 def mgr(fixed_mem_settings, mem_manager_settings):
     class TestMemoryManager(MemoryManager):
         def get_memory_info(self):
-            free = fixed_mem_settings['free']
-            total = fixed_mem_settings['total']
+            free = fixed_mem_settings["free"]
+            total = fixed_mem_settings["total"]
             return free, total
 
-        if environ.get('NUMBA_ENABLE_CUDASIM', '0') == '1':
-            def set_allocator(self, name: str=None):
+        if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
+
+            def set_allocator(self, name: str = None):
                 pass
+
             _allocator = None
 
     # Create an instance of the TestMemoryManager with the provided settings
     return TestMemoryManager(**mem_manager_settings)
 
+
 @pytest.fixture(scope="function")
 def registered_instance_override(request):
-    return request.param if hasattr(request, 'param') else {}
+    return request.param if hasattr(request, "param") else {}
+
 
 @pytest.fixture(scope="function")
 def registered_instance_settings(registered_instance_override):
     defaults = {
-        'proportion': 0.5,
-        'invalidate_all_hook': lambda: None,
+        "proportion": 0.5,
+        "invalidate_all_hook": lambda: None,
     }
     if registered_instance_override:
         for key, value in registered_instance_override.items():
@@ -163,29 +174,34 @@ def registered_instance_settings(registered_instance_override):
                 defaults[key] = value
     return defaults
 
+
 @pytest.fixture(scope="function")
 def registered_instance(registered_instance_settings):
     return DummyClass(**registered_instance_settings)
 
+
 @pytest.fixture
 def registered_mgr(mgr, registered_instance):
-    mgr.register(registered_instance,
-                 proportion=registered_instance.proportion,
-                 invalidate_cache_hook=registered_instance.invalidate_all_hook)
+    mgr.register(
+        registered_instance,
+        proportion=registered_instance.proportion,
+        invalidate_cache_hook=registered_instance.invalidate_all_hook,
+    )
     return mgr
+
 
 class TestMemoryManager:
     @pytest.mark.nocudasim
     def test_instantiation(self, mgr):
-        """ Test that the settings in the object match the settings fixture"""
-        assert mgr.totalmem == 8*1024**3
+        """Test that the settings in the object match the settings fixture"""
+        assert mgr.totalmem == 8 * 1024**3
         assert mgr.registry == {}
         assert mgr._mode in ["passive", "active"]
         assert mgr._allocator is not None
         assert isinstance(mgr.stream_groups, type(mgr.stream_groups))
 
     def test_register(self, registered_mgr, registered_instance):
-        """ Test that the register method adds the instance to the
+        """Test that the register method adds the instance to the
         appropriate pool, the proportion and cap are set correctly,
         an entry is added to registry, that the instance gets a stream"""
         mgr = registered_mgr
@@ -201,7 +217,7 @@ class TestMemoryManager:
 
     @pytest.mark.cupy
     def test_set_allocator(self, mgr):
-        """ Test that set_allocator sets the allocator correctly
+        """Test that set_allocator sets the allocator correctly
         test each of "cupy_async", "cupy", "default", checking that
         (self._allocator is CuPyAsyncNumbaManager, CuPySyncNumbaManager.
          NumbaCudaMemoryManager, respectively)"""
@@ -215,7 +231,7 @@ class TestMemoryManager:
             mgr.set_allocator("invalid")
 
     def test_set_limit_mode(self, mgr):
-        """ Test that set_limit_mode assigns the mode correctly,
+        """Test that set_limit_mode assigns the mode correctly,
         and that it raises ValueError if an invalid mode is passed"""
         mgr.set_limit_mode("active")
         assert mgr._mode == "active"
@@ -267,16 +283,18 @@ class TestMemoryManager:
         that it is called when invalidate all is called"""
         mgr = registered_mgr
         called = {"flag": False}
+
         def hook():
             called["flag"] = True
+
         inst = DummyClass()
         mgr.register(inst, invalidate_cache_hook=hook)
         mgr.invalidate_all()
         assert called["flag"] is True
 
-    @pytest.mark.parametrize("registered_instance_override", [{"proportion":
-                                                               None}],
-                             indirect=True)
+    @pytest.mark.parametrize(
+        "registered_instance_override", [{"proportion": None}], indirect=True
+    )
     def test_set_manual_limit_mode(self, registered_mgr, registered_instance):
         """Test that set_manual_limit_mode sets the instance to manual mode,
         and that it raises ValueError if the instance is already in manual mode"""
@@ -296,9 +314,9 @@ class TestMemoryManager:
         instance_id = id(instance)
         assert instance_id not in mgr._manual_pool
 
-    @pytest.mark.parametrize("registered_instance_override", [{"proportion":
-                                                               0.5}],
-                             indirect=True)
+    @pytest.mark.parametrize(
+        "registered_instance_override", [{"proportion": 0.5}], indirect=True
+    )
     def test_proportion(self, registered_mgr, registered_instance):
         """Test that proportion returns the requested proportion if set,
         and 1.0 if not set (auto)"""
@@ -312,15 +330,19 @@ class TestMemoryManager:
 
     def test_cap(self, registered_mgr, registered_instance):
         """Test that cap returns the correct value"""
-        proportion = registered_instance.proportion if registered_instance.proportion else 1.0
+        proportion = (
+            registered_instance.proportion
+            if registered_instance.proportion
+            else 1.0
+        )
         testcap = registered_mgr.cap(registered_instance)
         free, total = registered_mgr.get_memory_info()
         solvercap = total * proportion
         assert testcap == solvercap
 
-    @pytest.mark.parametrize("registered_instance_override", 
-                             [{"proportion": None}],
-                             indirect=True)
+    @pytest.mark.parametrize(
+        "registered_instance_override", [{"proportion": None}], indirect=True
+    )
     def test_pool_proportions(self, registered_mgr, registered_instance):
         """Add a few auto and manual instances, check that the total manual
         and auto pool proportions match expected. Test add and rebalance
@@ -369,16 +391,23 @@ class TestMemoryManager:
         with pytest.raises(ValueError):
             mgr.register(instance5, proportion=0.3)
 
-
     def test_set_strides(self, mgr):
-        """ test that the strides are set correctly"""
+        """test that the strides are set correctly"""
         # Default stride order, should be None
-        req = ArrayRequest(shape=(2,3,4), dtype=np.float32, memory="device",
-                           stride_order=("time","run","variable"))
+        req = ArrayRequest(
+            shape=(2, 3, 4),
+            dtype=np.float32,
+            memory="device",
+            stride_order=("time", "run", "variable"),
+        )
         assert mgr.get_strides(req) is None
         # Custom stride order, should return a tuple
-        req2 = ArrayRequest(shape=(2,3,4), dtype=np.float32, memory="device",
-                            stride_order=("run","variable","time"))
+        req2 = ArrayRequest(
+            shape=(2, 3, 4),
+            dtype=np.float32,
+            memory="device",
+            stride_order=("run", "variable", "time"),
+        )
         strides = mgr.get_strides(req2)
         # Manually computed strides for shape (2,3,4) and order (run, variable, time)
         # Should match what MemoryManager.get_strides returns
@@ -408,8 +437,12 @@ class TestMemoryManager:
         mgr.register(instance, allocation_ready_hook=allocation_hook)
 
         requests = {
-            "arr1": ArrayRequest(shape=(8, 8, 8), dtype=np.float32, memory="device"),
-            "arr2": ArrayRequest(shape=(4, 4, 4), dtype=np.float32, memory="device"),
+            "arr1": ArrayRequest(
+                shape=(8, 8, 8), dtype=np.float32, memory="device"
+            ),
+            "arr2": ArrayRequest(
+                shape=(4, 4, 4), dtype=np.float32, memory="device"
+            ),
         }
         mgr.single_request(instance, requests)
 
@@ -428,8 +461,12 @@ class TestMemoryManager:
         mgr = registered_mgr
         instance = registered_instance
         requests = {
-            "arr1": ArrayRequest(shape=(2, 2, 2), dtype=np.float32, memory="device"),
-            "arr2": ArrayRequest(shape=(2, 2, 2), dtype=np.float32, memory="device"),
+            "arr1": ArrayRequest(
+                shape=(2, 2, 2), dtype=np.float32, memory="device"
+            ),
+            "arr2": ArrayRequest(
+                shape=(2, 2, 2), dtype=np.float32, memory="device"
+            ),
         }
         stream = mgr.get_stream(instance)
         arrays = mgr.allocate_all(requests, id(instance), stream)
@@ -443,7 +480,9 @@ class TestMemoryManager:
     def test_allocate(self, mgr):
         """Test allocate returns correct array type and shape for each memory type."""
         for mem_type in ["device", "mapped", "pinned"]:
-            arr = mgr.allocate(shape=(2, 2), dtype=np.float32, memory_type=mem_type)
+            arr = mgr.allocate(
+                shape=(2, 2), dtype=np.float32, memory_type=mem_type
+            )
             if mem_type in ["device", "mapped"]:
                 assert hasattr(arr, "__cuda_array_interface__")
             else:
@@ -530,9 +569,9 @@ class TestMemoryManager:
         )
         assert mgr.get_strides(req_2d) is None
 
-    @pytest.mark.parametrize("registered_instance_override", 
-                             [{"proportion": None}],
-                             indirect=True)
+    @pytest.mark.parametrize(
+        "registered_instance_override", [{"proportion": None}], indirect=True
+    )
     def test_manual_pool_proportion(self, registered_mgr, registered_instance):
         """Test manual_pool_proportion property returns correct sum."""
         mgr = registered_mgr
@@ -608,8 +647,10 @@ class TestMemoryManager:
         mgr.set_limit_mode("active")
         available = mgr.get_available_group("test_group")
         total_cap = mgr.registry[id(inst1)].cap + mgr.registry[id(inst2)].cap
-        total_allocated = (mgr.registry[id(inst1)].allocated_bytes +
-                          mgr.registry[id(inst2)].allocated_bytes)
+        total_allocated = (
+            mgr.registry[id(inst1)].allocated_bytes
+            + mgr.registry[id(inst2)].allocated_bytes
+        )
         expected = min(total_cap - total_allocated, free)
         assert available == expected
 
@@ -629,8 +670,12 @@ class TestMemoryManager:
         """Test _check_requests validates request format correctly."""
         # Valid requests should pass
         valid_requests = {
-            "arr1": ArrayRequest(shape=(2, 2), dtype=np.float32, memory="device"),
-            "arr2": ArrayRequest(shape=(3, 3), dtype=np.float64, memory="mapped"),
+            "arr1": ArrayRequest(
+                shape=(2, 2), dtype=np.float32, memory="device"
+            ),
+            "arr2": ArrayRequest(
+                shape=(3, 3), dtype=np.float64, memory="mapped"
+            ),
         }
         mgr._check_requests(valid_requests)  # Should not raise
 
@@ -640,7 +685,9 @@ class TestMemoryManager:
 
         # Invalid request values should raise TypeError
         invalid_requests = {
-            "arr1": ArrayRequest(shape=(2, 2), dtype=np.float32, memory="device"),
+            "arr1": ArrayRequest(
+                shape=(2, 2), dtype=np.float32, memory="device"
+            ),
             "arr2": "not an ArrayRequest",
         }
         with pytest.raises(TypeError):
@@ -652,7 +699,9 @@ class TestMemoryManager:
         instance = registered_instance
 
         requests = {
-            "arr1": ArrayRequest(shape=(2, 2), dtype=np.float32, memory="device"),
+            "arr1": ArrayRequest(
+                shape=(2, 2), dtype=np.float32, memory="device"
+            ),
         }
 
         mgr.queue_request(instance, requests)
@@ -663,7 +712,9 @@ class TestMemoryManager:
 
         # Test that subsequent requests from same instance overwrite (not append)
         requests2 = {
-            "arr2": ArrayRequest(shape=(3, 3), dtype=np.float32, memory="device"),
+            "arr2": ArrayRequest(
+                shape=(3, 3), dtype=np.float32, memory="device"
+            ),
         }
         mgr.queue_request(instance, requests2)
         # Should only have the latest request
@@ -676,13 +727,13 @@ class TestMemoryManager:
                 shape=(100, 200, 50),
                 dtype=np.float32,
                 memory="device",
-                stride_order=("time", "run", "variable")
+                stride_order=("time", "run", "variable"),
             ),
             "arr2": ArrayRequest(
                 shape=(50, 400, 25),
                 dtype=np.float32,
                 memory="device",
-                stride_order=("time", "run", "variable")
+                stride_order=("time", "run", "variable"),
             ),
         }
 
@@ -708,12 +759,17 @@ class TestMemoryManager:
             callback_called["flag"] = True
             callback_called["response"] = response
 
-        registered_mgr.register(instance,
-                                allocation_ready_hook=allocation_hook)
+        registered_mgr.register(
+            instance, allocation_ready_hook=allocation_hook
+        )
 
         requests = {
-            "arr1": ArrayRequest(shape=(4, 4, 4), dtype=np.float32, memory="device"),
-            "arr2": ArrayRequest(shape=(2, 2, 2), dtype=np.float32, memory="mapped"),
+            "arr1": ArrayRequest(
+                shape=(4, 4, 4), dtype=np.float32, memory="device"
+            ),
+            "arr2": ArrayRequest(
+                shape=(2, 2, 2), dtype=np.float32, memory="mapped"
+            ),
         }
 
         registered_mgr.single_request(instance, requests)
@@ -741,7 +797,9 @@ class TestMemoryManager:
         mgr.register(instance, allocation_ready_hook=allocation_hook)
 
         requests = {
-            "arr1": ArrayRequest(shape=(2, 2, 2), dtype=np.float32, memory="device"),
+            "arr1": ArrayRequest(
+                shape=(2, 2, 2), dtype=np.float32, memory="device"
+            ),
         }
 
         mgr.queue_request(instance, requests)
@@ -760,14 +818,15 @@ class TestMemoryManager:
         """Test allocate_queue with multiple instances using group limit."""
         inst1 = DummyClass()
         inst2 = DummyClass()
-        callbacks_called = {"inst1": {"flag": False,
-                                      "response": ArrayResponse()},
-                            "inst2": {"flag": False,
-                                      "response": ArrayResponse()}}
+        callbacks_called = {
+            "inst1": {"flag": False, "response": ArrayResponse()},
+            "inst2": {"flag": False, "response": ArrayResponse()},
+        }
 
         def hook1(response):
             callbacks_called["inst1"]["flag"] = True
             callbacks_called["inst1"]["response"] = response
+
         def hook2(response):
             callbacks_called["inst2"]["flag"] = True
             callbacks_called["inst2"]["response"] = response
@@ -776,9 +835,15 @@ class TestMemoryManager:
         mgr.register(inst2, allocation_ready_hook=hook2, stream_group="test")
 
         requests1 = {
-            "arr1": ArrayRequest(shape=(2, 2, 2), dtype=np.float32, memory="device")
+            "arr1": ArrayRequest(
+                shape=(2, 2, 2), dtype=np.float32, memory="device"
+            )
         }
-        requests2 = {"arr2": ArrayRequest(shape=(3, 3, 3), dtype=np.float32, memory="device")}
+        requests2 = {
+            "arr2": ArrayRequest(
+                shape=(3, 3, 3), dtype=np.float32, memory="device"
+            )
+        }
 
         mgr.queue_request(inst1, requests1)
         mgr.queue_request(inst2, requests2)
@@ -788,28 +853,31 @@ class TestMemoryManager:
         assert callbacks_called["inst1"]["flag"] is True
         assert callbacks_called["inst2"]["flag"] is True
 
-    @pytest.mark.parametrize("fixed_mem_override, limit_type, chunk_axis",
-                             [[{"total": 512*1024**2}, "instance", "run"],
-                              [{"total": 512*1024**2}, "group", "run"],
-                              [{"total": 512*1024**2}, "instance", "time"],
-                              [{"total": 512*1024**2}, "group", "time"]
-                              ],
-                             indirect=["fixed_mem_override"])
-    def test_allocate_queue_multiple_instances_instance_limit(self,
-                                                              mgr,
-                                                              limit_type,
-                                                              chunk_axis):
+    @pytest.mark.parametrize(
+        "fixed_mem_override, limit_type, chunk_axis",
+        [
+            [{"total": 512 * 1024**2}, "instance", "run"],
+            [{"total": 512 * 1024**2}, "group", "run"],
+            [{"total": 512 * 1024**2}, "instance", "time"],
+            [{"total": 512 * 1024**2}, "group", "time"],
+        ],
+        indirect=["fixed_mem_override"],
+    )
+    def test_allocate_queue_multiple_instances_instance_limit(
+        self, mgr, limit_type, chunk_axis
+    ):
         """Test allocate_queue with multiple instances using instance limit."""
         inst1 = DummyClass()
         inst2 = DummyClass()
-        callbacks_called = {"inst1": {"flag": False,
-                                      "response": ArrayRequest()},
-                            "inst2": {"flag": False,
-                                      "response": ArrayRequest()}}
+        callbacks_called = {
+            "inst1": {"flag": False, "response": ArrayRequest()},
+            "inst2": {"flag": False, "response": ArrayRequest()},
+        }
 
         def hook1(response):
             callbacks_called["inst1"]["flag"] = True
             callbacks_called["inst1"]["response"] = response
+
         def hook2(response):
             callbacks_called["inst2"]["flag"] = True
             callbacks_called["inst2"]["response"] = response
@@ -817,12 +885,19 @@ class TestMemoryManager:
         mgr.register(inst1, allocation_ready_hook=hook1, stream_group="test")
         mgr.register(inst2, allocation_ready_hook=hook2, stream_group="test")
         mgr.set_limit_mode("active")
-        requests1 = {"arr": ArrayRequest(shape=(4, 4, 4), dtype=np.float32,
-                                          memory="device")}
-        requests2 = {"arr": ArrayRequest(shape=(1000, 256, 1024),
-                                          #~4x instance
-                                          dtype=np.float32,
-                                          memory="device")}
+        requests1 = {
+            "arr": ArrayRequest(
+                shape=(4, 4, 4), dtype=np.float32, memory="device"
+            )
+        }
+        requests2 = {
+            "arr": ArrayRequest(
+                shape=(1000, 256, 1024),
+                # ~4x instance
+                dtype=np.float32,
+                memory="device",
+            )
+        }
 
         mgr.queue_request(inst1, requests1)
         mgr.queue_request(inst2, requests2)
@@ -843,11 +918,10 @@ class TestMemoryManager:
         elif chunk_axis == "time":
             chunk_index = 0
 
-        shape_1 = np.asarray([4,4,4])
-        shape_2 = np.asarray([1000,256,1024])
+        shape_1 = np.asarray([4, 4, 4])
+        shape_2 = np.asarray([1000, 256, 1024])
         shape_1[chunk_index] = shape_1[chunk_index] // expected_chunks
         shape_2[chunk_index] = shape_2[chunk_index] // expected_chunks
-
 
         assert response1.arr["arr"].shape == tuple(shape_1)
         assert response1.arr["arr"].dtype == np.float32
@@ -857,7 +931,9 @@ class TestMemoryManager:
         assert response2.arr["arr"].dtype == np.float32
         assert response2.chunks == expected_chunks
 
-    def test_allocate_queue_empty_queue(self, registered_mgr, registered_instance):
+    def test_allocate_queue_empty_queue(
+        self, registered_mgr, registered_instance
+    ):
         """Test allocate_queue with empty queue returns None."""
         mgr = registered_mgr
         instance = registered_instance
@@ -900,18 +976,25 @@ class TestMemoryManager:
         assert mgr.is_grouped(inst_group1) is True
         assert mgr.is_grouped(inst_group2) is True
 
-    @pytest.mark.parametrize("fixed_mem_override", [{"total": 512*1024**2}],
-                             indirect=True)
-    def test_get_available_single_low_memory_warning(self, registered_mgr, registered_instance):
+    @pytest.mark.parametrize(
+        "fixed_mem_override", [{"total": 512 * 1024**2}], indirect=True
+    )
+    def test_get_available_single_low_memory_warning(
+        self, registered_mgr, registered_instance
+    ):
         """Test get_available_single issues warning when memory usage is high."""
         mgr = registered_mgr
-        instance = registered_instance #initializes with 0.5 of VRAM assigned
+        instance = registered_instance  # initializes with 0.5 of VRAM assigned
         instance_id = id(instance)
 
         mgr.set_limit_mode("active")
-        requests1 = {"arr1": ArrayRequest(shape=(250, 1024, 256),   # >95%
-                                          dtype=np.float32,
-                                          memory="device")}
+        requests1 = {
+            "arr1": ArrayRequest(
+                shape=(250, 1024, 256),  # >95%
+                dtype=np.float32,
+                memory="device",
+            )
+        }
 
         # Add some fake allocation to trigger low memory warning
         # allocation
@@ -921,10 +1004,13 @@ class TestMemoryManager:
             warnings.simplefilter("always")
             mgr.get_available_single(instance_id)
             # Should warn about high memory usage
-            assert any("95% of it's allotted memory" in str(wi.message) for wi in w)
+            assert any(
+                "95% of it's allotted memory" in str(wi.message) for wi in w
+            )
 
-    @pytest.mark.parametrize("fixed_mem_override", [{"total": 512*1024**2}],
-                             indirect=True)
+    @pytest.mark.parametrize(
+        "fixed_mem_override", [{"total": 512 * 1024**2}], indirect=True
+    )
     def test_get_available_group_low_memory_warning(self, mgr):
         """Test get_available_group issues warning when group memory usage is high."""
         inst1 = DummyClass()
@@ -932,9 +1018,13 @@ class TestMemoryManager:
         mgr.register(inst1, stream_group="test", proportion=0.25)
         mgr.register(inst2, stream_group="test", proportion=0.25)
         mgr.set_limit_mode("passive")
-        requests1 = {"arr1": ArrayRequest(shape=(250, 1024, 256),   # >95%
-                                          dtype=np.float32,
-                                          memory="device")}
+        requests1 = {
+            "arr1": ArrayRequest(
+                shape=(250, 1024, 256),  # >95%
+                dtype=np.float32,
+                memory="device",
+            )
+        }
         mgr.single_request(inst1, requests1)
         # Add fake allocations to trigger warning
 
@@ -956,8 +1046,12 @@ class TestMemoryManager:
 
         # Allocate device arrays through the memory manager
         requests = {
-            "arr1": ArrayRequest(shape=(3, 4), dtype=np.float32, memory="device"),
-            "arr2": ArrayRequest(shape=(2, 3), dtype=np.float64, memory="device"),
+            "arr1": ArrayRequest(
+                shape=(3, 4), dtype=np.float32, memory="device"
+            ),
+            "arr2": ArrayRequest(
+                shape=(2, 3), dtype=np.float64, memory="device"
+            ),
         }
 
         stream = mgr.get_stream(instance)
@@ -993,8 +1087,12 @@ class TestMemoryManager:
 
         # Allocate device arrays through the memory manager
         requests = {
-            "arr1": ArrayRequest(shape=(2, 5), dtype=np.float32, memory="device"),
-            "arr2": ArrayRequest(shape=(3, 2), dtype=np.float64, memory="device"),
+            "arr1": ArrayRequest(
+                shape=(2, 5), dtype=np.float32, memory="device"
+            ),
+            "arr2": ArrayRequest(
+                shape=(3, 2), dtype=np.float64, memory="device"
+            ),
         }
 
         stream = mgr.get_stream(instance)
@@ -1026,13 +1124,18 @@ class TestMemoryManager:
         np.testing.assert_array_equal(host_dest1, host_source1)
         np.testing.assert_array_equal(host_dest2, host_source2)
 
+
 def test_get_total_request_size():
     """Test get_total_request_size calculates correct total size."""
     from cubie.memory.mem_manager import get_total_request_size
 
     requests = {
-        "arr1": ArrayRequest(shape=(10, 10), dtype=np.float32, memory="device"),  # 400 bytes
-        "arr2": ArrayRequest(shape=(5, 5), dtype=np.float64, memory="device"),   # 200 bytes
+        "arr1": ArrayRequest(
+            shape=(10, 10), dtype=np.float32, memory="device"
+        ),  # 400 bytes
+        "arr2": ArrayRequest(
+            shape=(5, 5), dtype=np.float64, memory="device"
+        ),  # 200 bytes
     }
 
     total_size = get_total_request_size(requests)

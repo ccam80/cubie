@@ -3,6 +3,7 @@ from numba import float32, float64
 from cubie.systemmodels.systems.threeCM import ThreeChamberModel
 from tests._utils import generate_test_array
 
+
 def get_observables_list(SystemClass):
     """Get the list of observable names from a system class.
     Args:
@@ -11,11 +12,18 @@ def get_observables_list(SystemClass):
     Returns:
         list[str]: A list of observable names from the system class.
     """
-    sys, precision = instantiate_or_use_instance(SystemClass, precision=np.float32)
-    return [sys.compile_settings.observables.keys_by_index[i] for i in range(sys.sizes.observables)]
+    sys, precision = instantiate_or_use_instance(
+        SystemClass, precision=np.float32
+    )
+    return [
+        sys.compile_settings.observables.keys_by_index[i]
+        for i in range(sys.sizes.observables)
+    ]
 
 
-def random_system_values(SystemClass, precision=np.float64, randscale=1e6, axis=0):
+def random_system_values(
+    SystemClass, precision=np.float64, randscale=1e6, axis=0
+):
     """Generate random values for initial values, parameters, constants, drivers sized to match a given system.
     If randscale is a single float, then all values will be drawn from a normal distribution with that scale. If
     randscale is a tuple, then each state/parameter/constant will be drawn from a normal distribution with its own scale
@@ -46,22 +54,29 @@ def random_system_values(SystemClass, precision=np.float64, randscale=1e6, axis=
     n_obs = sizes.observables
 
     array_sizes = (n_states, n_params, n_constants)
-    sysarrays_to_make = (sys.compile_settings.initial_states, sys.compile_settings.parameters,
-                         sys.compile_settings.constants)
+    sysarrays_to_make = (
+        sys.compile_settings.initial_states,
+        sys.compile_settings.parameters,
+        sys.compile_settings.constants,
+    )
     dicts = []
 
-
     for i, sysarray in enumerate(sysarrays_to_make):
-        randvals = generate_test_array(precision, array_sizes[i], style='random', scale=randscale)
+        randvals = generate_test_array(
+            precision, array_sizes[i], style="random", scale=randscale
+        )
         keys = [sysarray.keys_by_index[i] for i in range(array_sizes[i])]
         dicts.append(dict(zip(keys, randvals)))
 
     state, parameters, constants = dicts
-    drivers = generate_test_array(precision, n_drivers, style='random', scale=randscale)
+    drivers = generate_test_array(
+        precision, n_drivers, style="random", scale=randscale
+    )
     return state, parameters, drivers, constants
 
+
 def create_random_test_set(SystemClass, precision=np.float64, randscale=1e6):
-    """ Creates a random test_set for a given system class. The test set includes random initial values, parameters,
+    """Creates a random test_set for a given system class. The test set includes random initial values, parameters,
     drivers, and constants, sized to match the system's requirements.
 
     Args:
@@ -79,10 +94,19 @@ def create_random_test_set(SystemClass, precision=np.float64, randscale=1e6):
             - description (str): Description of the test set.
 
     """
-    inits, params, drivers, constants = random_system_values(SystemClass, precision, randscale)
+    inits, params, drivers, constants = random_system_values(
+        SystemClass, precision, randscale
+    )
     observables = get_observables_list(SystemClass)
 
-    instantiation_parameters = (precision, inits, params, observables, constants, len(drivers))
+    instantiation_parameters = (
+        precision,
+        inits,
+        params,
+        observables,
+        constants,
+        len(drivers),
+    )
 
     input_inits = np.asarray(list(inits.values()), dtype=precision)
     input_params = np.asarray(list(params.values()), dtype=precision)
@@ -90,8 +114,11 @@ def create_random_test_set(SystemClass, precision=np.float64, randscale=1e6):
 
     input_data = (input_inits, input_params, drivers)
 
-    return (instantiation_parameters, input_data,
-            f"Random test set with numbers of scale {randscale} of type {precision}")
+    return (
+        instantiation_parameters,
+        input_data,
+        f"Random test set with numbers of scale {randscale} of type {precision}",
+    )
 
 
 def create_minimal_input_sets(SystemClass, precision=np.float64):
@@ -116,8 +143,10 @@ def create_minimal_input_sets(SystemClass, precision=np.float64):
             - instantiation_parameters (tuple): Parameters for instantiating the system.
             - input_data (tuple): Input data for the system.
             - description (str): Description of the test set.
-    - """
-    inits, params, drivers, constants = random_system_values(SystemClass, precision)
+    -"""
+    inits, params, drivers, constants = random_system_values(
+        SystemClass, precision
+    )
     observables = get_observables_list(SystemClass)
 
     input_inits = np.asarray(list(inits.values()), dtype=precision)
@@ -131,11 +160,18 @@ def create_minimal_input_sets(SystemClass, precision=np.float64):
     zeros_params = {k: precision(0.0) for k in params}
     zeros_constants = {k: precision(0.0) for k in constants}
     incomplete_sets.append(
-        ((precision, zeros_inits, zeros_params, observables, zeros_constants, ndrivers),
-         (input_inits,
-          input_params,
-          drivers),
-         "All zeros")
+        (
+            (
+                precision,
+                zeros_inits,
+                zeros_params,
+                observables,
+                zeros_constants,
+                ndrivers,
+            ),
+            (input_inits, input_params, drivers),
+            "All zeros",
+        )
     )
 
     # Set with None for all values
@@ -143,11 +179,18 @@ def create_minimal_input_sets(SystemClass, precision=np.float64):
     nones_params = {k: None for k in params}
     nones_constants = {k: None for k in constants}
     incomplete_sets.append(
-        ((precision, nones_inits, nones_params, observables, nones_constants, ndrivers),
-         (input_inits,
-          input_params,
-          drivers),
-         "All nones")
+        (
+            (
+                precision,
+                nones_inits,
+                nones_params,
+                observables,
+                nones_constants,
+                ndrivers,
+            ),
+            (input_inits, input_params, drivers),
+            "All nones",
+        )
     )
 
     # Set with lists as values
@@ -155,11 +198,18 @@ def create_minimal_input_sets(SystemClass, precision=np.float64):
     lists_params = {k: [v] for k, v in params.items()}
     lists_constants = {k: [v] for k, v in constants.items()}
     incomplete_sets.append(
-        ((precision, lists_inits, lists_params, observables, lists_constants, ndrivers),
-         (input_inits,
-          input_params,
-          drivers),
-         "All lists")
+        (
+            (
+                precision,
+                lists_inits,
+                lists_params,
+                observables,
+                lists_constants,
+                ndrivers,
+            ),
+            (input_inits, input_params, drivers),
+            "All lists",
+        )
     )
 
     # Set with partial keys (remove one key from each)
@@ -167,11 +217,18 @@ def create_minimal_input_sets(SystemClass, precision=np.float64):
     partial_params = dict(list(params.items())[1:])
     partial_constants = dict(list(constants.items())[1:])
     incomplete_sets.append(
-        ((precision, partial_inits, partial_params, observables, partial_constants, ndrivers),
-         (input_inits,
-          input_params,
-          drivers),
-         "Partial keys")
+        (
+            (
+                precision,
+                partial_inits,
+                partial_params,
+                observables,
+                partial_constants,
+                ndrivers,
+            ),
+            (input_inits, input_params, drivers),
+            "Partial keys",
+        )
     )
 
     return incomplete_sets
@@ -200,7 +257,9 @@ def instantiate_or_use_instance(obj, precision=np.float64):
         return obj, precision
 
 
-def generate_system_tests(SystemClass, log10_scalerange=(-6, 6), tests_per_category=2):
+def generate_system_tests(
+    SystemClass, log10_scalerange=(-6, 6), tests_per_category=2
+):
     """Generate a list of tests checking correct input/output across a range of floating point scales and both
     float precision types. The tests include:
         - Random tests at scales spread across the given range.
@@ -221,16 +280,25 @@ def generate_system_tests(SystemClass, log10_scalerange=(-6, 6), tests_per_categ
     else:
         precisions = (SystemClass.precision,)
 
-
     test_cases = []
-    samescales = np.arange(log10_scalerange[0], log10_scalerange[1] + 1, int(log10_scalerange[1] - log10_scalerange[0]) / tests_per_category)
-    for precision in (precisions):
-        test_cases += [create_random_test_set(SystemClass, precision, 10.0 ** scale) for scale in samescales]
+    samescales = np.arange(
+        log10_scalerange[0],
+        log10_scalerange[1] + 1,
+        int(log10_scalerange[1] - log10_scalerange[0]) / tests_per_category,
+    )
+    for precision in precisions:
+        test_cases += [
+            create_random_test_set(SystemClass, precision, 10.0**scale)
+            for scale in samescales
+        ]
 
         # mixed-scale random tests
-        test_cases += [create_random_test_set(SystemClass, precision, log10_scalerange) for scale in range(tests_per_category)]
+        test_cases += [
+            create_random_test_set(SystemClass, precision, log10_scalerange)
+            for scale in range(tests_per_category)
+        ]
 
-        #Incomplete input sets
+        # Incomplete input sets
         test_cases += create_minimal_input_sets(SystemClass, precision)
 
     return test_cases

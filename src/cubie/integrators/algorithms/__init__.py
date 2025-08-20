@@ -6,18 +6,20 @@ algorithms for CUDA-based ODE solving, along with a registry system
 for accessing available algorithms. It includes the base algorithm
 framework and specific implementations like the Euler method.
 """
+
 from attrs import define
 
 from cubie.integrators.algorithms.euler import Euler
-from cubie.integrators.algorithms.genericIntegratorAlgorithm import \
-    GenericIntegratorAlgorithm
+from cubie.integrators.algorithms.genericIntegratorAlgorithm import (
+    GenericIntegratorAlgorithm,
+)
 
 
 @define
 class _ImplementedAlgorithms:
     """
     Container for implemented integrator algorithms.
-    
+
     This class provides a registry of available integration algorithms
     that can be accessed by name. It supports both attribute and
     dictionary-style access to algorithms.
@@ -60,4 +62,4 @@ class _ImplementedAlgorithms:
 
 ImplementedAlgorithms = _ImplementedAlgorithms()
 
-__all__ = ['Euler', 'GenericIntegratorAlgorithm', 'ImplementedAlgorithms']
+__all__ = ["Euler", "GenericIntegratorAlgorithm", "ImplementedAlgorithms"]

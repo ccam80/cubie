@@ -49,10 +49,11 @@ Examples
 >>> from cubie.systemmodels.systems.decays import Decays
 >>> system = Decays(coefficients=[1.0, 2.0])
 >>> grid_builder = BatchGridBuilder.from_system(system)
->>> params = {'p0': [0.1, 0.2], 'p1': [10, 20]}
->>> states = {'x0': [1.0, 2.0], 'x1': [0.5, 1.5]}
->>> inits, params = grid_builder(params=params, states=states,
-...                              kind='combinatorial')
+>>> params = {"p0": [0.1, 0.2], "p1": [10, 20]}
+>>> states = {"x0": [1.0, 2.0], "x1": [0.5, 1.5]}
+>>> inits, params = grid_builder(
+...     params=params, states=states, kind="combinatorial"
+... )
 >>> print(inits.shape)
 (16, 2)
 >>> print(inits)
@@ -96,8 +97,7 @@ Example 2: verbatim arrays
 
 >>> params = np.array([[0.1, 0.2], [10, 20]])
 >>> states = np.array([[1.0, 2.0], [0.5, 1.5]])
->>> inits, params = grid_builder(params=params, states=states,
-...                              kind='verbatim')
+>>> inits, params = grid_builder(params=params, states=states, kind="verbatim")
 >>> print(inits.shape)
 (2, 2)
 >>> print(inits)
@@ -109,8 +109,9 @@ Example 2: verbatim arrays
 [[ 0.1  0.2]
  [10.  20. ]]
 
->>> inits, params = grid_builder(params=params, states=states,
-...                              kind='combinatorial')
+>>> inits, params = grid_builder(
+...     params=params, states=states, kind="combinatorial"
+... )
 >>> print(inits.shape)
 (4, 2)
 >>> print(inits)
@@ -128,18 +129,20 @@ Example 2: verbatim arrays
 
 Same as individual dictionaries
 
->>> request = {'p0': [0.1, 0.2], 'p1': [10, 20], 'x0': [1.0, 2.0],
-...            'x1': [0.5, 1.5]}
->>> inits, params = grid_builder(request=request,
-...                              kind='combinatorial')
+>>> request = {
+...     "p0": [0.1, 0.2],
+...     "p1": [10, 20],
+...     "x0": [1.0, 2.0],
+...     "x1": [0.5, 1.5],
+... }
+>>> inits, params = grid_builder(request=request, kind="combinatorial")
 >>> print(inits.shape)
 (16, 2)
 >>> print(params.shape)
 (16, 2)
 
->>> request = {'p0': [0.1, 0.2]}
->>> inits, params = grid_builder(request=request,
-...                              kind='combinatorial')
+>>> request = {"p0": [0.1, 0.2]}
+>>> inits, params = grid_builder(request=request, kind="combinatorial")
 >>> print(inits.shape)
 (2, 2)
 >>> print(inits)  # unspecified variables are filled with defaults from system
@@ -151,7 +154,6 @@ Same as individual dictionaries
 [[0.1 2. ]
  [0.2 2. ]]
 """
-
 
 from itertools import product
 from typing import List, Union, Dict, Optional
@@ -199,15 +201,17 @@ def unique_cartesian_product(arrays: List[np.ndarray]):
            [2, 3],
            [2, 4]])
     """
-    deduplicated_inputs = [list(dict.fromkeys(a)) for a in
-                           arrays]  # preserve order, remove dups
+    deduplicated_inputs = [
+        list(dict.fromkeys(a)) for a in arrays
+    ]  # preserve order, remove dups
     return np.array([list(t) for t in product(*deduplicated_inputs)])
 
 
 def combinatorial_grid(
-        request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
-        values_instance: SystemValues, silent: bool = False, ) -> tuple[
-    np.ndarray, np.ndarray]:
+    request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
+    values_instance: SystemValues,
+    silent: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Build a grid of all unique combinations of values from a request dictionary.
 
@@ -242,10 +246,9 @@ def combinatorial_grid(
 
     Examples
     --------
-    >>> combinatorial_grid({
-    ...     'param1': [0.1, 0.2, 0.3],
-    ...     'param2': [10, 20]
-    ... }, system.parameters)
+    >>> combinatorial_grid(
+    ...     {"param1": [0.1, 0.2, 0.3], "param2": [10, 20]}, system.parameters
+    ... )
     (array([0, 1]),
      array([[ 0.1, 10. ],
             [ 0.1, 20. ],
@@ -254,19 +257,23 @@ def combinatorial_grid(
             [ 0.3, 10. ],
             [ 0.3, 20. ]]))
     """
-    cleaned_request = {k: v for k, v in request.items() if
-                       np.asarray(v).size > 0}
-    indices = values_instance.get_indices(list(cleaned_request.keys()),
-                                          silent=silent)
+    cleaned_request = {
+        k: v for k, v in request.items() if np.asarray(v).size > 0
+    }
+    indices = values_instance.get_indices(
+        list(cleaned_request.keys()), silent=silent
+    )
     combos = unique_cartesian_product(
-            [np.asarray(v) for v in cleaned_request.values()], )
+        [np.asarray(v) for v in cleaned_request.values()],
+    )
     return indices, combos
 
 
 def verbatim_grid(
-        request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
-        values_instance: SystemValues, silent: bool = False, ) -> tuple[
-    np.ndarray, np.ndarray]:
+    request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
+    values_instance: SystemValues,
+    silent: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Build a grid where parameters vary together, not combinatorially.
 
@@ -300,27 +307,31 @@ def verbatim_grid(
 
     Examples
     --------
-    >>> verbatim_grid({
-    ...     'param1': [0.1, 0.2, 0.3],
-    ...     'param2': [10, 20, 30]
-    ... }, system.parameters)
+    >>> verbatim_grid(
+    ...     {"param1": [0.1, 0.2, 0.3], "param2": [10, 20, 30]},
+    ...     system.parameters,
+    ... )
     (array([0, 1]),
      array([[ 0.1, 10. ],
             [ 0.2, 20. ],
             [ 0.3, 30. ]]))
     """
-    cleaned_request = {k: v for k, v in request.items() if
-                       np.asarray(v).size > 0}
-    indices = values_instance.get_indices(list(cleaned_request.keys()),
-                                          silent=silent)
+    cleaned_request = {
+        k: v for k, v in request.items() if np.asarray(v).size > 0
+    }
+    indices = values_instance.get_indices(
+        list(cleaned_request.keys()), silent=silent
+    )
     combos = np.asarray([item for item in cleaned_request.values()]).T
     return indices, combos
 
 
 def generate_grid(
-        request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
-        values_instance: SystemValues, kind: str = 'combinatorial',
-        silent: bool = False, ) -> tuple[np.ndarray, np.ndarray]:
+    request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
+    values_instance: SystemValues,
+    kind: str = "combinatorial",
+    silent: bool = False,
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate a parameter grid for batch runs from a request dictionary.
 
@@ -352,19 +363,19 @@ def generate_grid(
     - 'combinatorial': see combinatorial_grid function
     - 'verbatim': see verbatim_grid function
     """
-    if kind == 'combinatorial':
+    if kind == "combinatorial":
         return combinatorial_grid(request, values_instance, silent=silent)
-    elif kind == 'verbatim':
+    elif kind == "verbatim":
         return verbatim_grid(request, values_instance, silent=silent)
     else:
         raise ValueError(
-                f"Unknown grid type '{kind}'. Use 'combinatorial' or "
-                f"'verbatim'.")
+            f"Unknown grid type '{kind}'. Use 'combinatorial' or 'verbatim'."
+        )
 
 
-def combine_grids(grid1: np.ndarray, grid2: np.ndarray,
-                  kind: str = 'combinatorial') -> tuple[
-    np.ndarray, np.ndarray]:
+def combine_grids(
+    grid1: np.ndarray, grid2: np.ndarray, kind: str = "combinatorial"
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Combine two grids into extended grids.
 
@@ -390,25 +401,28 @@ def combine_grids(grid1: np.ndarray, grid2: np.ndarray,
         If kind is 'verbatim' and grids have different numbers of rows.
         If kind is not 'combinatorial' or 'verbatim'.
     """
-    if kind == 'combinatorial':
+    if kind == "combinatorial":
         # Cartesian product: all combinations of rows from each grid
         g1_repeat = np.repeat(grid1, grid2.shape[0], axis=0)
         g2_tile = np.tile(grid2, (grid1.shape[0], 1))
         return g1_repeat, g2_tile
-    elif kind == 'verbatim':
+    elif kind == "verbatim":
         if grid1.shape[0] != grid2.shape[0]:
             raise ValueError(
-                    "For 'verbatim', both grids must have the same number of "
-                    "rows.")
+                "For 'verbatim', both grids must have the same number of rows."
+            )
         return grid1, grid2
     else:
         raise ValueError(
-                f"Unknown grid type '{kind}'. Use 'combinatorial' or "
-                f"'verbatim'.")
+            f"Unknown grid type '{kind}'. Use 'combinatorial' or 'verbatim'."
+        )
 
 
-def extend_grid_to_array(grid: np.ndarray, indices: np.ndarray,
-                         default_values: np.ndarray, ):
+def extend_grid_to_array(
+    grid: np.ndarray,
+    indices: np.ndarray,
+    default_values: np.ndarray,
+):
     """
     Join a grid with default values to create complete parameter arrays.
 
@@ -450,9 +464,10 @@ def extend_grid_to_array(grid: np.ndarray, indices: np.ndarray,
 
 
 def generate_array(
-        request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
-        values_instance: SystemValues,
-        kind: str = 'combinatorial', ) -> np.ndarray:
+    request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
+    values_instance: SystemValues,
+    kind: str = "combinatorial",
+) -> np.ndarray:
     """
     Create a complete 2D array from a request dictionary.
 
@@ -521,11 +536,11 @@ class BatchGridBuilder:
         interface = SystemInterface.from_system(system)
         return cls(interface)
 
-    def grid_arrays(self,
-                    request: Dict[Union[str, int],
-                                  Union[float, ArrayLike, np.ndarray]],
-                    kind: str = 'combinatorial'
-                    ) -> tuple[np.ndarray, np.ndarray]:
+    def grid_arrays(
+        self,
+        request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
+        kind: str = "combinatorial",
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Build parameter and state grids from a mixed request dictionary.
 
@@ -544,28 +559,34 @@ class BatchGridBuilder:
         params_array : np.ndarray
             2D parameter array for input into the integrator.
         """
-        param_request = {k: v for k, v in request.items() if
-                         k in self.parameters.names}
-        state_request = {k: v for k, v in request.items() if
-                         k in self.states.names}
+        param_request = {
+            k: v for k, v in request.items() if k in self.parameters.names
+        }
+        state_request = {
+            k: v for k, v in request.items() if k in self.states.names
+        }
 
-        params_array = generate_array(param_request, self.parameters,
-                                      kind=kind)
-        initial_values_array = generate_array(state_request, self.states,
-                                              kind=kind)
+        params_array = generate_array(
+            param_request, self.parameters, kind=kind
+        )
+        initial_values_array = generate_array(
+            state_request, self.states, kind=kind
+        )
         initial_values_array, params_array = combine_grids(
-                initial_values_array, params_array, kind=kind)
+            initial_values_array, params_array, kind=kind
+        )
 
         return initial_values_array, params_array
 
     def __call__(
-            self,
-             request: Optional[Dict[str,
-                               Union[float, ArrayLike, np.ndarray]]] = None,
-             params: Optional[Union[Dict, ArrayLike]] = None,
-             states: Optional[Union[Dict, ArrayLike]] = None,
-             kind: str = 'combinatorial'
-             ) -> tuple[np.ndarray, np.ndarray]:
+        self,
+        request: Optional[
+            Dict[str, Union[float, ArrayLike, np.ndarray]]
+        ] = None,
+        params: Optional[Union[Dict, ArrayLike]] = None,
+        states: Optional[Union[Dict, ArrayLike]] = None,
+        kind: str = "combinatorial",
+    ) -> tuple[np.ndarray, np.ndarray]:
         """
         Processes user input to generate parameter and state arrays for a
         batch run.
@@ -616,16 +637,19 @@ class BatchGridBuilder:
         sarray = None
         if request is not None:
             if states is not None or params is not None:
-                raise TypeError("If a mixed request dictionary is provided, "
-                                "states and params requests must be None."
-                                "Check that you've input your arguments "
-                                "correctly, using keywords for params and "
-                                "inits, if you were not trying to provide a "
-                                "mixed request dictionary.")
+                raise TypeError(
+                    "If a mixed request dictionary is provided, "
+                    "states and params requests must be None."
+                    "Check that you've input your arguments "
+                    "correctly, using keywords for params and "
+                    "inits, if you were not trying to provide a "
+                    "mixed request dictionary."
+                )
             if not isinstance(request, dict):
                 raise TypeError(
-                        "If provided, a combined request must be provided "
-                        f"as a dictionary, got {type(request)}.")
+                    "If provided, a combined request must be provided "
+                    f"as a dictionary, got {type(request)}."
+                )
             return self.grid_arrays(request, kind=kind)
         else:
             request = {}
@@ -634,16 +658,19 @@ class BatchGridBuilder:
             elif isinstance(params, (list, tuple, np.ndarray)):
                 parray = self._sanitise_arraylike(params, self.parameters)
             elif params is not None:
-                raise TypeError("Parameters must be provided as a dictionary, "
-                                "or a 1D or 2D array-like object.")
+                raise TypeError(
+                    "Parameters must be provided as a dictionary, "
+                    "or a 1D or 2D array-like object."
+                )
             if isinstance(states, dict):
                 request.update(states)
             elif isinstance(states, (list, tuple, np.ndarray)):
                 sarray = self._sanitise_arraylike(states, self.states)
             elif states is not None:
                 raise TypeError(
-                        "Initial states must be provided as a dictionary, "
-                        "or a 1D or 2D array-like object.")
+                    "Initial states must be provided as a dictionary, "
+                    "or a 1D or 2D array-like object."
+                )
 
             if parray is not None and sarray is not None:
                 return combine_grids(sarray, parray, kind=kind)
@@ -652,23 +679,29 @@ class BatchGridBuilder:
                     sarray = generate_array(request, self.states, kind=kind)
                     return combine_grids(sarray, parray, kind=kind)
                 elif sarray is not None:
-                    parray = generate_array(request, self.parameters,
-                                            kind=kind)
+                    parray = generate_array(
+                        request, self.parameters, kind=kind
+                    )
                     return combine_grids(sarray, parray, kind=kind)
                 else:
                     return self.grid_arrays(request, kind=kind)
             elif parray is not None:
-                sarray = np.full((parray.shape[0], self.states.n),
-                                 self.states.values_array)
+                sarray = np.full(
+                    (parray.shape[0], self.states.n), self.states.values_array
+                )
                 return sarray, parray
             elif sarray is not None:
-                parray = np.full((sarray.shape[0], self.parameters.n),
-                                 self.parameters.values_array)
+                parray = np.full(
+                    (sarray.shape[0], self.parameters.n),
+                    self.parameters.values_array,
+                )
                 return sarray, parray
 
             else:
-                return (self.states.values_array[np.newaxis, :],
-                        self.parameters.values_array[np.newaxis, :])
+                return (
+                    self.states.values_array[np.newaxis, :],
+                    self.parameters.values_array[np.newaxis, :],
+                )
 
     def _trim_or_extend(self, arr: NDArray, values_object: SystemValues):
         """
@@ -689,12 +722,14 @@ class BatchGridBuilder:
         if arr.shape[1] < values_object.n:
             # If the array is shorter than the number of values, extend it
             # with default values
-            arr = np.pad(arr, ((0, 0), (0, values_object.n - arr.shape[1])),
-                         mode='constant',
-                         constant_values=values_object.values_array[
-                                         arr.shape[1]:])
+            arr = np.pad(
+                arr,
+                ((0, 0), (0, values_object.n - arr.shape[1])),
+                mode="constant",
+                constant_values=values_object.values_array[arr.shape[1] :],
+            )
         elif arr.shape[1] > values_object.n:
-            arr = arr[:values_object.n]
+            arr = arr[: values_object.n]
         return arr
 
     def _sanitise_arraylike(self, arr, values_object: SystemValues):
@@ -729,15 +764,17 @@ class BatchGridBuilder:
             arr = np.asarray(arr)
         if arr.ndim > 2:
             raise ValueError(
-                    f"Input must be a 1D or 2D array, but got a {arr.ndim}D "
-                    f"array.")
+                f"Input must be a 1D or 2D array, but got a {arr.ndim}D array."
+            )
         elif arr.ndim == 1:
             arr = arr[np.newaxis, :]
 
         if arr.shape[1] != values_object.n:
-            warn(f"Provided input data has {arr.shape[1]} columns, but there "
-                 f"are {values_object.n} settable values. Missing values "
-                 f"will be filled with default values, and extras ignored.")
+            warn(
+                f"Provided input data has {arr.shape[1]} columns, but there "
+                f"are {values_object.n} settable values. Missing values "
+                f"will be filled with default values, and extras ignored."
+            )
             arr = self._trim_or_extend(arr, values_object)
         if arr.size == 0:
             return None

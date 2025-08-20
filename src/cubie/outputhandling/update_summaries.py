@@ -28,7 +28,11 @@ from .output_sizes import SummariesBufferSizes
 
 
 @cuda.jit(device=True, inline=True)
-def do_nothing(values, buffer, current_step, ):
+def do_nothing(
+    values,
+    buffer,
+    current_step,
+):
     """
     No-operation function for empty metric chains.
 
@@ -50,8 +54,13 @@ def do_nothing(values, buffer, current_step, ):
     pass
 
 
-def chain_metrics(metric_functions: Sequence, buffer_offsets: Sequence[int],
-        buffer_sizes, function_params, inner_chain=do_nothing, ):
+def chain_metrics(
+    metric_functions: Sequence,
+    buffer_offsets: Sequence[int],
+    buffer_sizes,
+    function_params,
+    inner_chain=do_nothing,
+):
     """
     Recursively chain summary metric update functions for CUDA execution.
 
@@ -99,23 +108,38 @@ def chain_metrics(metric_functions: Sequence, buffer_offsets: Sequence[int],
 
     # no cover: start
     @cuda.jit(device=True, inline=True)
-    def wrapper(value, buffer, current_step, ):
+    def wrapper(
+        value,
+        buffer,
+        current_step,
+    ):
         inner_chain(value, buffer, current_step)
-        current_fn(value,
-                   buffer[current_offset: current_offset + current_size],
-                   current_step, current_param)
+        current_fn(
+            value,
+            buffer[current_offset : current_offset + current_size],
+            current_step,
+            current_param,
+        )
 
     if remaining_functions:
-        return chain_metrics(remaining_functions, remaining_offsets,
-                             remaining_sizes, remaining_params, wrapper)
+        return chain_metrics(
+            remaining_functions,
+            remaining_offsets,
+            remaining_sizes,
+            remaining_params,
+            wrapper,
+        )
     else:
         return wrapper
     # no cover: stop
 
-def update_summary_factory(buffer_sizes: SummariesBufferSizes,
-        summarised_state_indices: Sequence[int] | ArrayLike,
-        summarised_observable_indices: Sequence[int] | ArrayLike,
-        summaries_list: Sequence[str], ):
+
+def update_summary_factory(
+    buffer_sizes: SummariesBufferSizes,
+    summarised_state_indices: Sequence[int] | ArrayLike,
+    summarised_observable_indices: Sequence[int] | ArrayLike,
+    summaries_list: Sequence[str],
+):
     """
     Factory function for creating CUDA device functions to update summary
     metrics.
@@ -154,18 +178,25 @@ def update_summary_factory(buffer_sizes: SummariesBufferSizes,
 
     summarise_states = (num_summarised_states > 0) and (num_metrics > 0)
     summarise_observables = (num_summarised_observables > 0) and (
-            num_metrics > 0)
+        num_metrics > 0
+    )
 
     update_fns = summary_metrics.update_functions(summaries_list)
     buffer_sizes_list = summary_metrics.buffer_sizes(summaries_list)
     params = summary_metrics.params(summaries_list)
-    chain_fn = chain_metrics(update_fns, buffer_offsets, buffer_sizes_list,
-                             params)
+    chain_fn = chain_metrics(
+        update_fns, buffer_offsets, buffer_sizes_list, params
+    )
 
     # no cover: start
     @cuda.jit(device=True, inline=True)
-    def update_summary_metrics_func(current_state, current_observables,
-            state_summary_buffer, observable_summary_buffer, current_step, ):
+    def update_summary_metrics_func(
+        current_state,
+        current_observables,
+        state_summary_buffer,
+        observable_summary_buffer,
+        current_step,
+    ):
         """
         Update summary metrics with current state and observable values.
 
@@ -193,15 +224,21 @@ def update_summary_factory(buffer_sizes: SummariesBufferSizes,
             for idx in range(num_summarised_states):
                 start = idx * total_buffer_size
                 end = start + total_buffer_size
-                chain_fn(current_state[summarised_state_indices[idx]],
-                        state_summary_buffer[start:end], current_step, )
+                chain_fn(
+                    current_state[summarised_state_indices[idx]],
+                    state_summary_buffer[start:end],
+                    current_step,
+                )
 
         if summarise_observables:
             for idx in range(num_summarised_observables):
                 start = idx * total_buffer_size
                 end = start + total_buffer_size
-                chain_fn(current_observables[
-                    summarised_observable_indices[idx]],
-                        observable_summary_buffer[start:end], current_step, )
+                chain_fn(
+                    current_observables[summarised_observable_indices[idx]],
+                    observable_summary_buffer[start:end],
+                    current_step,
+                )
+
     # no cover: stop
     return update_summary_metrics_func
