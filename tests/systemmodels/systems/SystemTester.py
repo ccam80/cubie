@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 from numba import cuda
 from numpy.testing import assert_allclose
+
 """ This module isn't really that idiomatic for pytest, but it does still test the systems. Test readability improves 
 as we go up the heirarchy."""
 
@@ -14,22 +15,24 @@ class SystemTester:
     def system_class(self):
         return None
 
-    def instantiate_system(self,
-                           system_class,
-                           precision,
-                           states_list,
-                           params_list,
-                           obs_list,
-                           constants_dict,
-                           num_drivers,
-                           ):
-        self.system_instance = system_class(states_list,
-                                            params_list,
-                                            constants_dict,
-                                            obs_list,
-                                            num_drivers=num_drivers,
-                                            precision=precision,
-                                            )
+    def instantiate_system(
+        self,
+        system_class,
+        precision,
+        states_list,
+        params_list,
+        obs_list,
+        constants_dict,
+        num_drivers,
+    ):
+        self.system_instance = system_class(
+            states_list,
+            params_list,
+            constants_dict,
+            obs_list,
+            num_drivers=num_drivers,
+            precision=precision,
+        )
 
     def build_system(self):
         """Build or compile the system if needed."""
@@ -46,7 +49,9 @@ class SystemTester:
         n_drivers = self.system_instance.sizes.drivers
 
         @cuda.jit()
-        def test_kernel(outarray, obs_array, input_arr, param_arr, drivers_arr):
+        def test_kernel(
+            outarray, obs_array, input_arr, param_arr, drivers_arr
+        ):
             l_dxdt = cuda.local.array(shape=n_states, dtype=precision)
             l_states = cuda.local.array(shape=n_states, dtype=precision)
             l_parameters = cuda.local.array(shape=n_par, dtype=precision)
@@ -72,75 +77,165 @@ class SystemTester:
 
         self.test_kernel = test_kernel
 
-    def test_instantiation(self, system_class, instantiate_settings, input_data, test_name):
+    def test_instantiation(
+        self, system_class, instantiate_settings, input_data, test_name
+    ):
         """Checks if system instantiates without errors for valid sets."""
-        precision, s_list, p_list, o_list, const_dict, n_drivers = instantiate_settings
-        self.instantiate_system(system_class, precision, s_list, p_list, o_list, const_dict, n_drivers)
+        precision, s_list, p_list, o_list, const_dict, n_drivers = (
+            instantiate_settings
+        )
+        self.instantiate_system(
+            system_class,
+            precision,
+            s_list,
+            p_list,
+            o_list,
+            const_dict,
+            n_drivers,
+        )
 
-        assert isinstance(self.system_instance, system_class), \
+        assert isinstance(self.system_instance, system_class), (
             "System did not instantiate as expected."
+        )
 
-    def test_compilation(self, system_class, instantiate_settings, input_data, test_name):
+    def test_compilation(
+        self, system_class, instantiate_settings, input_data, test_name
+    ):
         """Checks if the system builds or compiles."""
-        precision, s_list, p_list, o_list, const_dict, n_drivers = instantiate_settings
-        self.instantiate_system(system_class, precision, s_list, p_list, o_list, const_dict, n_drivers)
+        precision, s_list, p_list, o_list, const_dict, n_drivers = (
+            instantiate_settings
+        )
+        self.instantiate_system(
+            system_class,
+            precision,
+            s_list,
+            p_list,
+            o_list,
+            const_dict,
+            n_drivers,
+        )
         dxdt_function = self.system_instance.device_function
         assert dxdt_function is not None, "dxdt function missing after build."
 
-    def test_correct_output(self, system_class, instantiate_settings, input_data, test_name):
+    def test_correct_output(
+        self, system_class, instantiate_settings, input_data, test_name
+    ):
         """Checks if the output matches expected values."""
-        precision, s_list, p_list, o_list, const_dict, n_drivers = instantiate_settings
-        self.instantiate_system(system_class, precision, s_list, p_list, o_list, const_dict, n_drivers)
+        precision, s_list, p_list, o_list, const_dict, n_drivers = (
+            instantiate_settings
+        )
+        self.instantiate_system(
+            system_class,
+            precision,
+            s_list,
+            p_list,
+            o_list,
+            const_dict,
+            n_drivers,
+        )
         self.build_test_kernel()
 
         dx = np.zeros(self.system_instance.sizes.states, dtype=precision)
-        observables = np.zeros(self.system_instance.sizes.observables, dtype=precision)
+        observables = np.zeros(
+            self.system_instance.sizes.observables, dtype=precision
+        )
 
-        self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
-        expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
+        self.test_kernel[1, 1](
+            dx, observables, input_data[0], input_data[1], input_data[2]
+        )
+        expected_dx, expected_obs = self.system_instance.correct_answer_python(
+            *input_data
+        )
         if precision == np.float32:
-            rtol = 1e-5  #float32 will underperform in fixed-precision land, and on big systems this error will stack
+            rtol = 1e-5  # float32 will underperform in fixed-precision land, and on big systems this error will stack
         else:
             rtol = 1e-12
 
         assert_allclose(dx, expected_dx, rtol=rtol, err_msg="dx mismatch")
-        assert_allclose(observables, expected_obs, rtol=rtol, err_msg="observables mismatch")
+        assert_allclose(
+            observables,
+            expected_obs,
+            rtol=rtol,
+            err_msg="observables mismatch",
+        )
 
-    def test_constants_edit(self, system_class, instantiate_settings, input_data, test_name):
-        """ Checks if constant edits are successfully compiled into the system. """
-        precision, s_list, p_list, o_list, const_dict, n_drivers = instantiate_settings
+    def test_constants_edit(
+        self, system_class, instantiate_settings, input_data, test_name
+    ):
+        """Checks if constant edits are successfully compiled into the system."""
+        precision, s_list, p_list, o_list, const_dict, n_drivers = (
+            instantiate_settings
+        )
 
-        self.instantiate_system(system_class, precision, s_list, p_list, o_list, const_dict, n_drivers)
+        self.instantiate_system(
+            system_class,
+            precision,
+            s_list,
+            p_list,
+            o_list,
+            const_dict,
+            n_drivers,
+        )
         self.build_test_kernel()
 
         if len(const_dict) == 0:
             pytest.skip("No constants to edit in this system.")
 
         dx = np.zeros(self.system_instance.sizes.states, dtype=precision)
-        observables = np.zeros(self.system_instance.sizes.observables, dtype=precision)
+        observables = np.zeros(
+            self.system_instance.sizes.observables, dtype=precision
+        )
 
-        self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
+        self.test_kernel[1, 1](
+            dx, observables, input_data[0], input_data[1], input_data[2]
+        )
 
         if precision == np.float32:
             rtol = 1e-5
         else:
             rtol = 1e-12
 
-        expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
+        expected_dx, expected_obs = self.system_instance.correct_answer_python(
+            *input_data
+        )
 
-        assert_allclose(dx, expected_dx, rtol=rtol, err_msg="initial dx mismatch")
-        assert_allclose(observables, expected_obs, rtol=rtol, err_msg="initial observables mismatch")
+        assert_allclose(
+            dx, expected_dx, rtol=rtol, err_msg="initial dx mismatch"
+        )
+        assert_allclose(
+            observables,
+            expected_obs,
+            rtol=rtol,
+            err_msg="initial observables mismatch",
+        )
 
         # Test the new update functionality - update constants using the new pattern
-        constant_updates = {key: value * 10.0 for key, value in const_dict.items()}
-        unrecognized = self.system_instance.update(silent=True, **constant_updates)
+        constant_updates = {
+            key: value * 10.0 for key, value in const_dict.items()
+        }
+        unrecognized = self.system_instance.update(
+            silent=True, **constant_updates
+        )
 
         # Verify that constants were recognized (unrecognized list should be empty)
-        assert len(unrecognized) == 0, f"Constants {unrecognized} were not recognized by the update method"
+        assert len(unrecognized) == 0, (
+            f"Constants {unrecognized} were not recognized by the update method"
+        )
 
         self.build_test_kernel()
-        expected_dx, expected_obs = self.system_instance.correct_answer_python(*input_data)
-        self.test_kernel[1, 1](dx, observables, input_data[0], input_data[1], input_data[2])
+        expected_dx, expected_obs = self.system_instance.correct_answer_python(
+            *input_data
+        )
+        self.test_kernel[1, 1](
+            dx, observables, input_data[0], input_data[1], input_data[2]
+        )
 
-        assert_allclose(dx, expected_dx, rtol=rtol, err_msg="post-edit dx mismatch")
-        assert_allclose(observables, expected_obs, rtol=rtol, err_msg="post-edit observables mismatch")
+        assert_allclose(
+            dx, expected_dx, rtol=rtol, err_msg="post-edit dx mismatch"
+        )
+        assert_allclose(
+            observables,
+            expected_obs,
+            rtol=rtol,
+            err_msg="post-edit observables mismatch",
+        )

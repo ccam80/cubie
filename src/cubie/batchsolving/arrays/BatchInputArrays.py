@@ -23,8 +23,10 @@ if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 
 from cubie.outputhandling.output_sizes import BatchInputSizes
-from cubie.batchsolving.arrays.BaseArrayManager import (BaseArrayManager,
-                                                        ArrayContainer)
+from cubie.batchsolving.arrays.BaseArrayManager import (
+    BaseArrayManager,
+    ArrayContainer,
+)
 from cubie.batchsolving import ArrayTypes
 
 
@@ -57,21 +59,19 @@ class InputArrayContainer(ArrayContainer):
     The _unchunkable attribute specifies which arrays should not be
     divided into chunks during memory management.
     """
-    initial_values: ArrayTypes = attrs.field(
-            default=None)
-    parameters: ArrayTypes = attrs.field(
-            default=None)
-    forcing_vectors: ArrayTypes = attrs.field(
-            default=None)
-    stride_order: tuple[str,...] = attrs.field(
-            default=("run", "variable"),
-            init=False)
+
+    initial_values: ArrayTypes = attrs.field(default=None)
+    parameters: ArrayTypes = attrs.field(default=None)
+    forcing_vectors: ArrayTypes = attrs.field(default=None)
+    stride_order: tuple[str, ...] = attrs.field(
+        default=("run", "variable"), init=False
+    )
     _memory_type: str = attrs.field(
         default="device",
         validator=val.in_(["device", "mapped", "pinned", "managed", "host"]),
     )
-    _unchunkable = attrs.field(default=('forcing_vectors',), init=False)
-    
+    _unchunkable = attrs.field(default=("forcing_vectors",), init=False)
+
     @classmethod
     def host_factory(cls):
         """
@@ -127,29 +127,34 @@ class InputArrays(BaseArrayManager):
     - Queue allocation requests with the MemoryManager
     - Attach allocated arrays once received from MemoryManager
     """
+
     _sizes: Optional[BatchInputSizes] = attrs.field(
         factory=BatchInputSizes,
-        validator=val.optional(val.instance_of(BatchInputSizes)))
+        validator=val.optional(val.instance_of(BatchInputSizes)),
+    )
     host: InputArrayContainer = attrs.field(
-            factory=InputArrayContainer.host_factory,
-            validator=val.instance_of(InputArrayContainer),
-            init=True)
+        factory=InputArrayContainer.host_factory,
+        validator=val.instance_of(InputArrayContainer),
+        init=True,
+    )
     device: InputArrayContainer = attrs.field(
-            factory=InputArrayContainer.device_factory,
-            validator=val.instance_of(InputArrayContainer),
-            init=False)
-
+        factory=InputArrayContainer.device_factory,
+        validator=val.instance_of(InputArrayContainer),
+        init=False,
+    )
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
         self.host._memory_type = "host"
         self.device._memory_type = "device"
 
-    def update(self,
-                 solver_instance,
-                 initial_values: NDArray,
-                 parameters: NDArray,
-                 forcing_vectors: NDArray) -> None:
+    def update(
+        self,
+        solver_instance,
+        initial_values: NDArray,
+        parameters: NDArray,
+        forcing_vectors: NDArray,
+    ) -> None:
         """
         Set the initial values, parameters, and forcing vectors.
 
@@ -166,9 +171,11 @@ class InputArrays(BaseArrayManager):
         forcing_vectors : NDArray
             Forcing vectors for each integration run.
         """
-        updates_dict = {'initial_values': initial_values,
-                        'parameters': parameters,
-                        'forcing_vectors': forcing_vectors}
+        updates_dict = {
+            "initial_values": initial_values,
+            "parameters": parameters,
+            "forcing_vectors": forcing_vectors,
+        }
         self.update_from_solver(solver_instance)
         self.update_host_arrays(updates_dict)
         self.allocate()  # Will queue request if in a stream group
@@ -246,7 +253,9 @@ class InputArrays(BaseArrayManager):
         return self.device.forcing_vectors
 
     @classmethod
-    def from_solver(cls, solver_instance: "BatchSolverKernel") -> "InputArrays":
+    def from_solver(
+        cls, solver_instance: "BatchSolverKernel"
+    ) -> "InputArrays":
         """
         Create an InputArrays instance from a solver.
 
@@ -265,10 +274,12 @@ class InputArrays(BaseArrayManager):
             A new InputArrays instance configured for the solver.
         """
         sizes = BatchInputSizes.from_solver(solver_instance)
-        return cls(sizes=sizes,
-                   precision=solver_instance.precision,
-                   memory_manager=solver_instance.memory_manager,
-                   stream_group=solver_instance.stream_group)
+        return cls(
+            sizes=sizes,
+            precision=solver_instance.precision,
+            memory_manager=solver_instance.memory_manager,
+            stream_group=solver_instance.stream_group,
+        )
 
     def update_from_solver(self, solver_instance: "BatchSolverKernel"):
         """
@@ -329,8 +340,11 @@ class InputArrays(BaseArrayManager):
             self._needs_overwrite = []
             slice_tuple = tuple([slice(None)] * len(self.host.stride_order))
         else:
-            arrays_to_copy = [array for array in self.device.__dict__ if
-                              not array.startswith("_")]
+            arrays_to_copy = [
+                array
+                for array in self.device.__dict__
+                if not array.startswith("_")
+            ]
             chunk_index = self.host.stride_order.index(self._chunk_axis)
             slice_tuple = [slice(None)] * len(self.host.stride_order)
             slice_tuple[chunk_index] = host_indices

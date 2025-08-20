@@ -9,26 +9,32 @@ from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 def default_integrator_params(system, loop_compile_settings):
     """Default parameters for SingleIntegratorRun."""
     return {
-        'system':                   system,
-        'algorithm':                'euler',
-        'saved_state_indices':             loop_compile_settings['saved_state_indices'],
-        'saved_observable_indices':        loop_compile_settings['saved_observable_indices'],
-        'summarised_state_indices':        loop_compile_settings.get('summarised_state_indices', None),
-        'summarised_observable_indices':   loop_compile_settings.get('summarised_observable_indices', None),
-        'dt_min':                   loop_compile_settings['dt_min'],
-        'dt_max':                   loop_compile_settings['dt_max'],
-        'dt_save':                  loop_compile_settings['dt_save'],
-        'dt_summarise':             loop_compile_settings['dt_summarise'],
-        'atol':                     loop_compile_settings['atol'],
-        'rtol':                     loop_compile_settings['rtol'],
-        'output_types':             loop_compile_settings['output_functions'],
+        "system": system,
+        "algorithm": "euler",
+        "saved_state_indices": loop_compile_settings["saved_state_indices"],
+        "saved_observable_indices": loop_compile_settings[
+            "saved_observable_indices"
+        ],
+        "summarised_state_indices": loop_compile_settings.get(
+            "summarised_state_indices", None
+        ),
+        "summarised_observable_indices": loop_compile_settings.get(
+            "summarised_observable_indices", None
+        ),
+        "dt_min": loop_compile_settings["dt_min"],
+        "dt_max": loop_compile_settings["dt_max"],
+        "dt_save": loop_compile_settings["dt_save"],
+        "dt_summarise": loop_compile_settings["dt_summarise"],
+        "atol": loop_compile_settings["atol"],
+        "rtol": loop_compile_settings["rtol"],
+        "output_types": loop_compile_settings["output_functions"],
     }
 
 
 @pytest.fixture(scope="function")
 def algorithm_override(request):
     """Override for integrator parameters."""
-    return request.param if hasattr(request, 'param') else {}
+    return request.param if hasattr(request, "param") else {}
 
 
 @pytest.fixture(scope="function")
@@ -43,19 +49,21 @@ def integrator_params(default_integrator_params, algorithm_override):
 def single_integrator_run(system, integrator_params):
     """Create a SingleIntegratorRun instance with the given parameters."""
     return SingleIntegratorRun(
-        system=integrator_params['system'],
-        algorithm=integrator_params['algorithm'],
-        dt_min=integrator_params['dt_min'],
-        dt_max=integrator_params['dt_max'],
-        dt_save=integrator_params['dt_save'],
-        dt_summarise=integrator_params['dt_summarise'],
-        atol=integrator_params['atol'],
-        rtol=integrator_params['rtol'],
-        saved_state_indices=integrator_params['saved_state_indices'],
-        saved_observable_indices=integrator_params['saved_observable_indices'],
-        summarised_state_indices=integrator_params['summarised_state_indices'],
-        summarised_observable_indices=integrator_params['summarised_observable_indices'],
-        output_types=integrator_params['output_types'],
+        system=integrator_params["system"],
+        algorithm=integrator_params["algorithm"],
+        dt_min=integrator_params["dt_min"],
+        dt_max=integrator_params["dt_max"],
+        dt_save=integrator_params["dt_save"],
+        dt_summarise=integrator_params["dt_summarise"],
+        atol=integrator_params["atol"],
+        rtol=integrator_params["rtol"],
+        saved_state_indices=integrator_params["saved_state_indices"],
+        saved_observable_indices=integrator_params["saved_observable_indices"],
+        summarised_state_indices=integrator_params["summarised_state_indices"],
+        summarised_observable_indices=integrator_params[
+            "summarised_observable_indices"
+        ],
+        output_types=integrator_params["output_types"],
     )
 
 
@@ -66,19 +74,25 @@ def test_initialization(single_integrator_run, system, integrator_params):
 
     # Check that config object is created correctly
     assert isinstance(single_integrator_run.config, IntegratorRunSettings)
-    assert single_integrator_run.config.dt_min == integrator_params['dt_min']
-    assert single_integrator_run.config.dt_max == integrator_params['dt_max']
-    assert single_integrator_run.config.dt_save == integrator_params['dt_save']
-    assert single_integrator_run.config.dt_summarise == integrator_params['dt_summarise']
-    assert single_integrator_run.config.atol == integrator_params['atol']
-    assert single_integrator_run.config.rtol == integrator_params['rtol']
+    assert single_integrator_run.config.dt_min == integrator_params["dt_min"]
+    assert single_integrator_run.config.dt_max == integrator_params["dt_max"]
+    assert single_integrator_run.config.dt_save == integrator_params["dt_save"]
+    assert (
+        single_integrator_run.config.dt_summarise
+        == integrator_params["dt_summarise"]
+    )
+    assert single_integrator_run.config.atol == integrator_params["atol"]
+    assert single_integrator_run.config.rtol == integrator_params["rtol"]
 
     # Check that output functions are created immediately
     assert single_integrator_run._output_functions is not None
     assert isinstance(single_integrator_run._output_functions, OutputFunctions)
 
     # Check algorithm key
-    assert single_integrator_run.algorithm_key == integrator_params['algorithm'].lower()
+    assert (
+        single_integrator_run.algorithm_key
+        == integrator_params["algorithm"].lower()
+    )
 
     # Check that integrator instance is created
     assert single_integrator_run._integrator_instance is not None
@@ -96,8 +110,14 @@ def test_output_functions_immediate_creation(single_integrator_run, system):
 
     # Should have correct system dimensions
     system_sizes = system.sizes
-    assert single_integrator_run._output_functions.compile_settings.max_states == system_sizes.states
-    assert single_integrator_run._output_functions.compile_settings.max_observables == system_sizes.observables
+    assert (
+        single_integrator_run._output_functions.compile_settings.max_states
+        == system_sizes.states
+    )
+    assert (
+        single_integrator_run._output_functions.compile_settings.max_observables
+        == system_sizes.observables
+    )
 
 
 def test_integrator_instance_immediate_creation(single_integrator_run):
@@ -106,7 +126,9 @@ def test_integrator_instance_immediate_creation(single_integrator_run):
     assert single_integrator_run._integrator_instance is not None
 
     # Should be created from the correct algorithm
-    assert single_integrator_run.algorithm_key in ['euler']  # Add other algorithms as needed
+    assert single_integrator_run.algorithm_key in [
+        "euler"
+    ]  # Add other algorithms as needed
 
 
 def test_property_access(single_integrator_run):
@@ -213,10 +235,13 @@ def test_update_cache_invalidation(single_integrator_run, system):
     single_integrator_run.update(c1=42.0)  # Assuming c1 is a system parameter
 
     # Should invalidate cache when system is updated
-    assert single_integrator_run.cache_valid != original_cache_valid or not original_cache_valid
+    assert (
+        single_integrator_run.cache_valid != original_cache_valid
+        or not original_cache_valid
+    )
 
     # Test output function parameter routing
-    single_integrator_run.update(output_types=['state', 'time'])
+    single_integrator_run.update(output_types=["state", "time"])
 
     # Should invalidate cache
     assert single_integrator_run._loop_cache_valid is False
@@ -229,14 +254,14 @@ def test_algorithm_change(single_integrator_run):
     initial_instance = single_integrator_run._integrator_instance
 
     # Change algorithm
-    single_integrator_run.update(algorithm='generic')
+    single_integrator_run.update(algorithm="generic")
 
     # Should have new instance
     new_instance = single_integrator_run._integrator_instance
     assert new_instance is not initial_instance
 
     # Algorithm key should be updated
-    assert single_integrator_run.algorithm_key == 'generic'
+    assert single_integrator_run.algorithm_key == "generic"
 
 
 def test_cache_valid_property(single_integrator_run):
@@ -263,6 +288,7 @@ def test_shared_memory_bytes(single_integrator_run):
     assert isinstance(shared_mem, int)
     assert shared_mem >= 0
 
+
 def test_error_handling_unrecognized_parameters(single_integrator_run):
     """Test error handling for unrecognized parameters."""
     # Test invalid parameter that no component recognizes
@@ -274,7 +300,7 @@ def test_error_handling_invalid_algorithm(single_integrator_run):
     """Test error handling for invalid algorithm."""
     # Test invalid algorithm
     with pytest.raises(KeyError):
-        single_integrator_run.update(algorithm='invalid_algorithm')
+        single_integrator_run.update(algorithm="invalid_algorithm")
 
 
 def test_empty_update_call(single_integrator_run):

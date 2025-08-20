@@ -6,10 +6,12 @@ Euler method for integrating ordinary differential equations on CUDA devices.
 The implementation is suitable for systems where high accuracy is not required
 and the dynamics are not too stiff.
 """
+
 from numba import cuda, int32, from_dtype
 
-from cubie.integrators.algorithms.genericIntegratorAlgorithm import \
-    GenericIntegratorAlgorithm
+from cubie.integrators.algorithms.genericIntegratorAlgorithm import (
+    GenericIntegratorAlgorithm,
+)
 
 
 class Euler(GenericIntegratorAlgorithm):
@@ -57,18 +59,39 @@ class Euler(GenericIntegratorAlgorithm):
     GenericIntegratorAlgorithm : Base class for integration algorithms
     """
 
-    def __init__(self, precision, dxdt_function, buffer_sizes,
-                 loop_step_config, save_state_func, update_summaries_func,
-                 save_summaries_func, compile_flags=None, **kwargs, ):
-        super().__init__(precision, dxdt_function, buffer_sizes,
-                         loop_step_config, save_state_func,
-                         update_summaries_func, save_summaries_func,
-                         compile_flags=compile_flags, )
+    def __init__(
+        self,
+        precision,
+        dxdt_function,
+        buffer_sizes,
+        loop_step_config,
+        save_state_func,
+        update_summaries_func,
+        save_summaries_func,
+        compile_flags=None,
+        **kwargs,
+    ):
+        super().__init__(
+            precision,
+            dxdt_function,
+            buffer_sizes,
+            loop_step_config,
+            save_state_func,
+            update_summaries_func,
+            save_summaries_func,
+            compile_flags=compile_flags,
+        )
 
         self._threads_per_loop = 1
 
-    def build_loop(self, precision, dxdt_function, save_state_func,
-                   update_summaries_func, save_summaries_func, ):
+    def build_loop(
+        self,
+        precision,
+        dxdt_function,
+        save_state_func,
+        update_summaries_func,
+        save_summaries_func,
+    ):
         """
         Build the CUDA device function for the Euler integration loop.
 
@@ -100,7 +123,9 @@ class Euler(GenericIntegratorAlgorithm):
         configured step sizes and buffer requirements.
         """
 
-        save_steps, summarise_steps, step_size = self.compile_settings.fixed_steps
+        save_steps, summarise_steps, step_size = (
+            self.compile_settings.fixed_steps
+        )
 
         sizes = self.compile_settings.buffer_sizes
         flags = self.compile_settings.compile_flags
@@ -123,21 +148,44 @@ class Euler(GenericIntegratorAlgorithm):
         observables_start_index = dxdt_start_index + dxdt_buffer_size
         drivers_start_index = observables_start_index + observables_buffer_size
         state_summaries_start_index = drivers_start_index + drivers_buffer_size
-        observable_summaries_start_index = state_summaries_start_index + state_summary_buffer_size
-        end_index = observable_summaries_start_index + observables_summary_buffer_size
+        observable_summaries_start_index = (
+            state_summaries_start_index + state_summary_buffer_size
+        )
+        end_index = (
+            observable_summaries_start_index + observables_summary_buffer_size
+        )
 
         numba_precision = from_dtype(precision)
+
         # no cover: start
         @cuda.jit(
-                (numba_precision[:], numba_precision[:], numba_precision[:, :],
-                 numba_precision[:], numba_precision[:, :],
-                 numba_precision[:, :], numba_precision[:, :],
-                 numba_precision[:, :], int32, int32,), device=True,
-                inline=True, )
-        def euler_loop(inits, parameters, forcing_vec, shared_memory,
-                       state_output, observables_output,
-                       state_summaries_output, observables_summaries_output,
-                       output_length, warmup_samples=0, ):
+            (
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:, :],
+                numba_precision[:],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                int32,
+                int32,
+            ),
+            device=True,
+            inline=True,
+        )
+        def euler_loop(
+            inits,
+            parameters,
+            forcing_vec,
+            shared_memory,
+            state_output,
+            observables_output,
+            state_summaries_output,
+            observables_summaries_output,
+            output_length,
+            warmup_samples=0,
+        ):
             """
             CUDA device function implementing the Euler integration loop.
 
@@ -180,40 +228,52 @@ class Euler(GenericIntegratorAlgorithm):
             state_buffer = shared_memory[:dxdt_start_index]
             dxdt = shared_memory[dxdt_start_index:observables_start_index]
             observables_buffer = shared_memory[
-                                 observables_start_index:drivers_start_index]
+                observables_start_index:drivers_start_index
+            ]
             drivers = shared_memory[
-                      drivers_start_index: state_summaries_start_index]
+                drivers_start_index:state_summaries_start_index
+            ]
             state_summary_buffer = shared_memory[
-                                   state_summaries_start_index:observable_summaries_start_index]
+                state_summaries_start_index:observable_summaries_start_index
+            ]
             observable_summary_buffer = shared_memory[
-                                        observable_summaries_start_index: end_index]
+                observable_summaries_start_index:end_index
+            ]
 
             driver_length = forcing_vec.shape[0]
 
             # Initialise/Assign values to allocated memory
             shared_memory[:end_index] = numba_precision(
-                    0.0)  # initialise all shared memory before adding values
+                0.0
+            )  # initialise all shared memory before adding values
             for i in range(state_buffer_size):
                 state_buffer[i] = inits[i]
 
-            l_parameters = cuda.local.array((parameter_buffer_size),
-                                            dtype=numba_precision, )
+            l_parameters = cuda.local.array(
+                (parameter_buffer_size),
+                dtype=numba_precision,
+            )
 
             for i in range(parameters_actual):
                 l_parameters[i] = parameters[i]
 
             # Loop through output samples, one iteration per output sample
             for i in range(warmup_samples + output_length):
-
                 # Euler loop - internal step size <= outout step size
                 for j in range(save_steps):
                     for k in range(drivers_buffer_size):
                         drivers[k] = forcing_vec[
-                            (i * save_steps + j) % driver_length, k]
+                            (i * save_steps + j) % driver_length, k
+                        ]
 
                     # Calculate derivative at sample
-                    dxdt_function(state_buffer, parameters, drivers,
-                                  observables_buffer, dxdt, )
+                    dxdt_function(
+                        state_buffer,
+                        parameters,
+                        drivers,
+                        observables_buffer,
+                        dxdt,
+                    )
 
                     # Forward-step state using euler
                     for k in range(state_buffer_size):
@@ -222,20 +282,27 @@ class Euler(GenericIntegratorAlgorithm):
                 # Start saving after the requested settling time has passed.
                 if i > (warmup_samples - 1):
                     output_sample = i - warmup_samples
-                    save_state_func(state_buffer, observables_buffer,
-                                    state_output[
-                                    output_sample * save_state_bool, :],
-                                    observables_output[
-                                    output_sample * save_observables_bool, :],
-                                    output_sample, )
-                    update_summaries_func(state_buffer, observables_buffer,
-                                          state_summary_buffer,
-                                          observable_summary_buffer,
-                                          output_sample, )
+                    save_state_func(
+                        state_buffer,
+                        observables_buffer,
+                        state_output[output_sample * save_state_bool, :],
+                        observables_output[
+                            output_sample * save_observables_bool, :
+                        ],
+                        output_sample,
+                    )
+                    update_summaries_func(
+                        state_buffer,
+                        observables_buffer,
+                        state_summary_buffer,
+                        observable_summary_buffer,
+                        output_sample,
+                    )
 
                     if (i + 1) % summarise_steps == 0:
                         summary_sample = (
-                                                 output_sample + 1) // summarise_steps - 1
+                            output_sample + 1
+                        ) // summarise_steps - 1
                         save_summaries_func(
                             state_summary_buffer,
                             observable_summary_buffer,
@@ -266,6 +333,12 @@ class Euler(GenericIntegratorAlgorithm):
         """
         sizes = self.compile_settings.buffer_sizes
         loop_shared_memory = (
-                    sizes.state + sizes.dxdt + sizes.observables + sizes.drivers + sizes.state_summaries + sizes.observable_summaries)
+            sizes.state
+            + sizes.dxdt
+            + sizes.observables
+            + sizes.drivers
+            + sizes.state_summaries
+            + sizes.observable_summaries
+        )
 
         return loop_shared_memory

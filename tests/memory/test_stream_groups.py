@@ -13,9 +13,11 @@ class DummyClass:
         self.proportion = proportion
         self.invalidate_all_hook = invalidate_all_hook
 
+
 @pytest.fixture(scope="function")
 def stream_groups(array_request_settings):
     return StreamGroups()
+
 
 class TestStreamGroups:
     @pytest.mark.nocudasim
@@ -51,18 +53,17 @@ class TestStreamGroups:
         """Test that change_group removes the instance from the old group,
         adds it to the new one, and that the instances stream has changed"""
         inst = DummyClass()
-        stream_groups.add_instance(inst, 'group1')
+        stream_groups.add_instance(inst, "group1")
         old_stream = stream_groups.get_stream(inst)
         # move to new group
-        stream_groups.change_group(inst, 'group2')
-        assert id(inst) not in stream_groups.groups['group1']
-        assert id(inst) in stream_groups.groups['group2']
+        stream_groups.change_group(inst, "group2")
+        assert id(inst) not in stream_groups.groups["group1"]
+        assert id(inst) in stream_groups.groups["group2"]
         new_stream = stream_groups.get_stream(inst)
         assert int(new_stream.handle.value) != int(old_stream.handle.value)
         # error when instance not in any group
         with pytest.raises(ValueError):
-            stream_groups.change_group(DummyClass(), 'groupX')
-
+            stream_groups.change_group(DummyClass(), "groupX")
 
     @pytest.mark.nocudasim
     def test_get_stream(self, stream_groups):
@@ -83,13 +84,13 @@ class TestStreamGroups:
 
     @pytest.mark.nocudasim
     def test_reinit_streams(self, stream_groups):
-        """ test that two instances have different streams in different
+        """test that two instances have different streams in different
         groups, then reinit, and check that streams don't match old ones or
         each other."""
         inst1 = DummyClass()
         inst2 = DummyClass()
-        stream_groups.add_instance(inst1, 'g1')
-        stream_groups.add_instance(inst2, 'g2')
+        stream_groups.add_instance(inst1, "g1")
+        stream_groups.add_instance(inst2, "g2")
         # ensure different initial streams
         s1_old = stream_groups.get_stream(inst1)
         s2_old = stream_groups.get_stream(inst2)
@@ -109,29 +110,28 @@ class TestStreamGroups:
         inst3 = DummyClass()
 
         # Add instances to different groups
-        stream_groups.add_instance(inst1, 'group1')
-        stream_groups.add_instance(inst2, 'group1')
-        stream_groups.add_instance(inst3, 'group2')
+        stream_groups.add_instance(inst1, "group1")
+        stream_groups.add_instance(inst2, "group1")
+        stream_groups.add_instance(inst3, "group2")
 
         # Test group1 has correct instances
-        group1_instances = stream_groups.get_instances_in_group('group1')
+        group1_instances = stream_groups.get_instances_in_group("group1")
         assert len(group1_instances) == 2
         assert id(inst1) in group1_instances
         assert id(inst2) in group1_instances
         assert id(inst3) not in group1_instances
 
         # Test group2 has correct instances
-        group2_instances = stream_groups.get_instances_in_group('group2')
+        group2_instances = stream_groups.get_instances_in_group("group2")
         assert len(group2_instances) == 1
         assert id(inst3) in group2_instances
         assert id(inst1) not in group2_instances
         assert id(inst2) not in group2_instances
 
         # Test non-existent group returns empty list
-        empty_group = stream_groups.get_instances_in_group('nonexistent')
+        empty_group = stream_groups.get_instances_in_group("nonexistent")
         assert empty_group == []
 
         # Test default group behavior
-        default_instances = stream_groups.get_instances_in_group('default')
+        default_instances = stream_groups.get_instances_in_group("default")
         assert default_instances == []  # Should be empty initially
-

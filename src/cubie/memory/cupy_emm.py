@@ -17,8 +17,9 @@ import ctypes
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from cubie.cudasim_utils import FakeGetIpcHandleMixin as GetIpcHandleMixin
-    from cubie.cudasim_utils import (FakeHostOnlyCUDAManager as
-                                     HostOnlyCUDAMemoryManager)
+    from cubie.cudasim_utils import (
+        FakeHostOnlyCUDAManager as HostOnlyCUDAMemoryManager,
+    )
     from cubie.cudasim_utils import FakeMemoryPointer as MemoryPointer
     from cubie.cudasim_utils import FakeMemoryInfo as MemoryInfo
 else:
@@ -26,7 +27,7 @@ else:
         GetIpcHandleMixin,
         HostOnlyCUDAMemoryManager,
         MemoryPointer,
-        MemoryInfo
+        MemoryInfo,
     )
 try:
     import cupy as cp
@@ -34,8 +35,8 @@ except ImportError:
     cp = None
 
 
-
 logger = logging.getLogger(__name__)
+
 
 def _numba_stream_ptr(nb_stream):
     """
@@ -68,6 +69,7 @@ def _numba_stream_ptr(nb_stream):
     except Exception:
         return None
 
+
 class current_cupy_stream:
     """
     Context manager to override CuPy's current stream with a Numba stream.
@@ -89,6 +91,7 @@ class current_cupy_stream:
     This context manager only has effect when the current CUDA memory manager
     is a CuPy-based manager. Otherwise, it acts as a no-op context manager.
     """
+
     def __init__(self, nb_stream):
         if cp is None:
             raise ImportError(
@@ -139,6 +142,7 @@ class current_cupy_stream:
                 self.cupy_ext_stream.__exit__(exc_type, exc, tb)
                 self.cupy_ext_stream = None
 
+
 class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
     """
     Base Numba EMM plugin for using CuPy memory pools to allocate.
@@ -162,11 +166,12 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
     streams, such that the allocations are stream-ordered when using the async
     allocator.
     """
+
     def __init__(self, context):
         if cp is None:
             raise ImportError(
-                    "To use Cupy memory managers, you must install cupy: pip "
-                    "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
+                "To use Cupy memory managers, you must install cupy: pip "
+                "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
             )
         super().__init__(context=context)
         # We keep a record of all allocations, and remove each allocation
@@ -181,7 +186,6 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
         # These provide a way for tests to check who's allocating what.
         self._testing = False
         self._testout = None
-
 
     def memalloc(self, nbytes):
         """
@@ -207,7 +211,7 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
             cuda.current_context(),
             ctypes.c_void_p(int(cp_mp.ptr)),
             nbytes,
-            finalizer=self._make_finalizer(cp_mp, nbytes)
+            finalizer=self._make_finalizer(cp_mp, nbytes),
         )
 
     def _make_finalizer(self, cp_mp, nbytes):
@@ -251,8 +255,9 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
         -----
         Returns information from the CuPy memory pool, not the whole device.
         """
-        return MemoryInfo(free=self._mp.free_bytes(),
-                          total=self._mp.total_bytes())
+        return MemoryInfo(
+            free=self._mp.free_bytes(), total=self._mp.total_bytes()
+        )
 
     def initialize(self):
         """Initialize the memory manager."""
@@ -322,6 +327,7 @@ class CuPyAsyncNumbaManager(CuPyNumbaManager):
     Uses CuPy's asynchronous memory pool which provides stream-ordered
     memory operations.
     """
+
     def __init__(self, context):
         super().__init__(context=context)
 
@@ -363,6 +369,7 @@ class CuPySyncNumbaManager(CuPyNumbaManager):
     Uses CuPy's synchronous memory pool which provides standard
     memory operations.
     """
+
     def __init__(self, context):
         super().__init__(context=context)
 

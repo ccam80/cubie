@@ -1,12 +1,14 @@
 import numpy as np
 
-def calculate_expected_summaries(state,
-                                 observables,
-                                 summarise_every,
-                                 output_types,
-                                 summary_height_per_variable,
-                                 precision,
-                                 ):
+
+def calculate_expected_summaries(
+    state,
+    observables,
+    summarise_every,
+    output_types,
+    summary_height_per_variable,
+    precision,
+):
     """Helper function to calculate expected summary values from a given pair of state and observable arrays.
     Summarises the whole output state and observable array, select from within this if testing for selective
     summarisation.
@@ -21,7 +23,7 @@ def calculate_expected_summaries(state,
     Returns:
     - expected_state_summaries: 2D array of shape (summary_samples, n_saved_states * summary_size_per_state)
     - expected_obs_summaries: 2D array of shape (summary_samples, n_saved_observables * summary_size_per_state)
-        """
+    """
 
     n_saved_states = state.shape[1]
     n_saved_observables = observables.shape[1]
@@ -31,38 +33,44 @@ def calculate_expected_summaries(state,
     state_summaries_height = summary_height_per_variable * n_saved_states
     obs_summaries_height = summary_height_per_variable * n_saved_observables
 
-    expected_state_summaries = np.zeros((summary_samples, state_summaries_height), dtype=precision)
-    expected_obs_summaries = np.zeros((summary_samples, obs_summaries_height), dtype=precision)
+    expected_state_summaries = np.zeros(
+        (summary_samples, state_summaries_height), dtype=precision
+    )
+    expected_obs_summaries = np.zeros(
+        (summary_samples, obs_summaries_height), dtype=precision
+    )
 
     for output in output_types:
-        if output.startswith('peaks'):
+        if output.startswith("peaks"):
             n_peaks = int(output[6:-1]) if len(output) > 6 else 0
         else:
             n_peaks = 0
 
- 
-    for (_input_array, _output_array) in ((state, expected_state_summaries),
-                                          (observables, expected_obs_summaries)
-                                          ):
-        calculate_single_summary_array(_input_array,
-                                       summarise_every,
-                                       summary_height_per_variable,
-                                       output_types,
-                                       output_array = _output_array,
-                                       n_peaks=n_peaks
-                                       )
+    for _input_array, _output_array in (
+        (state, expected_state_summaries),
+        (observables, expected_obs_summaries),
+    ):
+        calculate_single_summary_array(
+            _input_array,
+            summarise_every,
+            summary_height_per_variable,
+            output_types,
+            output_array=_output_array,
+            n_peaks=n_peaks,
+        )
 
     return expected_state_summaries, expected_obs_summaries
 
 
-def calculate_single_summary_array(input_array,
-                                   summarise_every,
-                                   summary_size_per_state,
-                                   output_functions_list,
-                                   output_array,
-                                   n_peaks=0,
-                                   ):
-    """ Summarise states in input array in the same way that the device functions do.
+def calculate_single_summary_array(
+    input_array,
+    summarise_every,
+    summary_size_per_state,
+    output_functions_list,
+    output_array,
+    n_peaks=0,
+):
+    """Summarise states in input array in the same way that the device functions do.
 
     Arguments:
     - input_array: 2D array of shape (n_items, n_samples) with the input data to summarise
@@ -75,7 +83,7 @@ def calculate_single_summary_array(input_array,
     Returns:
     - None, but output_array is filled with the summarised values.
 
-        """
+    """
     summary_samples = int(input_array.shape[0] / summarise_every)
     try:
         n_items = output_array.shape[1] // summary_size_per_state
@@ -89,49 +97,76 @@ def calculate_single_summary_array(input_array,
             for output_type in output_functions_list:
                 start_index = i * summarise_every
                 end_index = (i + 1) * summarise_every
-                if output_type == 'mean':
-                    output_array[i, j * summary_size_per_state + summary_index] = np.mean(
-                            input_array[start_index: end_index, j], axis=0,
-                            )
+                if output_type == "mean":
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = np.mean(
+                        input_array[start_index:end_index, j],
+                        axis=0,
+                    )
                     summary_index += 1
 
-                if output_type.startswith('peaks'):
+                if output_type.startswith("peaks"):
                     # Use the last two samples, like the live version does
                     start_index = i * summarise_every - 2 if i > 0 else 0
-                    maxima = local_maxima(
-                            input_array[start_index: end_index, j],
-                            )[:n_peaks] + start_index
-                    output_start_index = j * summary_size_per_state + summary_index
-                    output_array[i, output_start_index:output_start_index + maxima.size] = maxima
+                    maxima = (
+                        local_maxima(
+                            input_array[start_index:end_index, j],
+                        )[:n_peaks]
+                        + start_index
+                    )
+                    output_start_index = (
+                        j * summary_size_per_state + summary_index
+                    )
+                    output_array[
+                        i,
+                        output_start_index : output_start_index + maxima.size,
+                    ] = maxima
                     summary_index += n_peaks
 
-                if output_type == 'max':
-                    _max = np.max(input_array[ start_index: end_index, j], axis=0)
-                    output_array[i, j * summary_size_per_state + summary_index] = _max
+                if output_type == "max":
+                    _max = np.max(
+                        input_array[start_index:end_index, j], axis=0
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = _max
                     summary_index += 1
 
-                if output_type == 'rms':
-                    rms = np.sqrt(np.mean(input_array[start_index: end_index, j] ** 2, axis=0))
-                    output_array[i, j * summary_size_per_state + summary_index] = rms
+                if output_type == "rms":
+                    rms = np.sqrt(
+                        np.mean(
+                            input_array[start_index:end_index, j] ** 2, axis=0
+                        )
+                    )
+                    output_array[
+                        i, j * summary_size_per_state + summary_index
+                    ] = rms
                     summary_index += 1
 
 
 def local_maxima(signal: np.ndarray) -> np.ndarray:
-    return np.flatnonzero((signal[1:-1] > signal[:-2]) & (signal[1:-1] > signal[2:])) + 1
+    return (
+        np.flatnonzero(
+            (signal[1:-1] > signal[:-2]) & (signal[1:-1] > signal[2:])
+        )
+        + 1
+    )
 
 
-def cpu_euler_loop(system,
-               inits,
-               params,
-               driver_vec,
-               dt,
-               output_dt,
-               warmup,
-               duration,
-               saved_observable_indices,
-               saved_state_indices,
-               save_time,
-               ):
+def cpu_euler_loop(
+    system,
+    inits,
+    params,
+    driver_vec,
+    dt,
+    output_dt,
+    warmup,
+    duration,
+    saved_observable_indices,
+    saved_state_indices,
+    save_time,
+):
     """A simple CPU implementation of the Euler loop for testing."""
     t = 0.0
     save_every = int(round(output_dt / dt))
@@ -141,28 +176,41 @@ def cpu_euler_loop(system,
     n_saved_observables = len(saved_observable_indices)
     total_samples = int((duration + warmup) / output_dt)
 
-    state_output = np.zeros((output_length, n_saved_states + save_time * 1), dtype=inits.dtype)
-    observables_output = np.zeros((output_length, n_saved_observables), dtype=inits.dtype)
+    state_output = np.zeros(
+        (output_length, n_saved_states + save_time * 1), dtype=inits.dtype
+    )
+    observables_output = np.zeros(
+        (output_length, n_saved_observables), dtype=inits.dtype
+    )
     state = inits.copy()
 
     for i in range(total_samples):
         for j in range(save_every):
             drivers = driver_vec[(i * save_every + j) % len(driver_vec), :]
             t += dt
-            dx, observables = system.correct_answer_python(state, params, drivers)
+            dx, observables = system.correct_answer_python(
+                state, params, drivers
+            )
             state += dx * dt
         if i > (warmup_samples - 1):
-            state_output[i - warmup_samples, :n_saved_states] = state[saved_state_indices]
-            observables_output[i - warmup_samples, :] = observables[saved_observable_indices]
+            state_output[i - warmup_samples, :n_saved_states] = state[
+                saved_state_indices
+            ]
+            observables_output[i - warmup_samples, :] = observables[
+                saved_observable_indices
+            ]
             if save_time:
                 state_output[i - warmup_samples, -1] = i - warmup_samples
 
     return state_output, observables_output
 
+
 ### ********************************************************************************************************* ###
 #                                        RANDOM GENERATION
 ### ********************************************************************************************************* ###
-def single_scale_float_array(shape: int | tuple[int], precision=np.float64, scale=1e6):
+def single_scale_float_array(
+    shape: int | tuple[int], precision=np.float64, scale=1e6
+):
     """Generate a random float array of given shape and dtype, drawn from a normal distribution with a std dev of the
     argument "scale". Normal was chosen here to slightly increase the magnitude-spead of values.
 
@@ -178,12 +226,13 @@ def single_scale_float_array(shape: int | tuple[int], precision=np.float64, scal
     return rng.normal(scale=scale, size=shape).astype(precision)
 
 
-def mixed_scale_float_array(shape: int | tuple[int],
-                            precision=np.float64,
-                            log10_scale=(-6, 6),
-                            axis=0,
-                            ):
-    """ Generates a float array where each element is drawn from a normal distribution. The std dev of the distribution
+def mixed_scale_float_array(
+    shape: int | tuple[int],
+    precision=np.float64,
+    log10_scale=(-6, 6),
+    axis=0,
+):
+    """Generates a float array where each element is drawn from a normal distribution. The std dev of the distribution
     is 1*10^k, with drawn from a uniform distribution between log10_scale[0] and log10_scale[1]. The resulting array
     can be used to test the system with a wide dynamic range of values, straining the numerical stability of the system.
 
@@ -206,11 +255,15 @@ def mixed_scale_float_array(shape: int | tuple[int],
         shape = (shape,)
     if axis > len(shape):
         raise ValueError(f"Axis {axis} is out of bounds for shape {shape}.")
-    scale_exponents = rng.uniform(log10_scale[0], log10_scale[1], size=shape[axis])
-    scale_values = 10.0 ** scale_exponents
+    scale_exponents = rng.uniform(
+        log10_scale[0], log10_scale[1], size=shape[axis]
+    )
+    scale_values = 10.0**scale_exponents
     _random_array = np.empty(shape, dtype=precision)
     for i in range(shape[axis]):
-        _random_array[i] = rng.normal(scale=scale_values[i], size=shape[:axis] + shape[axis + 1:]).astype(precision)
+        _random_array[i] = rng.normal(
+            scale=scale_values[i], size=shape[:axis] + shape[axis + 1 :]
+        ).astype(precision)
     return _random_array
 
 
@@ -231,9 +284,13 @@ def random_array(precision, size: int | tuple[int], scale=1e6):
     if len(scale) == 1:
         randvals = single_scale_float_array(size, precision, scale[0])
     elif len(scale) == 2:
-        randvals = mixed_scale_float_array(size, precision, log10_scale=scale, axis=0)
+        randvals = mixed_scale_float_array(
+            size, precision, log10_scale=scale, axis=0
+        )
     else:
-        raise ValueError(f"scale must be a single float or a tuple of two floats, got {scale}.")
+        raise ValueError(
+            f"scale must be a single float or a tuple of two floats, got {scale}."
+        )
 
     return randvals
 
@@ -285,15 +342,17 @@ def generate_test_array(precision, size, style, scale=None):
     Returns:
         test_array (np.ndarray): A numpy array of the specified size and dtype, filled with values according to the type.
     """
-    if style == 'random':
+    if style == "random":
         if scale is None:
             raise ValueError("scale must be specified if type is 'random'.")
         return random_array(precision, size, scale)
-    elif style == 'nan':
+    elif style == "nan":
         return nan_array(precision, size)
-    elif style == 'zero':
+    elif style == "zero":
         return zero_array(precision, size)
-    elif style == 'ones':
+    elif style == "ones":
         return ones_array(precision, size)
     else:
-        raise ValueError(f"Unknown array type: {style}. Use 'random', 'nan', 'zero', or 'ones'.")
+        raise ValueError(
+            f"Unknown array type: {style}. Use 'random', 'nan', 'zero', or 'ones'."
+        )

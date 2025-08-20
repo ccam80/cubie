@@ -114,9 +114,11 @@ class TestCudaArrayFixtures:
     @pytest.fixture
     def mock_array_like(self):
         """Create a mock object with shape attribute."""
+
         class MockArrayLike:
             def __init__(self, shape):
                 self.shape = shape
+
         return MockArrayLike
 
     @pytest.fixture
@@ -127,9 +129,12 @@ class TestCudaArrayFixtures:
     @pytest.fixture
     def placeholder_attribute(self):
         """Create a placeholder attribute for validator functions."""
+
         class placeholderAttribute:
             pass
+
         return placeholderAttribute()
+
 
 @pytest.mark.nocudasim
 class TestIsCudaArray(TestCudaArrayFixtures):
@@ -165,35 +170,63 @@ class TestIsCudaArray(TestCudaArrayFixtures):
             # In normal mode, only real CUDA arrays are detected
             assert is_cuda_array(mock_obj) is False
 
+
 @pytest.mark.nocudasim
 class TestCudaArrayValidator(TestCudaArrayFixtures):
     """Test the cuda_array_validator function."""
 
-    def test_valid_cuda_array_no_dimensions(self, placeholder_instance, placeholder_attribute, cuda_2d_array):
+    def test_valid_cuda_array_no_dimensions(
+        self, placeholder_instance, placeholder_attribute, cuda_2d_array
+    ):
         """Test validation of CUDA array without dimension checking."""
-        result = cuda_array_validator(placeholder_instance, placeholder_attribute, cuda_2d_array)
+        result = cuda_array_validator(
+            placeholder_instance, placeholder_attribute, cuda_2d_array
+        )
         assert result is True
 
-    def test_valid_cuda_array_correct_dimensions(self, placeholder_instance, placeholder_attribute, cuda_2d_array):
+    def test_valid_cuda_array_correct_dimensions(
+        self, placeholder_instance, placeholder_attribute, cuda_2d_array
+    ):
         """Test validation of CUDA array with correct dimensions."""
-        result = cuda_array_validator(placeholder_instance, placeholder_attribute, cuda_2d_array, dimensions=2)
+        result = cuda_array_validator(
+            placeholder_instance,
+            placeholder_attribute,
+            cuda_2d_array,
+            dimensions=2,
+        )
         assert result is True
 
-    def test_valid_cuda_array_wrong_dimensions(self, placeholder_instance, placeholder_attribute, cuda_2d_array):
+    def test_valid_cuda_array_wrong_dimensions(
+        self, placeholder_instance, placeholder_attribute, cuda_2d_array
+    ):
         """Test validation of CUDA array with wrong dimensions."""
-        result = cuda_array_validator(placeholder_instance, placeholder_attribute, cuda_2d_array, dimensions=3)
+        result = cuda_array_validator(
+            placeholder_instance,
+            placeholder_attribute,
+            cuda_2d_array,
+            dimensions=3,
+        )
         assert result is False
 
-    def test_invalid_non_cuda_array(self, placeholder_instance, placeholder_attribute, numpy_2d_array):
+    def test_invalid_non_cuda_array(
+        self, placeholder_instance, placeholder_attribute, numpy_2d_array
+    ):
         """Test validation of non-CUDA array."""
         if os.environ.get("NUMBA_ENABLE_CUDASIM", "0") != "1":
-            result = cuda_array_validator(placeholder_instance, placeholder_attribute, numpy_2d_array)
+            result = cuda_array_validator(
+                placeholder_instance, placeholder_attribute, numpy_2d_array
+            )
             assert result is False
 
-    def test_invalid_non_array(self, placeholder_instance, placeholder_attribute):
+    def test_invalid_non_array(
+        self, placeholder_instance, placeholder_attribute
+    ):
         """Test validation of non-array object."""
-        result = cuda_array_validator(placeholder_instance, placeholder_attribute, "not an array")
+        result = cuda_array_validator(
+            placeholder_instance, placeholder_attribute, "not an array"
+        )
         assert result is False
+
 
 @pytest.mark.nocudasim
 class TestOptionalCudaArrayValidator(TestCudaArrayFixtures):
@@ -201,33 +234,62 @@ class TestOptionalCudaArrayValidator(TestCudaArrayFixtures):
 
     def test_none_value(self, placeholder_instance, placeholder_attribute):
         """Test that None is always valid."""
-        result = optional_cuda_array_validator(placeholder_instance, placeholder_attribute, None)
+        result = optional_cuda_array_validator(
+            placeholder_instance, placeholder_attribute, None
+        )
         assert result is True
 
-    def test_none_value_with_dimensions(self, placeholder_instance, placeholder_attribute):
+    def test_none_value_with_dimensions(
+        self, placeholder_instance, placeholder_attribute
+    ):
         """Test that None is valid even with dimension specification."""
-        result = optional_cuda_array_validator(placeholder_instance, placeholder_attribute, None, dimensions=3)
+        result = optional_cuda_array_validator(
+            placeholder_instance, placeholder_attribute, None, dimensions=3
+        )
         assert result is True
 
-    def test_valid_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_2d_array):
+    def test_valid_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_2d_array
+    ):
         """Test validation of valid CUDA array."""
-        result = optional_cuda_array_validator(placeholder_instance, placeholder_attribute, cuda_2d_array)
+        result = optional_cuda_array_validator(
+            placeholder_instance, placeholder_attribute, cuda_2d_array
+        )
         assert result is True
 
-    def test_valid_cuda_array_correct_dimensions(self, placeholder_instance, placeholder_attribute, cuda_3d_array):
+    def test_valid_cuda_array_correct_dimensions(
+        self, placeholder_instance, placeholder_attribute, cuda_3d_array
+    ):
         """Test validation of CUDA array with correct dimensions."""
-        result = optional_cuda_array_validator(placeholder_instance, placeholder_attribute, cuda_3d_array, dimensions=3)
+        result = optional_cuda_array_validator(
+            placeholder_instance,
+            placeholder_attribute,
+            cuda_3d_array,
+            dimensions=3,
+        )
         assert result is True
 
-    def test_valid_cuda_array_wrong_dimensions(self, placeholder_instance, placeholder_attribute, cuda_2d_array):
+    def test_valid_cuda_array_wrong_dimensions(
+        self, placeholder_instance, placeholder_attribute, cuda_2d_array
+    ):
         """Test validation of CUDA array with wrong dimensions."""
-        result = optional_cuda_array_validator(placeholder_instance, placeholder_attribute, cuda_2d_array, dimensions=3)
+        result = optional_cuda_array_validator(
+            placeholder_instance,
+            placeholder_attribute,
+            cuda_2d_array,
+            dimensions=3,
+        )
         assert result is False
 
-    def test_invalid_non_array(self, placeholder_instance, placeholder_attribute):
+    def test_invalid_non_array(
+        self, placeholder_instance, placeholder_attribute
+    ):
         """Test validation of non-array object."""
-        result = optional_cuda_array_validator(placeholder_instance, placeholder_attribute, "not an array")
+        result = optional_cuda_array_validator(
+            placeholder_instance, placeholder_attribute, "not an array"
+        )
         assert result is False
+
 
 @pytest.mark.nocudasim
 class TestOptionalCudaArrayValidator3D(TestCudaArrayFixtures):
@@ -235,23 +297,38 @@ class TestOptionalCudaArrayValidator3D(TestCudaArrayFixtures):
 
     def test_none_value(self, placeholder_instance, placeholder_attribute):
         """Test that None is valid."""
-        result = optional_cuda_array_validator_3d(placeholder_instance, placeholder_attribute, None)
+        result = optional_cuda_array_validator_3d(
+            placeholder_instance, placeholder_attribute, None
+        )
         assert result is True
 
-    def test_valid_3d_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_3d_array):
+    def test_valid_3d_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_3d_array
+    ):
         """Test validation of 3D CUDA array."""
-        result = optional_cuda_array_validator_3d(placeholder_instance, placeholder_attribute, cuda_3d_array)
+        result = optional_cuda_array_validator_3d(
+            placeholder_instance, placeholder_attribute, cuda_3d_array
+        )
         assert result is True
 
-    def test_invalid_2d_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_2d_array):
+    def test_invalid_2d_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_2d_array
+    ):
         """Test validation of 2D CUDA array (should fail for 3D validator)."""
-        result = optional_cuda_array_validator_3d(placeholder_instance, placeholder_attribute, cuda_2d_array)
+        result = optional_cuda_array_validator_3d(
+            placeholder_instance, placeholder_attribute, cuda_2d_array
+        )
         assert result is False
 
-    def test_invalid_non_array(self, placeholder_instance, placeholder_attribute):
+    def test_invalid_non_array(
+        self, placeholder_instance, placeholder_attribute
+    ):
         """Test validation of non-array object."""
-        result = optional_cuda_array_validator_3d(placeholder_instance, placeholder_attribute, "not an array")
+        result = optional_cuda_array_validator_3d(
+            placeholder_instance, placeholder_attribute, "not an array"
+        )
         assert result is False
+
 
 @pytest.mark.nocudasim
 class TestOptionalCudaArrayValidator2D(TestCudaArrayFixtures):
@@ -259,65 +336,109 @@ class TestOptionalCudaArrayValidator2D(TestCudaArrayFixtures):
 
     def test_none_value(self, placeholder_instance, placeholder_attribute):
         """Test that None is valid."""
-        result = optional_cuda_array_validator_2d(placeholder_instance, placeholder_attribute, None)
+        result = optional_cuda_array_validator_2d(
+            placeholder_instance, placeholder_attribute, None
+        )
         assert result is True
 
-    def test_valid_2d_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_2d_array):
+    def test_valid_2d_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_2d_array
+    ):
         """Test validation of 2D CUDA array."""
-        result = optional_cuda_array_validator_2d(placeholder_instance, placeholder_attribute, cuda_2d_array)
+        result = optional_cuda_array_validator_2d(
+            placeholder_instance, placeholder_attribute, cuda_2d_array
+        )
         assert result is True
 
-    def test_invalid_3d_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_3d_array):
+    def test_invalid_3d_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_3d_array
+    ):
         """Test validation of 3D CUDA array (should fail for 2D validator)."""
-        result = optional_cuda_array_validator_2d(placeholder_instance, placeholder_attribute, cuda_3d_array)
+        result = optional_cuda_array_validator_2d(
+            placeholder_instance, placeholder_attribute, cuda_3d_array
+        )
         assert result is False
 
-    def test_invalid_non_array(self, placeholder_instance, placeholder_attribute):
+    def test_invalid_non_array(
+        self, placeholder_instance, placeholder_attribute
+    ):
         """Test validation of non-array object."""
-        result = optional_cuda_array_validator_2d(placeholder_instance, placeholder_attribute, "not an array")
+        result = optional_cuda_array_validator_2d(
+            placeholder_instance, placeholder_attribute, "not an array"
+        )
         assert result is False
+
 
 @pytest.mark.nocudasim
 class TestCudaArrayValidator3D(TestCudaArrayFixtures):
     """Test the cuda_array_validator_3d function."""
 
-    def test_valid_3d_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_3d_array):
+    def test_valid_3d_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_3d_array
+    ):
         """Test validation of 3D CUDA array."""
-        result = cuda_array_validator_3d(placeholder_instance, placeholder_attribute, cuda_3d_array)
+        result = cuda_array_validator_3d(
+            placeholder_instance, placeholder_attribute, cuda_3d_array
+        )
         assert result is True
 
-    def test_invalid_2d_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_2d_array):
+    def test_invalid_2d_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_2d_array
+    ):
         """Test validation of 2D CUDA array (should fail for 3D validator)."""
-        result = cuda_array_validator_3d(placeholder_instance, placeholder_attribute, cuda_2d_array)
+        result = cuda_array_validator_3d(
+            placeholder_instance, placeholder_attribute, cuda_2d_array
+        )
         assert result is False
 
-    def test_invalid_non_array(self, placeholder_instance, placeholder_attribute):
+    def test_invalid_non_array(
+        self, placeholder_instance, placeholder_attribute
+    ):
         """Test validation of non-array object."""
-        result = cuda_array_validator_3d(placeholder_instance, placeholder_attribute, "not an array")
+        result = cuda_array_validator_3d(
+            placeholder_instance, placeholder_attribute, "not an array"
+        )
         assert result is False
+
 
 @pytest.mark.nocudasim
 class TestCudaArrayValidator2D(TestCudaArrayFixtures):
     """Test the cuda_array_validator_2d function."""
 
-    def test_valid_2d_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_2d_array):
+    def test_valid_2d_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_2d_array
+    ):
         """Test validation of 2D CUDA array."""
-        result = cuda_array_validator_2d(placeholder_instance, placeholder_attribute, cuda_2d_array)
+        result = cuda_array_validator_2d(
+            placeholder_instance, placeholder_attribute, cuda_2d_array
+        )
         assert result is True
 
-    def test_invalid_3d_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_3d_array):
+    def test_invalid_3d_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_3d_array
+    ):
         """Test validation of 3D CUDA array (should fail for 2D validator)."""
-        result = cuda_array_validator_2d(placeholder_instance, placeholder_attribute, cuda_3d_array)
+        result = cuda_array_validator_2d(
+            placeholder_instance, placeholder_attribute, cuda_3d_array
+        )
         assert result is False
 
-    def test_invalid_1d_cuda_array(self, placeholder_instance, placeholder_attribute, cuda_1d_array):
+    def test_invalid_1d_cuda_array(
+        self, placeholder_instance, placeholder_attribute, cuda_1d_array
+    ):
         """Test validation of 1D CUDA array (should fail for 2D validator)."""
-        result = cuda_array_validator_2d(placeholder_instance, placeholder_attribute, cuda_1d_array)
+        result = cuda_array_validator_2d(
+            placeholder_instance, placeholder_attribute, cuda_1d_array
+        )
         assert result is False
 
-    def test_invalid_non_array(self, placeholder_instance, placeholder_attribute):
+    def test_invalid_non_array(
+        self, placeholder_instance, placeholder_attribute
+    ):
         """Test validation of non-array object."""
-        result = cuda_array_validator_2d(placeholder_instance, placeholder_attribute, "not an array")
+        result = cuda_array_validator_2d(
+            placeholder_instance, placeholder_attribute, "not an array"
+        )
         assert result is False
 
 
@@ -343,6 +464,7 @@ class TestCudaSimulationMode:
     @patch.dict(os.environ, {"NUMBA_ENABLE_CUDASIM": "1"})
     def test_mock_array_behavior_in_cudasim(self):
         """Test that objects with shape attribute are detected in CUDASIM mode."""
+
         # This test demonstrates the behavior difference, but we can't easily
         # test the conditional import without more complex mocking
         class MockArray:
@@ -354,4 +476,4 @@ class TestCudaSimulationMode:
         # Note: This test shows the intended behavior but may not work
         # exactly as expected due to the conditional import at module level
         # The actual behavior depends on when the module was imported
-        assert hasattr(mock_arr, 'shape')
+        assert hasattr(mock_arr, "shape")

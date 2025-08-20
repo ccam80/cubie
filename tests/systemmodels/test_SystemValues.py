@@ -3,6 +3,7 @@ import numpy as np
 
 from cubie.systemmodels.SystemValues import SystemValues
 
+
 def test_init_edge_cases():
     """Test edge cases for the __init__ method."""
     # Test with None values_dict
@@ -25,6 +26,7 @@ def test_init_edge_cases():
     params = SystemValues({"a": 1.0}, precision, x=10.0, y=20.0)
     assert params.values_dict == {"a": 1.0, "x": 10.0, "y": 20.0}
     assert len(params.values_array) == 3
+
 
 def test_param_array_and_indices_match_supplied_dict():
     """Test that param_array and indices dicts match the supplied dictionary after instantiation."""
@@ -56,6 +58,7 @@ def test_param_array_and_indices_match_supplied_dict():
         assert params.values_dict[key] == value
         assert params.keys_by_index[index] == key
 
+
 def test_get_index_of_key():
     """Test that getting the index of an individual key works."""
     values_dict = {"foo": 1.0, "bar": 2.0, "baz": 3.0}
@@ -67,12 +70,15 @@ def test_get_index_of_key():
         assert params.get_index_of_key(key) == i
 
     # Test KeyError for non-existent key
-    with pytest.raises(KeyError, match="not found in this SystemValues object"):
+    with pytest.raises(
+        KeyError, match="not found in this SystemValues object"
+    ):
         params.get_index_of_key("nonexistent")
 
     # Test TypeError for non-string key
     with pytest.raises(TypeError, match="parameter_key must be a string"):
         params.get_index_of_key(123)
+
 
 def test_get_indices():
     """Test that get_indices works as expected for each input type mentioned in the method."""
@@ -83,7 +89,6 @@ def test_get_indices():
     # Test with a single string
     indices = params.get_indices("a")
     assert np.array_equal(indices, np.asarray([0], dtype=np.int16))
-
 
     # Test with a list of strings
     indices = params.get_indices(["a", "c", "e"])
@@ -106,14 +111,22 @@ def test_get_indices():
     assert np.array_equal(indices, np.asarray([0, 2, 4], dtype=np.int16))
 
     # Test error cases
-    with pytest.raises(KeyError, match="not found in this SystemValues object"):
+    with pytest.raises(
+        KeyError, match="not found in this SystemValues object"
+    ):
         params.get_indices("nonexistent")
 
-    with pytest.raises(TypeError, match="you can provide a list of strings or a list of integers"):
+    with pytest.raises(
+        TypeError,
+        match="you can provide a list of strings or a list of integers",
+    ):
         params.get_indices(["a", 1])
 
-    with pytest.raises(TypeError, match="you can provide strings that match the labels"):
+    with pytest.raises(
+        TypeError, match="you can provide strings that match the labels"
+    ):
         params.get_indices(1.5)
+
 
 def test_get_values_edge_cases():
     """Test edge cases and error handling for get_values method."""
@@ -136,6 +149,7 @@ def test_get_values_edge_cases():
     # Test with None
     with pytest.raises(TypeError):
         params.get_values(None)
+
 
 def test_set_values_edge_cases():
     """Test edge cases and error handling for set_values method."""
@@ -170,6 +184,7 @@ def test_set_values_edge_cases():
     # Test with non-numeric value
     with pytest.raises(TypeError):
         params.set_values("a", ["not a number"])
+
 
 def test_get_values_and_set_values():
     """Test that get_values and set_values work for all key types."""
@@ -245,7 +260,9 @@ def test_update_from_dict():
     assert params.values_array[2] == 30.0
 
     # Test error on non-existent key
-    with pytest.raises(KeyError, match="not found in this SystemValues object"):
+    with pytest.raises(
+        KeyError, match="not found in this SystemValues object"
+    ):
         params.update_from_dict({"d": 40.0})
 
 
@@ -291,7 +308,9 @@ def test_indexing_as_array_or_dict():
     assert params.values_array[4] == 50.0
 
     # Test error cases
-    with pytest.raises(KeyError, match="not found in this SystemValues object"):
+    with pytest.raises(
+        KeyError, match="not found in this SystemValues object"
+    ):
         params["nonexistent"] = 100.0
 
     with pytest.raises(IndexError, match="out of bounds"):
@@ -343,7 +362,9 @@ def test_update_from_dict_with_empty_dict():
     params.update_from_dict({})
     # Should not change anything
     assert params.values_dict == values_dict
-    assert np.array_equal(params.values_array, np.asarray([1.0, 2.0, 3.0], dtype=np.float32))
+    assert np.array_equal(
+        params.values_array, np.asarray([1.0, 2.0, 3.0], dtype=np.float32)
+    )
 
 
 def test_init_with_conflicting_keys():
@@ -361,9 +382,13 @@ def test_init_with_conflicting_keys():
 
     # Test with conflicting keys in defaults, values_dict, and kwargs
     params = SystemValues(values_dict, precision, defaults, a=10.0, c=300.0)
-    assert params.values_dict["a"] == 10.0  # kwargs override defaults and values_dict
+    assert (
+        params.values_dict["a"] == 10.0
+    )  # kwargs override defaults and values_dict
     assert params.values_dict["b"] == 20.0  # values_dict overrides defaults
-    assert params.values_dict["c"] == 300.0  # kwargs override defaults and values_dict
+    assert (
+        params.values_dict["c"] == 300.0
+    )  # kwargs override defaults and values_dict
     assert params.values_dict["d"] == 40.0
 
 

@@ -5,9 +5,11 @@ from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.memory import default_memmgr
 
+
 @pytest.fixture(scope="function")
 def precision_override(request):
-    return request.param if hasattr(request, 'param') else None
+    return request.param if hasattr(request, "param") else None
+
 
 @pytest.fixture(scope="function")
 def precision(precision_override):
@@ -19,12 +21,15 @@ def precision(precision_override):
     def test_something(precision):
         # precision will be np.float64 here
     """
-    return precision_override if precision_override == np.float64 else np.float32
+    return (
+        precision_override if precision_override == np.float64 else np.float32
+    )
 
 
 @pytest.fixture(scope="function")
 def threecm_model(precision):
     from cubie.systemmodels.systems.threeCM import ThreeChamberModel
+
     threeCM = ThreeChamberModel(precision=precision)
     threeCM.build()
     return threeCM
@@ -33,7 +38,11 @@ def threecm_model(precision):
 @pytest.fixture(scope="function")
 def decays_123_model(precision):
     from cubie.systemmodels.systems.decays import Decays
-    decays3 = Decays(coefficients=[precision(1.0), precision(2.0), precision(3.0)], precision=precision)
+
+    decays3 = Decays(
+        coefficients=[precision(1.0), precision(2.0), precision(3.0)],
+        precision=precision,
+    )
     decays3.build()
     return decays3
 
@@ -41,36 +50,28 @@ def decays_123_model(precision):
 @pytest.fixture(scope="function")
 def decays_1_100_model(precision):
     from cubie.systemmodels.systems.decays import Decays
-    decays100 = Decays(coefficients=np.arange(1, 101, dtype=precision), precision=precision)
+
+    decays100 = Decays(
+        coefficients=np.arange(1, 101, dtype=precision), precision=precision
+    )
     decays100.build()
     return decays100
 
 
 def genericODE_settings(**kwargs):
-    generic_ode_settings = {'constants':      {'c0': 0.0,
-                                               'c1': 2.0,
-                                               'c2': 3.0
-                                               },
-                            'initial_values': {'x0': 1.0,
-                                               'x1': 0.0,
-                                               'x2': 3.0
-                                               },
-                            'parameters':     {'p0': 2.0,
-                                               'p1': 0.5,
-                                               'p2': 5.5
-                                               },
-                            'observables':    {'o0': 4.2,
-                                               'o1': 1.8,
-                                               'o2': 4.6
-                                               },
-                            }
+    generic_ode_settings = {
+        "constants": {"c0": 0.0, "c1": 2.0, "c2": 3.0},
+        "initial_values": {"x0": 1.0, "x1": 0.0, "x2": 3.0},
+        "parameters": {"p0": 2.0, "p1": 0.5, "p2": 5.5},
+        "observables": {"o0": 4.2, "o1": 1.8, "o2": 4.6},
+    }
     generic_ode_settings.update(kwargs)
     return generic_ode_settings
 
 
 @pytest.fixture(scope="function")
 def genericODE_model_override(request):
-    if hasattr(request, 'param'):
+    if hasattr(request, "param"):
         return request.param
     return {}
 
@@ -78,7 +79,10 @@ def genericODE_model_override(request):
 @pytest.fixture(scope="function")
 def genericODE_model(precision, genericODE_model_override):
     from cubie.systemmodels.systems.GenericODE import GenericODE
-    generic = GenericODE(precision=precision, **genericODE_settings(**genericODE_model_override))
+
+    generic = GenericODE(
+        precision=precision, **genericODE_settings(**genericODE_model_override)
+    )
     generic.build()
     return generic
 
@@ -86,7 +90,7 @@ def genericODE_model(precision, genericODE_model_override):
 @pytest.fixture(scope="function")
 def system_override(request):
     """Override for system model type, if provided."""
-    return request.param if hasattr(request, 'param') else {}
+    return request.param if hasattr(request, "param") else {}
 
 
 @pytest.fixture(scope="function")
@@ -121,69 +125,79 @@ def system(request, system_override, precision):
     return model
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope="function")
 def output_functions(loop_compile_settings, system):
     # Merge the default config with any overrides
 
-    outputfunctions = OutputFunctions(system.sizes.states, system.sizes.parameters,
-                                      loop_compile_settings['output_functions'],
-                                      loop_compile_settings['saved_state_indices'],
-                                      loop_compile_settings['saved_observable_indices'],
-                                      )
+    outputfunctions = OutputFunctions(
+        system.sizes.states,
+        system.sizes.parameters,
+        loop_compile_settings["output_functions"],
+        loop_compile_settings["saved_state_indices"],
+        loop_compile_settings["saved_observable_indices"],
+    )
     return outputfunctions
 
 
 def update_loop_compile_settings(system, **kwargs):
     """The standard set of compile arguments, some of which aren't used by certain algorithms (like dtmax for a fixed step)."""
-    loop_compile_settings_dict = {'dt_min':            0.001,
-                                  'dt_max':            0.01,
-                                  'dt_save':           0.01,
-                                  'dt_summarise':      0.1,
-                                  'atol':              1e-6,
-                                  'rtol':                   1e-3,
-                                  'saved_state_indices':           [0, 1],
-                                  'saved_observable_indices':      [0, 1],
-                                  'summarised_state_indices':      [0, 1],
-                                  'summarised_observable_indices': [0, 1],
-                                  'output_functions':  ["state"],
-                                  }
+    loop_compile_settings_dict = {
+        "dt_min": 0.001,
+        "dt_max": 0.01,
+        "dt_save": 0.01,
+        "dt_summarise": 0.1,
+        "atol": 1e-6,
+        "rtol": 1e-3,
+        "saved_state_indices": [0, 1],
+        "saved_observable_indices": [0, 1],
+        "summarised_state_indices": [0, 1],
+        "summarised_observable_indices": [0, 1],
+        "output_functions": ["state"],
+    }
     loop_compile_settings_dict.update(kwargs)
     return loop_compile_settings_dict
 
-@pytest.fixture(scope='function')
-def loop_compile_settings_overrides(request):
-    """ Parametrize this fixture indirectly to change compile settings, no need to request this fixture directly
-    unless you're testing that it worked."""
-    return request.param if hasattr(request, 'param') else {}
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope="function")
+def loop_compile_settings_overrides(request):
+    """Parametrize this fixture indirectly to change compile settings, no need to request this fixture directly
+    unless you're testing that it worked."""
+    return request.param if hasattr(request, "param") else {}
+
+
+@pytest.fixture(scope="function")
 def solver_settings_override(request):
     """Override for solver settings, if provided."""
-    return request.param if hasattr(request, 'param') else {}
+    return request.param if hasattr(request, "param") else {}
 
-@pytest.fixture(scope='function')
-def solver_settings(loop_compile_settings, solver_settings_override, precision):
+
+@pytest.fixture(scope="function")
+def solver_settings(
+    loop_compile_settings, solver_settings_override, precision
+):
     """Create LoopStepConfig from loop_compile_settings."""
     defaults = {
-        'algorithm':         'euler',
-        'duration':          1.0,
-        'warmup':            0.0,
-        'dt_min':            loop_compile_settings['dt_min'],
-        'dt_max':            loop_compile_settings['dt_max'],
-        'dt_save':           loop_compile_settings['dt_save'],
-        'dt_summarise':      loop_compile_settings['dt_summarise'],
-        'atol':              loop_compile_settings['atol'],
-        'rtol':              loop_compile_settings['rtol'],
-        'saved_state_indices':      loop_compile_settings['saved_state_indices'],
-        'saved_observable_indices': loop_compile_settings['saved_observable_indices'],
-        'output_types':      loop_compile_settings['output_functions'],
-        'precision':         precision,
-        'blocksize':        32,
-        'stream': 0,
-        'profileCUDA':       False,
-        'memory_manager':default_memmgr,
-        'stream_group': "test_group",
-        'mem_proportion':None
+        "algorithm": "euler",
+        "duration": 1.0,
+        "warmup": 0.0,
+        "dt_min": loop_compile_settings["dt_min"],
+        "dt_max": loop_compile_settings["dt_max"],
+        "dt_save": loop_compile_settings["dt_save"],
+        "dt_summarise": loop_compile_settings["dt_summarise"],
+        "atol": loop_compile_settings["atol"],
+        "rtol": loop_compile_settings["rtol"],
+        "saved_state_indices": loop_compile_settings["saved_state_indices"],
+        "saved_observable_indices": loop_compile_settings[
+            "saved_observable_indices"
+        ],
+        "output_types": loop_compile_settings["output_functions"],
+        "precision": precision,
+        "blocksize": 32,
+        "stream": 0,
+        "profileCUDA": False,
+        "memory_manager": default_memmgr,
+        "stream_group": "test_group",
+        "mem_proportion": None,
     }
 
     if solver_settings_override:
@@ -193,7 +207,8 @@ def solver_settings(loop_compile_settings, solver_settings_override, precision):
                 defaults[key] = value
     return defaults
 
-@pytest.fixture(scope='function')
+
+@pytest.fixture(scope="function")
 def solverkernel(solver_settings, system):
     return BatchSolverKernel(
         system,
@@ -216,36 +231,38 @@ def solverkernel(solver_settings, system):
         mem_proportion=solver_settings["mem_proportion"],
     )
 
-@pytest.fixture(scope='function')
+
+@pytest.fixture(scope="function")
 def solver(system, solver_settings):
-    return Solver(system,
-                             algorithm=solver_settings['algorithm'],
-                            duration=solver_settings['duration'],
-                            warmup=solver_settings['warmup'],
-                            dt_min=solver_settings['dt_min'],
-                            dt_max=solver_settings['dt_max'],
-                            dt_save=solver_settings['dt_save'],
-                            dt_summarise=solver_settings['dt_summarise'],
-                            atol=solver_settings['atol'],
-                            rtol=solver_settings['rtol'],
-                            saved_states=solver_settings[
-                                'saved_state_indices'],
-                            saved_observables=solver_settings[
-                                'saved_observable_indices'],
-                            output_types=solver_settings['output_types'],
-                            precision=solver_settings['precision'],
-                            profileCUDA=solver_settings.get('profileCUDA',
-                                                            False),
-                            memory_manager=solver_settings['memory_manager'],
-                            stream_group=solver_settings['stream_group'],
-                            mem_proportion=solver_settings['mem_proportion'],)
+    return Solver(
+        system,
+        algorithm=solver_settings["algorithm"],
+        duration=solver_settings["duration"],
+        warmup=solver_settings["warmup"],
+        dt_min=solver_settings["dt_min"],
+        dt_max=solver_settings["dt_max"],
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        atol=solver_settings["atol"],
+        rtol=solver_settings["rtol"],
+        saved_states=solver_settings["saved_state_indices"],
+        saved_observables=solver_settings["saved_observable_indices"],
+        output_types=solver_settings["output_types"],
+        precision=solver_settings["precision"],
+        profileCUDA=solver_settings.get("profileCUDA", False),
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+        mem_proportion=solver_settings["mem_proportion"],
+    )
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope="function")
 def loop_compile_settings(request, system, loop_compile_settings_overrides):
     """
     Create a dictionary of compile settings for the loop function.
     This is the fixture your test should use - if you want to change the compile settings, indirectly parametrize the
     compile_settings_overrides fixture.
     """
-    return update_loop_compile_settings(system, **loop_compile_settings_overrides)
+    return update_loop_compile_settings(
+        system, **loop_compile_settings_overrides
+    )

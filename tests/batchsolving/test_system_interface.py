@@ -50,13 +50,17 @@ def test_state_indices(interface, system):
 
 def test_observable_indices(interface, system):
     idx_by_name = interface.observable_indices(system.observables.names)
-    idx_by_idx = interface.observable_indices(list(range(system.sizes.observables)))
+    idx_by_idx = interface.observable_indices(
+        list(range(system.sizes.observables))
+    )
     assert np.all(idx_by_name == np.arange(system.sizes.observables))
     assert np.all(idx_by_idx == np.arange(system.sizes.observables))
 
 
 def test_parameter_indices(interface, system):
     idx_by_name = interface.parameter_indices(system.parameters.names)
-    idx_by_idx = interface.parameter_indices(list(range(system.sizes.parameters)))
+    idx_by_idx = interface.parameter_indices(
+        list(range(system.sizes.parameters))
+    )
     assert np.all(idx_by_name == np.arange(system.sizes.parameters))
     assert np.all(idx_by_idx == np.arange(system.sizes.parameters))

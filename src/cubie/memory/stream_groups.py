@@ -16,6 +16,7 @@ if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
 else:
     from numba.cuda.cudadrv.driver import Stream
 
+
 @attrs.define
 class StreamGroups:
     """
@@ -41,19 +42,21 @@ class StreamGroups:
     share for coordinated operations. The 'default' group is created
     automatically.
     """
+
     groups: Optional[dict[str, list[int]]] = attrs.field(
-            default=attrs.Factory(dict),
-            validator=val.optional(val.instance_of(dict)))
+        default=attrs.Factory(dict),
+        validator=val.optional(val.instance_of(dict)),
+    )
     streams: dict[str, Union[Stream, int]] = attrs.field(
-            default=attrs.Factory(dict),
-            validator=val.instance_of(dict))
+        default=attrs.Factory(dict), validator=val.instance_of(dict)
+    )
 
     def __attrs_post_init__(self):
         """Initialize default group and stream if not provided."""
         if self.groups is None:
-            self.groups = {'default': []}
+            self.groups = {"default": []}
         if self.streams is None:
-            self.streams = {'default': cuda.default_stream()}
+            self.streams = {"default": cuda.default_stream()}
 
     def add_instance(self, instance, group):
         """
@@ -81,8 +84,9 @@ class StreamGroups:
         else:
             instance_id = id(instance)
         if any(instance_id in group for group in self.groups.values()):
-            raise ValueError("Instance already in a stream group. Call "
-                             "change_group instead")
+            raise ValueError(
+                "Instance already in a stream group. Call change_group instead"
+            )
         if group not in self.groups:
             self.groups[group] = []
             self.streams[group] = cuda.stream()
@@ -112,8 +116,11 @@ class StreamGroups:
         else:
             instance_id = id(instance)
         try:
-            return [key for key, value in self.groups.items()
-                    if instance_id in value][0]
+            return [
+                key
+                for key, value in self.groups.items()
+                if instance_id in value
+            ][0]
         except IndexError:
             raise ValueError("Instance not in any stream groups")
 

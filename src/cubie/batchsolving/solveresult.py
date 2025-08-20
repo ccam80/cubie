@@ -46,6 +46,7 @@ class SolveSpec:
     precision : type
         Floating point precision used.
     """
+
     dt_min: float = attrs.field(validator=val.instance_of(float))
     dt_max: float = attrs.field(validator=val.instance_of(float))
     dt_save: float = attrs.field(validator=val.instance_of(float))
@@ -89,40 +90,49 @@ class SolveResult:
     _stride_order : tuple[str, ...]
         Tuple specifying the order of variables in the host arrays..
     """
+
     time_domain_array: Optional[NDArray] = attrs.field(
-            default=attrs.Factory(lambda: np.array([])),
-            validator=val.optional(val.instance_of(np.ndarray)),
-            eq=attrs.cmp_using(eq=np.array_equal))
+        default=attrs.Factory(lambda: np.array([])),
+        validator=val.optional(val.instance_of(np.ndarray)),
+        eq=attrs.cmp_using(eq=np.array_equal),
+    )
     summaries_array: Optional[NDArray] = attrs.field(
-            default=attrs.Factory(lambda: np.array([])),
-            validator=val.optional(val.instance_of(np.ndarray)),
-            eq=attrs.cmp_using(eq=np.array_equal))
+        default=attrs.Factory(lambda: np.array([])),
+        validator=val.optional(val.instance_of(np.ndarray)),
+        eq=attrs.cmp_using(eq=np.array_equal),
+    )
     time: Optional[NDArray] = attrs.field(
-            default=attrs.Factory(lambda: np.array([])),
-            validator=val.optional(val.instance_of(np.ndarray)))
+        default=attrs.Factory(lambda: np.array([])),
+        validator=val.optional(val.instance_of(np.ndarray)),
+    )
     time_domain_legend: Optional[dict[int, str]] = attrs.field(
-            default=attrs.Factory(dict),
-            validator=val.optional(val.instance_of(dict)))
+        default=attrs.Factory(dict),
+        validator=val.optional(val.instance_of(dict)),
+    )
     summaries_legend: Optional[dict[int, str]] = attrs.field(
-            default=attrs.Factory(dict),
-            validator=val.optional(val.instance_of(dict)))
+        default=attrs.Factory(dict),
+        validator=val.optional(val.instance_of(dict)),
+    )
     solve_settings: Optional[SolveSpec] = attrs.field(
-            default=None,
-            validator=val.optional(val.instance_of(SolveSpec)
-            ))
+        default=None, validator=val.optional(val.instance_of(SolveSpec))
+    )
     _singlevar_summary_legend: Optional[dict[int, str]] = attrs.field(
-            default=attrs.Factory(dict),
-            validator=val.optional(val.instance_of(dict)))
+        default=attrs.Factory(dict),
+        validator=val.optional(val.instance_of(dict)),
+    )
     _active_outputs: Optional[ActiveOutputs] = attrs.field(
-            default=attrs.Factory(lambda: ActiveOutputs()))
+        default=attrs.Factory(lambda: ActiveOutputs())
+    )
     _stride_order: Union[tuple[str, ...], list[str]] = attrs.field(
-            default=("time", "run", "variable"))
+        default=("time", "run", "variable")
+    )
 
     @classmethod
-    def from_solver(cls,
-                    solver: Union["Solver", "BatchSolverKernel"],
-                    results_type: str = 'full',
-                    ) -> Union["SolveResult", dict[str,Any]]:
+    def from_solver(
+        cls,
+        solver: Union["Solver", "BatchSolverKernel"],
+        results_type: str = "full",
+    ) -> Union["SolveResult", dict[str, Any]]:
         """Create a :class:`SolveResult` from a solver instance.
 
         Parameters
@@ -147,36 +157,41 @@ class SolveResult:
         solve_settings = solver.solve_info
 
         time, state_less_time = cls.cleave_time(
-                solver.state,
-                time_saved=solver.save_time,
-                stride_order=solver.output_stride_order)
+            solver.state,
+            time_saved=solver.save_time,
+            stride_order=solver.output_stride_order,
+        )
 
         time_domain_array = cls.combine_time_domain_arrays(
-                state_less_time,
-                solver.observables,
-                state_active,
-                observables_active)
+            state_less_time,
+            solver.observables,
+            state_active,
+            observables_active,
+        )
 
         summaries_array = cls.combine_summaries_array(
-                solver.state_summaries,
-                solver.observable_summaries,
-                state_summaries_active,
-                observable_summaries_active)
+            solver.state_summaries,
+            solver.observable_summaries,
+            state_summaries_active,
+            observable_summaries_active,
+        )
 
         time_domain_legend = cls.time_domain_legend_from_solver(solver)
 
         summaries_legend = cls.summary_legend_from_solver(solver)
         singlevar_summary_legend = solver.summary_legend_per_variable
 
-        user_arrays = cls(time_domain_array=time_domain_array,
-                          summaries_array=summaries_array,
-                          time=time,
-                          time_domain_legend=time_domain_legend,
-                          summaries_legend=summaries_legend,
-                          active_outputs=active_outputs,
-                          solve_settings=solve_settings,
-                          stride_order=solver.output_stride_order,
-                          singlevar_summary_legend=singlevar_summary_legend)
+        user_arrays = cls(
+            time_domain_array=time_domain_array,
+            summaries_array=summaries_array,
+            time=time,
+            time_domain_legend=time_domain_legend,
+            summaries_legend=summaries_legend,
+            active_outputs=active_outputs,
+            solve_settings=solve_settings,
+            stride_order=solver.output_stride_order,
+            singlevar_summary_legend=singlevar_summary_legend,
+        )
 
         if results_type == "full":
             return user_arrays
@@ -209,60 +224,69 @@ class SolveResult:
             import pandas as pd
         except ImportError:
             raise ImportError(
-                    "Pandas is required to convert SolveResult to DataFrames. "
-                    "Pandas is an optional dependency- it's only used here "
-                    "to make analysis of data easier. Install Pandas to "
-                    "use this feature.")
+                "Pandas is required to convert SolveResult to DataFrames. "
+                "Pandas is an optional dependency- it's only used here "
+                "to make analysis of data easier. Install Pandas to "
+                "use this feature."
+            )
 
         run_index = self._stride_order.index("run")
         ndim = len(self._stride_order)
         time_dfs = []
         summaries_dfs = []
-        any_summaries = (self.active_outputs.state_summaries or
-                        self.active_outputs.observable_summaries)
+        any_summaries = (
+            self.active_outputs.state_summaries
+            or self.active_outputs.observable_summaries
+        )
 
-        n_runs = (self.time_domain_array.shape[run_index] if ndim == 3 else 1)
+        n_runs = self.time_domain_array.shape[run_index] if ndim == 3 else 1
         time_headings = list(self.time_domain_legend.values())
         summary_headings = list(self.summaries_legend.values())
-        
-        for run in range(n_runs):
-            run_slice = slice_variable_dimension(slice(run, run+1, None),
-                                                 run_index, ndim)
 
-            singlerun_array = np.squeeze(self.time_domain_array[run_slice],
-                                         axis=run_index)
+        for run in range(n_runs):
+            run_slice = slice_variable_dimension(
+                slice(run, run + 1, None), run_index, ndim
+            )
+
+            singlerun_array = np.squeeze(
+                self.time_domain_array[run_slice], axis=run_index
+            )
             df = pd.DataFrame(singlerun_array, columns=time_headings)
 
             # Use time as index if extant
             if self.time is not None:
                 if self.time.ndim > 1:
-                    time_for_run = (self.time[:, run]
-                                    if self.time.shape[1] > run
-                                    else self.time[:, 0])
+                    time_for_run = (
+                        self.time[:, run]
+                        if self.time.shape[1] > run
+                        else self.time[:, 0]
+                    )
                 else:
                     time_for_run = self.time
                 df.index = time_for_run
 
             # Create MultiIndex columns with run number as first level
-            df.columns = pd.MultiIndex.from_product([[f"run_{run}"],
-                                                     df.columns])
+            df.columns = pd.MultiIndex.from_product(
+                [[f"run_{run}"], df.columns]
+            )
             time_dfs.append(df)
 
             if any_summaries:
-                singlerun_array = np.squeeze(self.summaries_array[run_slice],
-                                             axis=run_index)
+                singlerun_array = np.squeeze(
+                    self.summaries_array[run_slice], axis=run_index
+                )
                 df = pd.DataFrame(singlerun_array, columns=summary_headings)
                 summaries_dfs.append(df)
-                df.columns = pd.MultiIndex.from_product([[f"run_{run}"],
-                                                         df.columns])
+                df.columns = pd.MultiIndex.from_product(
+                    [[f"run_{run}"], df.columns]
+                )
             else:
                 summaries_dfs.append(pd.DataFrame)
 
         time_domain_df = pd.concat(time_dfs, axis=1)
         summaries_df = pd.concat(summaries_dfs, axis=1)
 
-        return {"time_domain": time_domain_df,
-                "summaries": summaries_df}
+        return {"time_domain": time_domain_df, "summaries": summaries_df}
 
     @property
     def as_numpy(self) -> dict[str, Optional[NDArray]]:
@@ -275,12 +299,13 @@ class SolveResult:
             Dictionary containing copies of time, time_domain_array, summaries_array,
             time_domain_legend, and summaries_legend.
         """
-        return {"time": self.time.copy() if self.time is not None else None,
-                "time_domain_array": self.time_domain_array.copy(),
-                "summaries_array": self.summaries_array.copy(),
-                "time_domain_legend": self.time_domain_legend.copy(),
-                "summaries_legend": self.summaries_legend.copy()}
-
+        return {
+            "time": self.time.copy() if self.time is not None else None,
+            "time_domain_array": self.time_domain_array.copy(),
+            "summaries_array": self.summaries_array.copy(),
+            "time_domain_legend": self.time_domain_legend.copy(),
+            "summaries_legend": self.summaries_legend.copy(),
+        }
 
     @property
     def as_numpy_per_summary(self) -> dict[str, Optional[NDArray]]:
@@ -293,13 +318,14 @@ class SolveResult:
             Dictionary containing time, time_domain_array, time_domain_legend,
             and individual summary arrays.
         """
-        arrays = {"time": self.time.copy() if self.time is not None else None,
-                  "time_domain_array":  self.time_domain_array.copy(),
-                  "time_domain_legend": self.time_domain_legend.copy()}
+        arrays = {
+            "time": self.time.copy() if self.time is not None else None,
+            "time_domain_array": self.time_domain_array.copy(),
+            "time_domain_legend": self.time_domain_legend.copy(),
+        }
         arrays.update(**self.per_summary_arrays)
 
         return arrays
-
 
     @property
     def per_summary_arrays(self) -> dict[str, NDArray]:
@@ -313,8 +339,10 @@ class SolveResult:
             corresponding NumPy array. The dictionary also includes a key
             'summary_legend' mapping to the variable legend.
         """
-        if (self._active_outputs.state_summaries is False and
-                self._active_outputs.observable_summaries is False):
+        if (
+            self._active_outputs.state_summaries is False
+            and self._active_outputs.observable_summaries is False
+        ):
             return {}
 
         variable_index = self._stride_order.index("variable")
@@ -326,10 +354,10 @@ class SolveResult:
         per_summary_arrays = {}
 
         for offset, label in singlevar_legend.items():
-            summ_slice = slice(offset,None,indices_per_var)
-            summ_slice = slice_variable_dimension(summ_slice,
-                                                  variable_index,
-                                                 len(self._stride_order))
+            summ_slice = slice(offset, None, indices_per_var)
+            summ_slice = slice_variable_dimension(
+                summ_slice, variable_index, len(self._stride_order)
+            )
             per_summary_arrays[label] = self.summaries_array[summ_slice].copy()
         per_summary_arrays["summary_legend"] = variable_legend
 
@@ -348,10 +376,11 @@ class SolveResult:
         return self._active_outputs
 
     @staticmethod
-    def cleave_time(state: ArrayTypes,
-                    time_saved: bool = False,
-                    stride_order: Optional[list[str]] = None) \
-            -> (tuple[Optional[NDArray], NDArray]):
+    def cleave_time(
+        state: ArrayTypes,
+        time_saved: bool = False,
+        stride_order: Optional[list[str]] = None,
+    ) -> tuple[Optional[NDArray], NDArray]:
         """
         Remove time from the state array if saved.
 
@@ -377,10 +406,12 @@ class SolveResult:
             var_index = stride_order.index("variable")
             ndim = len(state.shape)
 
-            time_slice = slice_variable_dimension(slice(-1,None,None),
-                                                  var_index, ndim)
-            state_slice = slice_variable_dimension(slice(None, -1), var_index,
-                                                   ndim)
+            time_slice = slice_variable_dimension(
+                slice(-1, None, None), var_index, ndim
+            )
+            state_slice = slice_variable_dimension(
+                slice(None, -1), var_index, ndim
+            )
 
             time = np.squeeze(state[time_slice], axis=var_index)
             state_less_time = state[state_slice]
@@ -422,7 +453,10 @@ class SolveResult:
 
     @staticmethod
     def combine_summaries_array(
-        state_summaries, observable_summaries, summarise_states, summarise_observables
+        state_summaries,
+        observable_summaries,
+        summarise_states,
+        summarise_observables,
     ) -> np.ndarray:
         """
         Combine state and observable summary arrays into a single array.
@@ -444,8 +478,9 @@ class SolveResult:
             Combined summary array.
         """
         if summarise_states and summarise_observables:
-            return np.concatenate((state_summaries, observable_summaries),
-                                  axis=-1)
+            return np.concatenate(
+                (state_summaries, observable_summaries), axis=-1
+            )
         elif summarise_states:
             return state_summaries.copy()
         elif summarise_observables:

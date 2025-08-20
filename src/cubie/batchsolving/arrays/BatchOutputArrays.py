@@ -16,10 +16,13 @@ import attrs.validators as val
 import numpy as np
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from cubie.batchsolving.arrays.BaseArrayManager import (BaseArrayManager,
-                                                        ArrayContainer)
+from cubie.batchsolving.arrays.BaseArrayManager import (
+    BaseArrayManager,
+    ArrayContainer,
+)
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import slice_variable_dimension
+
 
 @attrs.define(slots=False)
 class OutputArrayContainer(ArrayContainer):
@@ -49,20 +52,18 @@ class OutputArrayContainer(ArrayContainer):
     This class uses attrs for automatic initialization and validation.
     The stride_order specifies how the 3D arrays are organized in memory.
     """
-    state: ArrayTypes = attrs.field(
-            default=None)
-    observables: ArrayTypes = attrs.field(
-            default=None)
-    state_summaries: ArrayTypes = attrs.field(
-            default=None)
-    observable_summaries: ArrayTypes = attrs.field(
-            default=None)
-    stride_order: tuple[str,...] = attrs.field(
-            default=("time", "run","variable"),
-            init=False)
+
+    state: ArrayTypes = attrs.field(default=None)
+    observables: ArrayTypes = attrs.field(default=None)
+    state_summaries: ArrayTypes = attrs.field(default=None)
+    observable_summaries: ArrayTypes = attrs.field(default=None)
+    stride_order: tuple[str, ...] = attrs.field(
+        default=("time", "run", "variable"), init=False
+    )
     _memory_type: str = attrs.field(
-            default="device",
-            validator=val.in_(["device", "mapped", "pinned", "managed", "host"]))
+        default="device",
+        validator=val.in_(["device", "mapped", "pinned", "managed", "host"]),
+    )
 
     @classmethod
     def host_factory(cls):
@@ -88,6 +89,7 @@ class OutputArrayContainer(ArrayContainer):
         """
         return cls(memory_type="mapped")
 
+
 @attrs.define
 class ActiveOutputs:
     """
@@ -107,18 +109,17 @@ class ActiveOutputs:
     observable_summaries : bool, default=False
         Whether observable summaries output is active.
     """
-    state: bool = attrs.field(
-            default=False,
-            validator=val.instance_of(bool))
+
+    state: bool = attrs.field(default=False, validator=val.instance_of(bool))
     observables: bool = attrs.field(
-            default=False,
-            validator=val.instance_of(bool))
+        default=False, validator=val.instance_of(bool)
+    )
     state_summaries: bool = attrs.field(
-            default=False,
-            validator=val.instance_of(bool))
+        default=False, validator=val.instance_of(bool)
+    )
     observable_summaries: bool = attrs.field(
-            default=False,
-            validator=val.instance_of(bool))
+        default=False, validator=val.instance_of(bool)
+    )
 
     def update_from_outputarrays(self, output_arrays: "OutputArrays"):
         """
@@ -134,16 +135,23 @@ class ActiveOutputs:
         An output is considered active if the corresponding array exists
         and has more than one element (size > 1).
         """
-        self.state = (output_arrays.host.state is not None and
-                      output_arrays.host.state.size > 1)
-        self.observables = (output_arrays.host.observables is not None and
-                            output_arrays.host.observables.size > 1)
-        self.state_summaries = (output_arrays.host.state_summaries is not None and
-                                output_arrays.host.state_summaries.size > 1)
-        self.observable_summaries = (output_arrays.host.observable_summaries is
-                                     not None and
-                                     output_arrays.host.observable_summaries.size
-                                     > 1)
+        self.state = (
+            output_arrays.host.state is not None
+            and output_arrays.host.state.size > 1
+        )
+        self.observables = (
+            output_arrays.host.observables is not None
+            and output_arrays.host.observables.size > 1
+        )
+        self.state_summaries = (
+            output_arrays.host.state_summaries is not None
+            and output_arrays.host.state_summaries.size > 1
+        )
+        self.observable_summaries = (
+            output_arrays.host.observable_summaries is not None
+            and output_arrays.host.observable_summaries.size > 1
+        )
+
 
 @attrs.define
 class OutputArrays(BaseArrayManager):
@@ -173,29 +181,32 @@ class OutputArrays(BaseArrayManager):
     Once initialized, the object can be updated with a solver instance to
     update the expected sizes, check the cache, and allocate if required.
     """
+
     _sizes: BatchOutputSizes = attrs.field(
-            factory=BatchOutputSizes,
-            validator=val.instance_of(BatchOutputSizes))
+        factory=BatchOutputSizes, validator=val.instance_of(BatchOutputSizes)
+    )
     host: OutputArrayContainer = attrs.field(
-            factory=OutputArrayContainer.host_factory,
-            validator=val.instance_of(OutputArrayContainer),
-            init=True)
+        factory=OutputArrayContainer.host_factory,
+        validator=val.instance_of(OutputArrayContainer),
+        init=True,
+    )
     device: OutputArrayContainer = attrs.field(
-            factory=OutputArrayContainer.device_factory,
-            validator=val.instance_of(OutputArrayContainer),
-            init=False)
+        factory=OutputArrayContainer.device_factory,
+        validator=val.instance_of(OutputArrayContainer),
+        init=False,
+    )
     _active_outputs: ActiveOutputs = attrs.field(
-            default=ActiveOutputs(),
-            validator=val.instance_of(ActiveOutputs),
-            init=False)
+        default=ActiveOutputs(),
+        validator=val.instance_of(ActiveOutputs),
+        init=False,
+    )
 
     def __attrs_post_init__(self):
         super().__attrs_post_init__()
         self.host._memory_type = "host"
         self.device._memory_type = "mapped"
 
-    def update(self,
-                 solver_instance) -> "OutputArrays":
+    def update(self, solver_instance) -> "OutputArrays":
         """
         Update output arrays from solver instance.
 
@@ -328,8 +339,9 @@ class OutputArrays(BaseArrayManager):
         return self.device.observable_summaries
 
     @classmethod
-    def from_solver(cls,
-                    solver_instance: "BatchSolverKernel") -> "OutputArrays":
+    def from_solver(
+        cls, solver_instance: "BatchSolverKernel"
+    ) -> "OutputArrays":
         """
         Create an OutputArrays instance from a solver.
 
@@ -346,10 +358,12 @@ class OutputArrays(BaseArrayManager):
             A new OutputArrays instance configured for the solver.
         """
         sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
-        return cls(sizes=sizes,
-                   precision=solver_instance.precision,
-                   memory_manager=solver_instance.memory_manager,
-                   stream_group=solver_instance.stream_group)
+        return cls(
+            sizes=sizes,
+            precision=solver_instance.precision,
+            memory_manager=solver_instance.memory_manager,
+            stream_group=solver_instance.stream_group,
+        )
 
     def update_from_solver(self, solver_instance: "BatchSolverKernel"):
         """
@@ -391,14 +405,16 @@ class OutputArrays(BaseArrayManager):
         synchronization.
         """
         chunk_index = self.host.stride_order.index(self._chunk_axis)
-        slice_tuple = slice_variable_dimension(host_indices,
-                                               chunk_index,
-                                               len(self.host.stride_order))
+        slice_tuple = slice_variable_dimension(
+            host_indices, chunk_index, len(self.host.stride_order)
+        )
 
         for array_name, array in self.host.__dict__.items():
             if not array_name.startswith("_"):
                 if getattr(self.active_outputs, array_name):
-                    array[slice_tuple] = getattr(self.device, array_name).copy()
+                    array[slice_tuple] = getattr(
+                        self.device, array_name
+                    ).copy()
                     # I'm not sure that we can stream a Mapped transfer,
                     # as transfer is managed by the CUDA runtime. If we just
                     # overwrite, that might jog the cuda runtime to synchronize.

@@ -41,7 +41,11 @@ class Decays(GenericODE):
     Really just exists for testing.
     """
 
-    def __init__(self, precision=np.float64, **kwargs, ):
+    def __init__(
+        self,
+        precision=np.float64,
+        **kwargs,
+    ):
         """Initialize the decay system.
 
         Parameters
@@ -54,15 +58,20 @@ class Decays(GenericODE):
         coefficients = kwargs["coefficients"]
 
         nterms = len(coefficients)
-        observables = [f'o{i}' for i in range(nterms)]
-        initial_values = {f'x{i}': 1.0 for i in range(nterms)}
-        parameters = {f'p{i}': coefficients[i] for i in range(nterms)}
-        constants = {f'c{i}': i for i in range(nterms)}
+        observables = [f"o{i}" for i in range(nterms)]
+        initial_values = {f"x{i}": 1.0 for i in range(nterms)}
+        parameters = {f"p{i}": coefficients[i] for i in range(nterms)}
+        constants = {f"c{i}": i for i in range(nterms)}
         n_drivers = 1  # use time as the driver
 
-        super().__init__(initial_values=initial_values, parameters=parameters,
-                         constants=constants, observables=observables,
-                         precision=precision, num_drivers=n_drivers, )
+        super().__init__(
+            initial_values=initial_values,
+            parameters=parameters,
+            constants=constants,
+            observables=observables,
+            precision=precision,
+            num_drivers=n_drivers,
+        )
 
     def build(self):
         """Build the CUDA device function for the decay system.
@@ -78,15 +87,24 @@ class Decays(GenericODE):
         n_terms = self.sizes.states
         numba_precision = from_dtype(self.precision)
 
-        @cuda.jit((
-                   numba_precision[:],
-                   numba_precision[:],
-                   numba_precision[:],
-                   numba_precision[:],
-                   numba_precision[:]),
-                  device=True,
-                  inline=True)
-        def dxdtfunc(state, parameters, driver, observables, dxdt, ):
+        @cuda.jit(
+            (
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+            ),
+            device=True,
+            inline=True,
+        )
+        def dxdtfunc(
+            state,
+            parameters,
+            driver,
+            observables,
+            dxdt,
+        ):
             """Decay dynamics implementation.
 
             Parameters
@@ -109,8 +127,9 @@ class Decays(GenericODE):
             """
             for i in range(n_terms):
                 dxdt[i] = -state[i] / (i + 1)
-                observables[i] = dxdt[i] * parameters[i] + global_constants[
-                    i] + driver[0]
+                observables[i] = (
+                    dxdt[i] * parameters[i] + global_constants[i] + driver[0]
+                )
 
         return dxdtfunc
 
@@ -138,7 +157,11 @@ class Decays(GenericODE):
         dxdt = -states / (indices + 1)
 
         for i in range(self.sizes.observables):
-            observables[i] = (dxdt[i % self.sizes.states] * parameters[
-                i % self.sizes.parameters] + drivers[0] + global_constants[i])
+            observables[i] = (
+                dxdt[i % self.sizes.states]
+                * parameters[i % self.sizes.parameters]
+                + drivers[0]
+                + global_constants[i]
+            )
 
         return dxdt, observables

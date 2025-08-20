@@ -4,18 +4,32 @@
 This module implements a three chamber cardiovascular model based on
 Antoine Pironet's thesis , suitable for CUDA execution.
 """
+
 import numpy as np
 from numba import cuda, from_dtype
 
 from cubie.systemmodels.systems.GenericODE import GenericODE
 
-default_parameters = {'E_h': 0.52, 'E_a': 0.0133, 'E_v': 0.0624, 'R_i': 0.012,
-                      'R_o': 1.0, 'R_c': 1 / 114, 'V_s3': 2.0}
+default_parameters = {
+    "E_h": 0.52,
+    "E_a": 0.0133,
+    "E_v": 0.0624,
+    "R_i": 0.012,
+    "R_o": 1.0,
+    "R_c": 1 / 114,
+    "V_s3": 2.0,
+}
 
-default_initial_values = {'V_h': 1.0, 'V_a': 1.0, 'V_v': 1.0}
+default_initial_values = {"V_h": 1.0, "V_a": 1.0, "V_v": 1.0}
 
-default_observable_names = ['P_a', 'P_v', 'P_h', 'Q_i', 'Q_o',
-                            'Q_c']  # Flow in circulation
+default_observable_names = [
+    "P_a",
+    "P_v",
+    "P_h",
+    "Q_i",
+    "Q_o",
+    "Q_c",
+]  # Flow in circulation
 
 default_constants = {}
 
@@ -83,13 +97,20 @@ class ThreeChamberModel(GenericODE):
     https://hdl.handle.net/2268/194747
     """
 
-    def __init__(self, initial_values=None, parameters=None, constants=None,
-                 observables=None, precision=np.float64,
-                 default_initial_values=default_initial_values,
-                 default_parameters=default_parameters,
-                 default_constants=default_constants,
-                 default_observable_names=default_observable_names,
-                 num_drivers=1, **kwargs, ):
+    def __init__(
+        self,
+        initial_values=None,
+        parameters=None,
+        constants=None,
+        observables=None,
+        precision=np.float64,
+        default_initial_values=default_initial_values,
+        default_parameters=default_parameters,
+        default_constants=default_constants,
+        default_observable_names=default_observable_names,
+        num_drivers=1,
+        **kwargs,
+    ):
         """Initialize the three chamber model.
 
         Parameters
@@ -122,15 +143,18 @@ class ThreeChamberModel(GenericODE):
         num_drivers probably shouldn't be an instantiation parameter, but
         rather a property of the system.
         """
-        super().__init__(initial_values=initial_values,
-                         parameters=parameters,
-                         constants=constants,
-                         observables=observables,
-                         default_initial_values=default_initial_values,
-                         default_parameters=default_parameters,
-                         default_constants=default_constants,
-                         default_observable_names=default_observable_names,
-                         precision=precision, num_drivers=num_drivers, )
+        super().__init__(
+            initial_values=initial_values,
+            parameters=parameters,
+            constants=constants,
+            observables=observables,
+            default_initial_values=default_initial_values,
+            default_parameters=default_parameters,
+            default_constants=default_constants,
+            default_observable_names=default_observable_names,
+            precision=precision,
+            num_drivers=num_drivers,
+        )
 
     def build(self):
         """Build the CUDA device function for the three chamber model.
@@ -144,16 +168,30 @@ class ThreeChamberModel(GenericODE):
         # Hoist fixed parameters to global namespace
         global global_constants
         global_constants = self.compile_settings.constants.values_array.astype(
-                self.precision)
+            self.precision
+        )
 
         numba_precision = from_dtype(self.precision)
 
         # no cover: start
-        @cuda.jit((numba_precision[:], numba_precision[:], numba_precision[:],
-                   numba_precision[:], numba_precision[:]), device=True,
-                  inline=True, )
-        def three_chamber_model_dv(state, parameters, driver, observables,
-                                   dxdt, ):  # pragma: no cover
+        @cuda.jit(
+            (
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+            ),
+            device=True,
+            inline=True,
+        )
+        def three_chamber_model_dv(
+            state,
+            parameters,
+            driver,
+            observables,
+            dxdt,
+        ):  # pragma: no cover
             """Three chamber model dynamics implementation.
 
             Parameters
@@ -274,9 +312,11 @@ class ThreeChamberModel(GenericODE):
 
         Q_c = (P_a - P_v) / R_c
 
-        dxdt = np.asarray([Q_i - Q_o, Q_o - Q_c, Q_c - Q_i],
-                          dtype=self.precision)
-        observables = np.asarray([P_a, P_v, P_h, Q_i, Q_o, Q_c],
-                                 dtype=self.precision)
+        dxdt = np.asarray(
+            [Q_i - Q_o, Q_o - Q_c, Q_c - Q_i], dtype=self.precision
+        )
+        observables = np.asarray(
+            [P_a, P_v, P_h, Q_i, Q_o, Q_c], dtype=self.precision
+        )
 
         return dxdt, observables

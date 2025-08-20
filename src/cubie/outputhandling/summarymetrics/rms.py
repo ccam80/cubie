@@ -9,8 +9,10 @@ from numba import cuda
 from math import sqrt
 
 from cubie.outputhandling.summarymetrics import summary_metrics
-from cubie.outputhandling.summarymetrics.metrics import \
-    SummaryMetric, register_metric
+from cubie.outputhandling.summarymetrics.metrics import (
+    SummaryMetric,
+    register_metric,
+)
 
 
 @register_metric(summary_metrics)
@@ -38,9 +40,13 @@ class RMS(SummaryMetric):
         """
         update_func, save_func = self.CUDA_factory()
 
-        super().__init__(name="rms", buffer_size=1, output_size=1,
-                         update_device_func=update_func,
-                         save_device_func=save_func, )
+        super().__init__(
+            name="rms",
+            buffer_size=1,
+            output_size=1,
+            update_device_func=update_func,
+            save_device_func=save_func,
+        )
 
     def CUDA_factory(self):
         """
@@ -66,11 +72,22 @@ class RMS(SummaryMetric):
             Calculates RMS by taking square root of mean of squares and
             resets buffer.
         """
+
         # no cover: start
-        @cuda.jit(["float32, float32[::1], int64, int64",
-                   "float64, float64[::1], int64, int64"], device=True,
-                  inline=True, )
-        def update(value, buffer, current_index, customisable_variable, ):
+        @cuda.jit(
+            [
+                "float32, float32[::1], int64, int64",
+                "float64, float64[::1], int64, int64",
+            ],
+            device=True,
+            inline=True,
+        )
+        def update(
+            value,
+            buffer,
+            current_index,
+            customisable_variable,
+        ):
             """
             Update running sum of squares with new value.
 
@@ -94,14 +111,23 @@ class RMS(SummaryMetric):
             sum_of_squares = buffer[0]
             if current_index == 0:
                 sum_of_squares = 0.0
-            sum_of_squares += (value * value)
+            sum_of_squares += value * value
             buffer[0] = sum_of_squares
 
-        @cuda.jit(["float32[::1], float32[::1], int64, int64",
-                   "float64[::1], float64[::1], int64, int64"], device=True,
-                  inline=True, )
-        def save(buffer, output_array, summarise_every,
-                 customisable_variable, ):
+        @cuda.jit(
+            [
+                "float32[::1], float32[::1], int64, int64",
+                "float64[::1], float64[::1], int64, int64",
+            ],
+            device=True,
+            inline=True,
+        )
+        def save(
+            buffer,
+            output_array,
+            summarise_every,
+            customisable_variable,
+        ):
             """
             Calculate RMS from running sum of squares and reset buffer.
 
@@ -128,5 +154,6 @@ class RMS(SummaryMetric):
             """
             output_array[0] = sqrt(buffer[0] / summarise_every)
             buffer[0] = 0.0
+
         # no cover: end
         return update, save

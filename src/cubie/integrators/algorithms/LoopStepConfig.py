@@ -5,6 +5,7 @@ This module provides the LoopStepConfig class, which serves as a convenience
 class for grouping and passing around loop step timing information, including
 step sizes, tolerances, and summary intervals.
 """
+
 from attrs import define, field, validators
 
 
@@ -43,13 +44,17 @@ class LoopStepConfig:
     IntegratorLoopSettings : Higher-level loop configuration
     IntegratorRunSettings : Runtime configuration settings
     """
-    dt_min: float = field(default=1e-6,
-                          validator=validators.instance_of(float))
+
+    dt_min: float = field(
+        default=1e-6, validator=validators.instance_of(float)
+    )
     dt_max: float = field(default=1.0, validator=validators.instance_of(float))
-    dt_save: float = field(default=0.1,
-                           validator=validators.instance_of(float))
-    dt_summarise: float = field(default=0.1,
-                                validator=validators.instance_of(float))
+    dt_save: float = field(
+        default=0.1, validator=validators.instance_of(float)
+    )
+    dt_summarise: float = field(
+        default=0.1, validator=validators.instance_of(float)
+    )
     atol: float = field(default=1e-6, validator=validators.instance_of(float))
     rtol: float = field(default=1e-6, validator=validators.instance_of(float))
 

@@ -8,8 +8,11 @@ from numba import cuda, NumbaPerformanceWarning
 import numpy as np
 import time
 from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
-from cubie.memory import current_cupy_stream, CuPyAsyncNumbaManager, \
-    CuPySyncNumbaManager
+from cubie.memory import (
+    current_cupy_stream,
+    CuPyAsyncNumbaManager,
+    CuPySyncNumbaManager,
+)
 import cupy as cp
 import logging
 from warnings import filterwarnings
@@ -19,11 +22,11 @@ from warnings import filterwarnings
 filterwarnings("ignore", category=NumbaPerformanceWarning)
 filterwarnings("ignore", category=FutureWarning)
 
-def main(mgr):
 
+def main(mgr):
     dev = cuda.current_context().device
     # print('CUDA device [%s]' % dev.name)
-    print('Memory Manager [%s]' % mgr.__name__)
+    print("Memory Manager [%s]" % mgr.__name__)
 
     # set async memory manager, reset context
     cuda.set_memory_manager(mgr)
@@ -37,7 +40,7 @@ def main(mgr):
         for j in range(factor):
             g_data[i] = g_data[i] + inc_value[i]
 
-    #find the default stream (should perform synchronous mallocs and copys)
+    # find the default stream (should perform synchronous mallocs and copys)
     if mgr is NumbaCUDAMemoryManager:
         default_stream = cuda.default_stream()
     else:
@@ -71,14 +74,16 @@ def main(mgr):
     comp_array = np.zeros(n_kernel, dtype=np.int32)
     d_comp = cuda.to_device(comp_array, stream=default_stream)
 
-    #Get compilation out of the way
-    increment_kernel[nblocks, nthreads, default_stream](d_comp,
-                                                d_inc_value, factor)
-    increment_kernel[nblocks, nthreads, default_stream](d_comp,
-                                                d_inc_value, factor)
+    # Get compilation out of the way
+    increment_kernel[nblocks, nthreads, default_stream](
+        d_comp, d_inc_value, factor
+    )
+    increment_kernel[nblocks, nthreads, default_stream](
+        d_comp, d_inc_value, factor
+    )
 
     # Allocate host memory
-    n = 2 * 1024 * 1024 * 256 # 2GB Each
+    n = 2 * 1024 * 1024 * 256  # 2GB Each
     a = cuda.pinned_array(n, dtype=np.int32)
     b = cuda.pinned_array(n, dtype=np.int32)
     c = cuda.pinned_array(n, dtype=np.int32)
@@ -124,14 +129,22 @@ def main(mgr):
     print("time spent by stream2: %.2f" % stream2_time)
     print("time spent by stream3: %.2f" % stream3_time)
     print("total time spent by GPU: %.2f" % gpu_time)
-    print("time spent by CPU in CUDA calls: %.2f" % (
-            (stop_time - start_time) * 1000))
-    print("CPU time spent from async start to all-synced: %.2f" % (
-            (allsync_time - start_time) * 1000))
+    print(
+        "time spent by CPU in CUDA calls: %.2f"
+        % ((stop_time - start_time) * 1000)
+    )
+    print(
+        "CPU time spent from async start to all-synced: %.2f"
+        % ((allsync_time - start_time) * 1000)
+    )
     print("==")
 
 
-if __name__ == '__main__':
-    for mgr in [NumbaCUDAMemoryManager, CuPyAsyncNumbaManager,
-                CuPySyncNumbaManager, NumbaCUDAMemoryManager]:
+if __name__ == "__main__":
+    for mgr in [
+        NumbaCUDAMemoryManager,
+        CuPyAsyncNumbaManager,
+        CuPySyncNumbaManager,
+        NumbaCUDAMemoryManager,
+    ]:
         main(mgr)

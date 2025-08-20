@@ -8,8 +8,10 @@ of values encountered during integration for each variable.
 from numba import cuda
 
 from cubie.outputhandling.summarymetrics import summary_metrics
-from cubie.outputhandling.summarymetrics.metrics import \
-    SummaryMetric, register_metric
+from cubie.outputhandling.summarymetrics.metrics import (
+    SummaryMetric,
+    register_metric,
+)
 
 
 @register_metric(summary_metrics)
@@ -38,9 +40,13 @@ class Mean(SummaryMetric):
         """
         update_func, save_func = self.CUDA_factory()
 
-        super().__init__(name="mean", buffer_size=1, output_size=1,
-                         update_device_func=update_func,
-                         save_device_func=save_func, )
+        super().__init__(
+            name="mean",
+            buffer_size=1,
+            output_size=1,
+            update_device_func=update_func,
+            save_device_func=save_func,
+        )
 
     def CUDA_factory(self):
         """
@@ -66,11 +72,22 @@ class Mean(SummaryMetric):
             Calculates mean by dividing sum by number of steps and resets
             buffer.
         """
+
         # no cover: start
-        @cuda.jit(["float32, float32[::1], int64, int64",
-                   "float64, float64[::1], int64, int64"], device=True,
-                  inline=True, )
-        def update(value, buffer, current_index, customisable_variable, ):
+        @cuda.jit(
+            [
+                "float32, float32[::1], int64, int64",
+                "float64, float64[::1], int64, int64",
+            ],
+            device=True,
+            inline=True,
+        )
+        def update(
+            value,
+            buffer,
+            current_index,
+            customisable_variable,
+        ):
             """
             Update running sum with new value.
 
@@ -93,11 +110,20 @@ class Mean(SummaryMetric):
             """
             buffer[0] += value
 
-        @cuda.jit(["float32[::1], float32[::1], int64, int64",
-                   "float64[::1], float64[::1], int64, int64"], device=True,
-                  inline=True, )
-        def save(buffer, output_array, summarise_every,
-                 customisable_variable, ):
+        @cuda.jit(
+            [
+                "float32[::1], float32[::1], int64, int64",
+                "float64[::1], float64[::1], int64, int64",
+            ],
+            device=True,
+            inline=True,
+        )
+        def save(
+            buffer,
+            output_array,
+            summarise_every,
+            customisable_variable,
+        ):
             """
             Calculate mean from running sum and reset buffer.
 
@@ -123,5 +149,6 @@ class Mean(SummaryMetric):
             """
             output_array[0] = buffer[0] / summarise_every
             buffer[0] = 0.0
+
         # no cover: end
         return update, save

@@ -21,13 +21,18 @@ The main components are:
 The default memory manager instance is available as `default_memmgr`.
 """
 
-from cubie.memory.cupy_emm import (current_cupy_stream, CuPySyncNumbaManager,
-                                   CuPyAsyncNumbaManager)
+from cubie.memory.cupy_emm import (
+    current_cupy_stream,
+    CuPySyncNumbaManager,
+    CuPyAsyncNumbaManager,
+)
 from cubie.memory.mem_manager import MemoryManager
 
 default_memmgr = MemoryManager()
 
-__all__ = ["current_cupy_stream",
-           "CuPySyncNumbaManager",
-           "CuPyAsyncNumbaManager",
-           "default_memmgr"]
+__all__ = [
+    "current_cupy_stream",
+    "CuPySyncNumbaManager",
+    "CuPyAsyncNumbaManager",
+    "default_memmgr",
+]

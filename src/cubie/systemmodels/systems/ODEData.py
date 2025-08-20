@@ -28,6 +28,7 @@ class SystemSizes:
     -----
     This is used to pass size information to the ODE solver kernel.
     """
+
     states: int = attrs.field(validator=attrs.validators.instance_of(int))
     observables: int = attrs.field(validator=attrs.validators.instance_of(int))
     parameters: int = attrs.field(validator=attrs.validators.instance_of(int))
@@ -54,22 +55,41 @@ class ODEData:
     num_drivers : int, optional
         Number of driver/forcing functions, by default 1.
     """
+
     constants: Optional[SystemValues] = attrs.field(
-            validator=attrs.validators.optional(
-                    attrs.validators.instance_of(SystemValues, ), ), )
+        validator=attrs.validators.optional(
+            attrs.validators.instance_of(
+                SystemValues,
+            ),
+        ),
+    )
     parameters: Optional[SystemValues] = attrs.field(
-            validator=attrs.validators.optional(
-                    attrs.validators.instance_of(SystemValues, ), ), )
+        validator=attrs.validators.optional(
+            attrs.validators.instance_of(
+                SystemValues,
+            ),
+        ),
+    )
     initial_states: SystemValues = attrs.field(
-            validator=attrs.validators.optional(
-                    attrs.validators.instance_of(SystemValues, ), ), )
+        validator=attrs.validators.optional(
+            attrs.validators.instance_of(
+                SystemValues,
+            ),
+        ),
+    )
     observables: SystemValues = attrs.field(
-            validator=attrs.validators.optional(
-                    attrs.validators.instance_of(SystemValues, ), ), )
-    precision: type = attrs.field(validator=attrs.validators.instance_of(type),
-                                  default=float32)
-    num_drivers: int = attrs.field(validator=attrs.validators.instance_of(int),
-                                   default=1)
+        validator=attrs.validators.optional(
+            attrs.validators.instance_of(
+                SystemValues,
+            ),
+        ),
+    )
+    precision: type = attrs.field(
+        validator=attrs.validators.instance_of(type), default=float32
+    )
+    num_drivers: int = attrs.field(
+        validator=attrs.validators.instance_of(int), default=1
+    )
 
     @property
     def num_states(self):
@@ -124,23 +144,28 @@ class ODEData:
         SystemSizes
             Object containing sizes for all system components.
         """
-        return SystemSizes(states=self.num_states,
-                           observables=self.num_observables,
-                           parameters=self.num_parameters,
-                           constants=self.num_constants,
-                           drivers=self.num_drivers, )
+        return SystemSizes(
+            states=self.num_states,
+            observables=self.num_observables,
+            parameters=self.num_parameters,
+            constants=self.num_constants,
+            drivers=self.num_drivers,
+        )
 
     @classmethod
-    def from_genericODE_initargs(cls,
-                                 initial_values=None,
-                                 parameters=None,
-                                 constants=None,
-                                 observables=None,
-                                 default_initial_values=None,
-                                 default_parameters=None,
-                                 default_constants=None,
-                                 default_observable_names=None,
-                                 precision=np.float64, num_drivers=1, ):
+    def from_genericODE_initargs(
+        cls,
+        initial_values=None,
+        parameters=None,
+        constants=None,
+        observables=None,
+        default_initial_values=None,
+        default_parameters=None,
+        default_constants=None,
+        default_observable_names=None,
+        precision=np.float64,
+        num_drivers=1,
+    ):
         """Create ODEData from GenericODE initialization arguments.
 
         Parameters
@@ -171,16 +196,20 @@ class ODEData:
         ODEData
             Initialized ODEData object.
         """
-        init_values = SystemValues(initial_values, precision,
-                                   default_initial_values)
+        init_values = SystemValues(
+            initial_values, precision, default_initial_values
+        )
         parameters = SystemValues(parameters, precision, default_parameters)
-        observables = SystemValues(observables, precision,
-                                   default_observable_names)
+        observables = SystemValues(
+            observables, precision, default_observable_names
+        )
         constants = SystemValues(constants, precision, default_constants)
 
-        return cls(constants=constants,
-                   parameters=parameters,
-                   initial_states=init_values,
-                   observables=observables,
-                   precision=precision,
-                   num_drivers=num_drivers, )
+        return cls(
+            constants=constants,
+            parameters=parameters,
+            initial_states=init_values,
+            observables=observables,
+            precision=precision,
+            num_drivers=num_drivers,
+        )

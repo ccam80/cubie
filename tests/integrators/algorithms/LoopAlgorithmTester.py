@@ -3,8 +3,12 @@ import numpy as np
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 from cubie.outputhandling import summary_metrics
-from cubie.outputhandling.output_sizes import LoopBufferSizes, SingleRunOutputSizes
+from cubie.outputhandling.output_sizes import (
+    LoopBufferSizes,
+    SingleRunOutputSizes,
+)
 from tests._utils import calculate_expected_summaries
+
 
 class LoopAlgorithmTester:
     """Base class for testing loop algorithms with different systems and configurations. Doesn't use the
@@ -18,20 +22,34 @@ class LoopAlgorithmTester:
 
     @pytest.fixture(scope="module")
     def algorithm_class(self):
-        """OVERRIDE THIS FIXTURE in subclasses to provide the algorithm class to test. """
+        """OVERRIDE THIS FIXTURE in subclasses to provide the algorithm class to test."""
         # e.g. return GenericIntegratorAlgorithm
         pass
 
-    @pytest.fixture(scope='function')
-    def expected_answer(self, system, loop_compile_settings, run_settings, solverkernel, inputs, precision):
+    @pytest.fixture(scope="function")
+    def expected_answer(
+        self,
+        system,
+        loop_compile_settings,
+        run_settings,
+        solverkernel,
+        inputs,
+        precision,
+    ):
         """OVERRIDE THIS FIXTURE with a python version of what your integrator loop should return - a scipy integrator
         or homebrew CPU loop should be able to provide an answer that matches the output of a given loop to within
         floating-point precision."""
         pass
 
-    @pytest.fixture(scope='function')
-    def expected_summaries(self, expected_answer, loop_under_test, loop_compile_settings,
-                           output_functions, precision):
+    @pytest.fixture(scope="function")
+    def expected_summaries(
+        self,
+        expected_answer,
+        loop_under_test,
+        loop_compile_settings,
+        output_functions,
+        precision,
+    ):
         """
         Calculate the expected summaries_array for the loop algorithm.
 
@@ -43,23 +61,32 @@ class LoopAlgorithmTester:
         _, summarise_every, _ = loop_under_test.compile_settings.fixed_steps
 
         state, obs = calculate_expected_summaries(
-                *expected_answer,
-                summarise_every,
-                loop_compile_settings['output_functions'],
-                output_functions.summaries_output_height_per_var,
-                precision
-                )
-        return {'state': state, 'observables': obs}
+            *expected_answer,
+            summarise_every,
+            loop_compile_settings["output_functions"],
+            output_functions.summaries_output_height_per_var,
+            precision,
+        )
+        return {"state": state, "observables": obs}
 
-    @pytest.fixture(scope='function')
+    @pytest.fixture(scope="function")
     def buffer_sizes(self, system, output_functions):
         """Create LoopBufferSizes from system and output functions."""
-        return LoopBufferSizes.from_system_and_output_fns(system, output_functions)
+        return LoopBufferSizes.from_system_and_output_fns(
+            system, output_functions
+        )
 
-
-    @pytest.fixture(scope='function')
-    def loop_under_test(self, request, precision, algorithm_class: type, output_functions, system,
-                        buffer_sizes, run_settings):
+    @pytest.fixture(scope="function")
+    def loop_under_test(
+        self,
+        request,
+        precision,
+        algorithm_class: type,
+        output_functions,
+        system,
+        buffer_sizes,
+        run_settings,
+    ):
         """
         Returns an instance of the loop class specified in algorithm_class.
 
@@ -77,51 +104,68 @@ class LoopAlgorithmTester:
         compile_flags = output_functions.compile_flags
 
         algorithm_instance = algorithm_class(
-                precision=precision,
-                dxdt_function=dxdt_function,
-                buffer_sizes=buffer_sizes,
-                loop_step_config=run_settings.loop_step_config,
-                save_state_func=save_state,
-                update_summaries_func=update_summaries,
-                save_summaries_func=save_summaries,
-                compile_flags=compile_flags
-                )
+            precision=precision,
+            dxdt_function=dxdt_function,
+            buffer_sizes=buffer_sizes,
+            loop_step_config=run_settings.loop_step_config,
+            save_state_func=save_state,
+            update_summaries_func=update_summaries,
+            save_summaries_func=save_summaries,
+            compile_flags=compile_flags,
+        )
 
         return algorithm_instance
 
-    @pytest.fixture(scope='function')
+    @pytest.fixture(scope="function")
     def built_loop_function(self, loop_under_test):
         """Returns only the build loop function of the loop under test"""
         return loop_under_test.build()
 
-    def test_loop_compile_settings_passed_successfully(self, loop_compile_settings_overrides, output_functions,
-                                                       loop_under_test, expected_summary_buffer_size):
+    def test_loop_compile_settings_passed_successfully(
+        self,
+        loop_compile_settings_overrides,
+        output_functions,
+        loop_under_test,
+        expected_summary_buffer_size,
+    ):
         """Test that compile settings are correctly passed to the loop algorithm."""
         compile_settings = loop_under_test.compile_settings
 
         for key, value in loop_compile_settings_overrides.items():
             if key == "saved_state_indices":
-                assert compile_settings.buffer_sizes.state >= len(value), \
+                assert compile_settings.buffer_sizes.state >= len(value), (
                     f"saved_state_indices buffer size does not accommodate expected value {len(value)}"
+                )
             elif key == "saved_observable_indices":
-                assert compile_settings.buffer_sizes.observables >= len(value), \
+                assert compile_settings.buffer_sizes.observables >= len(
+                    value
+                ), (
                     f"saved_observable_indices buffer size does not accommodate expected value {len(value)}"
+                )
             elif key == "output_functions" or key == "n_peaks":
                 # Check that summary buffer sizes match expectations
-                assert compile_settings.buffer_sizes.state_summaries == output_functions.state_summaries_buffer_height, \
-                    (f"Summary buffer requirement doesn't match expected - the loop_compile_settings change doesn't "
-                     f"get through.")
+                assert (
+                    compile_settings.buffer_sizes.state_summaries
+                    == output_functions.state_summaries_buffer_height
+                ), (
+                    f"Summary buffer requirement doesn't match expected - the loop_compile_settings change doesn't "
+                    f"get through."
+                )
             elif hasattr(compile_settings, key):
-                assert getattr(compile_settings, key) == value, f"{key} does not match expected value {value}"
+                assert getattr(compile_settings, key) == value, (
+                    f"{key} does not match expected value {value}"
+                )
 
     def test_loop_function_builds(self, built_loop_function):
         """
         Test that the loop function builds without errors.
         """
-        assert callable(built_loop_function), "Loop function was not built successfully."
+        assert callable(built_loop_function), (
+            "Loop function was not built successfully."
+        )
 
-    #Don't call it test_kernel, as that is a reserved name in pytest
-    @pytest.fixture(scope='function')
+    # Don't call it test_kernel, as that is a reserved name in pytest
+    @pytest.fixture(scope="function")
     def loop_test_kernel(self, precision, built_loop_function, solverkernel):
         loop_func = built_loop_function
 
@@ -130,34 +174,38 @@ class LoopAlgorithmTester:
         numba_precision = from_dtype(precision)
 
         @cuda.jit()
-        def test_kernel(inits,
-                        params,
-                        forcing_vector,
-                        output,
-                        observables,
-                        summary_outputs,
-                        summary_observables):
+        def test_kernel(
+            inits,
+            params,
+            forcing_vector,
+            output,
+            observables,
+            summary_outputs,
+            summary_observables,
+        ):
             c_forcing_vector = cuda.const.array_like(forcing_vector)
 
             shared_memory = cuda.shared.array(0, dtype=numba_precision)
 
             loop_func(
-                    inits,
-                    params,
-                    c_forcing_vector,
-                    shared_memory,
-                    output,
-                    observables,
-                    summary_outputs,
-                    summary_observables,
-                    output_samples,
-                    warmup_samples
-                    )
+                inits,
+                params,
+                c_forcing_vector,
+                shared_memory,
+                output,
+                observables,
+                summary_outputs,
+                summary_observables,
+                output_samples,
+                warmup_samples,
+            )
 
         return test_kernel
 
-    @pytest.fixture(scope='function')
-    def expected_summary_buffer_size(self, loop_compile_settings, output_functions):
+    @pytest.fixture(scope="function")
+    def expected_summary_buffer_size(
+        self, loop_compile_settings, output_functions
+    ):
         """
         Calculate the expected buffer memory usage for the loop function.
 
@@ -166,11 +214,11 @@ class LoopAlgorithmTester:
         def test_expected_buffer_memory(expected_buffer_memory):
             ...
         """
-        outputs_list = loop_compile_settings['output_functions']
+        outputs_list = loop_compile_settings["output_functions"]
         buffer_size = summary_metrics.summaries_buffer_height(outputs_list)
         return buffer_size
 
-    @pytest.fixture(scope='function')
+    @pytest.fixture(scope="function")
     def expected_summary_output_size(self, loop_compile_settings):
         """
         Calculate the expected output size usage for the loop function.
@@ -180,19 +228,24 @@ class LoopAlgorithmTester:
         def test_expected_output_memory(expected_summary_output_memory):
             ...
         """
-        outputs_list = loop_compile_settings['output_functions']
+        outputs_list = loop_compile_settings["output_functions"]
         output_size = sum(summary_metrics.output_sizes(outputs_list))
 
         return output_size
 
-    @pytest.fixture(scope='function')
+    @pytest.fixture(scope="function")
     def outputs(self, output_functions, precision, solverkernel):
         output_shapes = SingleRunOutputSizes.from_solver(solverkernel).nonzero
         state_output = cuda.pinned_array(output_shapes.state, dtype=precision)
-        observables_output = cuda.pinned_array(output_shapes.observables, dtype=precision)
-        state_summary_output = cuda.pinned_array(output_shapes.state_summaries, dtype=precision)
-        observable_summary_output = cuda.pinned_array(output_shapes.observable_summaries,
-                                                      dtype=precision)
+        observables_output = cuda.pinned_array(
+            output_shapes.observables, dtype=precision
+        )
+        state_summary_output = cuda.pinned_array(
+            output_shapes.state_summaries, dtype=precision
+        )
+        observable_summary_output = cuda.pinned_array(
+            output_shapes.observable_summaries, dtype=precision
+        )
 
         # Initialize output arrays to zero
         state_output[:, :] = precision(0.0)
@@ -200,28 +253,43 @@ class LoopAlgorithmTester:
         state_summary_output[:, :] = precision(0.0)
         observable_summary_output[:, :] = precision(0.0)
 
-        return {'state': state_output,
-                'observables': observables_output,
-                'state_summary': state_summary_output,
-                'observable_summary': observable_summary_output,
-                }
+        return {
+            "state": state_output,
+            "observables": observables_output,
+            "state_summary": state_summary_output,
+            "observable_summary": observable_summary_output,
+        }
 
-    def test_loop(self, loop_test_kernel, outputs, inputs, precision, output_functions,
-                  loop_under_test, expected_answer, expected_summaries, solver):
+    def test_loop(
+        self,
+        loop_test_kernel,
+        outputs,
+        inputs,
+        precision,
+        output_functions,
+        loop_under_test,
+        expected_answer,
+        expected_summaries,
+        solver,
+    ):
         """Run the loop test kernel, checking the output against the expected answer."""
         save_state = output_functions.compile_settings.save_state
         save_observables = output_functions.compile_settings.save_observables
-        summarise_state = output_functions.compile_settings.summarise_observables
-        summarise_observables = output_functions.compile_settings.summarise_observables
+        summarise_state = (
+            output_functions.compile_settings.summarise_observables
+        )
+        summarise_observables = (
+            output_functions.compile_settings.summarise_observables
+        )
 
-        state_output = outputs['state']
-        observables_output = outputs['observables']
-        state_summary_output = outputs['state_summary']
-        observable_summary_output = outputs['observable_summary']
+        state_output = outputs["state"]
+        observables_output = outputs["observables"]
+        state_summary_output = outputs["state_summary"]
+        observable_summary_output = outputs["observable_summary"]
 
-        forcing_vector = inputs['forcing_vectors']
-        inits = inputs['initial_values']
-        parameters = inputs['parameters']
+        forcing_vector = inputs["forcing_vectors"]
+        inits = inputs["initial_values"]
+        parameters = inputs["parameters"]
 
         # Transfer to GPU
         d_forcing = cuda.to_device(forcing_vector)
@@ -234,8 +302,10 @@ class LoopAlgorithmTester:
 
         # Calculate shared memory requirements
         loop_memory = loop_under_test.shared_memory_required
-        summary_memory = (output_functions.state_summaries_buffer_height +
-                         output_functions.observable_summaries_buffer_height)
+        summary_memory = (
+            output_functions.state_summaries_buffer_height
+            + output_functions.observable_summaries_buffer_height
+        )
         floatsize = precision().itemsize
         dynamic_sharedmem = floatsize * (summary_memory + loop_memory)
 
@@ -259,8 +329,8 @@ class LoopAlgorithmTester:
         observable_summary_output = d_summary_observables.copy_to_host()
 
         # Calculate expected summaries_array
-        expected_state_summaries = expected_summaries['state']
-        expected_obs_summaries = expected_summaries['observables']
+        expected_state_summaries = expected_summaries["state"]
+        expected_obs_summaries = expected_summaries["observables"]
 
         # Set tolerance based on precision
         if precision == np.float32:
@@ -272,26 +342,50 @@ class LoopAlgorithmTester:
 
         # Assert results match expectations
         if save_state:
-            assert_allclose(expected_answer[0], state_output, atol=atol, rtol=rtol,
-                           err_msg="Output does not match expected.")
+            assert_allclose(
+                expected_answer[0],
+                state_output,
+                atol=atol,
+                rtol=rtol,
+                err_msg="Output does not match expected.",
+            )
         if save_observables:
-            assert_allclose(expected_answer[1], observables_output, atol=atol, rtol=rtol,
-                           err_msg="Observables do not match expected.")
+            assert_allclose(
+                expected_answer[1],
+                observables_output,
+                atol=atol,
+                rtol=rtol,
+                err_msg="Observables do not match expected.",
+            )
         if summarise_state:
-            assert_allclose(expected_state_summaries, state_summary_output, atol=atol, rtol=rtol,
-                           err_msg="Summary states do not match expected.")
+            assert_allclose(
+                expected_state_summaries,
+                state_summary_output,
+                atol=atol,
+                rtol=rtol,
+                err_msg="Summary states do not match expected.",
+            )
         if summarise_observables:
-            assert_allclose(expected_obs_summaries, observable_summary_output, atol=atol, rtol=rtol,
-                           err_msg="Summary observables do not match expected.")
+            assert_allclose(
+                expected_obs_summaries,
+                observable_summary_output,
+                atol=atol,
+                rtol=rtol,
+                err_msg="Summary observables do not match expected.",
+            )
 
-    @pytest.fixture(scope='function')
+    @pytest.fixture(scope="function")
     def expected_loop_shared_memory(self, system, output_functions):
         """Override with your loops expected shared memory usage (not including summary memory, this is tested in
         test_output_functions.py)"""
         return 0
 
-    def test_loop_shared_memory_calc(self, loop_under_test, expected_loop_shared_memory):
+    def test_loop_shared_memory_calc(
+        self, loop_under_test, expected_loop_shared_memory
+    ):
         """Test the calculate_shared_memory method of Euler."""
 
         shared_memory = loop_under_test.shared_memory_required
-        assert shared_memory == expected_loop_shared_memory, f"Expected {expected_loop_shared_memory} shared memory items, got {shared_memory}"
+        assert shared_memory == expected_loop_shared_memory, (
+            f"Expected {expected_loop_shared_memory} shared memory items, got {shared_memory}"
+        )

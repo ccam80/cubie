@@ -23,11 +23,15 @@ from numpy.typing import NDArray, ArrayLike
 from cubie.memory import default_memmgr
 from cubie.CUDAFactory import CUDAFactory
 from cubie.batchsolving.arrays.BatchInputArrays import InputArrays
-from cubie.batchsolving.arrays.BatchOutputArrays import (OutputArrays,
-                                                         ActiveOutputs)
+from cubie.batchsolving.arrays.BatchOutputArrays import (
+    OutputArrays,
+    ActiveOutputs,
+)
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
-from cubie.outputhandling.output_sizes import BatchOutputSizes, \
-    SingleRunOutputSizes
+from cubie.outputhandling.output_sizes import (
+    BatchOutputSizes,
+    SingleRunOutputSizes,
+)
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 
 
@@ -99,40 +103,48 @@ class BatchSolverKernel(CUDAFactory):
     of the integrators.
     """
 
-    def __init__(self, system,
-                 algorithm: str = 'euler',
-                 duration: float = 1.0,
-                 warmup: float = 0.0,
-                 dt_min: float = 0.01,
-                 dt_max: float = 0.1,
-                 dt_save: float = 0.1,
-                 dt_summarise: float = 1.0,
-                 atol: float = 1e-6,
-                 rtol: float = 1e-6,
-                 saved_state_indices: NDArray[np.int_] = None,
-                 saved_observable_indices: NDArray[np.int_] = None,
-                 summarised_state_indices: Optional[ArrayLike] = None,
-                 summarised_observable_indices: Optional[ArrayLike] = None,
-                 output_types: list[str] = None, precision: type = np.float64,
-                 profileCUDA: bool = False,
-                 memory_manager=default_memmgr,
-                 stream_group='solver',
-                 mem_proportion=None,
-                 ):
+    def __init__(
+        self,
+        system,
+        algorithm: str = "euler",
+        duration: float = 1.0,
+        warmup: float = 0.0,
+        dt_min: float = 0.01,
+        dt_max: float = 0.1,
+        dt_save: float = 0.1,
+        dt_summarise: float = 1.0,
+        atol: float = 1e-6,
+        rtol: float = 1e-6,
+        saved_state_indices: NDArray[np.int_] = None,
+        saved_observable_indices: NDArray[np.int_] = None,
+        summarised_state_indices: Optional[ArrayLike] = None,
+        summarised_observable_indices: Optional[ArrayLike] = None,
+        output_types: list[str] = None,
+        precision: type = np.float64,
+        profileCUDA: bool = False,
+        memory_manager=default_memmgr,
+        stream_group="solver",
+        mem_proportion=None,
+    ):
         super().__init__()
         self.chunks = None
-        self.chunk_axis = 'run'
+        self.chunk_axis = "run"
         self.num_runs = 1
         self._memory_manager = memory_manager
         self._memory_manager.register(
-                self,
-                stream_group=stream_group,
-                proportion=mem_proportion,
-                allocation_ready_hook=self._on_allocation)
+            self,
+            stream_group=stream_group,
+            proportion=mem_proportion,
+            allocation_ready_hook=self._on_allocation,
+        )
 
-        config = BatchSolverConfig(precision=precision, algorithm=algorithm,
-                                   duration=duration, warmup=warmup,
-                                   profileCUDA=profileCUDA, )
+        config = BatchSolverConfig(
+            precision=precision,
+            algorithm=algorithm,
+            duration=duration,
+            warmup=warmup,
+            profileCUDA=profileCUDA,
+        )
 
         # Setup compile settings for the kernel
         self.setup_compile_settings(config)
@@ -140,23 +152,24 @@ class BatchSolverKernel(CUDAFactory):
         if output_types is None:
             output_types = ["state"]
 
-        self.single_integrator = SingleIntegratorRun(system,
-                algorithm=algorithm,
-                dt_min=dt_min,
-                dt_max=dt_max,
-                dt_save=dt_save,
-                dt_summarise=dt_summarise,
-                atol=atol,
-                rtol=rtol,
-                saved_state_indices=saved_state_indices,
-                saved_observable_indices=saved_observable_indices,
-                summarised_state_indices=summarised_state_indices,
-                summarised_observable_indices=summarised_observable_indices,
-                output_types=output_types, )
+        self.single_integrator = SingleIntegratorRun(
+            system,
+            algorithm=algorithm,
+            dt_min=dt_min,
+            dt_max=dt_max,
+            dt_save=dt_save,
+            dt_summarise=dt_summarise,
+            atol=atol,
+            rtol=rtol,
+            saved_state_indices=saved_state_indices,
+            saved_observable_indices=saved_observable_indices,
+            summarised_state_indices=summarised_state_indices,
+            summarised_observable_indices=summarised_observable_indices,
+            output_types=output_types,
+        )
 
         # input/output arrays supressed while refactoring
-        self.input_arrays = InputArrays.from_solver(
-                self)
+        self.input_arrays = InputArrays.from_solver(self)
         self.output_arrays = OutputArrays.from_solver(self)
 
     def _on_allocation(self, response):
@@ -258,15 +271,17 @@ class BatchSolverKernel(CUDAFactory):
         """
         return self.memory_manager.proportion(self)
 
-    def run(self,
-            inits,
-            params,
-            forcing_vectors,
-            duration,
-            blocksize=256,
-            stream=None,
-            warmup=0.0,
-            chunk_axis='run'):
+    def run(
+        self,
+        inits,
+        params,
+        forcing_vectors,
+        duration,
+        blocksize=256,
+        stream=None,
+        warmup=0.0,
+        chunk_axis="run",
+    ):
         """
         Execute the solver kernel for batch integration.
 
@@ -314,11 +329,11 @@ class BatchSolverKernel(CUDAFactory):
         self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
         chunks = self.chunks
 
-        if chunk_axis == 'run':
+        if chunk_axis == "run":
             chunkruns = int(np.ceil(numruns / chunks))
             chunklength = self.output_length
             chunksize = chunkruns
-        elif chunk_axis == 'time':
+        elif chunk_axis == "time":
             chunklength = int(np.ceil(self.output_length / chunks))
             chunkruns = numruns
             chunksize = chunklength
@@ -328,7 +343,7 @@ class BatchSolverKernel(CUDAFactory):
             chunksize = None
             chunks = 1
 
-        #------------ from here on dimensions are "chunked" -----------------
+        # ------------ from here on dimensions are "chunked" -----------------
         self.chunk_axis = chunk_axis
         self.chunks = chunks
         numruns = chunkruns
@@ -336,27 +351,31 @@ class BatchSolverKernel(CUDAFactory):
         warmup_length = self.warmup_length
 
         dynamic_sharedmem = int(
-                self.shared_memory_bytes_per_run * min(numruns,
-                                                       blocksize))
+            self.shared_memory_bytes_per_run * min(numruns, blocksize)
+        )
         while dynamic_sharedmem > 32768:
             if blocksize < 32:
-                warn("Block size has been reduced to less than 32 threads, "
-                     "which means your code will suffer a "
-                     "performance hit. This is due to your problem requiring "
-                     "too much shared memory - try casting "
-                     "some parameters to constants, or trying a different "
-                     "solving algorithm.")
+                warn(
+                    "Block size has been reduced to less than 32 threads, "
+                    "which means your code will suffer a "
+                    "performance hit. This is due to your problem requiring "
+                    "too much shared memory - try casting "
+                    "some parameters to constants, or trying a different "
+                    "solving algorithm."
+                )
             blocksize = blocksize / 2
             dynamic_sharedmem = int(
-                    self.shared_memory_bytes_per_run * min(numruns, blocksize))
+                self.shared_memory_bytes_per_run * min(numruns, blocksize)
+            )
 
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
         BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))  #
         # selectively chunk by chunk_size - depends on chunk_axis
-        if (os.environ.get(
-                "NUMBA_ENABLE_CUDASIM") != "1" and
-                self.compile_settings.profileCUDA):
+        if (
+            os.environ.get("NUMBA_ENABLE_CUDASIM") != "1"
+            and self.compile_settings.profileCUDA
+        ):
             cuda.profile_start()
 
         for i in range(chunks):
@@ -364,26 +383,32 @@ class BatchSolverKernel(CUDAFactory):
             self.input_arrays.initialise(indices)
             self.output_arrays.initialise(indices)
 
-            self.device_function[BLOCKSPERGRID,
-                                (threads_per_loop, runsperblock),
-                                stream,
-                                dynamic_sharedmem](
-                    self.input_arrays.device_initial_values,
-                    self.input_arrays.device_parameters,
-                    self.input_arrays.device_forcing_vectors,
-                    self.output_arrays.device_state,
-                    self.output_arrays.device_observables,
-                    self.output_arrays.device_state_summaries,
-                    self.output_arrays.device_observable_summaries, output_length,
-                    warmup_length, numruns, )
+            self.device_function[
+                BLOCKSPERGRID,
+                (threads_per_loop, runsperblock),
+                stream,
+                dynamic_sharedmem,
+            ](
+                self.input_arrays.device_initial_values,
+                self.input_arrays.device_parameters,
+                self.input_arrays.device_forcing_vectors,
+                self.output_arrays.device_state,
+                self.output_arrays.device_observables,
+                self.output_arrays.device_state_summaries,
+                self.output_arrays.device_observable_summaries,
+                output_length,
+                warmup_length,
+                numruns,
+            )
             self.memory_manager.sync_stream(self)
 
             self.input_arrays.finalise(indices)
             self.output_arrays.finalise(indices)
 
-        if (os.environ.get(
-                "NUMBA_ENABLE_CUDASIM") != "1" and
-                self.compile_settings.profileCUDA):
+        if (
+            os.environ.get("NUMBA_ENABLE_CUDASIM") != "1"
+            and self.compile_settings.profileCUDA
+        ):
             cuda.profile_stop()
 
     def build_kernel(self):
@@ -418,13 +443,32 @@ class BatchSolverKernel(CUDAFactory):
         save_observable_summaries = output_flags.observable_summaries
 
         # no cover: start
-        @cuda.jit((precision[:, :], precision[:, :], precision[:, :],
-                   precision[:, :, :], precision[:, :, :], precision[:, :, :],
-                   precision[:, :, :], int32, int32, int32), )
-        def integration_kernel(inits, params, forcing_vector, state_output,
-                               observables_output, state_summaries_output,
-                               observables_summaries_output, duration_samples,
-                               warmup_samples=0, n_runs=1, ):
+        @cuda.jit(
+            (
+                precision[:, :],
+                precision[:, :],
+                precision[:, :],
+                precision[:, :, :],
+                precision[:, :, :],
+                precision[:, :, :],
+                precision[:, :, :],
+                int32,
+                int32,
+                int32,
+            ),
+        )
+        def integration_kernel(
+            inits,
+            params,
+            forcing_vector,
+            state_output,
+            observables_output,
+            state_summaries_output,
+            observables_summaries_output,
+            duration_samples,
+            warmup_samples=0,
+            n_runs=1,
+        ):
             tx = int16(cuda.threadIdx.x)
             ty = int16(cuda.threadIdx.y)
 
@@ -439,25 +483,38 @@ class BatchSolverKernel(CUDAFactory):
             c_forcing_vector = cuda.const.array_like(forcing_vector)
 
             # Run-indexed slices of shared and output memory
-            rx_shared_memory = shared_memory[ty * shared_elements_per_run:(
-                                                                                  ty + 1) * shared_elements_per_run]
+            rx_shared_memory = shared_memory[
+                ty * shared_elements_per_run : (ty + 1)
+                * shared_elements_per_run
+            ]
             rx_inits = inits[run_index, :]
             rx_params = params[run_index, :]
             rx_state = state_output[:, run_index * save_state, :]
-            rx_observables = observables_output[:,
-                             run_index * save_observables, :]
-            rx_state_summaries = state_summaries_output[:,
-                                 run_index * save_state_summaries, :]
-            rx_observables_summaries = observables_summaries_output[:,
-                                       run_index * save_observable_summaries,
-                                       :]
+            rx_observables = observables_output[
+                :, run_index * save_observables, :
+            ]
+            rx_state_summaries = state_summaries_output[
+                :, run_index * save_state_summaries, :
+            ]
+            rx_observables_summaries = observables_summaries_output[
+                :, run_index * save_observable_summaries, :
+            ]
 
-            loopfunction(rx_inits, rx_params, c_forcing_vector,
-                    rx_shared_memory, rx_state, rx_observables,
-                    rx_state_summaries, rx_observables_summaries,
-                    duration_samples, warmup_samples, )
+            loopfunction(
+                rx_inits,
+                rx_params,
+                c_forcing_vector,
+                rx_shared_memory,
+                rx_state,
+                rx_observables,
+                rx_state_summaries,
+                rx_observables_summaries,
+                duration_samples,
+                warmup_samples,
+            )
 
             return None
+
         # no cover: end
         return integration_kernel
 
@@ -498,10 +555,12 @@ class BatchSolverKernel(CUDAFactory):
             return set()
 
         all_unrecognized = set(updates_dict.keys())
-        all_unrecognized -= self.update_compile_settings(updates_dict,
-                                                         silent=True)
-        all_unrecognized -= self.single_integrator.update(updates_dict,
-                                                          silent=True)
+        all_unrecognized -= self.update_compile_settings(
+            updates_dict, silent=True
+        )
+        all_unrecognized -= self.single_integrator.update(
+            updates_dict, silent=True
+        )
         recognised = set(updates_dict.keys()) - all_unrecognized
 
         if all_unrecognized:
@@ -635,8 +694,10 @@ class BatchSolverKernel(CUDAFactory):
             Number of output samples per run.
         """
         return int(
-                np.ceil(self.compile_settings.duration /
-                        self.single_integrator.dt_save))
+            np.ceil(
+                self.compile_settings.duration / self.single_integrator.dt_save
+            )
+        )
 
     @property
     def summaries_length(self):
@@ -649,8 +710,11 @@ class BatchSolverKernel(CUDAFactory):
             Number of summary samples per run.
         """
         return int(
-                np.ceil(self.compile_settings.duration /
-                        self.single_integrator.dt_summarise))
+            np.ceil(
+                self.compile_settings.duration
+                / self.single_integrator.dt_summarise
+            )
+        )
 
     @property
     def warmup_length(self):
@@ -663,8 +727,10 @@ class BatchSolverKernel(CUDAFactory):
             Number of warmup samples.
         """
         return int(
-                np.ceil(self.compile_settings.warmup /
-                        self.single_integrator.dt_save))
+            np.ceil(
+                self.compile_settings.warmup / self.single_integrator.dt_save
+            )
+        )
 
     @property
     def system(self):

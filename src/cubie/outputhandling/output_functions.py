@@ -6,6 +6,7 @@ saving, summary calculations, and writing to memory for CUDA batch solvers.
 The functions are automatically cached and compiled on demand through the
 CUDAFactory base class.
 """
+
 from typing import Sequence, Callable
 
 import attrs
@@ -13,12 +14,13 @@ from numpy.typing import ArrayLike
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie.outputhandling.output_config import OutputConfig
-from cubie.outputhandling.output_sizes import SummariesBufferSizes, \
-    OutputArrayHeights
+from cubie.outputhandling.output_sizes import (
+    SummariesBufferSizes,
+    OutputArrayHeights,
+)
 from cubie.outputhandling.save_state import save_state_factory
 from cubie.outputhandling.save_summaries import save_summary_factory
-from cubie.outputhandling.update_summaries import \
-    update_summary_factory
+from cubie.outputhandling.update_summaries import update_summary_factory
 
 
 @attrs.define
@@ -39,12 +41,16 @@ class OutputFunctionCache:
     save_summaries_function : Callable
         Compiled CUDA function for saving summary results.
     """
+
     save_state_function: Callable = attrs.field(
-            validator=attrs.validators.instance_of(Callable))
+        validator=attrs.validators.instance_of(Callable)
+    )
     update_summaries_function: Callable = attrs.field(
-            validator=attrs.validators.instance_of(Callable))
+        validator=attrs.validators.instance_of(Callable)
+    )
     save_summaries_function: Callable = attrs.field(
-            validator=attrs.validators.instance_of(Callable))
+        validator=attrs.validators.instance_of(Callable)
+    )
 
 
 class OutputFunctions(CUDAFactory):
@@ -80,25 +86,31 @@ class OutputFunctions(CUDAFactory):
     interface. Functions are compiled lazily when first accessed.
     """
 
-    def __init__(self, max_states: int, max_observables: int,
-                 output_types: list[str] = None,
-                 saved_state_indices: Sequence[int] | ArrayLike = None,
-                 saved_observable_indices: Sequence[int] | ArrayLike = None,
-                 summarised_state_indices: Sequence[int] | ArrayLike = None,
-                 summarised_observable_indices: Sequence[
-                                                    int] | ArrayLike = None, ):
+    def __init__(
+        self,
+        max_states: int,
+        max_observables: int,
+        output_types: list[str] = None,
+        saved_state_indices: Sequence[int] | ArrayLike = None,
+        saved_observable_indices: Sequence[int] | ArrayLike = None,
+        summarised_state_indices: Sequence[int] | ArrayLike = None,
+        summarised_observable_indices: Sequence[int] | ArrayLike = None,
+    ):
         super().__init__()
 
         if output_types is None:
             output_types = ["state"]
 
         # Create and setup output configuration as compile settings
-        config = OutputConfig.from_loop_settings(output_types=output_types,
-                max_states=max_states, max_observables=max_observables,
-                saved_state_indices=saved_state_indices,
-                saved_observable_indices=saved_observable_indices,
-                summarised_state_indices=summarised_state_indices,
-                summarised_observable_indices=summarised_observable_indices, )
+        config = OutputConfig.from_loop_settings(
+            output_types=output_types,
+            max_states=max_states,
+            max_observables=max_observables,
+            saved_state_indices=saved_state_indices,
+            saved_observable_indices=saved_observable_indices,
+            summarised_state_indices=summarised_state_indices,
+            summarised_observable_indices=summarised_observable_indices,
+        )
         self.setup_compile_settings(config)
 
     def update(self, updates_dict=None, silent=False, **kwargs):
@@ -144,14 +156,16 @@ class OutputFunctions(CUDAFactory):
         unrecognised = set(updates_dict.keys())
 
         recognised_params = set()
-        recognised_params |= self.update_compile_settings(updates_dict,
-                                                          silent=True)
+        recognised_params |= self.update_compile_settings(
+            updates_dict, silent=True
+        )
         unrecognised -= recognised_params
 
         if not silent and unrecognised:
             raise KeyError(
-                    f"Unrecognized parameters in update: {unrecognised}. "
-                    "These parameters were not updated.", )
+                f"Unrecognized parameters in update: {unrecognised}. "
+                "These parameters were not updated.",
+            )
         return set(recognised_params)
 
     def build(self) -> OutputFunctionCache:
@@ -178,21 +192,33 @@ class OutputFunctions(CUDAFactory):
         buffer_sizes = self.summaries_buffer_sizes
 
         # Build functions using output sizes objects
-        save_state_func = save_state_factory(config.saved_state_indices,
-                config.saved_observable_indices, config.save_state,
-                config.save_observables, config.save_time, )
+        save_state_func = save_state_factory(
+            config.saved_state_indices,
+            config.saved_observable_indices,
+            config.save_state,
+            config.save_observables,
+            config.save_time,
+        )
 
-        update_summary_metrics_func = update_summary_factory(buffer_sizes,
-                config.summarised_state_indices,
-                config.summarised_observable_indices, config.summary_types, )
+        update_summary_metrics_func = update_summary_factory(
+            buffer_sizes,
+            config.summarised_state_indices,
+            config.summarised_observable_indices,
+            config.summary_types,
+        )
 
-        save_summary_metrics_func = save_summary_factory(buffer_sizes,
-                config.summarised_state_indices,
-                config.summarised_observable_indices, config.summary_types, )
+        save_summary_metrics_func = save_summary_factory(
+            buffer_sizes,
+            config.summarised_state_indices,
+            config.summarised_observable_indices,
+            config.summary_types,
+        )
 
-        return OutputFunctionCache(save_state_function=save_state_func,
-                update_summaries_function=update_summary_metrics_func,
-                save_summaries_function=save_summary_metrics_func, )
+        return OutputFunctionCache(
+            save_state_function=save_state_func,
+            update_summaries_function=update_summary_metrics_func,
+            save_summaries_function=save_summary_metrics_func,
+        )
 
     @property
     def save_state_func(self):
@@ -209,7 +235,7 @@ class OutputFunctions(CUDAFactory):
         Exposes save_state_function from the cached OutputFunctionCache
         object. The function is compiled on first access if not already cached.
         """
-        return self.get_cached_output('save_state_function')
+        return self.get_cached_output("save_state_function")
 
     @property
     def update_summaries_func(self):
@@ -227,7 +253,7 @@ class OutputFunctions(CUDAFactory):
         object. The function is compiled on first access if not already
         cached.
         """
-        return self.get_cached_output('update_summaries_function')
+        return self.get_cached_output("update_summaries_function")
 
     @property
     def output_types(self):
@@ -257,7 +283,7 @@ class OutputFunctions(CUDAFactory):
         object. The function is compiled on first access if not already
         cached.
         """
-        return self.get_cached_output('save_summaries_function')
+        return self.get_cached_output("save_summaries_function")
 
     @property
     def compile_flags(self):
@@ -512,4 +538,3 @@ class OutputFunctions(CUDAFactory):
             heights per variable.
         """
         return self.compile_settings.summary_legend_per_variable
-
