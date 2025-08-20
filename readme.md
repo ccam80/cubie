@@ -12,6 +12,13 @@ The most basic use case is to define a system of ODEs or SDEs, and then call cub
 
 Defining a system of ODEs is the most cumbersome part of using this library. Like in MATLAB or SciPy, we need to create a dxdt function that takes the current state and parameters, and returns the rate of change of the state. Unlike MATLAB and SciPy, this function needs to be CUDA-compatible, which means it cannot use some of the features of Python and numpy. Creating a system is done by subclassing cubie.SystemModel.GenericODE, and implementing the dxdt method. See ThreeCM.py for an example of a small system. Fabbri_linder.py for an example of a large system.
 
+While in early development, using this library as a way to experiment with and learn about some better software practice than I have used in 
+past, including testing, CI/CD, and other helpful tactics I stumble upon. As such, there will
+be some clunky bits.
+
+The interface is not yet stable, and the documentation is currently non-working AI-generated slop, but the library now works roughly as you might expect, and can get up and running quickly by reading docstrings. Documentation and SymPy integration (as a means to get Jacobians to use implicit algorithms) are on the hit list for v0.1.0.
+
+
 ## Installation:
 ```
 pip install cubie
@@ -22,11 +29,6 @@ pip install cubie
 - CUDA Toolkit 12.9 or later
 - NVIDIA GPU with compute capability 6.0 or higher (i.e. GTX10-series or newer)
 
-I am using this library as a way to experiment with and learn about some better software practice than I have used in 
-past, including testing, CI/CD, and other helpful tactics I stumble upon. As such, while it's in development, there will
-be some clunky bits.
-
-The interface is not yet stable, and the documentation is currently non-working AI-generated slop, but the library now works roughly as you might expect, and can get up and running quickly by reading docstrings. Documentation and SymPy integration (as a means to get Jacobians to use implicit algorithms) are on the hit list for v0.1.0.
 ## Project Goals:
 
 - Make an engine and interface for batch integration that is close enough to MATLAB or SciPy that a Python beginner can
