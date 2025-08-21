@@ -21,6 +21,7 @@ from cubie.systemmodels.symbolic.file_generation import GeneratedFile
 from cubie.systemmodels.symbolic.jacobian import (
     generate_jacobian_function,
     get_jacobian_matrix,
+    jac_v
 )
 from cubie.systemmodels.symbolic.math_functions import (
     subs_math_func_placeholders,
@@ -33,7 +34,7 @@ from cubie.systemmodels.systems.GenericODE import GenericODE
 @attrs.define()
 class ODECache:
     dxdt: Optional[Callable] = None
-    jacv: Optional[Callable] = None
+    jac_v: Optional[Callable] = None
 
 @attrs.define(slots=False)
 class SymbolIndices:
@@ -167,9 +168,9 @@ class SymbolicODE(GenericODE):
 
         dxdt_func = self._build_dxdt()
         jacobian_function = self._build_jacobian()
-
+        jac_v_func = jac_v(self.state_symbols, self.equations)
         return ODECache(dxdt = dxdt_func,
-                        jacv = jacobian_function)
+                        jac_v = jacobian_function)
 
     # ------------------------------------------------------------------
     # Device code generation helpers
@@ -189,7 +190,7 @@ class SymbolicODE(GenericODE):
         constants = self.compile_settings.constants.values_array.astype(
             self.precision
         )
-        code_lines = self._generate_jacobian_code_lines()
+        code_lines = self._generate_jac_v_lines()
         jac_v_factory = generate_jacobian_function(code_lines, self.gen_file)
         jac_v = jac_v_factory(constants, numba_precision)
         return jac_v
@@ -261,6 +262,21 @@ class SymbolicODE(GenericODE):
     # ------------------------------------------------------------------
     # Jacobian helpers
     # ------------------------------------------------------------------
+    def _generate_jac_v_lines(self):
+        array_refs = self.array_base_map
+        cse_eqs, Jv = jac_v(self.state_symbols, self.equations)
+        lines = []
+
+        for sym, expr in cse_eqs:
+            expr = subs_math_func_placeholders(expr).subs(array_refs)
+            lines.append(f"    {sp.pycode(sym)} = {sp.pycode(expr)}")
+
+        for i in range(Jv.rows):
+
+            expr = subs_math_func_placeholders(Jv[i]).subs(array_refs)
+            expr_code = sp.pycode(expr)
+            lines.append(f"    Jv[{i}] = {expr_code}")
+        return lines
 
     def _generate_jacobian_code_lines(self):
         array_refs = self.array_base_map
@@ -269,7 +285,7 @@ class SymbolicODE(GenericODE):
 
         for sym, expr in cse_eqs:
             expr = subs_math_func_placeholders(expr).subs(array_refs)
-            lines.append(f"{sp.pycode(sym)} = {sp.pycode(expr)}")
+            lines.append(f"    {sp.pycode(sym)} = {sp.pycode(expr)}")
 
         for i in range(J.rows):
             for j in range(J.cols):

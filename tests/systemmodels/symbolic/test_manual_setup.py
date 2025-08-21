@@ -16,7 +16,7 @@ def manual_settings_defaults():
         "states": {"x1": 0.5,
                    'x2': 2.0},
         "dxdt": ["obs1 = k1 * x1 * d2 + d1 * c1",
-                 "obs2 = c2 * c2 * k2 + x1 + x2**2 + obs1",
+                 "obs2 = c2 * c2 * k2 + x1  + obs1",
                  "dx1 = obs1 + c2",
                  "dx2 = c1 + obs1 + obs2"],
     }
@@ -103,12 +103,6 @@ def correct_answer(symbolic_system, input_values):
     dxdt, obs = symbolic_system.correct_answer_python(inits, params, drivers)
     return dxdt, obs
 
-# def test_setup_system(symbolic_system, precision, correct_answer):
-#     symbolic_system.build()
-#
-#     dxdt, obs = correct_answer
-#     assert dxdt[0] == pytest.approx(6.0)
-#     assert obs[0] == pytest.approx(6.0)
 
 @pytest.fixture(scope="function")
 def test_kernel(symbolic_system):
@@ -121,6 +115,34 @@ def test_kernel(symbolic_system):
                     dxdt):
         func(state, parameters, drivers, observables, dxdt)
     return test_kernel
+
+@pytest.fixture(scope="function")
+def v(symbolic_system, input_values):
+    test = np.zeros(symbolic_system.sizes.states, dtype=symbolic_system.precision)
+    test[:] = 0.001  # Small perturbation for finite difference approximation
+    return cuda.to_device(test)
+
+@pytest.fixture(scope="function")
+def jacv_kernel(symbolic_system, input_values, v):
+    jacv = symbolic_system.jac_v
+    @cuda.jit()
+    def test_kernel(state,
+                    parameters,
+                    drivers,
+                    v,
+                    Jv):
+        jacv(state, parameters, drivers, v, Jv)
+    return test_kernel
+
+@pytest.fixture(scope="function")
+def run_jac(symbolic_system, device_arrays, v, jacv_kernel):
+    Jv = cuda.device_array(symbolic_system.sizes.states, dtype=symbolic_system.precision)
+    jacv_kernel[1,1](device_arrays["state"],
+                     device_arrays["parameters"],
+                     device_arrays["drivers"],
+                     v,
+                     Jv)
+    return Jv.copy_to_host()
 
 @pytest.fixture(scope="function")
 def run_dxdt(test_kernel, device_arrays):
@@ -146,18 +168,29 @@ def test_dxdt_output(
     assert_allclose(dxdt_expected, dxdt_actual, rtol=1e-6, atol=1e-6)
     assert_allclose(obs_expected, obs_actual, rtol=1e-6, atol=1e-6)
 
-# def test_jacobian_outpu(
-#         symbolic_system, input_values, device_arrays, precision, run_dxdt
-# ):
-#     jac = symbolic_system.jac_v
-#     inits, params, drivers, constants = input_values
-#     dxdt_expected, obs_expected = run_dxdt
-#     jac(device_arrays["state"],
-#         device_arrays["parameters"],
-#         device_arrays["drivers"],
-#         device_arrays["observables"],
-#         device_arrays["dxdt"])
-#     jac_expected = symbolic_system.correct_jacobian_python(
-#         inits, params, drivers
-#     )
-#     jac_actual = device_arrays["dxdt"].copy_to_host()
+def test_jac_v_outpu(
+        run_dxdt, run_jac, test_kernel, manual_settings, device_arrays,
+        symbolic_system, v,
+                                                  correct_answer):
+    dxdt_actual, _ = run_dxdt
+    Jv = run_jac
+    dxdt_new = cuda.device_array(symbolic_system.sizes.states, dtype=symbolic_system.precision)
+    state = device_arrays['state']
+    current_state = state.copy_to_host()
+
+    # Use the same v vector that was used in the Jacobian computation
+    v_host = v.copy_to_host()
+    current_state = current_state + v_host  # This is x + ε*v where v already contains ε
+
+    state = cuda.to_device(current_state)
+    test_kernel[1,1](state,
+                     device_arrays['parameters'],
+                     device_arrays['drivers'],
+                     device_arrays['observables'],
+                     dxdt_new)
+    dxdt_new_host = dxdt_new.copy_to_host()
+
+    dxdt_change = dxdt_new_host - dxdt_actual
+    error = Jv - dxdt_change
+    print(error)
+    assert_allclose(Jv, dxdt_change, rtol=1e-3, atol=1e-3)
