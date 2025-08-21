@@ -84,12 +84,12 @@ relative_files = true
 [tool.coverage.report]
 exclude_also = [
     "pragma: no cover",
-    'no cover: start(?s:.)*?no cover: stop',
-    'no cover: start(?s:.)*?no cover: end',
-    'if environ.get(:(?s:.)*?else', # omit cudasim checks - possibly too broad
-    'if (environ.get(:(?s:.)*?else',
+    "no cover: start(?s:.)*?no cover: stop",
+    "no cover: start(?s:.)*?no cover: end",
+    "if environ\\.get\\(:(?s:.)*?else", # omit cudasim checks - possibly too broad
+    "if \\(environ\\.get\\(:(?s:.)*?else",
     "def __repr__",
-    "if self.debug:",
+    "if self\\.debug:",
     "if settings.DEBUG",
     "raise AssertionError",
     "raise NotImplementedError",
@@ -97,7 +97,7 @@ exclude_also = [
     "if __name__ == .__main__.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
-    'if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":'
+    'if environ\\.get\\("NUMBA_ENABLE_CUDASIM", "0"\\) == "1":'
 ]
 ignore_errors = true
 show_missing = true

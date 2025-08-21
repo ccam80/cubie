@@ -1,8 +1,8 @@
 import pytest
 from numba import cuda
 from numpy.testing import assert_allclose
-from cubie.systemmodels.symbolic import setup_system
-
+from cubie.systemmodels.symbolic.parser import create_system
+import numpy as np
 
 def manual_settings_defaults():
     return {
@@ -16,11 +16,29 @@ def manual_settings_defaults():
         "states": {"x1": 0.5,
                    'x2': 2.0},
         "dxdt": ["obs1 = k1 * x1 * d2 + d1 * c1",
-                 "obs2 = c2 * c2 * k2 + x1",
+                 "obs2 = c2 * c2 * k2 + x1 + x2**2 + obs1",
                  "dx1 = obs1 + c2",
-                 "dx2 = c1"],
+                 "dx2 = c1 + obs1 + obs2"],
     }
 
+@pytest.fixture(scope="function")
+def sanity_check(manual_settings, precision):
+    k1 = manual_settings["parameters"]["k1"]
+    k2 = manual_settings["parameters"]["k2"]
+    c1 = manual_settings["constants"]["c1"]
+    c2 = manual_settings["constants"]["c2"]
+    d1 = manual_settings["drivers"]["d1"]
+    d2 = manual_settings["drivers"]["d2"]
+    x1 = manual_settings["states"]["x1"]
+    x2 = manual_settings["states"]["x2"]
+
+    obs1 = k1 * x1 * d2 + d1 * c1
+    obs2 = c2 * c2 * k2 + x1 + x2 ** 2 + obs1
+    dx1 = obs1 + c2
+    dx2 = c1 + obs1 + obs2
+
+    return (np.asarray([dx1,dx2], dtype=precision),
+            np.asarray([obs1, obs2], dtype=precision))
 
 @pytest.fixture(scope="function")
 def manual_settings_override(request):
@@ -35,7 +53,7 @@ def manual_settings(manual_settings_override):
 
 @pytest.fixture(scope="function")
 def symbolic_system(manual_settings, precision):
-    symbolic_system = setup_system(**manual_settings)
+    symbolic_system = create_system(**manual_settings)
     return symbolic_system
 
 @pytest.fixture(scope="function")
@@ -94,7 +112,7 @@ def correct_answer(symbolic_system, input_values):
 
 @pytest.fixture(scope="function")
 def test_kernel(symbolic_system):
-    func = symbolic_system.device_function
+    func = symbolic_system.dxdt
     @cuda.jit()
     def test_kernel(state,
                     parameters,
@@ -116,15 +134,30 @@ def run_dxdt(test_kernel, device_arrays):
     return dxdt, observables
 
 def test_dxdt_output(
-    run_dxdt, manual_settings, symbolic_system, correct_answer
+    run_dxdt, manual_settings, symbolic_system, correct_answer, sanity_check
 ):
     dxdt_expected, obs_expected = correct_answer
     dxdt_actual, obs_actual = run_dxdt
+    dxdt_manual, obs_manual = sanity_check
     print(dxdt_expected)
+
+    assert_allclose(dxdt_manual, dxdt_expected, rtol=1e-6, atol=1e-6)
+    assert_allclose(obs_manual, obs_expected, rtol=1e-6, atol=1e-6)
     assert_allclose(dxdt_expected, dxdt_actual, rtol=1e-6, atol=1e-6)
     assert_allclose(obs_expected, obs_actual, rtol=1e-6, atol=1e-6)
 
-def test_jacobian_outpu(
-        symbolic_system, input_values, device_arrays, precision, run_dxdt
-):
-    jac = symbolic_system._jacobian
+# def test_jacobian_outpu(
+#         symbolic_system, input_values, device_arrays, precision, run_dxdt
+# ):
+#     jac = symbolic_system.jac_v
+#     inits, params, drivers, constants = input_values
+#     dxdt_expected, obs_expected = run_dxdt
+#     jac(device_arrays["state"],
+#         device_arrays["parameters"],
+#         device_arrays["drivers"],
+#         device_arrays["observables"],
+#         device_arrays["dxdt"])
+#     jac_expected = symbolic_system.correct_jacobian_python(
+#         inits, params, drivers
+#     )
+#     jac_actual = device_arrays["dxdt"].copy_to_host()

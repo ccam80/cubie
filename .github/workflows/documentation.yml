@@ -21,7 +21,8 @@ jobs:
       - uses: actions/setup-python@v5
       - name: Install dependencies
         run: |
-          pip install sphinx sphinx_rtd_theme myst_parser numba .[dev]
+          pip install uv
+          uv pip install sphinx sphinx_rtd_theme myst_parser numba .[dev]
       - name: Sphinx build
         run: |
           sphinx-build ./docs/source ./docs/build

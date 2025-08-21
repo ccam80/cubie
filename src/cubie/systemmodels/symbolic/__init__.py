@@ -1,10 +1,7 @@
 """Symbolic system building utilities."""
 
-from cubie.systemmodels.symbolic.symbolicODE import (
-    SymbolicODE,
-    SymbolicODESystem,
-)
-from cubie.systemmodels.symbolic.parser import setup_system
+from cubie.systemmodels.symbolic.symbolicODE import SymbolicODE
+from cubie.systemmodels.symbolic.parser import create_system
 from cubie.systemmodels.symbolic.math_functions import (
     exp_,
     sin_,
@@ -16,8 +13,7 @@ from cubie.systemmodels.symbolic.math_functions import (
 
 __all__ = [
     "SymbolicODE",
-    "SymbolicODESystem",
-    "setup_system",
+    "create_system",
     "exp_",
     "sin_",
     "cos_",

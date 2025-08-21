@@ -156,7 +156,7 @@ class GenericODE(CUDAFactory):
         return self.compile_settings.observables
 
     @property
-    def contants(self):
+    def constants(self):
         """Get the constants of the system.
 
         Returns

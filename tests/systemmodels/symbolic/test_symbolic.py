@@ -1,7 +1,5 @@
 import numpy as np
 import pytest
-import numpy as np
-import pytest
 from sympy import symbols, Eq
 
 from cubie.systemmodels.symbolic import SymbolicODE
@@ -21,7 +19,7 @@ def test_symbolic_basic_and_jacobian():
     )
     system.build()
     assert system.device_function is not None
-    assert system.jacobian_function is not None
+    assert system.jac_v is not None
     states = np.array([1.0, 0.0], dtype=system.precision)
     params = np.array([2.0], dtype=system.precision)
     drivers = np.zeros(1, dtype=system.precision)
