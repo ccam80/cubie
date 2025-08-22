@@ -18,6 +18,8 @@ be some clunky bits.
 
 The interface is not yet stable, and the documentation is currently non-working AI-generated slop, but the library now works roughly as you might expect, and can get up and running quickly by reading docstrings. Documentation and SymPy integration (as a means to get Jacobians to use implicit algorithms) are on the hit list for v0.1.0.
 
+## Documentation:
+https://ccam80.github.io/cubie/
 
 ## Installation:
 ```
