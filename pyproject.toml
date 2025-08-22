@@ -94,8 +94,8 @@ exclude_also = [
     "if __name__ == \\.__main__\\.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
-    "if environ\\.get\\(\\"NUMBA_ENABLE_CUDASIM\\", \\"0\\"\\) == \\"1\\":"
 ]
+
 ignore_errors = true
 show_missing = true
 
