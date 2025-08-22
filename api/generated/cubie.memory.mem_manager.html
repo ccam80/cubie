@@ -1,0 +1,1113 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.memory.mem_manager &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.memory.stream_groups" href="cubie.memory.stream_groups.html" />
+    <link rel="prev" title="cubie.memory.cupy_emm" href="cubie.memory.cupy_emm.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../usage.html">Using cubie</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.systemmodels.html">cubie.systemmodels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.memory.html">cubie.memory</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.html#cubie.memory.CuPyAsyncNumbaManager"><code class="docutils literal notranslate"><span class="pre">CuPyAsyncNumbaManager</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.html#cubie.memory.CuPySyncNumbaManager"><code class="docutils literal notranslate"><span class="pre">CuPySyncNumbaManager</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.html#cubie.memory.current_cupy_stream"><code class="docutils literal notranslate"><span class="pre">current_cupy_stream</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.array_requests.html">cubie.memory.array_requests</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.cupy_emm.html">cubie.memory.cupy_emm</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">cubie.memory.mem_manager</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.mem_manager.InstanceMemorySettings"><code class="docutils literal notranslate"><span class="pre">InstanceMemorySettings</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.mem_manager.MemoryManager"><code class="docutils literal notranslate"><span class="pre">MemoryManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.mem_manager.get_total_request_size"><code class="docutils literal notranslate"><span class="pre">get_total_request_size()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.mem_manager.placeholder_dataready"><code class="docutils literal notranslate"><span class="pre">placeholder_dataready()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.mem_manager.placeholder_invalidate"><code class="docutils literal notranslate"><span class="pre">placeholder_invalidate()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.stream_groups.html">cubie.memory.stream_groups</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.memory.html">cubie.memory</a></li>
+      <li class="breadcrumb-item active">cubie.memory.mem_manager</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.memory.mem_manager.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.memory.mem_manager">
+<span id="cubie-memory-mem-manager"></span><h1>cubie.memory.mem_manager<a class="headerlink" href="#module-cubie.memory.mem_manager" title="Link to this heading"></a></h1>
+<p>Comprehensive GPU memory management system for cubie.</p>
+<p>This module provides a singleton interface for managing GPU memory allocation,
+stream coordination, and memory pool management. It integrates with CuPy memory
+pools (if desired) and provides passive or active splitting of VRAM amongst
+different processes/stream groups. All requests for allocation made through
+this interface are “chunked” to fit alotted memory.</p>
+<p class="rubric">Functions</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.memory.mem_manager.get_total_request_size" title="cubie.memory.mem_manager.get_total_request_size"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_total_request_size</span></code></a>(request)</p></td>
+<td><p>Calculate the total memory size of a request in bytes.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.memory.mem_manager.placeholder_dataready" title="cubie.memory.mem_manager.placeholder_dataready"><code class="xref py py-obj docutils literal notranslate"><span class="pre">placeholder_dataready</span></code></a>(response)</p></td>
+<td><p>Default placeholder data ready hook that performs no operations.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.memory.mem_manager.placeholder_invalidate" title="cubie.memory.mem_manager.placeholder_invalidate"><code class="xref py py-obj docutils literal notranslate"><span class="pre">placeholder_invalidate</span></code></a>()</p></td>
+<td><p>Default placeholder invalidate hook that performs no operations.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.memory.mem_manager.InstanceMemorySettings" title="cubie.memory.mem_manager.InstanceMemorySettings"><code class="xref py py-obj docutils literal notranslate"><span class="pre">InstanceMemorySettings</span></code></a>(proportion, ...)</p></td>
+<td><p>Memory registry information for a registered instance.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.memory.mem_manager.MemoryManager" title="cubie.memory.mem_manager.MemoryManager"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MemoryManager</span></code></a>(totalmem, registry, ...)</p></td>
+<td><p>Singleton interface for managing GPU memory allocation and stream coordination.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.memory.mem_manager.</span></span><span class="sig-name descname"><span class="pre">InstanceMemorySettings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">proportion:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">1.0,</span> <span class="pre">allocations:</span> <span class="pre">dict</span> <span class="pre">=</span> <span class="pre">NOTHING,</span> <span class="pre">invalidate_hook:</span> <span class="pre">~typing.Callable[[None],</span> <span class="pre">None]</span> <span class="pre">=</span> <span class="pre">&lt;function</span> <span class="pre">placeholder_invalidate&gt;,</span> <span class="pre">allocation_ready_hook:</span> <span class="pre">~typing.Callable[[~cubie.memory.array_requests.ArrayResponse],</span> <span class="pre">None]</span> <span class="pre">=</span> <span class="pre">&lt;function</span> <span class="pre">placeholder_dataready&gt;,</span> <span class="pre">cap:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#InstanceMemorySettings"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Memory registry information for a registered instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>proportion</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default 1.0</em>) – Proportion of total VRAM assigned to this instance.</p></li>
+<li><p><strong>allocations</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>default empty dict</em>) – Dictionary of current allocations keyed by label.</p></li>
+<li><p><strong>invalidate_hook</strong> (<em>callable</em><em>, </em><em>default dummy_invalidate</em>) – Function to call when CUDA memory system changes occur.</p></li>
+<li><p><strong>allocation_ready_hook</strong> (<em>callable</em><em>, </em><em>default dummy_dataready</em>) – Function to call when allocations are ready.</p></li>
+<li><p><strong>cap</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em> or </em><em>None</em><em>, </em><em>default None</em>) – Maximum allocatable bytes for this instance.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.proportion">
+<span class="sig-name descname"><span class="pre">proportion</span></span><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.proportion" title="Link to this definition"></a></dt>
+<dd><p>Proportion of total VRAM assigned to this instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.allocations">
+<span class="sig-name descname"><span class="pre">allocations</span></span><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.allocations" title="Link to this definition"></a></dt>
+<dd><p>Dictionary of current allocations keyed by array label.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.invalidate_hook">
+<span class="sig-name descname"><span class="pre">invalidate_hook</span></span><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.invalidate_hook" title="Link to this definition"></a></dt>
+<dd><p>Function to call when CUDA memory system changes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.allocation_ready_hook">
+<span class="sig-name descname"><span class="pre">allocation_ready_hook</span></span><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.allocation_ready_hook" title="Link to this definition"></a></dt>
+<dd><p>Function to call when allocations are ready.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.cap">
+<span class="sig-name descname"><span class="pre">cap</span></span><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.cap" title="Link to this definition"></a></dt>
+<dd><p>Maximum allocatable bytes for this instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a> or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.Properties">
+<span class="sig-name descname"><span class="pre">Properties</span></span><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.Properties" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">----------</span></span></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.allocated_bytes">
+<span class="sig-name descname"><span class="pre">allocated_bytes</span></span><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.allocated_bytes" title="Link to this definition"></a></dt>
+<dd><p>Total number of bytes across all allocated arrays for the instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Notes</p>
+<p>The allocations dictionary serves both as a “keepalive” reference and a way
+to calculate total allocated memory. The invalidate_hook is called when the
+allocator/memory manager changes, requiring arrays and kernels to be
+re-allocated or redefined.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.add_allocation">
+<span class="sig-name descname"><span class="pre">add_allocation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">arr</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#InstanceMemorySettings.add_allocation"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.add_allocation" title="Link to this definition"></a></dt>
+<dd><p>Add an allocation to the instance’s allocations list.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Label for the allocation.</p></li>
+<li><p><strong>arr</strong> (<em>array-like</em>) – The allocated array.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This will overwrite any previous allocation with the same key, which
+should function as intended but suggests the previous batch has not been
+properly deallocated. A warning is emitted in this case.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="id0">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">allocated_bytes</span></span><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd><p>Calculate total allocated bytes across all arrays.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Total bytes allocated for this instance.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id1">
+<span class="sig-name descname"><span class="pre">allocation_ready_hook</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayResponse" title="cubie.memory.array_requests.ArrayResponse"><span class="pre">ArrayResponse</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#id1" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id2">
+<span class="sig-name descname"><span class="pre">allocations</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a></em><a class="headerlink" href="#id2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id3">
+<span class="sig-name descname"><span class="pre">cap</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#id3" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.free">
+<span class="sig-name descname"><span class="pre">free</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">key</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#InstanceMemorySettings.free"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.free" title="Link to this definition"></a></dt>
+<dd><p>Free an allocation by key.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>key</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Label of the allocation to free.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Emits a warning if the key is not found in allocations.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.InstanceMemorySettings.free_all">
+<span class="sig-name descname"><span class="pre">free_all</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#InstanceMemorySettings.free_all"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.InstanceMemorySettings.free_all" title="Link to this definition"></a></dt>
+<dd><p>Drop all references to allocated arrays.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id4">
+<span class="sig-name descname"><span class="pre">invalidate_hook</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#id4" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id5">
+<span class="sig-name descname"><span class="pre">proportion</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#id5" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.memory.mem_manager.</span></span><span class="sig-name descname"><span class="pre">MemoryManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">totalmem:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">registry:</span> <span class="pre">dict[int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~cubie.memory.mem_manager.InstanceMemorySettings]</span> <span class="pre">=</span> <span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream_groups:</span> <span class="pre">~cubie.memory.stream_groups.StreamGroups</span> <span class="pre">=</span> <span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">'passive'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">allocator:</span> <span class="pre">~cubie.cudasim_utils.FakeBaseCUDAMemoryManager</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'cubie.cudasim_utils.FakeNumbaCUDAMemoryManager'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">auto_pool:</span> <span class="pre">list[int]</span> <span class="pre">=</span> <span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">manual_pool:</span> <span class="pre">list[int]</span> <span class="pre">=</span> <span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stride_order:</span> <span class="pre">tuple[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">str]</span> <span class="pre">=</span> <span class="pre">('time'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">'run'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">'variable')</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">queued_allocations:</span> <span class="pre">~typing.Dict[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~typing.Dict]</span> <span class="pre">=</span> <span class="pre">NOTHING</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Singleton interface for managing GPU memory allocation and stream coordination.</p>
+<p>Provides memory management for cubie with support for passive or active
+memory limiting modes. In passive mode, it simply provides chunked
+allocations based on available memory. In active mode, it manages VRAM
+proportions between instances with support for manual and automatic
+allocation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>totalmem</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – Total GPU memory in bytes. If None, will be determined automatically.</p></li>
+<li><p><strong>registry</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em> of </em><em>int to InstanceMemorySettings</em><em>, </em><em>optional</em>) – Registry of instances and their memory settings.</p></li>
+<li><p><strong>stream_groups</strong> (<a class="reference internal" href="cubie.memory.stream_groups.html#cubie.memory.stream_groups.StreamGroups" title="cubie.memory.stream_groups.StreamGroups"><em>StreamGroups</em></a><em>, </em><em>optional</em>) – Manager for organizing instances into stream groups.</p></li>
+<li><p><strong>_mode</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default &quot;passive&quot;</em>) – Memory management mode, either “passive” or “active”.</p></li>
+<li><p><strong>_allocator</strong> (<em>BaseCUDAMemoryManager</em><em>, </em><em>default NumbaCUDAMemoryManager</em>) – The memory allocator to use.</p></li>
+<li><p><strong>_auto_pool</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – List of instance IDs using automatic memory allocation.</p></li>
+<li><p><strong>_manual_pool</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – List of instance IDs using manual memory allocation.</p></li>
+<li><p><strong>_stride_order</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><em>tuple</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default</em><em> (</em><em>&quot;time&quot;</em><em>, </em><em>&quot;run&quot;</em><em>, </em><em>&quot;variable&quot;</em><em>)</em>) – Default stride ordering for 3D arrays.</p></li>
+<li><p><strong>_queued_allocations</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em> of </em><em>str to dict</em><em>, </em><em>optional</em>) – Queued allocation requests organized by stream group.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.totalmem">
+<span class="sig-name descname"><span class="pre">totalmem</span></span><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.totalmem" title="Link to this definition"></a></dt>
+<dd><p>Total GPU memory in bytes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.registry">
+<span class="sig-name descname"><span class="pre">registry</span></span><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.registry" title="Link to this definition"></a></dt>
+<dd><p>Registry of instances and their memory settings.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a> of int to InstanceMemorySettings</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.stream_groups">
+<span class="sig-name descname"><span class="pre">stream_groups</span></span><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.stream_groups" title="Link to this definition"></a></dt>
+<dd><p>Manager for organizing instances into stream groups.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="cubie.memory.stream_groups.html#cubie.memory.stream_groups.StreamGroups" title="cubie.memory.stream_groups.StreamGroups">StreamGroups</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Notes</p>
+<p>The MemoryManager accepts ArrayRequest objects and returns ArrayResponse
+objects with references to allocated arrays and chunking information.
+Each instance is assigned to a stream group for coordinated operations.</p>
+<p>In active management mode, instances can be assigned specific VRAM
+proportions or automatically allocated equal shares of available memory.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager._add_auto_proportion">
+<span class="sig-name descname"><span class="pre">_add_auto_proportion</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager._add_auto_proportion"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager._add_auto_proportion" title="Link to this definition"></a></dt>
+<dd><p>Add an instance to the auto allocation pool with equal share.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance to add to auto allocation pool.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Proportion assigned to this instance.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If available auto-allocation pool is less than minimum required size.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Splits the non-manually-allocated portion of VRAM equally among all
+auto-allocated instances. Triggers rebalancing of the auto pool.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager._add_manual_proportion">
+<span class="sig-name descname"><span class="pre">_add_manual_proportion</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">proportion</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager._add_manual_proportion"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager._add_manual_proportion" title="Link to this definition"></a></dt>
+<dd><p>Add an instance to the manual allocation pool with specified proportion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance to add to manual allocation pool.</p></li>
+<li><p><strong>proportion</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a>) – Memory proportion to assign (0.0 to 1.0).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If manual proportion would exceed total available memory or leave
+    insufficient memory for auto-allocated processes.</p>
+</dd>
+</dl>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<dl class="simple">
+<dt>UserWarning</dt><dd><p>If manual proportion leaves less than 5% of memory for auto allocation.</p>
+</dd>
+</dl>
+</div>
+<p class="rubric">Notes</p>
+<p>Updates the instance’s proportion and cap, then rebalances the auto pool.
+Enforces minimum auto pool size constraints.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager._check_requests">
+<span class="sig-name descname"><span class="pre">_check_requests</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">requests</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager._check_requests"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager._check_requests" title="Link to this definition"></a></dt>
+<dd><p>Validate that all requests are properly formatted.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>requests</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a>) – Dictionary of requests to validate.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#TypeError" title="(in Python v3.13)"><strong>TypeError</strong></a> – If requests is not a dict or contains invalid ArrayRequest objects.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager._rebalance_auto_pool">
+<span class="sig-name descname"><span class="pre">_rebalance_auto_pool</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager._rebalance_auto_pool"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager._rebalance_auto_pool" title="Link to this definition"></a></dt>
+<dd><p>Redistribute available memory equally among auto-allocated instances.</p>
+<p class="rubric">Notes</p>
+<p>Calculates the available proportion after manual allocations and
+divides it equally among all instances in the auto pool. Updates
+both proportion and cap for each auto-allocated instance.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.allocate">
+<span class="sig-name descname"><span class="pre">allocate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">shape</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dtype</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">strides</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.allocate"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.allocate" title="Link to this definition"></a></dt>
+<dd><p>Allocate a single array with specified parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>shape</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><em>tuple</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Shape of the array to allocate.</p></li>
+<li><p><strong>dtype</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><em>numpy.dtype</em></a>) – Data type for array elements.</p></li>
+<li><p><strong>memory_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Type of memory: “device”, “mapped”, “pinned”, or “managed”.</p></li>
+<li><p><strong>stream</strong> (<em>Stream</em><em>, </em><em>default 0</em>) – CUDA stream for the allocation.</p></li>
+<li><p><strong>strides</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><em>tuple</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – Custom strides for the array.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Allocated GPU array.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>array</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><ul class="simple">
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If memory_type is not recognized.</p></li>
+<li><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#NotImplementedError" title="(in Python v3.13)"><strong>NotImplementedError</strong></a> – If memory_type is “managed” (not yet supported).</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.allocate_all">
+<span class="sig-name descname"><span class="pre">allocate_all</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">requests</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">instance_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.allocate_all"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.allocate_all" title="Link to this definition"></a></dt>
+<dd><p>Allocate multiple arrays based on a dictionary of requests.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>requests</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em> of </em><em>str to ArrayRequest</em>) – Dictionary mapping labels to array requests.</p></li>
+<li><p><strong>instance_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – ID of the requesting instance.</p></li>
+<li><p><strong>stream</strong> (<em>Stream</em>) – CUDA stream for the allocations.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dictionary mapping labels to allocated arrays.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a> of str to array</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.allocate_queue">
+<span class="sig-name descname"><span class="pre">allocate_queue</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">triggering_instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">limit_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'group'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'run'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.allocate_queue"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.allocate_queue" title="Link to this definition"></a></dt>
+<dd><p>Process all queued requests for a stream group with coordinated chunking.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>triggering_instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – The instance that triggered queue processing.</p></li>
+<li><p><strong>limit_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default &quot;group&quot;</em>) – Limiting strategy: “group” for aggregate limits or “instance”
+for individual instance limits.</p></li>
+<li><p><strong>chunk_axis</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default &quot;run&quot;</em>) – Axis along which to chunk arrays if needed.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Processes all pending requests in the same stream group, applying
+coordinated chunking based on the specified limit type. Calls
+allocation_ready_hook for each instance with their results.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.auto_pool_proportion">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">auto_pool_proportion</span></span><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.auto_pool_proportion" title="Link to this definition"></a></dt>
+<dd><p>Get total proportion of VRAM automatically distributed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Sum of all automatic allocation proportions.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.cap">
+<span class="sig-name descname"><span class="pre">cap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.cap"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.cap" title="Link to this definition"></a></dt>
+<dd><p>Get the maximum allocatable bytes for an instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance to query.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Maximum allocatable bytes for this instance.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.change_stream_group">
+<span class="sig-name descname"><span class="pre">change_stream_group</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">new_group</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.change_stream_group"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.change_stream_group" title="Link to this definition"></a></dt>
+<dd><p>Move instance to another stream group.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – The instance to move.</p></li>
+<li><p><strong>new_group</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Name of the new stream group.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.chunk_arrays">
+<span class="sig-name descname"><span class="pre">chunk_arrays</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">requests</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayRequest" title="cubie.memory.array_requests.ArrayRequest"><span class="pre">ArrayRequest</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">numchunks</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'run'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.chunk_arrays"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.chunk_arrays" title="Link to this definition"></a></dt>
+<dd><p>Divide array requests into smaller chunks along a specified axis.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>requests</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em> of </em><em>str to ArrayRequest</em>) – Dictionary mapping labels to array requests.</p></li>
+<li><p><strong>numchunks</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Number of chunks to divide arrays into.</p></li>
+<li><p><strong>axis</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default &quot;run&quot;</em>) – Axis name along which to chunk the arrays.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>New dictionary with modified array shapes for chunking.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a> of str to ArrayRequest</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The axis must match a label in the stride ordering. Chunking is
+done conservatively with ceiling division to ensure no data is lost.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.free">
+<span class="sig-name descname"><span class="pre">free</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">array_label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.free"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.free" title="Link to this definition"></a></dt>
+<dd><p>Free an allocation by label across all instances.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>array_label</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Label of the allocation to free.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.free_all">
+<span class="sig-name descname"><span class="pre">free_all</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.free_all"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.free_all" title="Link to this definition"></a></dt>
+<dd><p>Free all allocations across all registered instances.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.from_device">
+<span class="sig-name descname"><span class="pre">from_device</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">from_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">to_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.from_device"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.from_device" title="Link to this definition"></a></dt>
+<dd><p>Copy data from device arrays using the instance’s stream.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance whose stream to use for copying.</p></li>
+<li><p><strong>from_arrays</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a>) – Source device arrays to copy from.</p></li>
+<li><p><strong>to_arrays</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a>) – Destination arrays to copy to.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.get_available_group">
+<span class="sig-name descname"><span class="pre">get_available_group</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">group</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.get_available_group"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.get_available_group" title="Link to this definition"></a></dt>
+<dd><p>Get available memory for an entire stream group.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>group</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Name of the stream group.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Available memory in bytes for the group.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<dl class="simple">
+<dt>UserWarning</dt><dd><p>If group has used more than 95% of allocated memory.</p>
+</dd>
+</dl>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.get_available_single">
+<span class="sig-name descname"><span class="pre">get_available_single</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.get_available_single"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.get_available_single" title="Link to this definition"></a></dt>
+<dd><p>Get available memory for a single instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>instance_id</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – ID of the instance to check.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Available memory in bytes for this instance.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<dl class="simple">
+<dt>UserWarning</dt><dd><p>If instance has used more than 95% of allocated memory.</p>
+</dd>
+</dl>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.get_chunks">
+<span class="sig-name descname"><span class="pre">get_chunks</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">available</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.get_chunks"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.get_chunks" title="Link to this definition"></a></dt>
+<dd><p>Calculate number of chunks needed for a memory request.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>request_size</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Total size of the request in bytes.</p></li>
+<li><p><strong>available</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>default 0</em>) – Available memory in bytes.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Number of chunks needed to fit the request.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<dl class="simple">
+<dt>UserWarning</dt><dd><p>If request exceeds available VRAM by more than 20x.</p>
+</dd>
+</dl>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.get_memory_info">
+<span class="sig-name descname"><span class="pre">get_memory_info</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.get_memory_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.get_memory_info" title="Link to this definition"></a></dt>
+<dd><p>Get free and total GPU memory information.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>(free_memory, total_memory) in bytes.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a> of <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.get_stream">
+<span class="sig-name descname"><span class="pre">get_stream</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.get_stream"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.get_stream" title="Link to this definition"></a></dt>
+<dd><p>Get the CUDA stream associated with an instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – The instance to get the stream for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>CUDA stream associated with the instance.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Stream</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.get_stream_group">
+<span class="sig-name descname"><span class="pre">get_stream_group</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.get_stream_group"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.get_stream_group" title="Link to this definition"></a></dt>
+<dd><p>Get the name of the stream group for an instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance to query.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Name of the stream group.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.get_strides">
+<span class="sig-name descname"><span class="pre">get_strides</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.get_strides"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.get_strides" title="Link to this definition"></a></dt>
+<dd><p>Calculate memory strides for a given access pattern (stride order).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>request</strong> (<a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayRequest" title="cubie.memory.array_requests.ArrayRequest"><em>ArrayRequest</em></a>) – Array request to calculate strides for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Stride tuple for the array, or None if no custom strides needed.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a> or None</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Only 3D arrays get custom stride optimization. 2D arrays use
+default strides as they are not performance-critical.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.invalidate_all">
+<span class="sig-name descname"><span class="pre">invalidate_all</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.invalidate_all"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.invalidate_all" title="Link to this definition"></a></dt>
+<dd><p>Call each registered instance’s invalidate hook and free all
+allocations.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.is_grouped">
+<span class="sig-name descname"><span class="pre">is_grouped</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.is_grouped"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.is_grouped" title="Link to this definition"></a></dt>
+<dd><p>Check if instance is grouped with others in a named stream.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance to check.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if instance shares a stream group with other instances.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.manual_pool_proportion">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">manual_pool_proportion</span></span><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.manual_pool_proportion" title="Link to this definition"></a></dt>
+<dd><p>Get total proportion of VRAM currently manually assigned.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Sum of all manual allocation proportions.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.proportion">
+<span class="sig-name descname"><span class="pre">proportion</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.proportion"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.proportion" title="Link to this definition"></a></dt>
+<dd><p>Get the maximum proportion of VRAM allocated to an instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance to query.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Proportion of VRAM allocated to this instance.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.queue_request">
+<span class="sig-name descname"><span class="pre">queue_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">requests</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayRequest" title="cubie.memory.array_requests.ArrayRequest"><span class="pre">ArrayRequest</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.queue_request"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.queue_request" title="Link to this definition"></a></dt>
+<dd><p>Queue allocation requests for batched stream group processing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – The instance making the request.</p></li>
+<li><p><strong>requests</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em> of </em><em>str to ArrayRequest</em>) – Dictionary mapping labels to array requests.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Requests are queued per stream group, allowing multiple components
+to contribute to a single coordinated allocation that can be
+optimally chunked together.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.register">
+<span class="sig-name descname"><span class="pre">register</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">proportion:</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">invalidate_cache_hook:</span> <span class="pre">~typing.Callable</span> <span class="pre">=</span> <span class="pre">&lt;function</span> <span class="pre">placeholder_invalidate&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">allocation_ready_hook:</span> <span class="pre">~typing.Callable</span> <span class="pre">=</span> <span class="pre">&lt;function</span> <span class="pre">placeholder_dataready&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream_group:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">'default'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.register"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.register" title="Link to this definition"></a></dt>
+<dd><p>Register an instance and configure its memory allocation settings.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – The instance to register for memory management.</p></li>
+<li><p><strong>proportion</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>optional</em>) – Proportion of VRAM to allocate (0.0 to 1.0). If None, instance
+will be automatically assigned an equal portion with other
+auto-assigned instances.</p></li>
+<li><p><strong>invalidate_cache_hook</strong> (<em>callable</em><em>, </em><em>optional</em>) – Function to call when CUDA memory system changes occur.</p></li>
+<li><p><strong>allocation_ready_hook</strong> (<em>callable</em><em>, </em><em>optional</em>) – Function to call when allocations are ready.</p></li>
+<li><p><strong>stream_group</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default &quot;default&quot;</em>) – Name of the stream group to assign the instance to.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If instance is already registered or proportion is not between 0 and 1.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id6">
+<span class="sig-name descname"><span class="pre">registry</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="#cubie.memory.mem_manager.InstanceMemorySettings" title="cubie.memory.mem_manager.InstanceMemorySettings"><span class="pre">InstanceMemorySettings</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#id6" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.reinit_streams">
+<span class="sig-name descname"><span class="pre">reinit_streams</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.reinit_streams"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.reinit_streams" title="Link to this definition"></a></dt>
+<dd><p>Reinitialize all streams after CUDA context reset.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.set_allocator">
+<span class="sig-name descname"><span class="pre">set_allocator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.set_allocator"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.set_allocator" title="Link to this definition"></a></dt>
+<dd><p>Set the external memory allocator in Numba.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>name</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Memory allocator type:
+- “cupy_async”: Use CuPy’s MemoryAsyncPool (experimental)
+- “cupy”: Use CuPy’s MemoryPool
+- “default”: Use Numba’s default memory manager</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If allocator name is not recognized.</p>
+</dd>
+</dl>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<dl class="simple">
+<dt>UserWarning</dt><dd><p>A change to the memory manager requires the CUDA context to be
+closed and reopened. This invalidates all previously compiled
+kernels and allocated arrays, requiring a full rebuild.</p>
+</dd>
+</dl>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.set_auto_limit_mode">
+<span class="sig-name descname"><span class="pre">set_auto_limit_mode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.set_auto_limit_mode"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.set_auto_limit_mode" title="Link to this definition"></a></dt>
+<dd><p>Convert a manual-limited instance to auto allocation mode.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance to convert to auto mode.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If instance is already in auto allocation pool.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.set_global_stride_ordering">
+<span class="sig-name descname"><span class="pre">set_global_stride_ordering</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ordering</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.set_global_stride_ordering"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.set_global_stride_ordering" title="Link to this definition"></a></dt>
+<dd><p>Set the global memory stride ordering for arrays.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>ordering</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><em>tuple</em></a><em> of </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Tuple containing ‘time’, ‘run’, and ‘variable’ in desired order.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If ordering doesn’t contain exactly ‘time’, ‘run’, and ‘variable’.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This invalidates all current allocations as arrays need to be
+reallocated with new stride patterns.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.set_limit_mode">
+<span class="sig-name descname"><span class="pre">set_limit_mode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.set_limit_mode"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.set_limit_mode" title="Link to this definition"></a></dt>
+<dd><p>Set the memory allocation limiting mode.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>mode</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Either “passive” or “active” memory management mode.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If mode is not “passive” or “active”.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.set_manual_limit_mode">
+<span class="sig-name descname"><span class="pre">set_manual_limit_mode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">proportion</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.set_manual_limit_mode"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.set_manual_limit_mode" title="Link to this definition"></a></dt>
+<dd><p>Convert an auto-limited instance to manual allocation mode.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance to convert to manual mode.</p></li>
+<li><p><strong>proportion</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a>) – Memory proportion to assign (0.0 to 1.0).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If instance is already in manual allocation pool.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.set_manual_proportion">
+<span class="sig-name descname"><span class="pre">set_manual_proportion</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">proportion</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.set_manual_proportion"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.set_manual_proportion" title="Link to this definition"></a></dt>
+<dd><p>Set manual allocation proportion for an instance.</p>
+<p>If instance is currently in the auto-allocation pool, shift it to
+manual.
+:param instance: Instance to update proportion for.
+:type instance: object
+:param proportion: New proportion between 0 and 1.
+:type proportion: float</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If proportion is not between 0 and 1.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.single_request">
+<span class="sig-name descname"><span class="pre">single_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">requests</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayRequest" title="cubie.memory.array_requests.ArrayRequest"><span class="pre">ArrayRequest</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'run'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.single_request"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.single_request" title="Link to this definition"></a></dt>
+<dd><p>Process a single allocation request with automatic chunking.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a><em> or </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – The requesting instance or its ID.</p></li>
+<li><p><strong>requests</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em> of </em><em>str to ArrayRequest</em>) – Dictionary mapping labels to array requests.</p></li>
+<li><p><strong>chunk_axis</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default &quot;run&quot;</em>) – Axis along which to chunk if memory is insufficient.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#TypeError" title="(in Python v3.13)"><strong>TypeError</strong></a> – If requests is not a dict or contains invalid ArrayRequest objects.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This method calculates available memory, determines chunking needs,
+allocates arrays with optimal strides, and calls the instance’s
+allocation_ready_hook with the results.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id7">
+<span class="sig-name descname"><span class="pre">stream_groups</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.memory.stream_groups.html#cubie.memory.stream_groups.StreamGroups" title="cubie.memory.stream_groups.StreamGroups"><span class="pre">StreamGroups</span></a></em><a class="headerlink" href="#id7" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.sync_stream">
+<span class="sig-name descname"><span class="pre">sync_stream</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.sync_stream"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.sync_stream" title="Link to this definition"></a></dt>
+<dd><p>Synchronize the CUDA stream for an instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance whose stream to synchronize.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.MemoryManager.to_device">
+<span class="sig-name descname"><span class="pre">to_device</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">from_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">to_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#MemoryManager.to_device"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.MemoryManager.to_device" title="Link to this definition"></a></dt>
+<dd><p>Copy data to device arrays using the instance’s stream.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>instance</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – Instance whose stream to use for copying.</p></li>
+<li><p><strong>from_arrays</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a>) – Source arrays to copy from.</p></li>
+<li><p><strong>to_arrays</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a>) – Destination device arrays to copy to.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id8">
+<span class="sig-name descname"><span class="pre">totalmem</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#id8" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.get_total_request_size">
+<span class="sig-prename descclassname"><span class="pre">cubie.memory.mem_manager.</span></span><span class="sig-name descname"><span class="pre">get_total_request_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayRequest" title="cubie.memory.array_requests.ArrayRequest"><span class="pre">ArrayRequest</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#get_total_request_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.get_total_request_size" title="Link to this definition"></a></dt>
+<dd><p>Calculate the total memory size of a request in bytes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>request</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em> of </em><em>str to ArrayRequest</em>) – Dictionary of array requests to sum.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Total size in bytes across all requests.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.placeholder_dataready">
+<span class="sig-prename descclassname"><span class="pre">cubie.memory.mem_manager.</span></span><span class="sig-name descname"><span class="pre">placeholder_dataready</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">response</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayResponse" title="cubie.memory.array_requests.ArrayResponse"><span class="pre">ArrayResponse</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#placeholder_dataready"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.placeholder_dataready" title="Link to this definition"></a></dt>
+<dd><p>Default placeholder data ready hook that performs no operations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>response</strong> (<a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayResponse" title="cubie.memory.array_requests.ArrayResponse"><em>ArrayResponse</em></a>) – Array response object (unused).</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.memory.mem_manager.placeholder_invalidate">
+<span class="sig-prename descclassname"><span class="pre">cubie.memory.mem_manager.</span></span><span class="sig-name descname"><span class="pre">placeholder_invalidate</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/memory/mem_manager.html#placeholder_invalidate"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.mem_manager.placeholder_invalidate" title="Link to this definition"></a></dt>
+<dd><p>Default placeholder invalidate hook that performs no operations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.memory.cupy_emm.html" class="btn btn-neutral float-left" title="cubie.memory.cupy_emm" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.memory.stream_groups.html" class="btn btn-neutral float-right" title="cubie.memory.stream_groups" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

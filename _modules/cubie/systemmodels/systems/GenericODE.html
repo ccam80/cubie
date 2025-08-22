@@ -1,0 +1,575 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.systemmodels.systems.GenericODE &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../usage.html">Using cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.systemmodels.systems.GenericODE</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.systemmodels.systems.GenericODE</h1><div class="highlight"><pre>
+<span></span><span class="c1"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;Template class for systems of ODEs with CUDA interface.</span>
+
+<span class="sd">This module provides a base class for defining ordinary differential equation</span>
+<span class="sd">systems that can be compiled and executed on CUDA devices.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">numba</span> <span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">from_dtype</span>
+
+<span class="kn">from</span> <span class="nn">cubie.CUDAFactory</span> <span class="kn">import</span> <span class="n">CUDAFactory</span>
+<span class="kn">from</span> <span class="nn">cubie.systemmodels.SystemValues</span> <span class="kn">import</span> <span class="n">SystemValues</span>
+<span class="kn">from</span> <span class="nn">cubie.systemmodels.systems.ODEData</span> <span class="kn">import</span> <span class="n">ODEData</span>
+
+
+<div class="viewcode-block" id="GenericODE">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.GenericODE.html#cubie.systemmodels.GenericODE">[docs]</a>
+<span class="k">class</span> <span class="nc">GenericODE</span><span class="p">(</span><span class="n">CUDAFactory</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Template class for a system of ODEs.</span>
+
+<span class="sd">    This class is designed to be subclassed for specific systems so that the</span>
+<span class="sd">    shared machinery used to interface with CUDA can be reused. When subclassing,</span>
+<span class="sd">    you should overload the build() and correct_answer_python() methods to provide</span>
+<span class="sd">    the specific ODE system you want to simulate.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    initial_values : dict, optional</span>
+<span class="sd">        Initial values for state variables.</span>
+<span class="sd">    parameters : dict, optional</span>
+<span class="sd">        Parameter values for the system.</span>
+<span class="sd">    constants : dict, optional</span>
+<span class="sd">        Constants that are not expected to change between simulations.</span>
+<span class="sd">    observables : dict, optional</span>
+<span class="sd">        Observable values to track.</span>
+<span class="sd">    default_initial_values : dict, optional</span>
+<span class="sd">        Default initial values if not provided in initial_values.</span>
+<span class="sd">    default_parameters : dict, optional</span>
+<span class="sd">        Default parameter values if not provided in parameters.</span>
+<span class="sd">    default_constants : dict, optional</span>
+<span class="sd">        Default constant values if not provided in constants.</span>
+<span class="sd">    default_observable_names : dict, optional</span>
+<span class="sd">        Default observable names if not provided in observables.</span>
+<span class="sd">    precision : numpy.dtype, optional</span>
+<span class="sd">        Precision to use for calculations, by default np.float64.</span>
+<span class="sd">    num_drivers : int, optional</span>
+<span class="sd">        Number of driver/forcing functions, by default 1.</span>
+<span class="sd">    **kwargs : dict</span>
+<span class="sd">        Additional arguments.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    If you do implement a correct_answer_python() method, then you can subclass</span>
+<span class="sd">    the SystemTester class in tests/systemmodels/SystemTester.py and overload</span>
+<span class="sd">    system_class with your ODE class name. The generate_system_tests function</span>
+<span class="sd">    can then generate a set of floating-point and missing-input tests to see if</span>
+<span class="sd">    your system behaves as expected.</span>
+
+<span class="sd">    Most systems will contain a default set of initial values, parameters,</span>
+<span class="sd">    constants, and observables. This parent class does not contain them, but</span>
+<span class="sd">    instead can be instantiated with a set of values of any size, for testing</span>
+<span class="sd">    purposes. The default values provide a way to both set a default state and</span>
+<span class="sd">    to provide the set of modifiable entries. This means that a user can&#39;t add</span>
+<span class="sd">    in a state or parameter when solving the system that ends up having no</span>
+<span class="sd">    effect on the system.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="GenericODE.__init__">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.GenericODE.html#cubie.systemmodels.GenericODE.__init__">[docs]</a>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">initial_values</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="c1"># parameters that can change during simulation</span>
+        <span class="n">constants</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="c1"># Parameters that are not expected to change during simulation</span>
+        <span class="n">observables</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="c1"># Auxiliary variables you might want to track during simulation</span>
+        <span class="n">default_initial_values</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">default_parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">default_constants</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">default_observable_names</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">precision</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
+        <span class="n">num_drivers</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the ODE system.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        initial_values : dict, optional</span>
+<span class="sd">            Initial values for state variables.</span>
+<span class="sd">        parameters : dict, optional</span>
+<span class="sd">            Parameter values for the system.</span>
+<span class="sd">        constants : dict, optional</span>
+<span class="sd">            Constants that are not expected to change between simulations.</span>
+<span class="sd">        observables : dict, optional</span>
+<span class="sd">            Observable values to track.</span>
+<span class="sd">        default_initial_values : dict, optional</span>
+<span class="sd">            Default initial values if not provided in initial_values.</span>
+<span class="sd">        default_parameters : dict, optional</span>
+<span class="sd">            Default parameter values if not provided in parameters.</span>
+<span class="sd">        default_constants : dict, optional</span>
+<span class="sd">            Default constant values if not provided in constants.</span>
+<span class="sd">        default_observable_names : dict, optional</span>
+<span class="sd">            Default observable names if not provided in observables.</span>
+<span class="sd">        precision : numpy.dtype, optional</span>
+<span class="sd">            Precision to use for calculations, by default np.float64.</span>
+<span class="sd">        num_drivers : int, optional</span>
+<span class="sd">            Number of driver/forcing functions, by default 1.</span>
+<span class="sd">        **kwargs : dict</span>
+<span class="sd">            Additional arguments.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">system_data</span> <span class="o">=</span> <span class="n">ODEData</span><span class="o">.</span><span class="n">from_genericODE_initargs</span><span class="p">(</span>
+            <span class="n">initial_values</span><span class="o">=</span><span class="n">initial_values</span><span class="p">,</span>
+            <span class="n">parameters</span><span class="o">=</span><span class="n">parameters</span><span class="p">,</span>
+            <span class="n">constants</span><span class="o">=</span><span class="n">constants</span><span class="p">,</span>
+            <span class="n">observables</span><span class="o">=</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">default_initial_values</span><span class="o">=</span><span class="n">default_initial_values</span><span class="p">,</span>
+            <span class="n">default_parameters</span><span class="o">=</span><span class="n">default_parameters</span><span class="p">,</span>
+            <span class="n">default_constants</span><span class="o">=</span><span class="n">default_constants</span><span class="p">,</span>
+            <span class="n">default_observable_names</span><span class="o">=</span><span class="n">default_observable_names</span><span class="p">,</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">num_drivers</span><span class="o">=</span><span class="n">num_drivers</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setup_compile_settings</span><span class="p">(</span><span class="n">system_data</span><span class="p">)</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the parameters of the system.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SystemValues</span>
+<span class="sd">            The parameters of the system.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">parameters</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">initial_values</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the initial values of the system.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SystemValues</span>
+<span class="sd">            The initial values of the system.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">initial_states</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">observables</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the observables of the system.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SystemValues</span>
+<span class="sd">            The observables of the system.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">observables</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">contants</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the constants of the system.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SystemValues</span>
+<span class="sd">            The constants of the system.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">constants</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">num_states</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the number of state variables.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of state variables.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">num_states</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">num_observables</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the number of observable variables.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of observable variables.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">num_observables</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">num_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the number of parameters.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of parameters.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">num_parameters</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">num_constants</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the number of constants.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of constants.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">num_constants</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">num_drivers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the number of driver variables.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of driver variables.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">num_drivers</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">sizes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get system sizes.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SystemSizes</span>
+<span class="sd">            Dictionary of sizes (number of states, parameters, observables,</span>
+<span class="sd">            constants, drivers) for the system.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">sizes</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">precision</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the precision of the system.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        numpy.dtype</span>
+<span class="sd">            The precision of the system (numba type, float32 or float64).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">precision</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">dxdt_function</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the compiled device function.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        function</span>
+<span class="sd">            The compiled CUDA device function.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">device_function</span>
+
+<div class="viewcode-block" id="GenericODE.build">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.GenericODE.html#cubie.systemmodels.GenericODE.build">[docs]</a>
+    <span class="k">def</span> <span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Compile the dxdt system as a CUDA device function.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        function</span>
+<span class="sd">            Compiled CUDA device function for the ODE system.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Assign dxdt contents into local scope by assigning before you</span>
+<span class="sd">        define the dxdt function, as the CUDA device function can&#39;t</span>
+<span class="sd">        handle a reference to self.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">constants</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">constants</span><span class="o">.</span><span class="n">values_array</span>
+        <span class="n">sizes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sizes</span>
+        <span class="n">n_params</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">parameters</span>
+        <span class="n">n_states</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">states</span>
+        <span class="n">n_obs</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">observables</span>
+        <span class="n">n_constants</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">constants</span>
+        <span class="n">n_drivers</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">drivers</span>
+        <span class="n">numba_precision</span> <span class="o">=</span> <span class="n">from_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">)</span>
+
+        <span class="c1"># no cover: start</span>
+        <span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span>
+            <span class="p">(</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+            <span class="p">),</span>
+            <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">inline</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">def</span> <span class="nf">dummy_model_dxdt</span><span class="p">(</span>
+            <span class="n">state</span><span class="p">,</span>
+            <span class="n">parameters</span><span class="p">,</span>
+            <span class="n">drivers</span><span class="p">,</span>
+            <span class="n">observables</span><span class="p">,</span>
+            <span class="n">dxdt</span><span class="p">,</span>
+        <span class="p">):</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;Placeholder model for testing purposes.</span>
+
+<span class="sd">            Parameters</span>
+<span class="sd">            ----------</span>
+<span class="sd">            state : numpy.ndarray</span>
+<span class="sd">                The state of the system at time (t-1), used to calculate the</span>
+<span class="sd">                differentials.</span>
+<span class="sd">            parameters : numpy.ndarray</span>
+<span class="sd">                An array of parameters that can change during the simulation</span>
+<span class="sd">                (i.e. between runs). Store these locally or in shared memory,</span>
+<span class="sd">                as each thread will need it&#39;s own set.</span>
+<span class="sd">            drivers : numpy.ndarray</span>
+<span class="sd">                A numeric value or array of any external forcing terms applied</span>
+<span class="sd">                to the system.</span>
+<span class="sd">            observables : numpy.ndarray</span>
+<span class="sd">                An output array to store any auxiliary variables you might want</span>
+<span class="sd">                to track during simulation.</span>
+<span class="sd">            dxdt : numpy.ndarray</span>
+<span class="sd">                The output array to be written to in-place.</span>
+
+<span class="sd">            Notes</span>
+<span class="sd">            -----</span>
+<span class="sd">            Modifications are made to the dxdt and observables arrays in-place</span>
+<span class="sd">            to avoid allocating.</span>
+
+<span class="sd">            This placeholder model just overwrites the dxdt and observables</span>
+<span class="sd">            arrays with the values in state + parameters/constants+drivers.</span>
+<span class="sd">            &quot;&quot;&quot;</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_states</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">n_params</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">dxdt</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">parameters</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="n">n_params</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">dxdt</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_obs</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">n_constants</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">constant</span> <span class="o">=</span> <span class="n">constants</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="n">n_constants</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">constant</span> <span class="o">=</span> <span class="n">numba_precision</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">n_drivers</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">driver</span> <span class="o">=</span> <span class="n">drivers</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="n">n_drivers</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">driver</span> <span class="o">=</span> <span class="n">numba_precision</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
+
+                <span class="n">observables</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">constant</span> <span class="o">+</span> <span class="n">driver</span>
+
+        <span class="k">return</span> <span class="n">dummy_model_dxdt</span></div>
+
+        <span class="c1"># no cover: stop</span>
+
+<div class="viewcode-block" id="GenericODE.correct_answer_python">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.GenericODE.html#cubie.systemmodels.GenericODE.correct_answer_python">[docs]</a>
+    <span class="k">def</span> <span class="nf">correct_answer_python</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">states</span><span class="p">,</span> <span class="n">parameters</span><span class="p">,</span> <span class="n">drivers</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Python version of the dxdt function for testing.</span>
+
+<span class="sd">        This function is used in testing. Overload this with a simpler, Python</span>
+<span class="sd">        version of the dxdt function. This will be run in a python test to</span>
+<span class="sd">        compare the output of your CUDA function with this known, correct</span>
+<span class="sd">        answer.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        states : numpy.ndarray</span>
+<span class="sd">            Current state values.</span>
+<span class="sd">        parameters : numpy.ndarray</span>
+<span class="sd">            Parameter values.</span>
+<span class="sd">        drivers : numpy.ndarray</span>
+<span class="sd">            Driver/forcing values.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple of numpy.ndarray</span>
+<span class="sd">            A tuple containing (dxdt, observables) arrays.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">sizes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sizes</span>
+
+        <span class="n">n_parameters</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">parameters</span>
+        <span class="n">n_drivers</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">drivers</span>
+        <span class="n">n_constants</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">constants</span>
+        <span class="n">n_states</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">states</span>
+        <span class="n">n_observables</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">observables</span>
+
+        <span class="n">dxdt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">n_states</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">)</span>
+        <span class="n">observables</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">n_observables</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">n_parameters</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">parameters</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">n_states</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">)</span>
+            <span class="n">n_parameters</span> <span class="o">=</span> <span class="n">n_states</span>
+
+        <span class="k">if</span> <span class="n">n_drivers</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">drivers</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">n_observables</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">)</span>
+            <span class="n">n_drivers</span> <span class="o">=</span> <span class="n">n_observables</span>
+
+        <span class="k">if</span> <span class="n">n_constants</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">_constants</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">n_observables</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">)</span>
+            <span class="n">n_constants</span> <span class="o">=</span> <span class="n">n_observables</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">_constants</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">constants</span><span class="o">.</span><span class="n">values_array</span>
+
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">state</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">states</span><span class="p">):</span>
+            <span class="n">dxdt</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">state</span> <span class="o">+</span> <span class="n">parameters</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="n">n_parameters</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">observables</span><span class="p">)):</span>
+            <span class="n">observables</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">drivers</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="n">n_drivers</span><span class="p">]</span> <span class="o">+</span> <span class="n">_constants</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="n">n_constants</span><span class="p">]</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">dxdt</span><span class="p">,</span> <span class="n">observables</span></div>
+
+
+<div class="viewcode-block" id="GenericODE.update">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.GenericODE.html#cubie.systemmodels.GenericODE.update">[docs]</a>
+    <span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Update compile settings through the CUDAFactory interface.</span>
+
+<span class="sd">        Pass updates to compile settings through the CUDAFactory interface,</span>
+<span class="sd">        which will invalidate cache if an update is successful.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        updates_dict : dict</span>
+<span class="sd">            Dictionary of updates to apply.</span>
+<span class="sd">        silent : bool, optional</span>
+<span class="sd">            If True, suppress warnings about keys not found, by default False.</span>
+<span class="sd">        **kwargs : dict</span>
+<span class="sd">            Additional update parameters.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Pass silent=True if doing a bulk update with other component&#39;s params</span>
+<span class="sd">        to suppress warnings about keys not found.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">set_constants</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="n">silent</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="GenericODE.set_constants">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.GenericODE.html#cubie.systemmodels.GenericODE.set_constants">[docs]</a>
+    <span class="k">def</span> <span class="nf">set_constants</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">updates_dict</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Update the constants of the system. Does not relabel parameters to</span>
+<span class="sd">        constants, just updates values already compiled as constants and</span>
+<span class="sd">        forces a rebuild with new compile-time constants.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            updates_dict (dict): A dictionary of constant names and their</span>
+<span class="sd">            new values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="o">==</span> <span class="p">{}:</span>
+            <span class="k">return</span> <span class="p">[]</span>
+
+        <span class="n">const</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">constants</span>
+        <span class="n">recognised</span> <span class="o">=</span> <span class="n">const</span><span class="o">.</span><span class="n">update_from_dict</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">unrecognised</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">-</span> <span class="n">recognised</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">update_compile_settings</span><span class="p">(</span><span class="n">constants</span><span class="o">=</span><span class="n">const</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">silent</span> <span class="ow">and</span> <span class="n">unrecognised</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Unrecognized parameters in update: </span><span class="si">{</span><span class="n">unrecognised</span><span class="si">}</span><span class="s2">. &quot;</span>
+                <span class="s2">&quot;These parameters were not updated.&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">recognised</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,12 @@
+cubie.batchsolving.BatchSolverKernel
+====================================
+
+.. automodule:: cubie.batchsolving.BatchSolverKernel
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      BatchSolverKernel
+   

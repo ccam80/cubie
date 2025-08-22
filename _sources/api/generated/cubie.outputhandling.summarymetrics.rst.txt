@@ -1,0 +1,17 @@
+cubie.outputhandling.summarymetrics
+===================================
+
+.. automodule:: cubie.outputhandling.summarymetrics
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   max
+   mean
+   metrics
+   peaks
+   rms

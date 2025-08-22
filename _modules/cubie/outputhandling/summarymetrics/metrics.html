@@ -1,0 +1,879 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.outputhandling.summarymetrics.metrics &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../usage.html">Using cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.outputhandling.summarymetrics.metrics</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.outputhandling.summarymetrics.metrics</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Summary metrics system for CUDA-accelerated batch integration.</span>
+
+<span class="sd">This module provides the core infrastructure for summary metrics in the cubie</span>
+<span class="sd">integrator system, including registration and function dispatch for CUDA</span>
+<span class="sd">device functions.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">Any</span>
+<span class="kn">from</span> <span class="nn">warnings</span> <span class="kn">import</span> <span class="n">warn</span>
+<span class="kn">from</span> <span class="nn">abc</span> <span class="kn">import</span> <span class="n">ABC</span><span class="p">,</span> <span class="n">abstractmethod</span>
+<span class="kn">import</span> <span class="nn">attrs</span>
+
+
+<div class="viewcode-block" id="register_metric">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.register_metric">[docs]</a>
+<span class="k">def</span> <span class="nf">register_metric</span><span class="p">(</span><span class="n">registry</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Decorator factory for registering summary metrics.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    registry : SummaryMetrics</span>
+<span class="sd">        The registry instance to register the metric with.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    callable</span>
+<span class="sd">        Decorator function that registers a metric class.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    This decorator automatically creates an instance of the decorated</span>
+<span class="sd">    class and registers it with the provided registry.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">decorator</span><span class="p">(</span><span class="bp">cls</span><span class="p">):</span>
+        <span class="n">instance</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">()</span>
+        <span class="n">registry</span><span class="o">.</span><span class="n">register_metric</span><span class="p">(</span><span class="n">instance</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span>
+
+    <span class="k">return</span> <span class="n">decorator</span></div>
+
+
+
+<div class="viewcode-block" id="SummaryMetric">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetric">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span> <span class="nc">SummaryMetric</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Abstract base class for summary metrics in the cubie integrator system.</span>
+
+<span class="sd">    This class defines the interface for all summary metrics and holds memory</span>
+<span class="sd">    requirements for buffer and output arrays, as well as dispatchers for update</span>
+<span class="sd">    and save functions. All concrete metric implementations must inherit from</span>
+<span class="sd">    this class and implement the abstract methods.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    buffer_size : int or callable, default 0</span>
+<span class="sd">        Size required in the summary buffer, or a callable that computes</span>
+<span class="sd">        the size based on parameters. For parameterized metrics (like peaks),</span>
+<span class="sd">        use a lambda function: `lambda n: 3 + n`.</span>
+<span class="sd">    output_size : int or callable, default 0</span>
+<span class="sd">        Size required in the output array, or a callable that computes</span>
+<span class="sd">        the size based on parameters. For parameterized metrics (like peaks),</span>
+<span class="sd">        use a lambda function: `lambda n: n`.</span>
+<span class="sd">    update_device_func : callable, default None</span>
+<span class="sd">        CUDA device function for updating the metric during integration.</span>
+<span class="sd">        Set by CUDA_factory() during initialization.</span>
+<span class="sd">    save_device_func : callable, default None</span>
+<span class="sd">        CUDA device function for saving final metric results.</span>
+<span class="sd">        Set by CUDA_factory() during initialization.</span>
+<span class="sd">    name : str, default &quot;&quot;</span>
+<span class="sd">        Name identifier for the metric (e.g., &quot;max&quot;, &quot;mean&quot;, &quot;peaks&quot;).</span>
+<span class="sd">    input_variable : dict[str, int] or None, default None</span>
+<span class="sd">        Optional input variable specifications.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    All concrete implementations must:</span>
+<span class="sd">    1. Implement __init__() to call CUDA_factory() and configure the metric</span>
+<span class="sd">    2. Implement CUDA_factory() to generate the required CUDA device</span>
+<span class="sd">    functions</span>
+<span class="sd">    3. Follow the exact function signatures for update and save functions</span>
+<span class="sd">    4. Register the metric using the @register_metric(summary_metrics)</span>
+<span class="sd">    decorator</span>
+
+<span class="sd">    The CUDA device functions must have these exact signatures:</span>
+<span class="sd">    - update(value, buffer, current_index, customisable_variable)</span>
+<span class="sd">    - save(buffer, output_array, summarise_every, customisable_variable)</span>
+
+<span class="sd">    Not included in this base class is an abstract init method, as it breaks</span>
+<span class="sd">    the attrs init method. The docstring for such a method is:</span>
+<span class="sd">    Initialize the summary metric.</span>
+
+<span class="sd">    This method must be implemented by all concrete metric classes.</span>
+<span class="sd">    It should call CUDA_factory() to generate the CUDA device functions</span>
+<span class="sd">    and then call super().__init__() with the appropriate parameters.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The standard implementation pattern is:</span>
+
+<span class="sd">    1. Call self.CUDA_factory() to get update and save functions</span>
+<span class="sd">    2. Call super().__init__() with:</span>
+<span class="sd">       - name: string identifier for the metric</span>
+<span class="sd">       - buffer_size: int or callable for buffer memory requirements</span>
+<span class="sd">       - output_size: int or callable for output memory requirements</span>
+<span class="sd">       - update_device_func: CUDA function from CUDA_factory()</span>
+<span class="sd">       - save_device_func: CUDA function from CUDA_factory()</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    For a simple metric with fixed sizes:</span>
+<span class="sd">    ```python</span>
+<span class="sd">    def __init__(self):</span>
+<span class="sd">        update_func, save_func = self.CUDA_factory()</span>
+<span class="sd">        super().__init__(</span>
+<span class="sd">            name=&quot;mean&quot;,</span>
+<span class="sd">            buffer_size=1,</span>
+<span class="sd">            output_size=1,</span>
+<span class="sd">            update_device_func=update_func,</span>
+<span class="sd">            save_device_func=save_func,</span>
+<span class="sd">        )</span>
+<span class="sd">    ```</span>
+
+<span class="sd">        For a parameterized metric:</span>
+<span class="sd">        ```python</span>
+<span class="sd">        def __init__(self):</span>
+<span class="sd">            update_func, save_func = self.CUDA_factory()</span>
+<span class="sd">            super().__init__(</span>
+<span class="sd">                name=&quot;peaks&quot;,</span>
+<span class="sd">                buffer_size=lambda n: 3 + n,</span>
+<span class="sd">                output_size=lambda n: n,</span>
+<span class="sd">                update_device_func=update_func,</span>
+<span class="sd">                save_device_func=save_func,</span>
+<span class="sd">            )</span>
+<span class="sd">        ```</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    See the implemented metrics (Max, Mean, RMS, Peaks) for concrete examples</span>
+<span class="sd">    of how to properly implement this interface.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">buffer_size</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Callable</span><span class="p">])</span>
+    <span class="p">)</span>
+    <span class="n">output_size</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Callable</span><span class="p">])</span>
+    <span class="p">)</span>
+    <span class="n">update_device_func</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Callable</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">save_device_func</span><span class="p">:</span> <span class="n">Callable</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Callable</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">input_variable</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">])</span>
+    <span class="p">)</span>
+
+<div class="viewcode-block" id="SummaryMetric.CUDA_factory">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetric.CUDA_factory">[docs]</a>
+    <span class="nd">@abstractmethod</span>
+    <span class="k">def</span> <span class="nf">CUDA_factory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate CUDA device functions for the metric.</span>
+
+<span class="sd">        This method must be implemented by all concrete metric classes.</span>
+<span class="sd">        It should create and return the CUDA-compiled update and save</span>
+<span class="sd">        functions with the exact required signatures.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[callable, callable]</span>
+<span class="sd">            Tuple containing (update_function, save_function) for CUDA</span>
+<span class="sd">            execution. Both functions must be compiled with @cuda.jit</span>
+<span class="sd">            decorators.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        The generated functions must have these exact signatures:</span>
+
+<span class="sd">        update(value, buffer, current_index, customisable_variable):</span>
+<span class="sd">            Called during each integration step to update running</span>
+<span class="sd">            calculations.</span>
+
+<span class="sd">            Parameters:</span>
+<span class="sd">            - value (float): New variable value to process</span>
+<span class="sd">            - buffer (array): Buffer for storing intermediate calculations</span>
+<span class="sd">            - current_index (int): Current integration step number</span>
+<span class="sd">            - customisable_variable (int): Parameter for metric configuration</span>
+
+<span class="sd">        save(buffer, output_array, summarise_every, customisable_variable):</span>
+<span class="sd">            Called at summary intervals to compute final results and reset</span>
+<span class="sd">            buffers.</span>
+
+<span class="sd">            Parameters:</span>
+<span class="sd">            - buffer (array): Buffer containing intermediate calculations</span>
+<span class="sd">            - output_array (array): Array to store final metric results</span>
+<span class="sd">            - summarise_every (int): Number of steps between summary saves</span>
+<span class="sd">            - customisable_variable (int): Parameter for metric configuration</span>
+
+<span class="sd">        Both functions must be decorated with:</span>
+<span class="sd">        @cuda.jit([&quot;float32, float32[::1], int64, int64&quot;,</span>
+<span class="sd">                   &quot;float64, float64[::1], int64, int64&quot;],</span>
+<span class="sd">                  device=True, inline=True)</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        For a simple maximum value metric:</span>
+<span class="sd">        ```python</span>
+<span class="sd">        def CUDA_factory(self):</span>
+<span class="sd">            @cuda.jit([...], device=True, inline=True)</span>
+<span class="sd">            def update(value, buffer, current_index, customisable_variable):</span>
+<span class="sd">                if value &gt; buffer[0]:</span>
+<span class="sd">                    buffer[0] = value</span>
+
+<span class="sd">            @cuda.jit([...], device=True, inline=True)</span>
+<span class="sd">            def save(</span>
+<span class="sd">                buffer, output_array, summarise_every, customisable_variable</span>
+<span class="sd">            ):</span>
+<span class="sd">                output_array[0] = buffer[0]</span>
+<span class="sd">                buffer[0] = -1.0e30  # Reset for next period</span>
+
+<span class="sd">            return update, save</span>
+<span class="sd">        ```</span>
+
+<span class="sd">        For a mean calculation metric:</span>
+<span class="sd">        ```python</span>
+<span class="sd">        def CUDA_factory(self):</span>
+<span class="sd">            @cuda.jit([...], device=True, inline=True)</span>
+<span class="sd">            def update(value, buffer, current_index, customisable_variable):</span>
+<span class="sd">                buffer[0] += value  # Accumulate sum</span>
+
+<span class="sd">            @cuda.jit([...], device=True, inline=True)</span>
+<span class="sd">            def save(</span>
+<span class="sd">                buffer, output_array, summarise_every, customisable_variable</span>
+<span class="sd">            ):</span>
+<span class="sd">                output_array[0] = buffer[0] / summarise_every</span>
+<span class="sd">                buffer[0] = 0.0  # Reset for next period</span>
+
+<span class="sd">            return update, save</span>
+<span class="sd">        ```</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="SummaryMetrics">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span> <span class="nc">SummaryMetrics</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Registry and dispatcher for summary metrics.</span>
+
+<span class="sd">    This class holds the complete set of implemented summary metrics and</span>
+<span class="sd">    provides summary information to other modules. It manages memory</span>
+<span class="sd">    layout, function dispatch, and parameter handling for all registered</span>
+<span class="sd">    metrics.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    _names : list[str]</span>
+<span class="sd">        List of registered metric names.</span>
+<span class="sd">    _buffer_sizes : dict[str, int or callable]</span>
+<span class="sd">        Buffer size requirements for each metric.</span>
+<span class="sd">    _output_sizes : dict[str, int or callable]</span>
+<span class="sd">        Output size requirements for each metric.</span>
+<span class="sd">    _save_functions : dict[str, callable]</span>
+<span class="sd">        Save functions for each metric.</span>
+<span class="sd">    _update_functions : dict[str, callable]</span>
+<span class="sd">        Update functions for each metric.</span>
+<span class="sd">    _metric_objects : dict[str, SummaryMetric]</span>
+<span class="sd">        Complete metric objects for each registered metric.</span>
+<span class="sd">    _params : dict[str, Any]</span>
+<span class="sd">        Parameters for each metric.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    All methods consistently return data only for requested metrics,</span>
+<span class="sd">    not for all implemented metrics. This allows efficient compilation</span>
+<span class="sd">    of only the needed functionality.</span>
+
+<span class="sd">    The class provides:</span>
+<span class="sd">    - implemented_metrics: List of available metric names</span>
+<span class="sd">    - buffer_offsets/sizes: Memory layout for summary buffers</span>
+<span class="sd">    - output_offsets/sizes: Memory layout for output arrays</span>
+<span class="sd">    - save/update_functions: CUDA device functions for metrics</span>
+<span class="sd">    - params: Parameter values for parameterized metrics</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">_names</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">list</span><span class="p">),</span> <span class="n">factory</span><span class="o">=</span><span class="nb">list</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="kc">False</span>
+    <span class="p">)</span>
+    <span class="n">_buffer_sizes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span>
+        <span class="n">factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">,</span>
+        <span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">_output_sizes</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Union</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span>
+        <span class="n">factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">,</span>
+        <span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">_save_functions</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span>
+        <span class="n">factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">,</span>
+        <span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">_update_functions</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span>
+        <span class="n">factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">,</span>
+        <span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">_metric_objects</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span> <span class="n">factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="kc">False</span>
+    <span class="p">)</span>
+    <span class="n">_params</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span>
+        <span class="n">factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">,</span>
+        <span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__attrs_post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the parameters dictionary.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_params</span> <span class="o">=</span> <span class="p">{}</span>
+
+<div class="viewcode-block" id="SummaryMetrics.register_metric">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.register_metric">[docs]</a>
+    <span class="k">def</span> <span class="nf">register_metric</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metric</span><span class="p">:</span> <span class="n">SummaryMetric</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Register a new summary metric with the system.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        metric : SummaryMetric</span>
+<span class="sd">            A SummaryMetric instance to register.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If a metric with the same name is already registered.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Once registered, the metric becomes available for use in output</span>
+<span class="sd">        configurations and will be automatically included in update and</span>
+<span class="sd">        save function chains when requested.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="n">metric</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_names</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metric &#39;</span><span class="si">{</span><span class="n">metric</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39; is already registered.&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">metric</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_sizes</span><span class="p">[</span><span class="n">metric</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">metric</span><span class="o">.</span><span class="n">buffer_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_output_sizes</span><span class="p">[</span><span class="n">metric</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">metric</span><span class="o">.</span><span class="n">output_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_metric_objects</span><span class="p">[</span><span class="n">metric</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">metric</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_update_functions</span><span class="p">[</span><span class="n">metric</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">metric</span><span class="o">.</span><span class="n">update_device_func</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_save_functions</span><span class="p">[</span><span class="n">metric</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">metric</span><span class="o">.</span><span class="n">save_device_func</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_params</span><span class="p">[</span><span class="n">metric</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.preprocess_request">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.preprocess_request">[docs]</a>
+    <span class="k">def</span> <span class="nf">preprocess_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Parse parameters from metric specifications and validate.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        request : list[str]</span>
+<span class="sd">            List of metric specifications, potentially with parameters.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        list[str]</span>
+<span class="sd">            List of validated metric names with parameters extracted.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Parses metric specifications like &#39;peaks[3]&#39; to extract parameters</span>
+<span class="sd">        and validates that all requested metrics are registered. Issues</span>
+<span class="sd">        warnings for unregistered metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">clean_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parse_string_for_params</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+        <span class="c1"># Validate that all metrics exist and filter out unregistered ones</span>
+        <span class="n">validated_request</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">clean_request</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">metric</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_names</span><span class="p">:</span>
+                <span class="n">warn</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Metric &#39;</span><span class="si">{</span><span class="n">metric</span><span class="si">}</span><span class="s2">&#39; is not registered. Skipping.&quot;</span><span class="p">,</span>
+                    <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">validated_request</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">metric</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">validated_request</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">implemented_metrics</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get list of all registered summary metric names.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        list[str]</span>
+<span class="sd">            Names of all registered summary metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_names</span>
+
+<div class="viewcode-block" id="SummaryMetrics.summaries_buffer_height">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.summaries_buffer_height">[docs]</a>
+    <span class="k">def</span> <span class="nf">summaries_buffer_height</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculate total buffer size for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to calculate total buffer size for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Total buffer size needed for all requested metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+
+        <span class="n">offset</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">:</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_size</span><span class="p">(</span><span class="n">metric</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_sizes</span><span class="p">)</span>
+            <span class="n">offset</span> <span class="o">+=</span> <span class="n">size</span>
+        <span class="k">return</span> <span class="n">offset</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.buffer_offsets">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.buffer_offsets">[docs]</a>
+    <span class="k">def</span> <span class="nf">buffer_offsets</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get buffer starting offsets for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to generate offsets for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[int]</span>
+<span class="sd">            Buffer starting offsets for the requested metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+
+        <span class="n">offset</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">offsets_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">:</span>
+            <span class="n">offsets_dict</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span> <span class="o">=</span> <span class="n">offset</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_size</span><span class="p">(</span><span class="n">metric</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_sizes</span><span class="p">)</span>
+            <span class="n">offset</span> <span class="o">+=</span> <span class="n">size</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">offsets_dict</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span> <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.buffer_sizes">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.buffer_sizes">[docs]</a>
+    <span class="k">def</span> <span class="nf">buffer_sizes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get buffer sizes for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to generate sizes for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[int]</span>
+<span class="sd">            Buffer sizes for the requested metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_get_size</span><span class="p">(</span><span class="n">metric</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_sizes</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.output_offsets">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.output_offsets">[docs]</a>
+    <span class="k">def</span> <span class="nf">output_offsets</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get output array starting offsets for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to generate offsets for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[int]</span>
+<span class="sd">            Output array starting offsets for the requested metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+
+        <span class="n">offset</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">offsets_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">:</span>
+            <span class="n">offsets_dict</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span> <span class="o">=</span> <span class="n">offset</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_size</span><span class="p">(</span><span class="n">metric</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_sizes</span><span class="p">)</span>
+            <span class="n">offset</span> <span class="o">+=</span> <span class="n">size</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">offsets_dict</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span> <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.output_offsets_dict">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.output_offsets_dict">[docs]</a>
+    <span class="k">def</span> <span class="nf">output_offsets_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get output array offsets as a dictionary for requested metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to generate offsets for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict[str, int]</span>
+<span class="sd">            Dictionary with metric names as keys and their offsets as values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+
+        <span class="n">offset</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">offsets_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">:</span>
+            <span class="n">offsets_dict</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span> <span class="o">=</span> <span class="n">offset</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_size</span><span class="p">(</span><span class="n">metric</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_sizes</span><span class="p">)</span>
+            <span class="n">offset</span> <span class="o">+=</span> <span class="n">size</span>
+        <span class="k">return</span> <span class="n">offsets_dict</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.summaries_output_height">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.summaries_output_height">[docs]</a>
+    <span class="k">def</span> <span class="nf">summaries_output_height</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculate total output size for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to calculate total output size for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Total output size needed for all requested metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+
+        <span class="n">total_size</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">:</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_size</span><span class="p">(</span><span class="n">metric</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_sizes</span><span class="p">)</span>
+            <span class="n">total_size</span> <span class="o">+=</span> <span class="n">size</span>
+        <span class="k">return</span> <span class="n">total_size</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics._get_size">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics._get_size">[docs]</a>
+    <span class="k">def</span> <span class="nf">_get_size</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metric_name</span><span class="p">,</span> <span class="n">size_dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculate size based on parameters if needed.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        metric_name : str</span>
+<span class="sd">            Name of the metric.</span>
+<span class="sd">        size_dict : dict</span>
+<span class="sd">            Dictionary containing size specifications.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Calculated size for the metric.</span>
+
+<span class="sd">        Warnings</span>
+<span class="sd">        --------</span>
+<span class="sd">        UserWarning</span>
+<span class="sd">            If a callable size has parameter set to 0.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">size</span> <span class="o">=</span> <span class="n">size_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">metric_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">callable</span><span class="p">(</span><span class="n">size</span><span class="p">):</span>
+            <span class="n">param</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">metric_name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">param</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">warn</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Metric &#39;</span><span class="si">{</span><span class="n">metric_name</span><span class="si">}</span><span class="s2">&#39; has a callable size &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;but parameter is set to 0. This results in a size&quot;</span>
+                    <span class="s2">&quot;of 0, which is likely not what you want&quot;</span><span class="p">,</span>
+                    <span class="ne">UserWarning</span><span class="p">,</span>
+                    <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">return</span> <span class="n">size</span><span class="p">(</span><span class="n">param</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">size</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.legend">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.legend">[docs]</a>
+    <span class="k">def</span> <span class="nf">legend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate column headings for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to generate headings for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        list[str]</span>
+<span class="sd">            Column headings for the metrics in order.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        For metrics with output_size=1, the heading is just the metric name.</span>
+<span class="sd">        For metrics with output_size&gt;1, the headings are {name}_1, {name}_2,</span>
+<span class="sd">        etc.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+        <span class="n">headings</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">:</span>
+            <span class="n">output_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_size</span><span class="p">(</span><span class="n">metric</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_sizes</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">output_size</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">headings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">metric</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">output_size</span><span class="p">):</span>
+                    <span class="n">headings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">metric</span><span class="si">}</span><span class="s2">_</span><span class="si">{</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">headings</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.output_sizes">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.output_sizes">[docs]</a>
+    <span class="k">def</span> <span class="nf">output_sizes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get output array sizes for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to generate sizes for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[int]</span>
+<span class="sd">            Output array sizes for the requested metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_get_size</span><span class="p">(</span><span class="n">metric</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_sizes</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.save_functions">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.save_functions">[docs]</a>
+    <span class="k">def</span> <span class="nf">save_functions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get save functions for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to get save functions for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[callable]</span>
+<span class="sd">            CUDA device save functions for the requested metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_save_functions</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span> <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.update_functions">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.update_functions">[docs]</a>
+    <span class="k">def</span> <span class="nf">update_functions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get update functions for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to get update functions for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[callable]</span>
+<span class="sd">            CUDA device update functions for the requested metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_update_functions</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span> <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.params">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.params">[docs]</a>
+    <span class="k">def</span> <span class="nf">params</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_types_requested</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get parameters for requested summary metrics.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_types_requested : list[str]</span>
+<span class="sd">            List of metric names to get parameters for.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[Any]</span>
+<span class="sd">            Parameter values for the requested metrics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parsed_request</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_request</span><span class="p">(</span><span class="n">output_types_requested</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_params</span><span class="p">[</span><span class="n">metric</span><span class="p">]</span> <span class="k">for</span> <span class="n">metric</span> <span class="ow">in</span> <span class="n">parsed_request</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SummaryMetrics.parse_string_for_params">
+<a class="viewcode-back" href="../../../../api/generated/cubie.outputhandling.summarymetrics.metrics.html#cubie.outputhandling.summarymetrics.SummaryMetrics.parse_string_for_params">[docs]</a>
+    <span class="k">def</span> <span class="nf">parse_string_for_params</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirty_request</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Extract parameters from metric specification strings.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        dirty_request : list[str]</span>
+<span class="sd">            List of metric specifications that may contain parameters</span>
+<span class="sd">            in the format &#39;metric[param]&#39;.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        list[str]</span>
+<span class="sd">            List of metrics with any [param] stripped</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Any params stripped from the string are saved in self._params, keyed</span>
+<span class="sd">        by &#39;metric&#39; name.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">clean_request</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_params</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">string</span> <span class="ow">in</span> <span class="n">dirty_request</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s2">&quot;[&quot;</span> <span class="ow">in</span> <span class="n">string</span><span class="p">:</span>
+                <span class="n">name</span><span class="p">,</span> <span class="n">param_part</span> <span class="o">=</span> <span class="n">string</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;[&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="n">param_str</span> <span class="o">=</span> <span class="n">param_part</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;]&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">param_value</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">param_str</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Parameter in &#39;</span><span class="si">{</span><span class="n">string</span><span class="si">}</span><span class="s2">&#39; must be an integer.&quot;</span>
+                    <span class="p">)</span>
+
+                <span class="bp">self</span><span class="o">.</span><span class="n">_params</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">param_value</span>
+                <span class="n">clean_request</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">clean_request</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">string</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_params</span><span class="p">[</span><span class="n">string</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="k">return</span> <span class="n">clean_request</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

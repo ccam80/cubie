@@ -1,0 +1,1179 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.outputhandling &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.outputhandling.output_config" href="cubie.outputhandling.output_config.html" />
+    <link rel="prev" title="cubie.systemmodels.systems.threeCM" href="cubie.systemmodels.systems.threeCM.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../usage.html">Using cubie</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.systemmodels.html">cubie.systemmodels</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">cubie.outputhandling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#cubie.outputhandling.OutputConfig"><code class="docutils literal notranslate"><span class="pre">OutputConfig</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig._check_for_no_outputs"><code class="docutils literal notranslate"><span class="pre">OutputConfig._check_for_no_outputs()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig._check_saved_indices"><code class="docutils literal notranslate"><span class="pre">OutputConfig._check_saved_indices()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig._check_summarised_indices"><code class="docutils literal notranslate"><span class="pre">OutputConfig._check_summarised_indices()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig._validate_index_arrays"><code class="docutils literal notranslate"><span class="pre">OutputConfig._validate_index_arrays()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.compile_flags"><code class="docutils literal notranslate"><span class="pre">OutputConfig.compile_flags</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.from_loop_settings"><code class="docutils literal notranslate"><span class="pre">OutputConfig.from_loop_settings()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.max_observables"><code class="docutils literal notranslate"><span class="pre">OutputConfig.max_observables</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.max_states"><code class="docutils literal notranslate"><span class="pre">OutputConfig.max_states</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.n_saved_observables"><code class="docutils literal notranslate"><span class="pre">OutputConfig.n_saved_observables</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.n_saved_states"><code class="docutils literal notranslate"><span class="pre">OutputConfig.n_saved_states</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.n_summarised_observables"><code class="docutils literal notranslate"><span class="pre">OutputConfig.n_summarised_observables</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.n_summarised_states"><code class="docutils literal notranslate"><span class="pre">OutputConfig.n_summarised_states</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.observable_summaries_buffer_height"><code class="docutils literal notranslate"><span class="pre">OutputConfig.observable_summaries_buffer_height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.observable_summaries_output_height"><code class="docutils literal notranslate"><span class="pre">OutputConfig.observable_summaries_output_height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.output_types"><code class="docutils literal notranslate"><span class="pre">OutputConfig.output_types</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.save_observables"><code class="docutils literal notranslate"><span class="pre">OutputConfig.save_observables</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.save_state"><code class="docutils literal notranslate"><span class="pre">OutputConfig.save_state</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.save_summaries"><code class="docutils literal notranslate"><span class="pre">OutputConfig.save_summaries</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.save_time"><code class="docutils literal notranslate"><span class="pre">OutputConfig.save_time</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.saved_observable_indices"><code class="docutils literal notranslate"><span class="pre">OutputConfig.saved_observable_indices</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.saved_state_indices"><code class="docutils literal notranslate"><span class="pre">OutputConfig.saved_state_indices</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.state_summaries_buffer_height"><code class="docutils literal notranslate"><span class="pre">OutputConfig.state_summaries_buffer_height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.state_summaries_output_height"><code class="docutils literal notranslate"><span class="pre">OutputConfig.state_summaries_output_height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.summaries_buffer_height_per_var"><code class="docutils literal notranslate"><span class="pre">OutputConfig.summaries_buffer_height_per_var</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.summaries_output_height_per_var"><code class="docutils literal notranslate"><span class="pre">OutputConfig.summaries_output_height_per_var</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.summarise_observables"><code class="docutils literal notranslate"><span class="pre">OutputConfig.summarise_observables</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.summarise_state"><code class="docutils literal notranslate"><span class="pre">OutputConfig.summarise_state</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.summarised_observable_indices"><code class="docutils literal notranslate"><span class="pre">OutputConfig.summarised_observable_indices</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.summarised_state_indices"><code class="docutils literal notranslate"><span class="pre">OutputConfig.summarised_state_indices</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.summary_legend_per_variable"><code class="docutils literal notranslate"><span class="pre">OutputConfig.summary_legend_per_variable</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.summary_parameters"><code class="docutils literal notranslate"><span class="pre">OutputConfig.summary_parameters</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.summary_types"><code class="docutils literal notranslate"><span class="pre">OutputConfig.summary_types</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.total_summary_buffer_size"><code class="docutils literal notranslate"><span class="pre">OutputConfig.total_summary_buffer_size</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputConfig.update_from_outputs_list"><code class="docutils literal notranslate"><span class="pre">OutputConfig.update_from_outputs_list()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions"><code class="docutils literal notranslate"><span class="pre">OutputFunctions</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.build"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.build()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.compile_flags"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.compile_flags</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.n_saved_observables"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.n_saved_observables</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.n_saved_states"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.n_saved_states</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.n_summarised_observables"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.n_summarised_observables</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.n_summarised_states"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.n_summarised_states</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.observable_summaries_buffer_height"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.observable_summaries_buffer_height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.observable_summaries_output_height"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.observable_summaries_output_height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.output_array_heights"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.output_array_heights</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.output_types"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.output_types</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.save_state_func"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.save_state_func</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.save_summary_metrics_func"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.save_summary_metrics_func</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.save_time"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.save_time</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.saved_observable_indices"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.saved_observable_indices</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.saved_state_indices"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.saved_state_indices</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.state_summaries_buffer_height"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.state_summaries_buffer_height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.state_summaries_output_height"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.state_summaries_output_height</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.summaries_buffer_height_per_var"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.summaries_buffer_height_per_var</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.summaries_buffer_sizes"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.summaries_buffer_sizes</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.summaries_output_height_per_var"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.summaries_output_height_per_var</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.summarised_observable_indices"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.summarised_observable_indices</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.summarised_state_indices"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.summarised_state_indices</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.summary_legend_per_variable"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.summary_legend_per_variable</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.total_summary_buffer_size"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.total_summary_buffer_size</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.update"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.update()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.outputhandling.OutputFunctions.update_summaries_func"><code class="docutils literal notranslate"><span class="pre">OutputFunctions.update_summaries_func</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.output_config.html">cubie.outputhandling.output_config</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.output_functions.html">cubie.outputhandling.output_functions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.output_sizes.html">cubie.outputhandling.output_sizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.save_state.html">cubie.outputhandling.save_state</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.save_summaries.html">cubie.outputhandling.save_summaries</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.summarymetrics.html">cubie.outputhandling.summarymetrics</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.update_summaries.html">cubie.outputhandling.update_summaries</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+      <li class="breadcrumb-item active">cubie.outputhandling</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.outputhandling.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.outputhandling">
+<span id="cubie-outputhandling"></span><h1>cubie.outputhandling<a class="headerlink" href="#module-cubie.outputhandling" title="Link to this heading"></a></h1>
+<p>This module manages the saving and summarising of the solver system.</p>
+<p>This module provides the core infrastructure for saving and summarising the
+solver system, including registration and function dispatch for CUDA device
+functions.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.outputhandling.</span></span><span class="sig-name descname"><span class="pre">OutputConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">max_states</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_observables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">saved_state_indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saved_observable_indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarised_state_indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarised_observable_indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_types</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">NOTHING</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_config.html#OutputConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputConfig" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Configuration class for output handling with validation.</p>
+<p>This class manages output configuration settings including which variables
+to save, which to summarize, and various validation logic to ensure proper
+configuration. It handles the conversion between user-friendly output type
+specifications and internal boolean flags.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>_max_states</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Maximum number of state variables in the system.</p></li>
+<li><p><strong>_max_observables</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Maximum number of observable variables in the system.</p></li>
+<li><p><strong>_saved_state_indices</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> or </em><em>NDArray</em><em>, </em><em>optional</em>) – Indices of state variables to save. Defaults to empty list.</p></li>
+<li><p><strong>_saved_observable_indices</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> or </em><em>NDArray</em><em>, </em><em>optional</em>) – Indices of observable variables to save. Defaults to empty list.</p></li>
+<li><p><strong>_summarised_state_indices</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> or </em><em>NDArray</em><em>, </em><em>optional</em>) – Indices of state variables to summarize. Defaults to empty list.</p></li>
+<li><p><strong>_summarised_observable_indices</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em> or </em><em>NDArray</em><em>, </em><em>optional</em>) – Indices of observable variables to summarize. Defaults to empty list.</p></li>
+<li><p><strong>_output_types</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>]</em><em>, </em><em>optional</em>) – List of requested output types. Defaults to empty list.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Uses private attributes with property accessors to handle circular
+dependencies when setting indices and output flags. This design allows
+for proper validation while maintaining a clean public interface.</p>
+<p>The class automatically validates that:
+- At least one output type is requested
+- All indices are within valid ranges
+- No duplicate indices are specified</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig._check_for_no_outputs">
+<span class="sig-name descname"><span class="pre">_check_for_no_outputs</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_config.html#OutputConfig._check_for_no_outputs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputConfig._check_for_no_outputs" title="Link to this definition"></a></dt>
+<dd><p>Ensure at least one output type is requested.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If no output types are enabled.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig._check_saved_indices">
+<span class="sig-name descname"><span class="pre">_check_saved_indices</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_config.html#OutputConfig._check_saved_indices"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputConfig._check_saved_indices" title="Link to this definition"></a></dt>
+<dd><p>Convert saved indices to numpy arrays and set defaults if empty.</p>
+<p class="rubric">Notes</p>
+<p>If index arrays are empty, creates arrays containing all possible
+indices for the respective variable types.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig._check_summarised_indices">
+<span class="sig-name descname"><span class="pre">_check_summarised_indices</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_config.html#OutputConfig._check_summarised_indices"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputConfig._check_summarised_indices" title="Link to this definition"></a></dt>
+<dd><p>Set summarised indices to saved indices if not provided.</p>
+<p class="rubric">Notes</p>
+<p>If summarised indices are empty, defaults them to the corresponding
+saved indices arrays.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig._validate_index_arrays">
+<span class="sig-name descname"><span class="pre">_validate_index_arrays</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_config.html#OutputConfig._validate_index_arrays"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputConfig._validate_index_arrays" title="Link to this definition"></a></dt>
+<dd><p>Validate that all index arrays are within bounds and contain no
+duplicates.</p>
+<p class="rubric">Notes</p>
+<p>Called post-init to allow None arrays to be replaced with default
+arrays before validation.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.compile_flags">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">compile_flags</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.outputhandling.output_config.html#cubie.outputhandling.output_config.OutputCompileFlags" title="cubie.outputhandling.output_config.OutputCompileFlags"><span class="pre">OutputCompileFlags</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.compile_flags" title="Link to this definition"></a></dt>
+<dd><p>Get compile flags for this configuration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Flags indicating which output features should be compiled.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.outputhandling.output_config.html#cubie.outputhandling.output_config.OutputCompileFlags" title="cubie.outputhandling.output_config.OutputCompileFlags">OutputCompileFlags</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.from_loop_settings">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_loop_settings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saved_state_indices</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saved_observable_indices</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarised_state_indices</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarised_observable_indices</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_states</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_observables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="cubie.outputhandling.output_config.html#cubie.outputhandling.output_config.OutputConfig" title="cubie.outputhandling.output_config.OutputConfig"><span class="pre">OutputConfig</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_config.html#OutputConfig.from_loop_settings"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputConfig.from_loop_settings" title="Link to this definition"></a></dt>
+<dd><p>Create configuration from integrator-compatible specifications.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>output_types</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>]</em>) – Output types from [“state”, “observables”, “time”] plus
+summary metrics like [“max”, “peaks”, “mean”, “rms”, “min”].</p></li>
+<li><p><strong>saved_state_indices</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Indices of states to save in time-domain output.</p></li>
+<li><p><strong>saved_observable_indices</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Indices of observables to save in time-domain output.</p></li>
+<li><p><strong>summarised_state_indices</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Indices of states for summary calculations. If None,
+defaults to saved_state_indices.</p></li>
+<li><p><strong>summarised_observable_indices</strong> (<em>array-like</em><em>, </em><em>optional</em>) – Indices of observables for summary calculations. If None,
+defaults to saved_observable_indices.</p></li>
+<li><p><strong>max_states</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>default 0</em>) – Total number of state variables in the system.</p></li>
+<li><p><strong>max_observables</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>default 0</em>) – Total number of observable variables in the system.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Configured output configuration object.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cubie.outputhandling.OutputConfig" title="cubie.outputhandling.OutputConfig">OutputConfig</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This class method provides a convenient interface for creating
+OutputConfig objects from the parameter format used by integrator
+classes. It handles None values appropriately by converting them
+to empty arrays.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.max_observables">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">max_observables</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.max_observables" title="Link to this definition"></a></dt>
+<dd><p>Get the maximum number of observables.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Maximum number of observable variables.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.max_states">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">max_states</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.max_states" title="Link to this definition"></a></dt>
+<dd><p>Get the maximum number of states.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Maximum number of state variables.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.n_saved_observables">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_saved_observables</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.n_saved_observables" title="Link to this definition"></a></dt>
+<dd><p>Get number of observables that will be saved.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of observable variables to save in time-domain output.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.n_saved_states">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_saved_states</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.n_saved_states" title="Link to this definition"></a></dt>
+<dd><p>Get number of states that will be saved.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of state variables to save in time-domain output.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Returns the length of saved_state_indices when save_state is True,
+otherwise 0.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.n_summarised_observables">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_summarised_observables</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.n_summarised_observables" title="Link to this definition"></a></dt>
+<dd><p>Get number of observables that will be summarised.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of observable variables for summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.n_summarised_states">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_summarised_states</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.n_summarised_states" title="Link to this definition"></a></dt>
+<dd><p>Get number of states that will be summarised.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of state variables for summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Returns the length of summarised_state_indices when save_summaries
+is active, otherwise 0.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.observable_summaries_buffer_height">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">observable_summaries_buffer_height</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.observable_summaries_buffer_height" title="Link to this definition"></a></dt>
+<dd><p>Calculate total buffer height for observable summaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Total buffer height for all observable summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.observable_summaries_output_height">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">observable_summaries_output_height</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.observable_summaries_output_height" title="Link to this definition"></a></dt>
+<dd><p>Calculate total output height for observable summaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Total output height for all observable summary results.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.output_types">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">output_types</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.output_types" title="Link to this definition"></a></dt>
+<dd><p>Get the configured output types.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>List of requested output type names.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.save_observables">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_observables</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.save_observables" title="Link to this definition"></a></dt>
+<dd><p>Check if observable saving is enabled and has valid indices.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if observable saving is enabled and indices are available.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.save_state">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_state</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.save_state" title="Link to this definition"></a></dt>
+<dd><p>Check if state saving is enabled and has valid indices.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if state saving is enabled and indices are available.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.save_summaries">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_summaries</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.save_summaries" title="Link to this definition"></a></dt>
+<dd><p>Check if any summary calculations are needed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if any summary types are configured.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.save_time">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_time</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.save_time" title="Link to this definition"></a></dt>
+<dd><p>Check if time saving is enabled.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if time values should be saved.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.saved_observable_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">saved_observable_indices</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.saved_observable_indices" title="Link to this definition"></a></dt>
+<dd><p>Get indices of observables to save.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Array of observable indices, empty if observable saving is disabled.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>np.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.saved_state_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">saved_state_indices</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.saved_state_indices" title="Link to this definition"></a></dt>
+<dd><p>Get indices of states to save.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Array of state indices, empty if state saving is disabled.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>np.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.state_summaries_buffer_height">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state_summaries_buffer_height</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.state_summaries_buffer_height" title="Link to this definition"></a></dt>
+<dd><p>Calculate total buffer height for state summaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Total buffer height for all state summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.state_summaries_output_height">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state_summaries_output_height</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.state_summaries_output_height" title="Link to this definition"></a></dt>
+<dd><p>Calculate total output height for state summaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Total output height for all state summary results.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.summaries_buffer_height_per_var">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summaries_buffer_height_per_var</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.summaries_buffer_height_per_var" title="Link to this definition"></a></dt>
+<dd><p>Calculate buffer size per variable for summary calculations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Buffer height required per variable for summary metrics.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.summaries_output_height_per_var">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summaries_output_height_per_var</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.summaries_output_height_per_var" title="Link to this definition"></a></dt>
+<dd><p>Calculate output array height per variable for summaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Output height required per variable for summary results.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.summarise_observables">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summarise_observables</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.summarise_observables" title="Link to this definition"></a></dt>
+<dd><p>Check if observable variables will be summarised.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if summaries are enabled and observable indices are available.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.summarise_state">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summarise_state</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.summarise_state" title="Link to this definition"></a></dt>
+<dd><p>Check if state variables will be summarised.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if summaries are enabled and state indices are available.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.summarised_observable_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summarised_observable_indices</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.summarised_observable_indices" title="Link to this definition"></a></dt>
+<dd><p>Get indices of observables to summarise.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Array of observable indices for summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>np.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.summarised_state_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summarised_state_indices</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.summarised_state_indices" title="Link to this definition"></a></dt>
+<dd><p>Get indices of states to summarise.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Array of state indices for summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>np.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.summary_legend_per_variable">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summary_legend_per_variable</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.summary_legend_per_variable" title="Link to this definition"></a></dt>
+<dd><p>Get mapping of summary types to indices per variable.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary mapping index numbers to summary type names.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.summary_parameters">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summary_parameters</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.summary_parameters" title="Link to this definition"></a></dt>
+<dd><p>Get parameters for summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Parameters required by the summary metrics system.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.summary_types">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summary_types</span></span><a class="headerlink" href="#cubie.outputhandling.OutputConfig.summary_types" title="Link to this definition"></a></dt>
+<dd><p>Get the configured summary types.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Tuple of summary metric names.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.total_summary_buffer_size">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">total_summary_buffer_size</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputConfig.total_summary_buffer_size" title="Link to this definition"></a></dt>
+<dd><p>Calculate total size of all summary buffers.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Combined size of state and observable summary buffers.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputConfig.update_from_outputs_list">
+<span class="sig-name descname"><span class="pre">update_from_outputs_list</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_config.html#OutputConfig.update_from_outputs_list"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputConfig.update_from_outputs_list" title="Link to this definition"></a></dt>
+<dd><p>Update configuration from a list of output type names.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>]</em>) – List of output type names to configure.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Parses the output types list to set internal boolean flags and
+extract summary metric specifications. Unknown output types
+generate warnings but do not cause errors.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.outputhandling.</span></span><span class="sig-name descname"><span class="pre">OutputFunctions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">max_states</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_observables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_types</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saved_state_indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Sequence" title="(in Python v3.13)"><span class="pre">Sequence</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Buffer" title="(in Python v3.13)"><span class="pre">Buffer</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saved_observable_indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Sequence" title="(in Python v3.13)"><span class="pre">Sequence</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Buffer" title="(in Python v3.13)"><span class="pre">Buffer</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarised_state_indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Sequence" title="(in Python v3.13)"><span class="pre">Sequence</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Buffer" title="(in Python v3.13)"><span class="pre">Buffer</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarised_observable_indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Sequence" title="(in Python v3.13)"><span class="pre">Sequence</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Buffer" title="(in Python v3.13)"><span class="pre">Buffer</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_functions.html#OutputFunctions"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputFunctions" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">CUDAFactory</span></code></p>
+<p>Output function factory with automatic caching.</p>
+<p>This class manages the creation and caching of CUDA-compiled output
+functions for state saving and summary calculations. It extends
+CUDAFactory to provide automatic function caching and invalidation when
+settings change.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>max_states</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Maximum number of state variables in the system.</p></li>
+<li><p><strong>max_observables</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Maximum number of observable variables in the system.</p></li>
+<li><p><strong>output_types</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>]</em><em>, </em><em>optional</em>) – Types of output to generate. Default is [“state”].</p></li>
+<li><p><strong>saved_state_indices</strong> (<em>Sequence</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>] or </em><em>ArrayLike</em><em>, </em><em>optional</em>) – Indices of state variables to save in time-domain output.</p></li>
+<li><p><strong>saved_observable_indices</strong> (<em>Sequence</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>] or </em><em>ArrayLike</em><em>, </em><em>optional</em>) – Indices of observable variables to save in time-domain output.</p></li>
+<li><p><strong>summarised_state_indices</strong> (<em>Sequence</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>] or </em><em>ArrayLike</em><em>, </em><em>optional</em>) – Indices of state variables to include in summary calculations.</p></li>
+<li><p><strong>summarised_observable_indices</strong> (<em>Sequence</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>] or </em><em>ArrayLike</em><em>, </em><em>optional</em>) – Indices of observable variables to include in summary calculations.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The class automatically creates an OutputConfig object from the provided
+parameters and sets it up as compile settings through the CUDAFactory
+interface. Functions are compiled lazily when first accessed.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.build">
+<span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="cubie.outputhandling.output_functions.html#cubie.outputhandling.output_functions.OutputFunctionCache" title="cubie.outputhandling.output_functions.OutputFunctionCache"><span class="pre">OutputFunctionCache</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_functions.html#OutputFunctions.build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.build" title="Link to this definition"></a></dt>
+<dd><p>Compile output functions and calculate memory requirements.</p>
+<p>Compiles three main functions: save state, update summary metrics,
+and save summaries. Also calculates memory requirements for buffer
+and output arrays based on the current configuration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Container with all compiled functions and memory requirements.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.outputhandling.output_functions.html#cubie.outputhandling.output_functions.OutputFunctionCache" title="cubie.outputhandling.output_functions.OutputFunctionCache">OutputFunctionCache</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This method is called automatically by the CUDAFactory when functions
+are first accessed. The compiled functions are optimized for the
+current configuration settings.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.compile_flags">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">compile_flags</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.compile_flags" title="Link to this definition"></a></dt>
+<dd><p>Get the compile flags for output functions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Compile flags indicating which output types are enabled.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.outputhandling.output_config.html#cubie.outputhandling.output_config.OutputCompileFlags" title="cubie.outputhandling.output_config.OutputCompileFlags">OutputCompileFlags</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.n_saved_observables">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_saved_observables</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.n_saved_observables" title="Link to this definition"></a></dt>
+<dd><p>Get number of observables that will be saved in time-domain output.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of observable variables that will actually be saved.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.n_saved_states">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_saved_states</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.n_saved_states" title="Link to this definition"></a></dt>
+<dd><p>Get number of states that will be saved in time-domain output.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of state variables to save, which equals the length of
+saved_state_indices when save_state is True.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.n_summarised_observables">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_summarised_observables</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.n_summarised_observables" title="Link to this definition"></a></dt>
+<dd><p>Get number of observables that will be summarised.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of observable variables that will actually be summarised.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.n_summarised_states">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n_summarised_states</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.n_summarised_states" title="Link to this definition"></a></dt>
+<dd><p>Get number of states that will be summarised.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of state variables included in summary calculations,
+which equals the length of summarised_state_indices when
+save_summaries is active.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.observable_summaries_buffer_height">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">observable_summaries_buffer_height</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.observable_summaries_buffer_height" title="Link to this definition"></a></dt>
+<dd><p>Get height of the observable summaries buffer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Total height of the buffer for observable summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.observable_summaries_output_height">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">observable_summaries_output_height</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.observable_summaries_output_height" title="Link to this definition"></a></dt>
+<dd><p>Get height of the output array for observable summaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Height of the output array for observable summary data.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.output_array_heights">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">output_array_heights</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.OutputArrayHeights" title="cubie.outputhandling.output_sizes.OutputArrayHeights"><span class="pre">OutputArrayHeights</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.output_array_heights" title="Link to this definition"></a></dt>
+<dd><p>Get output array height information.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Object containing height information for output arrays.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.OutputArrayHeights" title="cubie.outputhandling.output_sizes.OutputArrayHeights">OutputArrayHeights</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes OutputArrayHeights from the child OutputArrayHeights object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.output_types">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">output_types</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.output_types" title="Link to this definition"></a></dt>
+<dd><p>Get the output types configured for compilation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Set of output types requested/compiled into the functions.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#set" title="(in Python v3.13)">set</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.save_state_func">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_state_func</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.save_state_func" title="Link to this definition"></a></dt>
+<dd><p>Access the compiled state saving function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Compiled CUDA function for saving state values.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Callable</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes save_state_function from the cached OutputFunctionCache
+object. The function is compiled on first access if not already cached.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.save_summary_metrics_func">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_summary_metrics_func</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.save_summary_metrics_func" title="Link to this definition"></a></dt>
+<dd><p>Access the compiled summary saving function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Compiled CUDA function for saving summary results.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Callable</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes save_summaries_function from the cached OutputFunctionCache
+object. The function is compiled on first access if not already
+cached.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.save_time">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_time</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.save_time" title="Link to this definition"></a></dt>
+<dd><p>Check if time saving is enabled.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>True if time values are being saved with state data.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.saved_observable_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">saved_observable_indices</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.saved_observable_indices" title="Link to this definition"></a></dt>
+<dd><p>Get indices of observables to save in time-domain output.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Array of observable variable indices for time-domain saving.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>np.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.saved_state_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">saved_state_indices</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.saved_state_indices" title="Link to this definition"></a></dt>
+<dd><p>Get indices of states to save in time-domain output.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Array of state variable indices for time-domain saving.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>np.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.state_summaries_buffer_height">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state_summaries_buffer_height</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.state_summaries_buffer_height" title="Link to this definition"></a></dt>
+<dd><p>Get height of the state summaries buffer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Total height of the buffer for state summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.state_summaries_output_height">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state_summaries_output_height</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.state_summaries_output_height" title="Link to this definition"></a></dt>
+<dd><p>Get height of the output array for state summaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Height of the output array for state summary data.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.summaries_buffer_height_per_var">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summaries_buffer_height_per_var</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.summaries_buffer_height_per_var" title="Link to this definition"></a></dt>
+<dd><p>Get height of the summary buffer per variable.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Height of the summary buffer required per variable.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.summaries_buffer_sizes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summaries_buffer_sizes</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.SummariesBufferSizes" title="cubie.outputhandling.output_sizes.SummariesBufferSizes"><span class="pre">SummariesBufferSizes</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.summaries_buffer_sizes" title="Link to this definition"></a></dt>
+<dd><p>Get summary buffer size information.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Object containing buffer size information for summary
+calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.SummariesBufferSizes" title="cubie.outputhandling.output_sizes.SummariesBufferSizes">SummariesBufferSizes</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes SummariesBufferSizes from the child SummariesBufferSizes
+object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.summaries_output_height_per_var">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summaries_output_height_per_var</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.summaries_output_height_per_var" title="Link to this definition"></a></dt>
+<dd><p>Get height of the summary output per variable.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Height of the summary output array per variable.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.summarised_observable_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summarised_observable_indices</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.summarised_observable_indices" title="Link to this definition"></a></dt>
+<dd><p>Get indices of observables to include in summary calculations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Array of observable variable indices for summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>np.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.summarised_state_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summarised_state_indices</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.summarised_state_indices" title="Link to this definition"></a></dt>
+<dd><p>Get indices of states to include in summary calculations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Array of state variable indices for summary calculations.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>np.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.summary_legend_per_variable">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summary_legend_per_variable</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.summary_legend_per_variable" title="Link to this definition"></a></dt>
+<dd><p>Get mapping of summary names to their heights per variable.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dictionary mapping summary metric names to their required
+heights per variable.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.total_summary_buffer_size">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">total_summary_buffer_size</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.total_summary_buffer_size" title="Link to this definition"></a></dt>
+<dd><p>Get total size of the summaries buffer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Total size required for all summary buffers combined.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.update">
+<span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">updates_dict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">silent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/output_functions.html#OutputFunctions.update"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.update" title="Link to this definition"></a></dt>
+<dd><p>Update compile settings through the CUDAFactory interface.</p>
+<p>Pass updates to compile settings, which will invalidate the function
+cache if an update is successful. This allows dynamic reconfiguration
+of output parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>updates_dict</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Dictionary of parameter updates to apply.</p></li>
+<li><p><strong>silent</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>optional</em>) – If True, suppress warnings about unrecognized parameters.
+Default is False.</p></li>
+<li><p><strong>**kwargs</strong> – Additional parameter updates to apply.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Set of recognized parameter names that were successfully updated.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#set" title="(in Python v3.13)">set</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#KeyError" title="(in Python v3.13)"><strong>KeyError</strong></a> – If unrecognized parameters are provided and silent=False.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This method is useful for bulk updates with other component parameters
+when silent=True is used to suppress warnings about keys not found in
+this component.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.OutputFunctions.update_summaries_func">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">update_summaries_func</span></span><a class="headerlink" href="#cubie.outputhandling.OutputFunctions.update_summaries_func" title="Link to this definition"></a></dt>
+<dd><p>Access the compiled summary update function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Compiled CUDA function for updating summary metrics.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Callable</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes update_summaries_function from the cached OutputFunctionCache
+object. The function is compiled on first access if not already
+cached.</p>
+</dd></dl>
+
+</dd></dl>
+
+<p class="rubric">Modules</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.outputhandling.output_config.html#module-cubie.outputhandling.output_config" title="cubie.outputhandling.output_config"><code class="xref py py-obj docutils literal notranslate"><span class="pre">output_config</span></code></a></p></td>
+<td><p>Output configuration management system for flexible, user-controlled output selection.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="cubie.outputhandling.output_functions.html#module-cubie.outputhandling.output_functions" title="cubie.outputhandling.output_functions"><code class="xref py py-obj docutils literal notranslate"><span class="pre">output_functions</span></code></a></p></td>
+<td><p>Output function management for CUDA-accelerated batch solving.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.outputhandling.output_sizes.html#module-cubie.outputhandling.output_sizes" title="cubie.outputhandling.output_sizes"><code class="xref py py-obj docutils literal notranslate"><span class="pre">output_sizes</span></code></a></p></td>
+<td><p>Array sizing classes for output buffer and array management.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="cubie.outputhandling.save_state.html#module-cubie.outputhandling.save_state" title="cubie.outputhandling.save_state"><code class="xref py py-obj docutils literal notranslate"><span class="pre">save_state</span></code></a></p></td>
+<td><p>CUDA device function factory for saving state and observable values.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.outputhandling.save_summaries.html#module-cubie.outputhandling.save_summaries" title="cubie.outputhandling.save_summaries"><code class="xref py py-obj docutils literal notranslate"><span class="pre">save_summaries</span></code></a></p></td>
+<td><p>CUDA device function factory for saving summary metrics.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="cubie.outputhandling.summarymetrics.html#module-cubie.outputhandling.summarymetrics" title="cubie.outputhandling.summarymetrics"><code class="xref py py-obj docutils literal notranslate"><span class="pre">summarymetrics</span></code></a></p></td>
+<td><p>Summary metrics.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.outputhandling.update_summaries.html#module-cubie.outputhandling.update_summaries" title="cubie.outputhandling.update_summaries"><code class="xref py py-obj docutils literal notranslate"><span class="pre">update_summaries</span></code></a></p></td>
+<td><p>CUDA device function factory for updating summary metrics during integration.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.systemmodels.systems.threeCM.html" class="btn btn-neutral float-left" title="cubie.systemmodels.systems.threeCM" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.outputhandling.output_config.html" class="btn btn-neutral float-right" title="cubie.outputhandling.output_config" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

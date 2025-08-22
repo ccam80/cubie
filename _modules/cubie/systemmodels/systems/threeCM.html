@@ -1,0 +1,437 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.systemmodels.systems.threeCM &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../usage.html">Using cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.systemmodels.systems.threeCM</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.systemmodels.systems.threeCM</h1><div class="highlight"><pre>
+<span></span><span class="c1"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;Three chamber cardiovascular model.</span>
+
+<span class="sd">This module implements a three chamber cardiovascular model based on</span>
+<span class="sd">Antoine Pironet&#39;s thesis , suitable for CUDA execution.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">numba</span> <span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">from_dtype</span>
+
+<span class="kn">from</span> <span class="nn">cubie.systemmodels.systems.GenericODE</span> <span class="kn">import</span> <span class="n">GenericODE</span>
+
+<span class="n">default_parameters</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">&quot;E_h&quot;</span><span class="p">:</span> <span class="mf">0.52</span><span class="p">,</span>
+    <span class="s2">&quot;E_a&quot;</span><span class="p">:</span> <span class="mf">0.0133</span><span class="p">,</span>
+    <span class="s2">&quot;E_v&quot;</span><span class="p">:</span> <span class="mf">0.0624</span><span class="p">,</span>
+    <span class="s2">&quot;R_i&quot;</span><span class="p">:</span> <span class="mf">0.012</span><span class="p">,</span>
+    <span class="s2">&quot;R_o&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="s2">&quot;R_c&quot;</span><span class="p">:</span> <span class="mi">1</span> <span class="o">/</span> <span class="mi">114</span><span class="p">,</span>
+    <span class="s2">&quot;V_s3&quot;</span><span class="p">:</span> <span class="mf">2.0</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="n">default_initial_values</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;V_h&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span> <span class="s2">&quot;V_a&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span> <span class="s2">&quot;V_v&quot;</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">}</span>
+
+<span class="n">default_observable_names</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">&quot;P_a&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;P_v&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;P_h&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Q_i&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Q_o&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;Q_c&quot;</span><span class="p">,</span>
+<span class="p">]</span>  <span class="c1"># Flow in circulation</span>
+
+<span class="n">default_constants</span> <span class="o">=</span> <span class="p">{}</span>
+
+
+<span class="c1"># noinspection PyPep8Naming</span>
+<div class="viewcode-block" id="ThreeChamberModel">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.threeCM.html#cubie.systemmodels.ThreeChamberModel">[docs]</a>
+<span class="k">class</span> <span class="nc">ThreeChamberModel</span><span class="p">(</span><span class="n">GenericODE</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Three chamber cardiovascular model.</span>
+
+<span class="sd">    A cardiovascular model with three chambers (heart, arteries, veins) as</span>
+<span class="sd">    described in Antoine Pironet&#39;s thesis[1]_.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    initial_values : dict, optional</span>
+<span class="sd">        Initial values for state variables (V_h, V_a, V_v).</span>
+<span class="sd">    parameters : dict, optional</span>
+<span class="sd">        Parameter values for the system (E_h, E_a, E_v, R_i, R_o, R_c, V_s3).</span>
+<span class="sd">    constants : dict, optional</span>
+<span class="sd">        Constants that are not expected to change between simulations.</span>
+<span class="sd">    observables : dict, optional</span>
+<span class="sd">        Observable values to track (P_a, P_v, P_h, Q_i, Q_o, Q_c).</span>
+<span class="sd">    precision : numpy.dtype, optional</span>
+<span class="sd">        Precision to use for calculations, by default np.float64.</span>
+<span class="sd">    default_initial_values : dict, optional</span>
+<span class="sd">        Default initial values if not provided in initial_values.</span>
+<span class="sd">    default_parameters : dict, optional</span>
+<span class="sd">        Default parameter values if not provided in parameters.</span>
+<span class="sd">    default_constants : dict, optional</span>
+<span class="sd">        Default constant values if not provided in constants.</span>
+<span class="sd">    default_observable_names : list, optional</span>
+<span class="sd">        Default observable names if not provided in observables.</span>
+<span class="sd">    num_drivers : int, optional</span>
+<span class="sd">        Number of driver/forcing functions, by default 1.</span>
+<span class="sd">    **kwargs : dict</span>
+<span class="sd">        Additional arguments.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    State variables:</span>
+<span class="sd">    - V_h: Volume in heart</span>
+<span class="sd">    - V_a: Volume in arteries</span>
+<span class="sd">    - V_v: Volume in veins</span>
+
+<span class="sd">    Parameters:</span>
+<span class="sd">    - E_h: Elastance of Heart (e(t) multiplier)</span>
+<span class="sd">    - E_a: Elastance of Arteries</span>
+<span class="sd">    - E_v: Elastance of Ventricles</span>
+<span class="sd">    - R_i: Resistance of input (mitral) valve</span>
+<span class="sd">    - R_o: Resistance of output (atrial) valve</span>
+<span class="sd">    - R_c: Resistance of circulation (arteries -&gt; veins)</span>
+<span class="sd">    - V_s3: Total stressed blood volume</span>
+
+<span class="sd">    Observables:</span>
+<span class="sd">    - P_a: Pressure in arteries</span>
+<span class="sd">    - P_v: Pressure in veins</span>
+<span class="sd">    - P_h: Pressure in heart</span>
+<span class="sd">    - Q_i: Flow through input valve (Mitral)</span>
+<span class="sd">    - Q_o: Flow through output valve (Aortic)</span>
+<span class="sd">    - Q_c: Flow in circulation</span>
+
+<span class="sd">    References</span>
+<span class="sd">    ----------</span>
+<span class="sd">    [1] A. Pironet. &quot;Model-Based Prediction of the Response to Vascular</span>
+<span class="sd">     Therapy.&quot; Unpublished doctoral thesis, ULiège - Université de Liège, 2016.</span>
+<span class="sd">    https://hdl.handle.net/2268/194747</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ThreeChamberModel.__init__">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.threeCM.html#cubie.systemmodels.ThreeChamberModel.__init__">[docs]</a>
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">initial_values</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">constants</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">observables</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">precision</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
+        <span class="n">default_initial_values</span><span class="o">=</span><span class="n">default_initial_values</span><span class="p">,</span>
+        <span class="n">default_parameters</span><span class="o">=</span><span class="n">default_parameters</span><span class="p">,</span>
+        <span class="n">default_constants</span><span class="o">=</span><span class="n">default_constants</span><span class="p">,</span>
+        <span class="n">default_observable_names</span><span class="o">=</span><span class="n">default_observable_names</span><span class="p">,</span>
+        <span class="n">num_drivers</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the three chamber model.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        initial_values : dict, optional</span>
+<span class="sd">            Initial values for state variables.</span>
+<span class="sd">        parameters : dict, optional</span>
+<span class="sd">            Parameter values for the system.</span>
+<span class="sd">        constants : dict, optional</span>
+<span class="sd">            Constants that are not expected to change between simulations.</span>
+<span class="sd">        observables : dict, optional</span>
+<span class="sd">            Observable values to track.</span>
+<span class="sd">        precision : numpy.dtype, optional</span>
+<span class="sd">            Precision to use for calculations, by default np.float64.</span>
+<span class="sd">        default_initial_values : dict, optional</span>
+<span class="sd">            Default initial values if not provided in initial_values.</span>
+<span class="sd">        default_parameters : dict, optional</span>
+<span class="sd">            Default parameter values if not provided in parameters.</span>
+<span class="sd">        default_constants : dict, optional</span>
+<span class="sd">            Default constant values if not provided in constants.</span>
+<span class="sd">        default_observable_names : list, optional</span>
+<span class="sd">            Default observable names if not provided in observables.</span>
+<span class="sd">        num_drivers : int, optional</span>
+<span class="sd">            Number of driver/forcing functions, by default 1.</span>
+<span class="sd">        **kwargs : dict</span>
+<span class="sd">            Additional arguments.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        num_drivers probably shouldn&#39;t be an instantiation parameter, but</span>
+<span class="sd">        rather a property of the system.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">initial_values</span><span class="o">=</span><span class="n">initial_values</span><span class="p">,</span>
+            <span class="n">parameters</span><span class="o">=</span><span class="n">parameters</span><span class="p">,</span>
+            <span class="n">constants</span><span class="o">=</span><span class="n">constants</span><span class="p">,</span>
+            <span class="n">observables</span><span class="o">=</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">default_initial_values</span><span class="o">=</span><span class="n">default_initial_values</span><span class="p">,</span>
+            <span class="n">default_parameters</span><span class="o">=</span><span class="n">default_parameters</span><span class="p">,</span>
+            <span class="n">default_constants</span><span class="o">=</span><span class="n">default_constants</span><span class="p">,</span>
+            <span class="n">default_observable_names</span><span class="o">=</span><span class="n">default_observable_names</span><span class="p">,</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">num_drivers</span><span class="o">=</span><span class="n">num_drivers</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="ThreeChamberModel.build">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.threeCM.html#cubie.systemmodels.ThreeChamberModel.build">[docs]</a>
+    <span class="k">def</span> <span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the CUDA device function for the three chamber model.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        function</span>
+<span class="sd">            Compiled CUDA device function implementing the three chamber</span>
+<span class="sd">            cardiovascular dynamics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Hoist fixed parameters to global namespace</span>
+        <span class="k">global</span> <span class="n">global_constants</span>
+        <span class="n">global_constants</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">constants</span><span class="o">.</span><span class="n">values_array</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">precision</span>
+        <span class="p">)</span>
+
+        <span class="n">numba_precision</span> <span class="o">=</span> <span class="n">from_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">)</span>
+
+        <span class="c1"># no cover: start</span>
+        <span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span>
+            <span class="p">(</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+            <span class="p">),</span>
+            <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">inline</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">def</span> <span class="nf">three_chamber_model_dv</span><span class="p">(</span>
+            <span class="n">state</span><span class="p">,</span>
+            <span class="n">parameters</span><span class="p">,</span>
+            <span class="n">driver</span><span class="p">,</span>
+            <span class="n">observables</span><span class="p">,</span>
+            <span class="n">dxdt</span><span class="p">,</span>
+        <span class="p">):</span>  <span class="c1"># pragma: no cover</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;Three chamber model dynamics implementation.</span>
+
+<span class="sd">            Parameters</span>
+<span class="sd">            ----------</span>
+<span class="sd">            state : numpy.ndarray</span>
+<span class="sd">                State vector [V_h, V_a, V_v] where:</span>
+<span class="sd">                - V_h: Volume in heart</span>
+<span class="sd">                - V_a: Volume in arteries</span>
+<span class="sd">                - V_v: Volume in veins</span>
+<span class="sd">            parameters : numpy.ndarray</span>
+<span class="sd">                Parameter vector [E_h, E_a, E_v, R_i, R_o, R_c, V_s3] where:</span>
+<span class="sd">                - E_h: Elastance of Heart (e(t) multiplier)</span>
+<span class="sd">                - E_a: Elastance of Arteries</span>
+<span class="sd">                - E_v: Elastance of Ventricles</span>
+<span class="sd">                - R_i: Resistance of input (mitral) valve</span>
+<span class="sd">                - R_o: Resistance of output (atrial) valve</span>
+<span class="sd">                - R_c: Resistance of circulation (arteries -&gt; veins)</span>
+<span class="sd">                - V_s3: Total stressed blood volume</span>
+<span class="sd">            driver : numpy.ndarray</span>
+<span class="sd">                Driver/forcing array containing e(t) - current value of</span>
+<span class="sd">                driver function.</span>
+<span class="sd">            observables : numpy.ndarray</span>
+<span class="sd">                Output array for observables [P_a, P_v, P_h, Q_i, Q_o, Q_c]:</span>
+<span class="sd">                - P_a: Pressure in arteries</span>
+<span class="sd">                - P_v: Pressure in veins</span>
+<span class="sd">                - P_h: Pressure in heart</span>
+<span class="sd">                - Q_i: Flow through input valve (Mitral)</span>
+<span class="sd">                - Q_o: Flow through output valve (Aortic)</span>
+<span class="sd">                - Q_c: Flow in circulation</span>
+<span class="sd">            dxdt : numpy.ndarray</span>
+<span class="sd">                Output array for state derivatives [dV_h, dV_a, dV_v]:</span>
+<span class="sd">                - dV_h/dt = Q_i - Q_o</span>
+<span class="sd">                - dV_a/dt = Q_o - Q_c</span>
+<span class="sd">                - dV_v/dt = Q_c - Q_i</span>
+
+<span class="sd">            Notes</span>
+<span class="sd">            -----</span>
+<span class="sd">            Modifications are made to the dxdt and observables arrays in-place</span>
+<span class="sd">            to avoid allocating.</span>
+<span class="sd">            &quot;&quot;&quot;</span>
+            <span class="c1"># Extract parameters from input arrays - purely for readability</span>
+            <span class="n">E_h</span> <span class="o">=</span> <span class="n">parameters</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">E_a</span> <span class="o">=</span> <span class="n">parameters</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">E_v</span> <span class="o">=</span> <span class="n">parameters</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+            <span class="n">R_i</span> <span class="o">=</span> <span class="n">parameters</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span>
+            <span class="n">R_o</span> <span class="o">=</span> <span class="n">parameters</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span>
+            <span class="n">R_c</span> <span class="o">=</span> <span class="n">parameters</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span>
+            <span class="c1"># SBV = parameters[6]</span>
+
+            <span class="n">V_h</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">V_a</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">V_v</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+
+            <span class="c1"># Calculate auxiliary (observable) values</span>
+            <span class="n">P_a</span> <span class="o">=</span> <span class="n">E_a</span> <span class="o">*</span> <span class="n">V_a</span>
+            <span class="n">P_v</span> <span class="o">=</span> <span class="n">E_v</span> <span class="o">*</span> <span class="n">V_v</span>
+            <span class="n">P_h</span> <span class="o">=</span> <span class="n">E_h</span> <span class="o">*</span> <span class="n">V_h</span> <span class="o">*</span> <span class="n">driver</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">Q_i</span> <span class="o">=</span> <span class="p">((</span><span class="n">P_v</span> <span class="o">-</span> <span class="n">P_h</span><span class="p">)</span> <span class="o">/</span> <span class="n">R_i</span><span class="p">)</span> <span class="k">if</span> <span class="p">(</span><span class="n">P_v</span> <span class="o">&gt;</span> <span class="n">P_h</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span>
+            <span class="n">Q_o</span> <span class="o">=</span> <span class="p">((</span><span class="n">P_h</span> <span class="o">-</span> <span class="n">P_a</span><span class="p">)</span> <span class="o">/</span> <span class="n">R_o</span><span class="p">)</span> <span class="k">if</span> <span class="p">(</span><span class="n">P_h</span> <span class="o">&gt;</span> <span class="n">P_a</span><span class="p">)</span> <span class="k">else</span> <span class="mi">0</span>
+            <span class="n">Q_c</span> <span class="o">=</span> <span class="p">(</span><span class="n">P_a</span> <span class="o">-</span> <span class="n">P_v</span><span class="p">)</span> <span class="o">/</span> <span class="n">R_c</span>
+
+            <span class="c1"># Calculate gradient</span>
+            <span class="n">dV_h</span> <span class="o">=</span> <span class="n">Q_i</span> <span class="o">-</span> <span class="n">Q_o</span>
+            <span class="n">dV_a</span> <span class="o">=</span> <span class="n">Q_o</span> <span class="o">-</span> <span class="n">Q_c</span>
+            <span class="n">dV_v</span> <span class="o">=</span> <span class="n">Q_c</span> <span class="o">-</span> <span class="n">Q_i</span>
+
+            <span class="c1"># Package values up into output arrays, overwriting for speed.</span>
+            <span class="n">observables</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">P_a</span>
+            <span class="n">observables</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">P_v</span>
+            <span class="n">observables</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">P_h</span>
+            <span class="n">observables</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="n">Q_i</span>
+            <span class="n">observables</span><span class="p">[</span><span class="mi">4</span><span class="p">]</span> <span class="o">=</span> <span class="n">Q_o</span>
+            <span class="n">observables</span><span class="p">[</span><span class="mi">5</span><span class="p">]</span> <span class="o">=</span> <span class="n">Q_c</span>
+
+            <span class="n">dxdt</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">dV_h</span>
+            <span class="n">dxdt</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">dV_a</span>
+            <span class="n">dxdt</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="n">dV_v</span>
+
+        <span class="k">return</span> <span class="n">three_chamber_model_dv</span></div>
+
+        <span class="c1"># no cover: stop</span>
+
+<div class="viewcode-block" id="ThreeChamberModel.correct_answer_python">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.threeCM.html#cubie.systemmodels.ThreeChamberModel.correct_answer_python">[docs]</a>
+    <span class="k">def</span> <span class="nf">correct_answer_python</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">states</span><span class="p">,</span> <span class="n">parameters</span><span class="p">,</span> <span class="n">drivers</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Python version of the three chamber model for testing.</span>
+
+<span class="sd">        More-direct port of Nic Davey&#39;s MATLAB implementation.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        states : numpy.ndarray</span>
+<span class="sd">            Current state values [V_h, V_a, V_v].</span>
+<span class="sd">        parameters : numpy.ndarray</span>
+<span class="sd">            Parameter values [E_h, E_a, E_v, R_i, R_o, R_c, V_s3].</span>
+<span class="sd">        drivers : numpy.ndarray</span>
+<span class="sd">            Driver/forcing values [e(t)].</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple of numpy.ndarray</span>
+<span class="sd">            A tuple containing (dxdt, observables) arrays.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">E_h</span><span class="p">,</span> <span class="n">E_a</span><span class="p">,</span> <span class="n">E_v</span><span class="p">,</span> <span class="n">R_i</span><span class="p">,</span> <span class="n">R_o</span><span class="p">,</span> <span class="n">R_c</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">parameters</span>
+        <span class="n">V_h</span><span class="p">,</span> <span class="n">V_a</span><span class="p">,</span> <span class="n">V_v</span> <span class="o">=</span> <span class="n">states</span>
+        <span class="n">driver</span> <span class="o">=</span> <span class="n">drivers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="n">P_v</span> <span class="o">=</span> <span class="n">E_v</span> <span class="o">*</span> <span class="n">V_v</span>
+        <span class="n">P_h</span> <span class="o">=</span> <span class="n">E_h</span> <span class="o">*</span> <span class="n">V_h</span> <span class="o">*</span> <span class="n">driver</span>
+        <span class="n">P_a</span> <span class="o">=</span> <span class="n">E_a</span> <span class="o">*</span> <span class="n">V_a</span>
+
+        <span class="k">if</span> <span class="n">P_v</span> <span class="o">&gt;</span> <span class="n">P_h</span><span class="p">:</span>
+            <span class="n">Q_i</span> <span class="o">=</span> <span class="p">(</span><span class="n">P_v</span> <span class="o">-</span> <span class="n">P_h</span><span class="p">)</span> <span class="o">/</span> <span class="n">R_i</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">Q_i</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="k">if</span> <span class="n">P_h</span> <span class="o">&gt;</span> <span class="n">P_a</span><span class="p">:</span>
+            <span class="n">Q_o</span> <span class="o">=</span> <span class="p">(</span><span class="n">P_h</span> <span class="o">-</span> <span class="n">P_a</span><span class="p">)</span> <span class="o">/</span> <span class="n">R_o</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">Q_o</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="n">Q_c</span> <span class="o">=</span> <span class="p">(</span><span class="n">P_a</span> <span class="o">-</span> <span class="n">P_v</span><span class="p">)</span> <span class="o">/</span> <span class="n">R_c</span>
+
+        <span class="n">dxdt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">Q_i</span> <span class="o">-</span> <span class="n">Q_o</span><span class="p">,</span> <span class="n">Q_o</span> <span class="o">-</span> <span class="n">Q_c</span><span class="p">,</span> <span class="n">Q_c</span> <span class="o">-</span> <span class="n">Q_i</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span>
+        <span class="p">)</span>
+        <span class="n">observables</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">P_a</span><span class="p">,</span> <span class="n">P_v</span><span class="p">,</span> <span class="n">P_h</span><span class="p">,</span> <span class="n">Q_i</span><span class="p">,</span> <span class="n">Q_o</span><span class="p">,</span> <span class="n">Q_c</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">dxdt</span><span class="p">,</span> <span class="n">observables</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,484 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.algorithms.genericIntegratorAlgorithm &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../usage.html">Using cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+          <li class="breadcrumb-item"><a href="../algorithms.html">cubie.integrators.algorithms</a></li>
+      <li class="breadcrumb-item active">cubie.integrators.algorithms.genericIntegratorAlgorithm</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.integrators.algorithms.genericIntegratorAlgorithm</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Base class for integration algorithm implementations.</span>
+
+<span class="sd">This module provides the GenericIntegratorAlgorithm class, which serves as</span>
+<span class="sd">the base class for all ODE integration algorithms. It handles building and</span>
+<span class="sd">caching of algorithm functions that are incorporated into CUDA kernels,</span>
+<span class="sd">and provides the interface that specific algorithms must implement.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">numba</span> <span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">int32</span><span class="p">,</span> <span class="n">from_dtype</span>
+
+<span class="kn">from</span> <span class="nn">cubie.CUDAFactory</span> <span class="kn">import</span> <span class="n">CUDAFactory</span>
+<span class="kn">from</span> <span class="nn">cubie.integrators.algorithms.IntegratorLoopSettings</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">IntegratorLoopSettings</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span> <span class="nn">cubie._utils</span> <span class="kn">import</span> <span class="n">in_attr</span>
+
+
+<div class="viewcode-block" id="GenericIntegratorAlgorithm">
+<a class="viewcode-back" href="../../../../api/generated/cubie.integrators.algorithms.genericIntegratorAlgorithm.html#cubie.integrators.algorithms.GenericIntegratorAlgorithm">[docs]</a>
+<span class="k">class</span> <span class="nc">GenericIntegratorAlgorithm</span><span class="p">(</span><span class="n">CUDAFactory</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Base class for the inner &quot;loop&quot; algorithm for ODE solving algorithms.</span>
+
+<span class="sd">    This class handles building and caching of the algorithm function, which</span>
+<span class="sd">    is incorporated into a CUDA kernel for GPU execution. All integration</span>
+<span class="sd">    algorithms (e.g. Euler, Runge-Kutta) should subclass this class and</span>
+<span class="sd">    override specific attributes and methods.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    precision : type</span>
+<span class="sd">        Numerical precision type for computations.</span>
+<span class="sd">    dxdt_function : CUDA device function</span>
+<span class="sd">        Function that computes time derivatives of the state.</span>
+<span class="sd">    buffer_sizes : LoopBufferSizes</span>
+<span class="sd">        Configuration object specifying buffer sizes.</span>
+<span class="sd">    loop_step_config : LoopStepConfig</span>
+<span class="sd">        Configuration object for loop step parameters.</span>
+<span class="sd">    save_state_func : CUDA device function</span>
+<span class="sd">        Function for saving state values during integration.</span>
+<span class="sd">    update_summaries_func : CUDA device function</span>
+<span class="sd">        Function for updating summary statistics.</span>
+<span class="sd">    save_summaries_func : CUDA device function</span>
+<span class="sd">        Function for saving summary statistics.</span>
+<span class="sd">    compile_flags : OutputCompileFlags</span>
+<span class="sd">        Compilation flags for device function generation.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Subclasses must override:</span>
+
+<span class="sd">    - `_threads_per_loop` : Number of threads the algorithm uses</span>
+<span class="sd">    - `build_loop()` : Factory method that builds the CUDA device function</span>
+<span class="sd">    - `shared_memory_required` : Amount of shared memory the device allocates</span>
+
+<span class="sd">    Data used in compiling and controlling the loop is handled by the</span>
+<span class="sd">    IntegratorLoopSettings class. This class presents relevant attributes</span>
+<span class="sd">    of the data class to higher-level components as properties.</span>
+
+<span class="sd">    See Also</span>
+<span class="sd">    --------</span>
+<span class="sd">    IntegratorLoopSettings : Configuration data for loop compilation</span>
+<span class="sd">    CUDAFactory : Base factory class for CUDA device functions</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">precision</span><span class="p">,</span>
+        <span class="n">dxdt_function</span><span class="p">,</span>
+        <span class="n">buffer_sizes</span><span class="p">,</span>
+        <span class="n">loop_step_config</span><span class="p">,</span>
+        <span class="n">save_state_func</span><span class="p">,</span>
+        <span class="n">update_summaries_func</span><span class="p">,</span>
+        <span class="n">save_summaries_func</span><span class="p">,</span>
+        <span class="n">compile_flags</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+
+        <span class="n">compile_settings</span> <span class="o">=</span> <span class="n">IntegratorLoopSettings</span><span class="p">(</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">loop_step_config</span><span class="o">=</span><span class="n">loop_step_config</span><span class="p">,</span>
+            <span class="n">buffer_sizes</span><span class="o">=</span><span class="n">buffer_sizes</span><span class="p">,</span>
+            <span class="n">dxdt_function</span><span class="o">=</span><span class="n">dxdt_function</span><span class="p">,</span>
+            <span class="n">save_state_func</span><span class="o">=</span><span class="n">save_state_func</span><span class="p">,</span>
+            <span class="n">update_summaries_func</span><span class="o">=</span><span class="n">update_summaries_func</span><span class="p">,</span>
+            <span class="n">save_summaries_func</span><span class="o">=</span><span class="n">save_summaries_func</span><span class="p">,</span>
+            <span class="n">compile_flags</span><span class="o">=</span><span class="n">compile_flags</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setup_compile_settings</span><span class="p">(</span><span class="n">compile_settings</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">integrator_loop</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># Override this in subclasses!</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_threads_per_loop</span> <span class="o">=</span> <span class="mi">1</span>
+
+<div class="viewcode-block" id="GenericIntegratorAlgorithm.build">
+<a class="viewcode-back" href="../../../../api/generated/cubie.integrators.algorithms.genericIntegratorAlgorithm.html#cubie.integrators.algorithms.GenericIntegratorAlgorithm.build">[docs]</a>
+    <span class="k">def</span> <span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Build the integrator loop, unpacking config for local scope.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        callable</span>
+<span class="sd">            The compiled integrator loop device function.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span>
+
+        <span class="n">integrator_loop</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">build_loop</span><span class="p">(</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">dxdt_function</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">dxdt_function</span><span class="p">,</span>
+            <span class="n">save_state_func</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">save_state_func</span><span class="p">,</span>
+            <span class="n">update_summaries_func</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">update_summaries_func</span><span class="p">,</span>
+            <span class="n">save_summaries_func</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">save_summaries_func</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">integrator_loop</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">threads_per_loop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the number of threads required by loop algorithm.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of threads required per integration loop.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_threads_per_loop</span>
+
+<div class="viewcode-block" id="GenericIntegratorAlgorithm.build_loop">
+<a class="viewcode-back" href="../../../../api/generated/cubie.integrators.algorithms.genericIntegratorAlgorithm.html#cubie.integrators.algorithms.GenericIntegratorAlgorithm.build_loop">[docs]</a>
+    <span class="k">def</span> <span class="nf">build_loop</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">precision</span><span class="p">,</span>
+        <span class="n">dxdt_function</span><span class="p">,</span>
+        <span class="n">save_state_func</span><span class="p">,</span>
+        <span class="n">update_summaries_func</span><span class="p">,</span>
+        <span class="n">save_summaries_func</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Build the CUDA device function for the integration loop.</span>
+
+<span class="sd">        This is a template method that provides a dummy implementation.</span>
+<span class="sd">        Subclasses should override this method to implement specific</span>
+<span class="sd">        integration algorithms.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        precision : type</span>
+<span class="sd">            Numerical precision type for the integration.</span>
+<span class="sd">        dxdt_function : callable</span>
+<span class="sd">            Function that computes time derivatives.</span>
+<span class="sd">        save_state_func : callable</span>
+<span class="sd">            Function for saving state values.</span>
+<span class="sd">        update_summaries_func : callable</span>
+<span class="sd">            Function for updating summary statistics.</span>
+<span class="sd">        save_summaries_func : callable</span>
+<span class="sd">            Function for saving summary statistics.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        callable</span>
+<span class="sd">            Compiled CUDA device function implementing the integration algorithm.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        This base implementation provides a dummy loop that can be used</span>
+<span class="sd">        for testing but does not perform actual integration. Real algorithms</span>
+<span class="sd">        should override this method with their specific implementation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">save_steps</span><span class="p">,</span> <span class="n">summary_steps</span><span class="p">,</span> <span class="n">step_size</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">fixed_steps</span>
+        <span class="p">)</span>
+
+        <span class="n">sizes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">buffer_sizes</span><span class="o">.</span><span class="n">nonzero</span>
+
+        <span class="c1"># Unpack sizes to keep compiler happy</span>
+        <span class="n">state_summary_buffer_size</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">state_summaries</span>
+        <span class="n">observables_summary_buffer_size</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">observable_summaries</span>
+        <span class="n">state_buffer_size</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">state</span>
+        <span class="n">observables_buffer_size</span> <span class="o">=</span> <span class="n">sizes</span><span class="o">.</span><span class="n">observables</span>
+
+        <span class="n">loop_sizes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">buffer_sizes</span>
+        <span class="n">loop_states</span> <span class="o">=</span> <span class="n">loop_sizes</span><span class="o">.</span><span class="n">state</span>
+        <span class="n">loop_obs</span> <span class="o">=</span> <span class="n">loop_sizes</span><span class="o">.</span><span class="n">observables</span>
+
+        <span class="n">numba_precision</span> <span class="o">=</span> <span class="n">from_dtype</span><span class="p">(</span><span class="n">precision</span><span class="p">)</span>
+
+        <span class="c1"># no cover: start</span>
+        <span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span>
+            <span class="p">(</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:,</span> <span class="p">:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:,</span> <span class="p">:],</span>
+                <span class="n">numba_precision</span><span class="p">[:,</span> <span class="p">:],</span>
+                <span class="n">numba_precision</span><span class="p">[:,</span> <span class="p">:],</span>
+                <span class="n">numba_precision</span><span class="p">[:,</span> <span class="p">:],</span>
+                <span class="n">int32</span><span class="p">,</span>
+                <span class="n">int32</span><span class="p">,</span>
+            <span class="p">),</span>
+            <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">inline</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">def</span> <span class="nf">dummy_loop</span><span class="p">(</span>
+            <span class="n">inits</span><span class="p">,</span>
+            <span class="n">parameters</span><span class="p">,</span>
+            <span class="n">forcing_vec</span><span class="p">,</span>
+            <span class="n">shared_memory</span><span class="p">,</span>
+            <span class="n">state_output</span><span class="p">,</span>
+            <span class="n">observables_output</span><span class="p">,</span>
+            <span class="n">state_summaries_output</span><span class="p">,</span>
+            <span class="n">observables_summaries_output</span><span class="p">,</span>
+            <span class="n">output_length</span><span class="p">,</span>
+            <span class="n">warmup_samples</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="p">):</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;Dummy integrator loop implementation.&quot;&quot;&quot;</span>
+            <span class="n">l_state_buffer</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">local</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+                <span class="n">shape</span><span class="o">=</span><span class="n">state_buffer_size</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numba_precision</span>
+            <span class="p">)</span>
+            <span class="n">l_obs_buffer</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">local</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+                <span class="n">shape</span><span class="o">=</span><span class="n">observables_buffer_size</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numba_precision</span>
+            <span class="p">)</span>
+            <span class="n">l_obs_buffer</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">numba_precision</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">loop_states</span><span class="p">):</span>
+                <span class="n">l_state_buffer</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">inits</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+            <span class="n">state_summary_buffer</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">local</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+                <span class="n">shape</span><span class="o">=</span><span class="n">state_summary_buffer_size</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numba_precision</span>
+            <span class="p">)</span>
+            <span class="n">obs_summary_buffer</span> <span class="o">=</span> <span class="n">cuda</span><span class="o">.</span><span class="n">local</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+                <span class="n">shape</span><span class="o">=</span><span class="n">observables_summary_buffer_size</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">numba_precision</span>
+            <span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">output_length</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">loop_states</span><span class="p">):</span>
+                    <span class="n">l_state_buffer</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">inits</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+                <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">loop_obs</span><span class="p">):</span>
+                    <span class="n">l_obs_buffer</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">inits</span><span class="p">[</span><span class="n">j</span> <span class="o">%</span> <span class="n">observables_buffer_size</span><span class="p">]</span>
+
+                <span class="n">save_state_func</span><span class="p">(</span>
+                    <span class="n">l_state_buffer</span><span class="p">,</span>
+                    <span class="n">l_obs_buffer</span><span class="p">,</span>
+                    <span class="n">state_output</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:],</span>
+                    <span class="n">observables_output</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">:],</span>
+                    <span class="n">i</span><span class="p">,</span>
+                <span class="p">)</span>
+
+                <span class="c1"># if summaries_output:</span>
+                <span class="n">update_summaries_func</span><span class="p">(</span>
+                    <span class="n">l_state_buffer</span><span class="p">,</span>
+                    <span class="n">l_obs_buffer</span><span class="p">,</span>
+                    <span class="n">state_summary_buffer</span><span class="p">,</span>
+                    <span class="n">obs_summary_buffer</span><span class="p">,</span>
+                    <span class="n">i</span><span class="p">,</span>
+                <span class="p">)</span>
+
+                <span class="k">if</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">summary_steps</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">summary_sample</span> <span class="o">=</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">summary_steps</span> <span class="o">-</span> <span class="mi">1</span>
+                    <span class="n">save_summaries_func</span><span class="p">(</span>
+                        <span class="n">state_summary_buffer</span><span class="p">,</span>
+                        <span class="n">obs_summary_buffer</span><span class="p">,</span>
+                        <span class="n">state_summaries_output</span><span class="p">[</span><span class="n">summary_sample</span><span class="p">,</span> <span class="p">:],</span>
+                        <span class="n">observables_summaries_output</span><span class="p">[</span><span class="n">summary_sample</span><span class="p">,</span> <span class="p">:],</span>
+                        <span class="n">summary_steps</span><span class="p">,</span>
+                    <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">dummy_loop</span></div>
+
+        <span class="c1"># no cover: stop</span>
+
+<div class="viewcode-block" id="GenericIntegratorAlgorithm.update">
+<a class="viewcode-back" href="../../../../api/generated/cubie.integrators.algorithms.genericIntegratorAlgorithm.html#cubie.integrators.algorithms.GenericIntegratorAlgorithm.update">[docs]</a>
+    <span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">updates_dict</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Pass updates to compile settings through the CUDAFactory interface.</span>
+
+<span class="sd">        This method will invalidate the cache if an update is successful.</span>
+<span class="sd">        Use silent=True when doing bulk updates with other component parameters</span>
+<span class="sd">        to suppress warnings about unrecognized keys.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        updates_dict : dict, optional</span>
+<span class="sd">            Dictionary of parameters to update.</span>
+<span class="sd">        silent : bool, default=False</span>
+<span class="sd">            If True, suppress warnings about unrecognized parameters.</span>
+<span class="sd">        **kwargs</span>
+<span class="sd">            Parameter updates to apply as keyword arguments.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        set</span>
+<span class="sd">            Set of parameter names that were recognized and updated.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="o">==</span> <span class="p">{}:</span>
+            <span class="k">return</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="n">recognised</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">update_compile_settings</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">in_attr</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">loop_step_config</span><span class="p">):</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+                <span class="n">recognised</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+
+        <span class="n">unrecognised</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">-</span> <span class="n">recognised</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">silent</span> <span class="ow">and</span> <span class="n">unrecognised</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Unrecognized parameters in update: </span><span class="si">{</span><span class="n">unrecognised</span><span class="si">}</span><span class="s2">. &quot;</span>
+                <span class="s2">&quot;These parameters were not updated.&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">recognised</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">shared_memory_required</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculate shared memory requirements for the integration algorithm.</span>
+
+<span class="sd">        This is a dummy implementation that returns 0. Subclasses should</span>
+<span class="sd">        override this method to calculate the actual shared memory requirements</span>
+<span class="sd">        based on their specific algorithm needs.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of shared memory elements required (dummy implementation returns 0).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="mi">0</span>
+
+<div class="viewcode-block" id="GenericIntegratorAlgorithm.from_single_integrator_run">
+<a class="viewcode-back" href="../../../../api/generated/cubie.integrators.algorithms.genericIntegratorAlgorithm.html#cubie.integrators.algorithms.GenericIntegratorAlgorithm.from_single_integrator_run">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">from_single_integrator_run</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">run_object</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create an instance of the integrator algorithm from a SingleIntegratorRun object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        run_object : SingleIntegratorRun</span>
+<span class="sd">            The SingleIntegratorRun object containing configuration parameters.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        GenericIntegratorAlgorithm</span>
+<span class="sd">            New instance of the integrator algorithm configured with parameters</span>
+<span class="sd">            from the run object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">run_object</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">dxdt_function</span><span class="o">=</span><span class="n">run_object</span><span class="o">.</span><span class="n">dxdt_function</span><span class="p">,</span>
+            <span class="n">buffer_sizes</span><span class="o">=</span><span class="n">run_object</span><span class="o">.</span><span class="n">loop_buffer_sizes</span><span class="p">,</span>
+            <span class="n">loop_step_config</span><span class="o">=</span><span class="n">run_object</span><span class="o">.</span><span class="n">loop_step_config</span><span class="p">,</span>
+            <span class="n">save_state_func</span><span class="o">=</span><span class="n">run_object</span><span class="o">.</span><span class="n">save_state_func</span><span class="p">,</span>
+            <span class="n">update_summaries_func</span><span class="o">=</span><span class="n">run_object</span><span class="o">.</span><span class="n">update_summaries_func</span><span class="p">,</span>
+            <span class="n">save_summaries_func</span><span class="o">=</span><span class="n">run_object</span><span class="o">.</span><span class="n">save_summaries_func</span><span class="p">,</span>
+            <span class="n">compile_flags</span><span class="o">=</span><span class="n">run_object</span><span class="o">.</span><span class="n">compile_flags</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">fixed_step_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the fixed step size used in the integration loop.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            The fixed step size from the compile settings.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">fixed_step_size</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

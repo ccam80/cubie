@@ -1,0 +1,14 @@
+﻿cubie.systemmodels
+==================
+
+.. automodule:: cubie.systemmodels
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   SystemValues
+   systems

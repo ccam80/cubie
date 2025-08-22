@@ -1,0 +1,14 @@
+cubie.batchsolving.arrays.BatchOutputArrays
+===========================================
+
+.. automodule:: cubie.batchsolving.arrays.BatchOutputArrays
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      ActiveOutputs
+      OutputArrayContainer
+      OutputArrays
+   

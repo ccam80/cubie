@@ -1,0 +1,13 @@
+cubie.outputhandling.update\_summaries
+======================================
+
+.. automodule:: cubie.outputhandling.update_summaries
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      chain_metrics
+      update_summary_factory
+   

@@ -1,0 +1,13 @@
+cubie.outputhandling.output\_config
+===================================
+
+.. automodule:: cubie.outputhandling.output_config
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      OutputCompileFlags
+      OutputConfig
+   

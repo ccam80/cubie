@@ -1,0 +1,15 @@
+﻿cubie.integrators
+=================
+
+.. automodule:: cubie.integrators
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   IntegratorRunSettings
+   SingleIntegratorRun
+   algorithms

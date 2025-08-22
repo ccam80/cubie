@@ -1,0 +1,49 @@
+cubie.systemmodels.systems.GenericODE
+=====================================
+
+.. currentmodule:: cubie.systemmodels.systems
+
+.. autoclass:: GenericODE
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~GenericODE.__init__
+      ~GenericODE.build
+      ~GenericODE.correct_answer_python
+      ~GenericODE.get_cached_output
+      ~GenericODE.set_constants
+      ~GenericODE.setup_compile_settings
+      ~GenericODE.update
+      ~GenericODE.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~GenericODE.cache_valid
+      ~GenericODE.compile_settings
+      ~GenericODE.contants
+      ~GenericODE.device_function
+      ~GenericODE.dxdt_function
+      ~GenericODE.initial_values
+      ~GenericODE.num_constants
+      ~GenericODE.num_drivers
+      ~GenericODE.num_observables
+      ~GenericODE.num_parameters
+      ~GenericODE.num_states
+      ~GenericODE.observables
+      ~GenericODE.parameters
+      ~GenericODE.precision
+      ~GenericODE.sizes
+   
+   

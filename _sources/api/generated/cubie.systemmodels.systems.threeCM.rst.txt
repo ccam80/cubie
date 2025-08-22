@@ -1,0 +1,12 @@
+cubie.systemmodels.systems.threeCM
+==================================
+
+.. automodule:: cubie.systemmodels.systems.threeCM
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      ThreeChamberModel
+   

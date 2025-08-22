@@ -1,0 +1,12 @@
+cubie.integrators.algorithms.euler
+==================================
+
+.. automodule:: cubie.integrators.algorithms.euler
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      Euler
+   

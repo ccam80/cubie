@@ -1,0 +1,24 @@
+cubie.batchsolving.BatchGridBuilder
+===================================
+
+.. automodule:: cubie.batchsolving.BatchGridBuilder
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      combinatorial_grid
+      combine_grids
+      extend_grid_to_array
+      generate_array
+      generate_grid
+      unique_cartesian_product
+      verbatim_grid
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      BatchGridBuilder
+   

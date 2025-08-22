@@ -1,0 +1,340 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.systemmodels.systems.ODEData &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.systemmodels.systems.decays" href="cubie.systemmodels.systems.decays.html" />
+    <link rel="prev" title="cubie.systemmodels.systems.GenericODE" href="cubie.systemmodels.systems.GenericODE.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../usage.html">Using cubie</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.systemmodels.html">cubie.systemmodels</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.systemmodels.html#cubie.systemmodels.Decays"><code class="docutils literal notranslate"><span class="pre">Decays</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.systemmodels.html#cubie.systemmodels.GenericODE"><code class="docutils literal notranslate"><span class="pre">GenericODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.systemmodels.html#cubie.systemmodels.ThreeChamberModel"><code class="docutils literal notranslate"><span class="pre">ThreeChamberModel</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.systemmodels.SystemValues.html">cubie.systemmodels.SystemValues</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="cubie.systemmodels.systems.html">cubie.systemmodels.systems</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="cubie.systemmodels.systems.html#cubie.systemmodels.systems.Decays"><code class="docutils literal notranslate"><span class="pre">Decays</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.systemmodels.systems.html#cubie.systemmodels.systems.GenericODE"><code class="docutils literal notranslate"><span class="pre">GenericODE</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.systemmodels.systems.html#cubie.systemmodels.systems.ThreeChamberModel"><code class="docutils literal notranslate"><span class="pre">ThreeChamberModel</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.systemmodels.systems.GenericODE.html">cubie.systemmodels.systems.GenericODE</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">cubie.systemmodels.systems.ODEData</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.systemmodels.systems.decays.html">cubie.systemmodels.systems.decays</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.systemmodels.systems.threeCM.html">cubie.systemmodels.systems.threeCM</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.systemmodels.html">cubie.systemmodels</a></li>
+          <li class="breadcrumb-item"><a href="cubie.systemmodels.systems.html">cubie.systemmodels.systems</a></li>
+      <li class="breadcrumb-item active">cubie.systemmodels.systems.ODEData</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.systemmodels.systems.ODEData.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.systemmodels.systems.ODEData">
+<span id="cubie-systemmodels-systems-odedata"></span><h1>cubie.systemmodels.systems.ODEData<a class="headerlink" href="#module-cubie.systemmodels.systems.ODEData" title="Link to this heading"></a></h1>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.systemmodels.systems.ODEData.ODEData" title="cubie.systemmodels.systems.ODEData.ODEData"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ODEData</span></code></a>(constants, parameters, ...)</p></td>
+<td><p>Data structure to hold ODE system parameters and initial states.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.systemmodels.systems.ODEData.SystemSizes" title="cubie.systemmodels.systems.ODEData.SystemSizes"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SystemSizes</span></code></a>(states, observables, parameters, ...)</p></td>
+<td><p>Data structure to hold the sizes of various components of a system.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.systemmodels.systems.ODEData.</span></span><span class="sig-name descname"><span class="pre">ODEData</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">constants:</span> <span class="pre">~cubie.systemmodels.SystemValues.SystemValues</span> <span class="pre">|</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters:</span> <span class="pre">~cubie.systemmodels.SystemValues.SystemValues</span> <span class="pre">|</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">initial_states:</span> <span class="pre">~cubie.systemmodels.SystemValues.SystemValues</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observables:</span> <span class="pre">~cubie.systemmodels.SystemValues.SystemValues</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">precision:</span> <span class="pre">type</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float32'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_drivers:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/systemmodels/systems/ODEData.html#ODEData"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Data structure to hold ODE system parameters and initial states.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>constants</strong> (<a class="reference internal" href="cubie.systemmodels.SystemValues.html#cubie.systemmodels.SystemValues.SystemValues" title="cubie.systemmodels.SystemValues.SystemValues"><em>SystemValues</em></a><em>, </em><em>optional</em>) – System constants that do not change during simulation.</p></li>
+<li><p><strong>parameters</strong> (<a class="reference internal" href="cubie.systemmodels.SystemValues.html#cubie.systemmodels.SystemValues.SystemValues" title="cubie.systemmodels.SystemValues.SystemValues"><em>SystemValues</em></a><em>, </em><em>optional</em>) – System parameters that can change during simulation.</p></li>
+<li><p><strong>initial_states</strong> (<a class="reference internal" href="cubie.systemmodels.SystemValues.html#cubie.systemmodels.SystemValues.SystemValues" title="cubie.systemmodels.SystemValues.SystemValues"><em>SystemValues</em></a>) – Initial state values for the ODE system.</p></li>
+<li><p><strong>observables</strong> (<a class="reference internal" href="cubie.systemmodels.SystemValues.html#cubie.systemmodels.SystemValues.SystemValues" title="cubie.systemmodels.SystemValues.SystemValues"><em>SystemValues</em></a>) – Observable variables to track during simulation.</p></li>
+<li><p><strong>precision</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><em>type</em></a><em>, </em><em>optional</em>) – Data type for numerical calculations, by default float32.</p></li>
+<li><p><strong>num_drivers</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – Number of driver/forcing functions, by default 1.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.constants">
+<span class="sig-name descname"><span class="pre">constants</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.systemmodels.SystemValues.html#cubie.systemmodels.SystemValues.SystemValues" title="cubie.systemmodels.SystemValues.SystemValues"><span class="pre">SystemValues</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.constants" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.from_genericODE_initargs">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_genericODE_initargs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">initial_values=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constants=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observables=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_initial_values=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_parameters=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_constants=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_observable_names=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">precision=&lt;class</span> <span class="pre">'numpy.float64'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_drivers=1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/systemmodels/systems/ODEData.html#ODEData.from_genericODE_initargs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.from_genericODE_initargs" title="Link to this definition"></a></dt>
+<dd><p>Create ODEData from GenericODE initialization arguments.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>initial_values</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Initial values for state variables.</p></li>
+<li><p><strong>parameters</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Parameter values for the system.</p></li>
+<li><p><strong>constants</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Constants that are not expected to change during simulation.</p></li>
+<li><p><strong>observables</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Auxiliary variables to track during simulation.</p></li>
+<li><p><strong>default_initial_values</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default initial values if not provided in initial_values.</p></li>
+<li><p><strong>default_parameters</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default parameter values if not provided in parameters.</p></li>
+<li><p><strong>default_constants</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default constant values if not provided in constants.</p></li>
+<li><p><strong>default_observable_names</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default observable names if not provided in observables.</p></li>
+<li><p><strong>precision</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><em>numpy.dtype</em></a><em>, </em><em>optional</em>) – Precision to use for calculations, by default np.float64.</p></li>
+<li><p><strong>num_drivers</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – Number of driver/forcing functions, by default 1.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Initialized ODEData object.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cubie.systemmodels.systems.ODEData.ODEData" title="cubie.systemmodels.systems.ODEData.ODEData">ODEData</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.initial_states">
+<span class="sig-name descname"><span class="pre">initial_states</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.systemmodels.SystemValues.html#cubie.systemmodels.SystemValues.SystemValues" title="cubie.systemmodels.SystemValues.SystemValues"><span class="pre">SystemValues</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.initial_states" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.num_constants">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">num_constants</span></span><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.num_constants" title="Link to this definition"></a></dt>
+<dd><p>Get the number of constants.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of constants.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.num_drivers">
+<span class="sig-name descname"><span class="pre">num_drivers</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.num_drivers" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.num_observables">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">num_observables</span></span><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.num_observables" title="Link to this definition"></a></dt>
+<dd><p>Get the number of observable variables.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of observable variables.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.num_parameters">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">num_parameters</span></span><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.num_parameters" title="Link to this definition"></a></dt>
+<dd><p>Get the number of parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of parameters.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.num_states">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">num_states</span></span><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.num_states" title="Link to this definition"></a></dt>
+<dd><p>Get the number of state variables.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of state variables.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.observables">
+<span class="sig-name descname"><span class="pre">observables</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.systemmodels.SystemValues.html#cubie.systemmodels.SystemValues.SystemValues" title="cubie.systemmodels.SystemValues.SystemValues"><span class="pre">SystemValues</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.observables" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.parameters">
+<span class="sig-name descname"><span class="pre">parameters</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.systemmodels.SystemValues.html#cubie.systemmodels.SystemValues.SystemValues" title="cubie.systemmodels.SystemValues.SystemValues"><span class="pre">SystemValues</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.parameters" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.precision">
+<span class="sig-name descname"><span class="pre">precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.precision" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.ODEData.sizes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">sizes</span></span><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.ODEData.sizes" title="Link to this definition"></a></dt>
+<dd><p>Get system sizes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Object containing sizes for all system components.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="#cubie.systemmodels.systems.ODEData.SystemSizes" title="cubie.systemmodels.systems.ODEData.SystemSizes">SystemSizes</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.SystemSizes">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.systemmodels.systems.ODEData.</span></span><span class="sig-name descname"><span class="pre">SystemSizes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">states</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">observables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">constants</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">drivers</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/systemmodels/systems/ODEData.html#SystemSizes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.SystemSizes" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Data structure to hold the sizes of various components of a system.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>states</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Number of state variables in the system.</p></li>
+<li><p><strong>observables</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Number of observable variables in the system.</p></li>
+<li><p><strong>parameters</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Number of parameters in the system.</p></li>
+<li><p><strong>constants</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Number of constants in the system.</p></li>
+<li><p><strong>drivers</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a>) – Number of driver variables in the system.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This is used to pass size information to the ODE solver kernel.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.SystemSizes.constants">
+<span class="sig-name descname"><span class="pre">constants</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.SystemSizes.constants" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.SystemSizes.drivers">
+<span class="sig-name descname"><span class="pre">drivers</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.SystemSizes.drivers" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.SystemSizes.observables">
+<span class="sig-name descname"><span class="pre">observables</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.SystemSizes.observables" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.SystemSizes.parameters">
+<span class="sig-name descname"><span class="pre">parameters</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.SystemSizes.parameters" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.systemmodels.systems.ODEData.SystemSizes.states">
+<span class="sig-name descname"><span class="pre">states</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.systemmodels.systems.ODEData.SystemSizes.states" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.systemmodels.systems.GenericODE.html" class="btn btn-neutral float-left" title="cubie.systemmodels.systems.GenericODE" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.systemmodels.systems.decays.html" class="btn btn-neutral float-right" title="cubie.systemmodels.systems.decays" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,878 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.batchsolving.solver &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=80d5e7a1" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../usage.html">Using cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.batchsolving.solver</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.batchsolving.solver</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;High level batch-solver interface.</span>
+
+<span class="sd">This module exposes the user-facing :class:`Solver` class and a convenience</span>
+<span class="sd">wrapper :func:`solve_ivp` for solving batches of initial value problems on the</span>
+<span class="sd">GPU.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">typing</span> <span class="kn">import</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">TYPE_CHECKING</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+
+<span class="kn">from</span> <span class="nn">cubie.memory</span> <span class="kn">import</span> <span class="n">default_memmgr</span>
+<span class="kn">from</span> <span class="nn">cubie.batchsolving.BatchGridBuilder</span> <span class="kn">import</span> <span class="n">BatchGridBuilder</span>
+<span class="kn">from</span> <span class="nn">cubie.batchsolving.SystemInterface</span> <span class="kn">import</span> <span class="n">SystemInterface</span>
+<span class="kn">from</span> <span class="nn">cubie.batchsolving.arrays.BatchOutputArrays</span> <span class="kn">import</span> <span class="n">ActiveOutputs</span>
+<span class="kn">from</span> <span class="nn">cubie.batchsolving.BatchSolverKernel</span> <span class="kn">import</span> <span class="n">BatchSolverKernel</span>
+<span class="kn">from</span> <span class="nn">cubie.batchsolving.solveresult</span> <span class="kn">import</span> <span class="n">SolveResult</span><span class="p">,</span> <span class="n">SolveSpec</span>
+<span class="kn">from</span> <span class="nn">cubie.batchsolving.solveresult</span> <span class="kn">import</span> <span class="n">SolveSpec</span>
+
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">numba.cuda.cudadrv</span> <span class="kn">import</span> <span class="n">MappedNDArray</span>
+
+
+<div class="viewcode-block" id="solve_ivp">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.solve_ivp">[docs]</a>
+<span class="k">def</span> <span class="nf">solve_ivp</span><span class="p">(</span>
+    <span class="n">system</span><span class="p">,</span>
+    <span class="n">y0</span><span class="p">,</span>
+    <span class="n">parameters</span><span class="p">,</span>
+    <span class="n">forcing_vectors</span><span class="p">,</span>
+    <span class="n">dt_eval</span><span class="p">,</span>
+    <span class="n">method</span><span class="o">=</span><span class="s2">&quot;euler&quot;</span><span class="p">,</span>
+    <span class="n">duration</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">settling_time</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+    <span class="o">**</span><span class="n">options</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SolveResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Solve a batch initial value problem.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    system : object</span>
+<span class="sd">        System model defining the differential equations.</span>
+<span class="sd">    y0 : array-like</span>
+<span class="sd">        Initial state values for each run.</span>
+<span class="sd">    parameters : array-like or dict</span>
+<span class="sd">        Parameter values for each run.</span>
+<span class="sd">    forcing_vectors : array-like</span>
+<span class="sd">        External forcing values to apply during integration.</span>
+<span class="sd">    dt_eval : float</span>
+<span class="sd">        Interval at which solution values are stored.</span>
+<span class="sd">    method : str, optional</span>
+<span class="sd">        Integration algorithm to use. Default is ``&quot;euler&quot;``.</span>
+<span class="sd">    duration : float, optional</span>
+<span class="sd">        Total integration time. Default is ``1.0``.</span>
+<span class="sd">    settling_time : float, optional</span>
+<span class="sd">        Warm-up period prior to storing outputs. Default is ``0.0``.</span>
+<span class="sd">    **options</span>
+<span class="sd">        Additional keyword arguments passed to :class:`Solver`.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    SolveResult</span>
+<span class="sd">        Results returned from :meth:`Solver.solve`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">solver</span> <span class="o">=</span> <span class="n">Solver</span><span class="p">(</span>
+        <span class="n">system</span><span class="p">,</span>
+        <span class="n">algorithm</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
+        <span class="n">dt_save</span><span class="o">=</span><span class="n">dt_eval</span><span class="p">,</span>
+        <span class="n">duration</span><span class="o">=</span><span class="n">duration</span><span class="p">,</span>
+        <span class="n">warmup</span><span class="o">=</span><span class="n">settling_time</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">options</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span>
+        <span class="n">y0</span><span class="p">,</span>
+        <span class="n">parameters</span><span class="p">,</span>
+        <span class="n">forcing_vectors</span><span class="p">,</span>
+        <span class="n">duration</span><span class="o">=</span><span class="n">duration</span><span class="p">,</span>
+        <span class="n">warmup</span><span class="o">=</span><span class="n">settling_time</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">options</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">results</span></div>
+
+
+
+<div class="viewcode-block" id="Solver">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver">[docs]</a>
+<span class="k">class</span> <span class="nc">Solver</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;User-facing interface for solving batches of ODE systems.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    system : GenericODE</span>
+<span class="sd">        System model containing the ODEs to integrate.</span>
+<span class="sd">    algorithm : str, optional</span>
+<span class="sd">        Integration algorithm to use. Defaults to ``&quot;euler&quot;``.</span>
+<span class="sd">    duration : float, optional</span>
+<span class="sd">        Total integration time. Defaults to ``1.0``.</span>
+<span class="sd">    warmup : float, optional</span>
+<span class="sd">        Warm-up period before outputs are stored. Defaults to ``0.0``.</span>
+<span class="sd">    dt_min, dt_max : float, optional</span>
+<span class="sd">        Minimum and maximum timestep sizes. Defaults are ``0.01`` and ``0.1``.</span>
+<span class="sd">    dt_save : float, optional</span>
+<span class="sd">        Sampling interval for storing state values. Default is ``0.1``.</span>
+<span class="sd">    dt_summarise : float, optional</span>
+<span class="sd">        Interval for computing summary outputs. Default is ``1.0``.</span>
+<span class="sd">    atol, rtol : float, optional</span>
+<span class="sd">        Absolute and relative error tolerances. Defaults are ``1e-6``.</span>
+<span class="sd">    saved_states, saved_observables : list of str or int, optional</span>
+<span class="sd">        Variables to save verbatim at each output step.</span>
+<span class="sd">    summarised_states, summarised_observables : list of str or int, optional</span>
+<span class="sd">        Variables for which summary statistics are computed.</span>
+<span class="sd">    output_types : list of str, optional</span>
+<span class="sd">        Output arrays to generate (e.g. ``[&quot;state&quot;]``).</span>
+<span class="sd">    precision : type, optional</span>
+<span class="sd">        Floating point precision. Defaults to ``numpy.float64``.</span>
+<span class="sd">    profileCUDA : bool, optional</span>
+<span class="sd">        Enable CUDA profiling. Defaults to ``False``.</span>
+<span class="sd">    memory_manager : MemoryManager, optional</span>
+<span class="sd">        Manager responsible for CUDA memory allocations.</span>
+<span class="sd">    stream_group : str, optional</span>
+<span class="sd">        Name of the CUDA stream group used by the solver. Defaults to</span>
+<span class="sd">        ``&quot;solver&quot;``.</span>
+<span class="sd">    mem_proportion : float, optional</span>
+<span class="sd">        Proportion of GPU memory reserved for the solver.</span>
+<span class="sd">    **kwargs</span>
+<span class="sd">        Additional keyword arguments forwarded to internal components.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    system_interface : SystemInterface</span>
+<span class="sd">        Object translating between user-world and GPU-world variables.</span>
+<span class="sd">    grid_builder : BatchGridBuilder</span>
+<span class="sd">        Helper that constructs integration grids from user inputs.</span>
+<span class="sd">    kernel : BatchSolverKernel</span>
+<span class="sd">        Low-level component that executes integrations on the GPU.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">system</span><span class="p">,</span>
+        <span class="n">algorithm</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;euler&quot;</span><span class="p">,</span>
+        <span class="n">duration</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">warmup</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
+        <span class="n">dt_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">dt_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+        <span class="n">dt_save</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+        <span class="n">dt_summarise</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">atol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+        <span class="n">rtol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+        <span class="n">saved_states</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">saved_observables</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">summarised_states</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">summarised_observables</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span> <span class="o">|</span> <span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">output_types</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">precision</span><span class="p">:</span> <span class="nb">type</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
+        <span class="n">profileCUDA</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">memory_manager</span><span class="o">=</span><span class="n">default_memmgr</span><span class="p">,</span>
+        <span class="n">stream_group</span><span class="o">=</span><span class="s2">&quot;solver&quot;</span><span class="p">,</span>
+        <span class="n">mem_proportion</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">interface</span> <span class="o">=</span> <span class="n">SystemInterface</span><span class="o">.</span><span class="n">from_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span> <span class="o">=</span> <span class="n">interface</span>
+
+        <span class="p">(</span>
+            <span class="n">saved_state_indices</span><span class="p">,</span>
+            <span class="n">saved_observable_indices</span><span class="p">,</span>
+            <span class="n">summarised_state_indices</span><span class="p">,</span>
+            <span class="n">summarised_observable_indices</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variable_indices_from_list</span><span class="p">(</span>
+            <span class="n">saved_states</span><span class="p">,</span>
+            <span class="n">saved_observables</span><span class="p">,</span>
+            <span class="n">summarised_states</span><span class="p">,</span>
+            <span class="n">summarised_observables</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">grid_builder</span> <span class="o">=</span> <span class="n">BatchGridBuilder</span><span class="p">(</span><span class="n">interface</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span> <span class="o">=</span> <span class="n">BatchSolverKernel</span><span class="p">(</span>
+            <span class="n">system</span><span class="p">,</span>
+            <span class="n">algorithm</span><span class="o">=</span><span class="n">algorithm</span><span class="p">,</span>
+            <span class="n">duration</span><span class="o">=</span><span class="n">duration</span><span class="p">,</span>
+            <span class="n">warmup</span><span class="o">=</span><span class="n">warmup</span><span class="p">,</span>
+            <span class="n">dt_min</span><span class="o">=</span><span class="n">dt_min</span><span class="p">,</span>
+            <span class="n">dt_max</span><span class="o">=</span><span class="n">dt_max</span><span class="p">,</span>
+            <span class="n">dt_save</span><span class="o">=</span><span class="n">dt_save</span><span class="p">,</span>
+            <span class="n">dt_summarise</span><span class="o">=</span><span class="n">dt_summarise</span><span class="p">,</span>
+            <span class="n">atol</span><span class="o">=</span><span class="n">atol</span><span class="p">,</span>
+            <span class="n">rtol</span><span class="o">=</span><span class="n">rtol</span><span class="p">,</span>
+            <span class="n">saved_state_indices</span><span class="o">=</span><span class="n">saved_state_indices</span><span class="p">,</span>
+            <span class="n">saved_observable_indices</span><span class="o">=</span><span class="n">saved_observable_indices</span><span class="p">,</span>
+            <span class="n">summarised_state_indices</span><span class="o">=</span><span class="n">summarised_state_indices</span><span class="p">,</span>
+            <span class="n">summarised_observable_indices</span><span class="o">=</span><span class="n">summarised_observable_indices</span><span class="p">,</span>
+            <span class="n">output_types</span><span class="o">=</span><span class="n">output_types</span><span class="p">,</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">profileCUDA</span><span class="o">=</span><span class="n">profileCUDA</span><span class="p">,</span>
+            <span class="n">memory_manager</span><span class="o">=</span><span class="n">memory_manager</span><span class="p">,</span>
+            <span class="n">stream_group</span><span class="o">=</span><span class="n">stream_group</span><span class="p">,</span>
+            <span class="n">mem_proportion</span><span class="o">=</span><span class="n">mem_proportion</span><span class="p">,</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="Solver._variable_indices_from_list">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver._variable_indices_from_list">[docs]</a>
+    <span class="k">def</span> <span class="nf">_variable_indices_from_list</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">saved_states</span><span class="p">,</span>
+        <span class="n">saved_observables</span><span class="p">,</span>
+        <span class="n">summarised_states</span><span class="p">,</span>
+        <span class="n">summarised_observables</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Translate variable labels into index arrays.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        saved_states, saved_observables, summarised_states,</span>
+<span class="sd">        summarised_observables : list[str] or None</span>
+<span class="sd">            Lists of variable labels. ``None`` leaves the corresponding</span>
+<span class="sd">            selection unchanged.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple of ndarray or None</span>
+<span class="sd">            Index arrays for each variable list in the order provided.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">saved_states</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">saved_state_indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">state_indices</span><span class="p">(</span>
+                <span class="n">saved_states</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">saved_state_indices</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">saved_observables</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">saved_observable_indices</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">observable_indices</span><span class="p">(</span><span class="n">saved_observables</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">saved_observable_indices</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">summarised_states</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">summarised_state_indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">state_indices</span><span class="p">(</span>
+                <span class="n">summarised_states</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">summarised_state_indices</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">summarised_observables</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">summarised_observable_indices</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">observable_indices</span><span class="p">(</span>
+                    <span class="n">summarised_observables</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">summarised_observable_indices</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="k">return</span> <span class="p">(</span>
+            <span class="n">saved_state_indices</span><span class="p">,</span>
+            <span class="n">saved_observable_indices</span><span class="p">,</span>
+            <span class="n">summarised_state_indices</span><span class="p">,</span>
+            <span class="n">summarised_observable_indices</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Solver.solve">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver.solve">[docs]</a>
+    <span class="k">def</span> <span class="nf">solve</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">initial_values</span><span class="p">,</span>
+        <span class="n">parameters</span><span class="p">,</span>
+        <span class="n">forcing_vectors</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">duration</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">settling_time</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+        <span class="n">blocksize</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+        <span class="n">stream</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">chunk_axis</span><span class="o">=</span><span class="s2">&quot;run&quot;</span><span class="p">,</span>
+        <span class="n">grid_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;combinatorial&quot;</span><span class="p">,</span>
+        <span class="n">results_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;full&quot;</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Solve a batch initial value problem.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        initial_values : array-like or dict</span>
+<span class="sd">            Initial state values for each integration run.</span>
+<span class="sd">        parameters : array-like or dict</span>
+<span class="sd">            Parameter values for each run.</span>
+<span class="sd">        forcing_vectors : array-like, optional</span>
+<span class="sd">            External forcing applied during integration.</span>
+<span class="sd">        duration : float, optional</span>
+<span class="sd">            Total integration time. Default is ``1.0``.</span>
+<span class="sd">        settling_time : float, optional</span>
+<span class="sd">            Warm-up period before recording outputs. Default ``0.0``.</span>
+<span class="sd">        blocksize : int, optional</span>
+<span class="sd">            CUDA block size used for kernel launch. Default ``256``.</span>
+<span class="sd">        stream : cuda.stream or None, optional</span>
+<span class="sd">            Stream on which to execute the kernel. ``None`` uses the solver&#39;s</span>
+<span class="sd">            default stream.</span>
+<span class="sd">        chunk_axis : {&#39;run&#39;, &#39;time&#39;}, optional</span>
+<span class="sd">            Dimension along which to chunk when memory is limited. Default</span>
+<span class="sd">            ``&#39;run&#39;``.</span>
+<span class="sd">        grid_type : {&#39;combinatorial&#39;, &#39;verbatim&#39;}, optional</span>
+<span class="sd">            Strategy for constructing the integration grid from inputs.</span>
+<span class="sd">        results_type : {&#39;full&#39;, &#39;numpy&#39;, &#39;numpy_per_summary&#39;, &#39;pandas&#39;}, optional</span>
+<span class="sd">            Format of returned results. Default ``&#39;full&#39;``.</span>
+<span class="sd">        **kwargs</span>
+<span class="sd">            Additional options forwarded to :meth:`update`.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SolveResult</span>
+<span class="sd">            Collected results from the integration run.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="n">inits</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">grid_builder</span><span class="p">(</span>
+            <span class="n">states</span><span class="o">=</span><span class="n">initial_values</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">parameters</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">grid_type</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+            <span class="n">inits</span><span class="o">=</span><span class="n">inits</span><span class="p">,</span>
+            <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span>
+            <span class="n">forcing_vectors</span><span class="o">=</span><span class="n">forcing_vectors</span><span class="p">,</span>
+            <span class="n">duration</span><span class="o">=</span><span class="n">duration</span><span class="p">,</span>
+            <span class="n">warmup</span><span class="o">=</span><span class="n">settling_time</span><span class="p">,</span>
+            <span class="n">blocksize</span><span class="o">=</span><span class="n">blocksize</span><span class="p">,</span>
+            <span class="n">stream</span><span class="o">=</span><span class="n">stream</span><span class="p">,</span>
+            <span class="n">chunk_axis</span><span class="o">=</span><span class="n">chunk_axis</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">SolveResult</span><span class="o">.</span><span class="n">from_solver</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">results_type</span><span class="o">=</span><span class="n">results_type</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Solver.update">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver.update">[docs]</a>
+    <span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Update solver, integrator and system settings.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        updates_dict : dict</span>
+<span class="sd">            Mapping of attribute names to new values.</span>
+<span class="sd">        silent : bool, optional</span>
+<span class="sd">            If ``True`` unknown keys are ignored instead of raising</span>
+<span class="sd">            ``KeyError``. Defaults to ``False``.</span>
+<span class="sd">        **kwargs</span>
+<span class="sd">            Additional updates supplied as keyword arguments.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        set</span>
+<span class="sd">            Set of keys that were successfully updated.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="o">==</span> <span class="p">{}:</span>
+            <span class="k">return</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="n">updates_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">update_saved_variables</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">)</span>
+
+        <span class="n">recognised</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="n">all_unrecognized</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">all_unrecognized</span> <span class="o">-=</span> <span class="bp">self</span><span class="o">.</span><span class="n">update_memory_settings</span><span class="p">(</span>
+            <span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        <span class="n">all_unrecognized</span> <span class="o">-=</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+            <span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        <span class="n">all_unrecognized</span> <span class="o">-=</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="s2">&quot;profileCUDA&quot;</span> <span class="ow">in</span> <span class="n">updates_dict</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;profileCUDA&quot;</span><span class="p">]:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">enable_profiling</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">disable_profiling</span><span class="p">()</span>
+            <span class="n">recognised</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s2">&quot;profileCUDA&quot;</span><span class="p">)</span>
+
+        <span class="n">recognised</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">-</span> <span class="n">all_unrecognized</span>
+
+        <span class="k">if</span> <span class="n">all_unrecognized</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">silent</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unrecognized parameters: </span><span class="si">{</span><span class="n">all_unrecognized</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">recognised</span></div>
+
+
+<div class="viewcode-block" id="Solver.update_saved_variables">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver.update_saved_variables">[docs]</a>
+    <span class="k">def</span> <span class="nf">update_saved_variables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">updates_dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Interpret label lists and insert resolved indices.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        updates_dict : dict</span>
+<span class="sd">            Dictionary potentially containing ``saved_states``,</span>
+<span class="sd">            ``saved_observables``, ``summarised_states`` or</span>
+<span class="sd">            ``summarised_observables`` entries as labels.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict</span>
+<span class="sd">            Updated dictionary with label lists replaced by index arrays.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">saved_states</span> <span class="o">=</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;saved_states&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">saved_observables</span> <span class="o">=</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;saved_observables&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">summarised_states</span> <span class="o">=</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s2">&quot;summarised_states&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="n">summarised_observables</span> <span class="o">=</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span>
+            <span class="s2">&quot;summarised_observables&quot;</span><span class="p">,</span> <span class="kc">None</span>
+        <span class="p">)</span>
+
+        <span class="p">(</span>
+            <span class="n">saved_state_indices</span><span class="p">,</span>
+            <span class="n">saved_observable_indices</span><span class="p">,</span>
+            <span class="n">summarised_state_indices</span><span class="p">,</span>
+            <span class="n">summarised_observable_indices</span><span class="p">,</span>
+        <span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_variable_indices_from_list</span><span class="p">(</span>
+            <span class="n">saved_states</span><span class="p">,</span>
+            <span class="n">saved_observables</span><span class="p">,</span>
+            <span class="n">summarised_states</span><span class="p">,</span>
+            <span class="n">summarised_observables</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">saved_state_indices</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;saved_state_indices&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">saved_state_indices</span>
+        <span class="k">if</span> <span class="n">saved_observable_indices</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;saved_observable_indices&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">saved_observable_indices</span>
+        <span class="k">if</span> <span class="n">summarised_state_indices</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;summarised_state_indices&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">summarised_state_indices</span>
+        <span class="k">if</span> <span class="n">summarised_observable_indices</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;summarised_observable_indices&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">summarised_observable_indices</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">updates_dict</span></div>
+
+
+<div class="viewcode-block" id="Solver.update_memory_settings">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver.update_memory_settings">[docs]</a>
+    <span class="k">def</span> <span class="nf">update_memory_settings</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">updates_dict</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Update memory manager parameters.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        updates_dict : dict, optional</span>
+<span class="sd">            Mapping of settings to update.</span>
+<span class="sd">        silent : bool, optional</span>
+<span class="sd">            If ``True`` unknown keys are ignored. Default ``False``.</span>
+<span class="sd">        **kwargs</span>
+<span class="sd">            Additional updates supplied as keyword arguments.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        set</span>
+<span class="sd">            Set of keys that were successfully updated.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="o">==</span> <span class="p">{}:</span>
+            <span class="k">return</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="n">all_unrecognized</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">recognised</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="s2">&quot;mem_proportion&quot;</span> <span class="ow">in</span> <span class="n">updates_dict</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">memory_manager</span><span class="o">.</span><span class="n">set_manual_proportion</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="p">,</span> <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;mem_proportion&quot;</span><span class="p">]</span>
+            <span class="p">)</span>
+            <span class="n">recognised</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s2">&quot;mem_proportion&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s2">&quot;allocator&quot;</span> <span class="ow">in</span> <span class="n">updates_dict</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">memory_manager</span><span class="o">.</span><span class="n">set_allocator</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="p">,</span> <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;allocator&quot;</span><span class="p">]</span>
+            <span class="p">)</span>
+            <span class="n">recognised</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s2">&quot;allocator&quot;</span><span class="p">)</span>
+
+        <span class="n">recognised</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">recognised</span><span class="p">)</span>
+        <span class="n">all_unrecognized</span> <span class="o">-=</span> <span class="nb">set</span><span class="p">(</span><span class="n">recognised</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">all_unrecognized</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">silent</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unrecognized parameters: </span><span class="si">{</span><span class="n">all_unrecognized</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">recognised</span></div>
+
+
+<div class="viewcode-block" id="Solver.enable_profiling">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver.enable_profiling">[docs]</a>
+    <span class="k">def</span> <span class="nf">enable_profiling</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Enable CUDA profiling for the solver.</span>
+
+<span class="sd">        Profiling collects detailed performance information but can slow down</span>
+<span class="sd">        execution considerably.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Consider disabling optimisation and enabling debug and line info</span>
+        <span class="c1"># for profiling</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">enable_profiling</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Solver.disable_profiling">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver.disable_profiling">[docs]</a>
+    <span class="k">def</span> <span class="nf">disable_profiling</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Disable CUDA profiling for the solver.</span>
+
+<span class="sd">        This reverts the effect of :meth:`enable_profiling` and returns the</span>
+<span class="sd">        solver to normal execution speed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">disable_profiling</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="Solver.get_state_indices">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver.get_state_indices">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_state_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state_labels</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return indices for the specified state variables.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        state_labels : list[str], optional</span>
+<span class="sd">            Labels of states to query. ``None`` returns indices for all states.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ndarray</span>
+<span class="sd">            Integer indices corresponding to the requested states.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">state_indices</span><span class="p">(</span><span class="n">state_labels</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Solver.get_observable_indices">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solver.html#cubie.batchsolving.Solver.get_observable_indices">[docs]</a>
+    <span class="k">def</span> <span class="nf">get_observable_indices</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">observable_labels</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return indices for the specified observables.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        observable_labels : list[str], optional</span>
+<span class="sd">            Labels of observables to query. ``None`` returns indices for all</span>
+<span class="sd">            observables.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ndarray</span>
+<span class="sd">            Integer indices corresponding to the requested observables.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">observable_indices</span><span class="p">(</span><span class="n">observable_labels</span><span class="p">)</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">precision</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.precision` from</span>
+<span class="sd">        the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">precision</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">system_sizes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.system_sizes`</span>
+<span class="sd">        from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">system_sizes</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">output_array_heights</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_array_heights`</span>
+<span class="sd">        from the child BatchSolverKernel object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">output_array_heights</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">summaries_buffer_sizes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel</span>
+<span class="sd">        .summaries_buffer_sizes` from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">summaries_buffer_sizes</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">num_runs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.num_runs` from</span>
+<span class="sd">        the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">num_runs</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">output_length</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_length`</span>
+<span class="sd">        from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">output_length</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">summaries_length</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.summaries_length`</span>
+<span class="sd">        from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">summaries_length</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">summary_legend_per_variable</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel</span>
+<span class="sd">        .summary_legend_per_variable` from the child BatchSolverKernel</span>
+<span class="sd">        object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">summary_legend_per_variable</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">saved_state_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel</span>
+<span class="sd">        .saved_state_indices` from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">saved_state_indices</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">saved_states</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns a list of state labels for the saved states.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">state_labels</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">saved_state_indices</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">saved_observable_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel</span>
+<span class="sd">        .saved_observable_indices` from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">saved_observable_indices</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">saved_observables</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns a list of observable labels for the saved observables.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">observable_labels</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">saved_observable_indices</span>
+        <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">summarised_state_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel</span>
+<span class="sd">        .summarised_state_indices` from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">summarised_state_indices</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">summarised_states</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns a list of state labels for the summarised states.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">state_labels</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">summarised_state_indices</span>
+        <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">summarised_observable_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel</span>
+<span class="sd">        .summarised_observable_indices` from the child BatchSolverKernel</span>
+<span class="sd">        object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">summarised_observable_indices</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">summarised_observables</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns a list of observable labels for the summarised observables.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">observable_labels</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">summarised_observable_indices</span>
+        <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">active_output_arrays</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ActiveOutputs</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes</span>
+<span class="sd">        :attr:`~cubie.batchsolving.BatchSolverKernel.active_output_arrays` from</span>
+<span class="sd">        the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">active_output_arrays</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">state</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:~cubie.batchsolving.BatchSolverKernel.state from the</span>
+<span class="sd">        child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">state</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">observables</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.observables`</span>
+<span class="sd">        from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">observables</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">state_summaries</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel</span>
+<span class="sd">        .state_summaries` from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">state_summaries</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">observable_summaries</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.</span>
+<span class="sd">        observable_summaries` from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">observable_summaries</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.parameters`</span>
+<span class="sd">        from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">parameters</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">initial_values</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.initial_values`</span>
+<span class="sd">        from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">initial_values</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">forcing_vectors</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.forcing_vectors`</span>
+<span class="sd">        from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">forcing_vectors</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">save_time</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.save_time` from</span>
+<span class="sd">        the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">save_time</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">output_types</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_types`</span>
+<span class="sd">        from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">output_types</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">output_stride_order</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_stride_order</span>
+<span class="sd">        ` from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">output_stride_order</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">input_variables</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.input_variables</span>
+<span class="sd">        ` from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">all_input_labels</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">output_variables</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel</span>
+<span class="sd">        .output_variables` from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">system_interface</span><span class="o">.</span><span class="n">all_output_labels</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">chunk_axis</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.chunk_axis`</span>
+<span class="sd">        from the child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">chunk_axis</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">chunks</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.chunks` from the</span>
+<span class="sd">        child BatchSolverKernel object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">chunks</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">memory_manager</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns the memory manager the solver is registered with.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">memory_manager</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">stream_group</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns the stream_group the solver is in.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">stream_group</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">mem_proportion</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns the memory proportion the solver is assigned.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">mem_proportion</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">solve_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Returns a SolveSpec object with details of the solver run.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">SolveSpec</span><span class="p">(</span>
+            <span class="n">dt_min</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">dt_min</span><span class="p">,</span>
+            <span class="n">dt_max</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">dt_max</span><span class="p">,</span>
+            <span class="n">dt_save</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">dt_save</span><span class="p">,</span>
+            <span class="n">dt_summarise</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">dt_summarise</span><span class="p">,</span>
+            <span class="n">duration</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">duration</span><span class="p">,</span>
+            <span class="n">warmup</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">warmup</span><span class="p">,</span>
+            <span class="n">atol</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">atol</span><span class="p">,</span>
+            <span class="n">rtol</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">rtol</span><span class="p">,</span>
+            <span class="n">algorithm</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">algorithm</span><span class="p">,</span>
+            <span class="n">saved_states</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">saved_states</span><span class="p">,</span>
+            <span class="n">saved_observables</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">saved_observables</span><span class="p">,</span>
+            <span class="n">summarised_states</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">summarised_states</span><span class="p">,</span>
+            <span class="n">summarised_observables</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">summarised_observables</span><span class="p">,</span>
+            <span class="n">output_types</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">kernel</span><span class="o">.</span><span class="n">output_types</span><span class="p">,</span>
+            <span class="n">precision</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,12 @@
+cubie.batchsolving.SystemInterface
+==================================
+
+.. automodule:: cubie.batchsolving.SystemInterface
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      SystemInterface
+   

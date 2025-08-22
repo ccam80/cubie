@@ -1,0 +1,12 @@
+cubie.systemmodels.systems.decays
+=================================
+
+.. automodule:: cubie.systemmodels.systems.decays
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      Decays
+   

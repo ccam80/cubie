@@ -1,0 +1,12 @@
+cubie.integrators.algorithms.genericIntegratorAlgorithm
+=======================================================
+
+.. automodule:: cubie.integrators.algorithms.genericIntegratorAlgorithm
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      GenericIntegratorAlgorithm
+   

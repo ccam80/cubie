@@ -1,0 +1,19 @@
+cubie.outputhandling.summarymetrics.metrics
+===========================================
+
+.. automodule:: cubie.outputhandling.summarymetrics.metrics
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      register_metric
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      SummaryMetric
+      SummaryMetrics
+   
