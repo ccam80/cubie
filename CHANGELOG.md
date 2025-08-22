@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.0.3](https://github.com/ccam80/cubie/compare/v0.0.2...v0.0.3) (2025-08-22)
+
+
+### Bug Fixes
+
+* BaseArrayManager.py once again contains all of it's methods, after half of the class was sausage-fingered clean off. ([96ba1cb](https://github.com/ccam80/cubie/commit/96ba1cb3d1fb6bb2bb0e6786ddb0e8dabd8512ae))
+* buggy regex removed from pyproject ([bc5606a](https://github.com/ccam80/cubie/commit/bc5606aa67ce84994a5009f0b26dbd5d8e45e603))
+
+
+### Documentation
+
+* batchsolving module now has all docstrings in numpydocs-friendly format ([8e6e8cf](https://github.com/ccam80/cubie/commit/8e6e8cf415b86017137cd00421e14de58168e019))
+* conf.py path reverted for Sphinx build ([5383de6](https://github.com/ccam80/cubie/commit/5383de6e551efde3ecf965efc50210608f136f12))
+* docs updated and thinned to match structure ([9df6978](https://github.com/ccam80/cubie/commit/9df69786697ccf35f29f528a828a057a67d302ab))
+* get sphinx-build working again and ReadTheDocs themed ([6df9a82](https://github.com/ccam80/cubie/commit/6df9a82fefa6307a9ef981ebe70ee2bc0c72161f))
+* insert google verification tag, cross-link repo and docs ([0d61cd2](https://github.com/ccam80/cubie/commit/0d61cd2f93d1e79d2dc823a9830387d863cf8abb))
+* integrators section docstrings brought in line with numpydocs format ([8b22790](https://github.com/ccam80/cubie/commit/8b22790c912b50f0681b7fb6d7eda925e87be64b))
+* memory section docstrings brought into numpy format ([d495551](https://github.com/ccam80/cubie/commit/d495551cce6f0a150da76b6000f87ce512e4345a))
+* output_functions section docstrings brought into numpy format ([4e7b2c0](https://github.com/ccam80/cubie/commit/4e7b2c06d1ec8b0ee873d97e0e30e0f4b42a849c))
+* pypi version badge added ([8b22790](https://github.com/ccam80/cubie/commit/8b22790c912b50f0681b7fb6d7eda925e87be64b))
+* readme now has code coverage badge ([8e6e8cf](https://github.com/ccam80/cubie/commit/8e6e8cf415b86017137cd00421e14de58168e019))
+* systemmodels section docstrings brought into numpy format ([9df6978](https://github.com/ccam80/cubie/commit/9df69786697ccf35f29f528a828a057a67d302ab))
+
 ## [0.0.2](https://github.com/ccam80/cubie/compare/v0.0.1...v0.0.2) (2025-08-18)
 
 
