@@ -1,0 +1,1084 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-8.4.1, pluggy-1.6.0 -- /opt/venv/bin/python
+cachedir: .pytest_cache
+metadata: {'Python': '3.12.3', 'Platform': 'Linux-5.15.0-1084-aws-x86_64-with-glibc2.39', 'Packages': {'pytest': '8.4.1', 'pluggy': '1.6.0'}, 'Plugins': {'metadata': '3.1.1', 'durations': '1.5.2', 'cov': '6.2.1', 'json-report': '1.5.0'}}
+rootdir: /workspace/repo
+configfile: pyproject.toml
+testpaths: tests
+plugins: metadata-3.1.1, durations-1.5.2, cov-6.2.1, json-report-1.5.0
+collecting ... collected 735 items
+
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_attach_existing_label PASSED [  0%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_attach_nonexistent_label PASSED [  0%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_delete_existing_label PASSED [  0%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_delete_nonexistent_label PASSED [  0%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestArrayContainer::test_delete_all PASSED [  0%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_initialization PASSED [  0%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_register_with_memory_manager PASSED [  0%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_on_allocation_complete PASSED [  1%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_request_allocation_single_force PASSED [  1%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_request_allocation_group_force PASSED [  1%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_request_allocation_auto_single PASSED [  1%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_request_allocation_auto_group PASSED [  1%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_invalidate_hook_functionality PASSED [  1%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_arrays_equal_both_none PASSED [  1%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_arrays_equal_one_none PASSED [  2%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_arrays_equal_same_arrays PASSED [  2%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_arrays_equal_different_arrays PASSED [  2%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_update_host_array_no_change PASSED [  2%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_update_host_array_shape_change PASSED [  2%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_update_host_array_zero_shape PASSED [  2%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_update_host_array_value_change PASSED [  2%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_chunk_placeholders PASSED [  2%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_initialize_device_zeros PASSED [  3%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_type_returns_dict PASSED [  3%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_type_all_correct PASSED [  3%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_type_with_none_arrays PASSED [  3%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_returns_dict PASSED [  3%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_correct_shapes PASSED [  3%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_wrong_shapes PASSED [  3%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_with_chunking PASSED [  4%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckSizesAndTypes::test_check_sizes_invalid_location PASSED [  4%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckIncomingArrays::test_check_incoming_arrays_all_pass PASSED [  4%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckIncomingArrays::test_check_incoming_arrays_size_fail PASSED [  4%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestCheckIncomingArrays::test_check_incoming_arrays_type_fail PASSED [  4%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestAttachExternalArrays::test_attach_external_arrays_success PASSED [  4%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestAttachExternalArrays::test_attach_external_arrays_with_failures PASSED [  4%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_success PASSED [  5%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_shape_change PASSED [  5%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_size_mismatch PASSED [  5%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_nonexistent_array PASSED [  5%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_no_change PASSED [  5%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateSizes::test_update_sizes_success PASSED [  5%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateSizes::test_update_sizes_wrong_type PASSED [  5%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_memory_manager_registration PASSED [  5%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_memory_manager_proportion_handling[arraytest_overrides0] PASSED [  6%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_memory_manager_proportion_handling[arraytest_overrides1] PASSED [  6%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_memory_manager_proportion_handling[arraytest_overrides2] PASSED [  6%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_stream_group_management[arraytest_overrides0] PASSED [  6%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_stream_group_management[arraytest_overrides1] PASSED [  6%]
+tests/batchsolving/arrays/test_basearraymanager.py::TestMemoryManagerIntegration::test_allocation_with_settings PASSED [  6%]
+tests/batchsolving/arrays/test_basearraymanager.py::test_array_manager_with_different_configs[arraytest_overrides0] PASSED [  6%]
+tests/batchsolving/arrays/test_basearraymanager.py::test_array_manager_with_different_configs[arraytest_overrides1] PASSED [  7%]
+tests/batchsolving/arrays/test_basearraymanager.py::test_array_manager_with_different_configs[arraytest_overrides2] PASSED [  7%]
+tests/batchsolving/arrays/test_basearraymanager.py::test_array_manager_with_different_configs[arraytest_overrides3] PASSED [  7%]
+tests/batchsolving/arrays/test_basearraymanager.py::test_allocation_response_matches_settings[arraytest_overrides0] PASSED [  7%]
+tests/batchsolving/arrays/test_basearraymanager.py::test_allocation_response_matches_settings[arraytest_overrides1] PASSED [  7%]
+tests/batchsolving/arrays/test_basearraymanager.py::test_memory_integration_with_settings[arraytest_overrides0] PASSED [  7%]
+tests/batchsolving/arrays/test_basearraymanager.py::test_memory_integration_with_settings[arraytest_overrides1] PASSED [  7%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrayContainer::test_container_arrays_after_init PASSED [  8%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrayContainer::test_container_stride_order PASSED [  8%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrayContainer::test_host_factory PASSED [  8%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrayContainer::test_device_factory PASSED [  8%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_initialization_container_types PASSED [  8%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_from_solver_factory PASSED [  8%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_allocation_and_getters_not_none PASSED [  8%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_call_method_updates_host_arrays PASSED [  8%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_call_method_size_change_triggers_reallocation PASSED [  9%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_update_from_solver PASSED [  9%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_initialise_method PASSED [  9%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_finalise_method PASSED [  9%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_dtype[float32] PASSED [  9%]
+tests/batchsolving/arrays/test_batchinputarrays.py::TestInputArrays::test_dtype[float64] PASSED [  9%]
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_configs[input_test_overrides0] PASSED [  9%]
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_configs[input_test_overrides1] PASSED [ 10%]
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_configs[input_test_overrides2] PASSED [ 10%]
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_systems[ThreeChamber] PASSED [ 10%]
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_systems[Decays123] PASSED [ 10%]
+tests/batchsolving/arrays/test_batchinputarrays.py::test_input_arrays_with_different_systems[genericODE] PASSED [ 10%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_container_arrays_after_init PASSED [ 10%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_container_stride_order PASSED [ 10%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_container_memory_type_default PASSED [ 11%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_host_factory PASSED [ 11%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrayContainer::test_device_factory PASSED [ 11%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestActiveOutputs::test_active_outputs_initialization PASSED [ 11%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestActiveOutputs::test_update_from_outputarrays_all_active PASSED [ 11%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestActiveOutputs::test_update_from_outputarrays_size_one_arrays PASSED [ 11%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_initialization_container_types PASSED [ 11%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_from_solver_factory PASSED [ 11%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_allocation_and_getters_not_none PASSED [ 12%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_getters_return_none_before_allocation PASSED [ 12%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_call_method_allocates_arrays PASSED [ 12%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_reallocation_on_size_change PASSED [ 12%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_chunking_affects_device_array_size PASSED [ 12%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_active_outputs_property PASSED [ 12%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_update_from_solver PASSED [ 12%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_initialise_method PASSED [ 13%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArrays::test_finalise_method_copies_device_to_host PASSED [ 13%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_dtype[float32] PASSED [ 13%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_dtype[float64] PASSED [ 13%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_configs[output_test_overrides0] PASSED [ 13%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_configs[output_test_overrides1] PASSED [ 13%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_configs[output_test_overrides2] PASSED [ 13%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_systems[ThreeChamber-solver_settings_override0] PASSED [ 14%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_systems[Decays123-solver_settings_override0] PASSED [ 14%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::test_output_arrays_with_different_systems[genericODE-solver_settings_override0] PASSED [ 14%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArraysSpecialCases::test_allocation_with_different_solver_sizes PASSED [ 14%]
+tests/batchsolving/arrays/test_batchoutputarrays.py::TestOutputArraysSpecialCases::test_active_outputs_after_allocation PASSED [ 14%]
+tests/batchsolving/test_SolverKernel.py::test_kernel_builds PASSED       [ 14%]
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test] PASSED     [ 14%]
+tests/batchsolving/test_SolverKernel.py::test_run[fire_test (all outputs)] PASSED [ 14%]
+tests/batchsolving/test_SolverKernel.py::test_algorithm_change PASSED    [ 15%]
+tests/batchsolving/test_SolverKernel.py::test_getters_get PASSED         [ 15%]
+tests/batchsolving/test_SolverKernel.py::test_all_lower_plumbing PASSED  [ 15%]
+tests/batchsolving/test_SolverKernel.py::test_bogus_update_fails PASSED  [ 15%]
+tests/batchsolving/test_batch_grid_builder.py::test_combinatorial_and_verbatim_grid PASSED [ 15%]
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays PASSED   [ 15%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_with_request PASSED [ 15%]
+tests/batchsolving/test_batch_grid_builder.py::test_unique_cartesian_product PASSED [ 16%]
+tests/batchsolving/test_batch_grid_builder.py::test_combinatorial_grid PASSED [ 16%]
+tests/batchsolving/test_batch_grid_builder.py::test_verbatim_grid PASSED [ 16%]
+tests/batchsolving/test_batch_grid_builder.py::test_generate_grid PASSED [ 16%]
+tests/batchsolving/test_batch_grid_builder.py::test_grid_size_errors PASSED [ 16%]
+tests/batchsolving/test_batch_grid_builder.py::test_combine_grids PASSED [ 16%]
+tests/batchsolving/test_batch_grid_builder.py::test_extend_grid_to_array PASSED [ 16%]
+tests/batchsolving/test_batch_grid_builder.py::test_generate_array PASSED [ 17%]
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_1each[batch_settings0] PASSED [ 17%]
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_1each[batch_settings1] PASSED [ 17%]
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_2and2[batch_settings0] PASSED [ 17%]
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_2and2[batch_settings1] PASSED [ 17%]
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_verbatim_mismatch[batch_settings0] PASSED [ 17%]
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_empty_inputs[batch_settings0] PASSED [ 17%]
+tests/batchsolving/test_batch_grid_builder.py::test_grid_arrays_empty_inputs[batch_settings1] PASSED [ 17%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-dict-dict] PASSED [ 18%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-dict-seq] PASSED [ 18%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-dict-array] PASSED [ 18%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-dict-None] PASSED [ 18%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-seq-dict] PASSED [ 18%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-seq-seq] PASSED [ 18%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-seq-array] PASSED [ 18%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-seq-None] PASSED [ 19%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-array-dict] PASSED [ 19%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-array-seq] PASSED [ 19%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-array-array] PASSED [ 19%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-array-None] PASSED [ 19%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-None-dict] PASSED [ 19%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-None-seq] PASSED [ 19%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-None-array] PASSED [ 20%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[dict-None-None] PASSED [ 20%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-dict-dict] PASSED [ 20%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-dict-seq] PASSED [ 20%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-dict-array] PASSED [ 20%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-dict-None] PASSED [ 20%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-seq-dict] PASSED [ 20%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-seq-seq] PASSED [ 20%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-seq-array] PASSED [ 21%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-seq-None] PASSED [ 21%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-array-dict] PASSED [ 21%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-array-seq] PASSED [ 21%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-array-array] PASSED [ 21%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-array-None] PASSED [ 21%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-None-dict] PASSED [ 21%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-None-seq] PASSED [ 22%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-None-array] PASSED [ 22%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[seq-None-None] PASSED [ 22%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-dict-dict] PASSED [ 22%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-dict-seq] PASSED [ 22%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-dict-array] PASSED [ 22%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-dict-None] PASSED [ 22%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-seq-dict] PASSED [ 22%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-seq-seq] PASSED [ 23%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-seq-array] PASSED [ 23%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-seq-None] PASSED [ 23%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-array-dict] PASSED [ 23%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-array-seq] PASSED [ 23%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-array-array] PASSED [ 23%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-array-None] PASSED [ 23%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-None-dict] PASSED [ 24%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-None-seq] PASSED [ 24%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-None-array] PASSED [ 24%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[array-None-None] PASSED [ 24%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-dict-dict] PASSED [ 24%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-dict-seq] PASSED [ 24%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-dict-array] PASSED [ 24%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-dict-None] PASSED [ 25%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-seq-dict] PASSED [ 25%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-seq-seq] PASSED [ 25%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-seq-array] PASSED [ 25%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-seq-None] PASSED [ 25%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-array-dict] PASSED [ 25%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-array-seq] PASSED [ 25%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-array-array] PASSED [ 25%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-array-None] PASSED [ 26%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-None-dict] PASSED [ 26%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-None-seq] PASSED [ 26%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-None-array] PASSED [ 26%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_input_types[None-None-None] PASSED [ 26%]
+tests/batchsolving/test_batch_grid_builder.py::test_call_outputs PASSED  [ 26%]
+tests/batchsolving/test_batch_grid_builder.py::test_docstring_examples PASSED [ 26%]
+tests/batchsolving/test_solver.py::test_solver_initialization PASSED     [ 27%]
+tests/batchsolving/test_solver.py::test_solver_properties PASSED         [ 27%]
+tests/batchsolving/test_solver.py::test_manual_proportion[solver_settings_override0] PASSED [ 27%]
+tests/batchsolving/test_solver.py::test_variable_indices_methods PASSED  [ 27%]
+tests/batchsolving/test_solver.py::test_saved_variables_properties PASSED [ 27%]
+tests/batchsolving/test_solver.py::test_summarised_variables_properties PASSED [ 27%]
+tests/batchsolving/test_solver.py::test_output_properties PASSED         [ 27%]
+tests/batchsolving/test_solver.py::test_solve_info_property PASSED       [ 28%]
+tests/batchsolving/test_solver.py::test_solve_basic[default_system] PASSED [ 28%]
+tests/batchsolving/test_solver.py::test_solve_basic[threechamber_system] PASSED [ 28%]
+tests/batchsolving/test_solver.py::test_solve_with_different_grid_types PASSED [ 28%]
+tests/batchsolving/test_solver.py::test_solve_with_different_result_types PASSED [ 28%]
+tests/batchsolving/test_solver.py::test_update_basic PASSED              [ 28%]
+tests/batchsolving/test_solver.py::test_update_with_kwargs PASSED        [ 28%]
+tests/batchsolving/test_solver.py::test_update_unrecognized_keys PASSED  [ 28%]
+tests/batchsolving/test_solver.py::test_update_silent_mode PASSED        [ 29%]
+tests/batchsolving/test_solver.py::test_update_saved_variables PASSED    [ 29%]
+tests/batchsolving/test_solver.py::test_profiling_methods PASSED         [ 29%]
+tests/batchsolving/test_solver.py::test_memory_settings_update PASSED    [ 29%]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve PASSED [ 29%]
+tests/batchsolving/test_solver.py::test_output_length_and_summaries_length PASSED [ 29%]
+tests/batchsolving/test_solver.py::test_chunk_related_properties PASSED  [ 29%]
+tests/batchsolving/test_solver.py::test_variable_labels_properties PASSED [ 30%]
+tests/batchsolving/test_solver.py::test_solve_ivp_function PASSED        [ 30%]
+tests/batchsolving/test_solver.py::test_solver_with_different_algorithms PASSED [ 30%]
+tests/batchsolving/test_solver.py::test_solver_precision_types[float32] PASSED [ 30%]
+tests/batchsolving/test_solver.py::test_solver_precision_types[float64] PASSED [ 30%]
+tests/batchsolving/test_solver.py::test_solver_output_types PASSED       [ 30%]
+tests/batchsolving/test_solver.py::test_solver_with_different_systems[ThreeChamber] PASSED [ 30%]
+tests/batchsolving/test_solver.py::test_solver_with_different_systems[Decays123] PASSED [ 31%]
+tests/batchsolving/test_solver.py::test_solver_summary_legend PASSED     [ 31%]
+tests/batchsolving/test_solver.py::test_solver_save_time_property PASSED [ 31%]
+tests/batchsolving/test_solver.py::test_solver_state_and_observable_summaries PASSED [ 31%]
+tests/batchsolving/test_solver.py::test_solver_summaries_buffer_sizes PASSED [ 31%]
+tests/batchsolving/test_solver.py::test_solver_num_runs_property PASSED  [ 31%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_time_domain_arrays[True-True-<lambda>] PASSED [ 31%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_time_domain_arrays[True-False-<lambda>] PASSED [ 31%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_time_domain_arrays[False-True-<lambda>] PASSED [ 32%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_time_domain_arrays[False-False-<lambda>] PASSED [ 32%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_summaries_array[True-True-<lambda>] PASSED [ 32%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_summaries_array[True-False-<lambda>] PASSED [ 32%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_summaries_array[False-True-<lambda>] PASSED [ 32%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_combine_summaries_array[False-False-<lambda>] PASSED [ 32%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_cleave_time_with_time_saved PASSED [ 32%]
+tests/batchsolving/test_solveresult.py::TestSolveResultStaticMethods::test_cleave_time_without_time_saved PASSED [ 33%]
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_instantiation_type_equivalence[solver_settings_override0] PASSED [ 33%]
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_from_solver_full_instantiation[solver_settings_override0] PASSED [ 33%]
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_from_solver_numpy_instantiation[solver_settings_override0] PASSED [ 33%]
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_from_solver_numpy_per_summary_instantiation[solver_settings_override0] PASSED [ 33%]
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_from_solver_pandas_instantiation[solver_settings_override0] PASSED [ 33%]
+tests/batchsolving/test_solveresult.py::TestSolveResultFromSolver::test_time_domain_legend_from_solver[solver_settings_override0] PASSED [ 33%]
+tests/batchsolving/test_solveresult.py::TestSolveResultFromSolver::test_summary_legend_from_solver[solver_settings_override0] PASSED [ 34%]
+tests/batchsolving/test_solveresult.py::TestSolveResultFromSolver::test_stride_order_from_solver[solver_settings_override0] PASSED [ 34%]
+tests/batchsolving/test_solveresult.py::TestSolveResultProperties::test_as_numpy_property[solver_settings_override0] PASSED [ 34%]
+tests/batchsolving/test_solveresult.py::TestSolveResultProperties::test_per_summary_arrays_property[solver_settings_override0] PASSED [ 34%]
+tests/batchsolving/test_solveresult.py::TestSolveResultProperties::test_as_pandas_property[solver_settings_override0] PASSED [ 34%]
+tests/batchsolving/test_solveresult.py::TestSolveResultProperties::test_active_outputs_property[solver_settings_override0] PASSED [ 34%]
+tests/batchsolving/test_solveresult.py::TestSolveResultDefaultBehavior::test_default_instantiation PASSED [ 34%]
+tests/batchsolving/test_solveresult.py::TestSolveResultDefaultBehavior::test_custom_stride_order PASSED [ 34%]
+tests/batchsolving/test_solveresult.py::TestSolveResultPandasIntegration::test_pandas_shape_consistency[solver_settings_override0] PASSED [ 35%]
+tests/batchsolving/test_solveresult.py::TestSolveResultPandasIntegration::test_pandas_time_indexing[solver_settings_override0] PASSED [ 35%]
+tests/batchsolving/test_solveresult.py::TestSolveResultErrorHandling::test_empty_summaries_per_summary_arrays PASSED [ 35%]
+tests/batchsolving/test_system_interface.py::test_from_system PASSED     [ 35%]
+tests/batchsolving/test_system_interface.py::test_update[updates0] PASSED [ 35%]
+tests/batchsolving/test_system_interface.py::test_update[updates1] PASSED [ 35%]
+tests/batchsolving/test_system_interface.py::test_update[updates2] PASSED [ 35%]
+tests/batchsolving/test_system_interface.py::test_update_invalid[updates0] PASSED [ 36%]
+tests/batchsolving/test_system_interface.py::test_update_invalid[updates1] PASSED [ 36%]
+tests/batchsolving/test_system_interface.py::test_state_indices PASSED   [ 36%]
+tests/batchsolving/test_system_interface.py::test_observable_indices PASSED [ 36%]
+tests/batchsolving/test_system_interface.py::test_parameter_indices PASSED [ 36%]
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_int_zero PASSED [ 36%]
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_int_positive PASSED [ 36%]
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_int_negative PASSED [ 37%]
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_with_zeros PASSED [ 37%]
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_without_zeros PASSED [ 37%]
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_empty PASSED [ 37%]
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_single_zero PASSED [ 37%]
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_tuple_single_nonzero PASSED [ 37%]
+tests/batchsolving/test_utils.py::TestEnsureNonzeroSize::test_other_types PASSED [ 37%]
+tests/batchsolving/test_utils.py::TestIsCudaArray::test_cuda_array_detection PASSED [ 37%]
+tests/batchsolving/test_utils.py::TestIsCudaArray::test_numpy_array_detection PASSED [ 38%]
+tests/batchsolving/test_utils.py::TestIsCudaArray::test_non_array_detection PASSED [ 38%]
+tests/batchsolving/test_utils.py::TestIsCudaArray::test_mock_array_like_in_cudasim PASSED [ 38%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_valid_cuda_array_no_dimensions PASSED [ 38%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_valid_cuda_array_correct_dimensions PASSED [ 38%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_valid_cuda_array_wrong_dimensions PASSED [ 38%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_invalid_non_cuda_array PASSED [ 38%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator::test_invalid_non_array PASSED [ 39%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_none_value PASSED [ 39%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_none_value_with_dimensions PASSED [ 39%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_valid_cuda_array PASSED [ 39%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_valid_cuda_array_correct_dimensions PASSED [ 39%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_valid_cuda_array_wrong_dimensions PASSED [ 39%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator::test_invalid_non_array PASSED [ 39%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator3D::test_none_value PASSED [ 40%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator3D::test_valid_3d_cuda_array PASSED [ 40%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator3D::test_invalid_2d_cuda_array PASSED [ 40%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator3D::test_invalid_non_array PASSED [ 40%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator2D::test_none_value PASSED [ 40%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator2D::test_valid_2d_cuda_array PASSED [ 40%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator2D::test_invalid_3d_cuda_array PASSED [ 40%]
+tests/batchsolving/test_utils.py::TestOptionalCudaArrayValidator2D::test_invalid_non_array PASSED [ 40%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator3D::test_valid_3d_cuda_array PASSED [ 41%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator3D::test_invalid_2d_cuda_array PASSED [ 41%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator3D::test_invalid_non_array PASSED [ 41%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator2D::test_valid_2d_cuda_array PASSED [ 41%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator2D::test_invalid_3d_cuda_array PASSED [ 41%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator2D::test_invalid_1d_cuda_array PASSED [ 41%]
+tests/batchsolving/test_utils.py::TestCudaArrayValidator2D::test_invalid_non_array PASSED [ 41%]
+tests/batchsolving/test_utils.py::TestCudaSimulationMode::test_cudasim_mode_detection PASSED [ 42%]
+tests/batchsolving/test_utils.py::TestCudaSimulationMode::test_mock_array_behavior_in_cudasim PASSED [ 42%]
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop_shared_memory_calc <- tests/integrators/algorithms/LoopAlgorithmTester.py PASSED [ 42%]
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop_function_builds[no_change] PASSED [ 42%]
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop_function_builds[change_all] PASSED [ 42%]
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop_compile_settings_passed_successfully[no_change] PASSED [ 42%]
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop_compile_settings_passed_successfully[change_all] PASSED [ 42%]
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop[no_summaries] PASSED [ 42%]
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop[all_summaries_64] PASSED [ 43%]
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop[all_summaries_long_32] PASSED [ 43%]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop_shared_memory_calc <- tests/integrators/algorithms/LoopAlgorithmTester.py PASSED [ 43%]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop[no_summaries] PASSED [ 43%]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop[all_summaries_64] PASSED [ 43%]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop[all_summaries_long_32] PASSED [ 43%]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop_function_builds[no_change] PASSED [ 43%]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop_function_builds[change_all] PASSED [ 44%]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop_compile_settings_passed_successfully[no_change] PASSED [ 44%]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop_compile_settings_passed_successfully[change_all] PASSED [ 44%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestLoopStepConfig::test_default_initialization PASSED [ 44%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestLoopStepConfig::test_custom_initialization[standard_params] PASSED [ 44%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestLoopStepConfig::test_custom_initialization[coarse_params] PASSED [ 44%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestLoopStepConfig::test_custom_initialization[fine_params] PASSED [ 44%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestLoopStepConfig::test_type_validation[dt_min_string] PASSED [ 45%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestLoopStepConfig::test_type_validation[dt_max_none] PASSED [ 45%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestLoopStepConfig::test_type_validation[dt_save_list] PASSED [ 45%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestLoopStepConfig::test_type_validation[atol_string] PASSED [ 45%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestIntegratorLoopSettings::test_default_initialization PASSED [ 45%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestIntegratorLoopSettings::test_precision_validation[float32] PASSED [ 45%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestIntegratorLoopSettings::test_precision_validation[float64] PASSED [ 45%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestIntegratorLoopSettings::test_invalid_precision_raises_error PASSED [ 45%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestIntegratorLoopSettings::test_step_config_properties PASSED [ 46%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestIntegratorLoopSettings::test_buffer_sizes_property PASSED [ 46%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestIntegratorLoopSettings::test_function_assignment PASSED [ 46%]
+tests/integrators/algorithms/test_integratorLoopSettings.py::TestIntegratorLoopSettings::test_none_functions_allowed PASSED [ 46%]
+tests/integrators/test_SingleIntegratorRun.py::test_initialization PASSED [ 46%]
+tests/integrators/test_SingleIntegratorRun.py::test_output_functions_immediate_creation PASSED [ 46%]
+tests/integrators/test_SingleIntegratorRun.py::test_integrator_instance_immediate_creation PASSED [ 46%]
+tests/integrators/test_SingleIntegratorRun.py::test_property_access PASSED [ 47%]
+tests/integrators/test_SingleIntegratorRun.py::test_function_access_properties PASSED [ 47%]
+tests/integrators/test_SingleIntegratorRun.py::test_build_device_function PASSED [ 47%]
+tests/integrators/test_SingleIntegratorRun.py::test_cache_invalidation PASSED [ 47%]
+tests/integrators/test_SingleIntegratorRun.py::test_parameter_updates_config_object PASSED [ 47%]
+tests/integrators/test_SingleIntegratorRun.py::test_update_cache_invalidation PASSED [ 47%]
+tests/integrators/test_SingleIntegratorRun.py::test_algorithm_change PASSED [ 47%]
+tests/integrators/test_SingleIntegratorRun.py::test_cache_valid_property PASSED [ 48%]
+tests/integrators/test_SingleIntegratorRun.py::test_shared_memory_bytes PASSED [ 48%]
+tests/integrators/test_SingleIntegratorRun.py::test_error_handling_unrecognized_parameters PASSED [ 48%]
+tests/integrators/test_SingleIntegratorRun.py::test_error_handling_invalid_algorithm PASSED [ 48%]
+tests/integrators/test_SingleIntegratorRun.py::test_empty_update_call PASSED [ 48%]
+tests/integrators/test_SingleIntegratorRun.py::test_device_function_property_builds_automatically PASSED [ 48%]
+tests/integrators/test_integratorrunsettings.py::test_timing_validation[valid_timing] PASSED [ 48%]
+tests/integrators/test_integratorrunsettings.py::test_timing_validation[save_warning] PASSED [ 48%]
+tests/integrators/test_integratorrunsettings.py::test_timing_validation[summarise_warning] PASSED [ 49%]
+tests/integrators/test_integratorrunsettings.py::test_timing_validation[both_warnings] PASSED [ 49%]
+tests/integrators/test_integratorrunsettings.py::test_timing_validation_errors[max_less_than_min] PASSED [ 49%]
+tests/integrators/test_integratorrunsettings.py::test_timing_validation_errors[save_less_than_min] PASSED [ 49%]
+tests/integrators/test_integratorrunsettings.py::test_timing_validation_errors[summarise_less_than_save] PASSED [ 49%]
+tests/memory/test_array_requests.py::TestArrayRequests::test_size[array_request_override0] PASSED [ 49%]
+tests/memory/test_array_requests.py::TestArrayRequests::test_size[array_request_override1] PASSED [ 49%]
+tests/memory/test_array_requests.py::TestArrayRequests::test_size[array_request_override2] PASSED [ 50%]
+tests/memory/test_array_requests.py::TestArrayRequests::test_instantiation[array_request_override0] PASSED [ 50%]
+tests/memory/test_array_requests.py::TestArrayRequests::test_default_stride_ordering PASSED [ 50%]
+tests/memory/test_array_requests.py::TestArrayRequests::test_array_response[array_request_override0] PASSED [ 50%]
+tests/memory/test_array_requests.py::TestArrayRequests::test_array_response[array_request_override1] PASSED [ 50%]
+tests/memory/test_array_requests.py::TestArrayRequests::test_array_response[array_request_override2] PASSED [ 50%]
+tests/memory/test_cupyemm.py::test_numba_stream_ptr PASSED               [ 50%]
+tests/memory/test_cupyemm.py::test_cupy_stream_wrapper PASSED            [ 51%]
+tests/memory/test_cupyemm.py::test_cupy_wrapper_mgr_check PASSED         [ 51%]
+tests/memory/test_cupyemm.py::test_correct_memalloc PASSED               [ 51%]
+tests/memory/test_cupyemm.py::test_allocation[NumbaCUDAMemoryManager] PASSED [ 51%]
+tests/memory/test_cupyemm.py::test_allocation[CuPySyncNumbaManager] PASSED [ 51%]
+tests/memory/test_cupyemm.py::test_allocation[CuPyAsyncNumbaManager] PASSED [ 51%]
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_instantiation PASSED [ 51%]
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_add_allocation PASSED [ 51%]
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_free PASSED [ 52%]
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_free_all PASSED [ 52%]
+tests/memory/test_memmgmt.py::TestInstanceMemorySettings::test_allocated_bytes PASSED [ 52%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_instantiation PASSED [ 52%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_register PASSED    [ 52%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_allocator PASSED [ 52%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_limit_mode PASSED [ 52%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_stream PASSED  [ 53%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_change_stream_group PASSED [ 53%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_reinit_streams PASSED [ 53%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_invalidate_all PASSED [ 53%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_manual_limit_mode[registered_instance_override0] PASSED [ 53%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_auto_limit_mode PASSED [ 53%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_proportion[registered_instance_override0] PASSED [ 53%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_cap PASSED         [ 54%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_pool_proportions[registered_instance_override0] PASSED [ 54%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_strides PASSED [ 54%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_global_stride_ordering PASSED [ 54%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_process_request PASSED [ 54%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_all PASSED [ 54%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate PASSED    [ 54%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_free PASSED        [ 54%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_free_all PASSED    [ 55%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_chunks PASSED  [ 55%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_memory_info PASSED [ 55%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_strides PASSED [ 55%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_manual_pool_proportion[registered_instance_override0] PASSED [ 55%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_auto_pool_proportion PASSED [ 55%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_set_manual_proportion PASSED [ 55%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_rebalance_auto_pool PASSED [ 56%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_available_single PASSED [ 56%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_available_group PASSED [ 56%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_stream_group PASSED [ 56%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_check_requests PASSED [ 56%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_queue_request PASSED [ 56%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_chunk_arrays PASSED [ 56%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_single_request PASSED [ 57%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_single_instance PASSED [ 57%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_group_limit PASSED [ 57%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_instance_limit[fixed_mem_override0-instance-run] PASSED [ 57%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_instance_limit[fixed_mem_override1-group-run] PASSED [ 57%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_instance_limit[fixed_mem_override2-instance-time] PASSED [ 57%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_multiple_instances_instance_limit[fixed_mem_override3-group-time] PASSED [ 57%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_allocate_queue_empty_queue PASSED [ 57%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_is_grouped PASSED  [ 58%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_available_single_low_memory_warning[fixed_mem_override0] PASSED [ 58%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_get_available_group_low_memory_warning[fixed_mem_override0] PASSED [ 58%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_to_device PASSED   [ 58%]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_from_device PASSED [ 58%]
+tests/memory/test_memmgmt.py::test_get_total_request_size PASSED         [ 58%]
+tests/memory/test_stream_groups.py::TestStreamGroups::test_add_instance PASSED [ 58%]
+tests/memory/test_stream_groups.py::TestStreamGroups::test_get_group PASSED [ 59%]
+tests/memory/test_stream_groups.py::TestStreamGroups::test_change_group PASSED [ 59%]
+tests/memory/test_stream_groups.py::TestStreamGroups::test_get_stream PASSED [ 59%]
+tests/memory/test_stream_groups.py::TestStreamGroups::test_reinit_streams PASSED [ 59%]
+tests/memory/test_stream_groups.py::TestStreamGroups::test_get_instances_in_group PASSED [ 59%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_register_metrics_success PASSED [ 59%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_register_metric_duplicate_name_raises_error PASSED [ 59%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_buffer_offsets_returns_correct_tuple PASSED [ 60%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_output_offsets_returns_correct_tuple PASSED [ 60%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_buffer_sizes_returns_correct_tuple PASSED [ 60%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_output_sizes_returns_correct_tuple PASSED [ 60%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_tuple_ordering_alignment PASSED [ 60%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parametrized_metric_with_valid_parameter PASSED [ 60%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parametrized_metric_without_parameter_raises_error PASSED [ 60%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parametrized_metric_with_invalid_parameter_raises_error PASSED [ 60%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_invalid_metric_name_raises_warning PASSED [ 61%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_mixed_valid_invalid_metrics_with_warning PASSED [ 61%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_empty_request_returns_empty_tuple PASSED [ 61%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parse_string_for_params_valid_formats PASSED [ 61%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_parse_string_for_params_invalid_formats PASSED [ 61%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_save_functions_returns_correct_tuple PASSED [ 61%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_update_functions_returns_correct_tuple PASSED [ 61%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_complex_parameter_scenarios PASSED [ 62%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_edge_case_bracket_parsing PASSED [ 62%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_metrics_integration PASSED [ 62%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_available_metrics PASSED [ 62%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_simple_metrics_sizes PASSED [ 62%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_peaks_parametrized PASSED [ 62%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_peaks_without_parameter_raises_warning PASSED [ 62%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_offset_calculations PASSED [ 62%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_tuple_ordering_consistency PASSED [ 63%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_edge_cases PASSED [ 63%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_column_headings PASSED [ 63%]
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_summary_buffer_size_returns_correct_total PASSED [ 63%]
+tests/outputhandling/test_output_config.py::TestInitialization::test_minimal_initialization PASSED [ 63%]
+tests/outputhandling/test_output_config.py::TestInitialization::test_full_initialization PASSED [ 63%]
+tests/outputhandling/test_output_config.py::TestInitialization::test_no_output_raises_error PASSED [ 63%]
+tests/outputhandling/test_output_config.py::TestInitialization::test_out_of_bounds_indices_raise_error PASSED [ 64%]
+tests/outputhandling/test_output_config.py::TestInitialization::test_duplicate_indices_raise_error PASSED [ 64%]
+tests/outputhandling/test_output_config.py::TestProperties::test_max_dimensions_setters PASSED [ 64%]
+tests/outputhandling/test_output_config.py::TestProperties::test_saved_indices_setters PASSED [ 64%]
+tests/outputhandling/test_output_config.py::TestProperties::test_summarised_indices_setters PASSED [ 64%]
+tests/outputhandling/test_output_config.py::TestProperties::test_array_conversion PASSED [ 64%]
+tests/outputhandling/test_output_config.py::TestProperties::test_none_indices_conversion PASSED [ 64%]
+tests/outputhandling/test_output_config.py::TestFlagBehavior::test_flag_affects_returned_indices PASSED [ 65%]
+tests/outputhandling/test_output_config.py::TestFlagBehavior::test_indices_emptied_if_no_output PASSED [ 65%]
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_valid_summary_types PASSED [ 65%]
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_multiple_summary_types PASSED [ 65%]
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_empty_summary_types PASSED [ 65%]
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_summary_parameters PASSED [ 65%]
+tests/outputhandling/test_output_config.py::TestSummaryMetrics::test_summary_memory_requirements PASSED [ 65%]
+tests/outputhandling/test_output_config.py::TestUpdateMethods::test_basic_output_types PASSED [ 65%]
+tests/outputhandling/test_output_config.py::TestUpdateMethods::test_summary_types PASSED [ 66%]
+tests/outputhandling/test_output_config.py::TestUpdateMethods::test_mixed_outputs PASSED [ 66%]
+tests/outputhandling/test_output_config.py::TestUpdateMethods::test_unknown_summary_type_warning PASSED [ 66%]
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_basic_creation PASSED [ 66%]
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_with_specified_indices PASSED [ 66%]
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_with_summary_metrics PASSED [ 66%]
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_with_parametrized_metrics PASSED [ 66%]
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_summarised_indices_default_to_saved PASSED [ 67%]
+tests/outputhandling/test_output_config.py::TestFromLoopSettings::test_mixed_output_types PASSED [ 67%]
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_save_summaries_property PASSED [ 67%]
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_summarise_states_property PASSED [ 67%]
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_summarise_observables_property PASSED [ 67%]
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_n_saved_states_property PASSED [ 67%]
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_n_saved_observables_property PASSED [ 67%]
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_n_summarised_states_property PASSED [ 68%]
+tests/outputhandling/test_output_config.py::TestUtilityProperties::test_n_summarised_observables_property PASSED [ 68%]
+tests/outputhandling/test_output_functions.py::test_save_time[output_test_settings_overrides0] PASSED [ 68%]
+tests/outputhandling/test_output_functions.py::test_save_time[output_test_settings_overrides1] PASSED [ 68%]
+tests/outputhandling/test_output_functions.py::test_output_functions_build[no_summaries] PASSED [ 68%]
+tests/outputhandling/test_output_functions.py::test_output_functions_build[all_summaries] PASSED [ 68%]
+tests/outputhandling/test_output_functions.py::test_output_functions_build[single_saved] PASSED [ 68%]
+tests/outputhandling/test_output_functions.py::test_output_functions_build[saved_index_out_of_bounds] PASSED [ 68%]
+tests/outputhandling/test_output_functions.py::test_output_functions_build[saved_empty] PASSED [ 69%]
+tests/outputhandling/test_output_functions.py::test_output_functions_build[no_output_types] PASSED [ 69%]
+tests/outputhandling/test_output_functions.py::test_all_summaries_long_run[large_dataset-float32] PASSED [ 69%]
+tests/outputhandling/test_output_functions.py::test_all_summaries_long_run[large_dataset-float64] PASSED [ 69%]
+tests/outputhandling/test_output_functions.py::test_all_summaries_long_window[large_dataset-float32] PASSED [ 69%]
+tests/outputhandling/test_output_functions.py::test_all_summaries_long_window[large_dataset-float64] PASSED [ 69%]
+tests/outputhandling/test_output_functions.py::test_memory_types[local_mem-float32] PASSED [ 69%]
+tests/outputhandling/test_output_functions.py::test_memory_types[shared_mem-float32] PASSED [ 70%]
+tests/outputhandling/test_output_functions.py::test_input_value_ranges[tiny_values-float32] PASSED [ 70%]
+tests/outputhandling/test_output_functions.py::test_input_value_ranges[large_values-float32] PASSED [ 70%]
+tests/outputhandling/test_output_functions.py::test_input_value_ranges[wide_range-float32] PASSED [ 70%]
+tests/outputhandling/test_output_functions.py::test_no_summarys[state_obs-float32] PASSED [ 70%]
+tests/outputhandling/test_output_functions.py::test_no_summarys[obs_only-float32] PASSED [ 70%]
+tests/outputhandling/test_output_functions.py::test_no_summarys[obs_time-float32] PASSED [ 70%]
+tests/outputhandling/test_output_functions.py::test_no_summarys[time_only-float32] PASSED [ 71%]
+tests/outputhandling/test_output_functions.py::test_no_summarys[state_obs_time-float32] PASSED [ 71%]
+tests/outputhandling/test_output_functions.py::test_various_summaries[basic_summaries-float32] PASSED [ 71%]
+tests/outputhandling/test_output_functions.py::test_various_summaries[peaks_only-float32] PASSED [ 71%]
+tests/outputhandling/test_output_functions.py::test_various_summaries[all-float32] PASSED [ 71%]
+tests/outputhandling/test_output_functions.py::test_various_summaries[state_and_mean-float32] PASSED [ 71%]
+tests/outputhandling/test_output_functions.py::test_various_summaries[obs_and_mean-float32] PASSED [ 71%]
+tests/outputhandling/test_output_functions.py::test_big_and_small_systems[1_1-float32] PASSED [ 71%]
+tests/outputhandling/test_output_functions.py::test_big_and_small_systems[10_5-float32] PASSED [ 72%]
+tests/outputhandling/test_output_functions.py::test_big_and_small_systems[50_20-float32] PASSED [ 72%]
+tests/outputhandling/test_output_functions.py::test_big_and_small_systems[100_100-float32] PASSED [ 72%]
+tests/outputhandling/test_output_functions.py::test_frequent_summaries[output_test_settings_overrides0-float32] PASSED [ 72%]
+tests/outputhandling/test_output_functions.py::test_summaries_buffer_sizes_property PASSED [ 72%]
+tests/outputhandling/test_output_functions.py::test_output_array_heights_property PASSED [ 72%]
+tests/outputhandling/test_output_sizes.py::TestNonzeroProperty::test_nonzero_property_int_values PASSED [ 72%]
+tests/outputhandling/test_output_sizes.py::TestNonzeroProperty::test_nonzero_property_tuple_values PASSED [ 73%]
+tests/outputhandling/test_output_sizes.py::TestNonzeroProperty::test_nonzero_property_preserves_original PASSED [ 73%]
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_explicit_initialization[normal_values] PASSED [ 73%]
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_explicit_initialization[zeros] PASSED [ 73%]
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_explicit_initialization[larger_values] PASSED [ 73%]
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_nonzero_functionality PASSED [ 73%]
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_from_output_fns_default[loop_compile_settings_overrides0] PASSED [ 73%]
+tests/outputhandling/test_output_sizes.py::TestSummariesBufferSizes::test_explicit_vs_from_output_fns[loop_compile_settings_overrides0] PASSED [ 74%]
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_explicit_initialization[normal_values] PASSED [ 74%]
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_explicit_initialization[zeros] PASSED [ 74%]
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_nonzero_functionality PASSED [ 74%]
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_from_system_and_output_fns_default[loop_compile_settings_overrides0] PASSED [ 74%]
+tests/outputhandling/test_output_sizes.py::TestLoopBufferSizes::test_explicit_vs_from_system_and_output_fns[loop_compile_settings_overrides0] PASSED [ 74%]
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_explicit_initialization[normal_values] PASSED [ 74%]
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_explicit_initialization[zeros] PASSED [ 74%]
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_nonzero_functionality PASSED [ 75%]
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_from_output_fns_default[loop_compile_settings_overrides0] PASSED [ 75%]
+tests/outputhandling/test_output_sizes.py::TestOutputArrayHeights::test_explicit_vs_from_output_fns[loop_compile_settings_overrides0] PASSED [ 75%]
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_explicit_initialization[normal_values] PASSED [ 75%]
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_explicit_initialization[zeros] PASSED [ 75%]
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_nonzero_functionality PASSED [ 75%]
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_from_output_fns_and_run_settings_default[loop_compile_settings_overrides0] PASSED [ 75%]
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_from_solver_with_nonzero[solver_settings_override0-loop_compile_settings_overrides0] PASSED [ 76%]
+tests/outputhandling/test_output_sizes.py::TestSingleRunOutputSizes::test_explicit_vs_from_solver[loop_compile_settings_overrides0] PASSED [ 76%]
+tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_explicit_initialization[normal_values] PASSED [ 76%]
+tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_explicit_initialization[zeros] PASSED [ 76%]
+tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_nonzero_functionality PASSED [ 76%]
+tests/outputhandling/test_output_sizes.py::TestBatchInputSizes::test_stride_order_default PASSED [ 76%]
+tests/outputhandling/test_output_sizes.py::TestBatchOutputSizes::test_explicit_initialization[normal_values] PASSED [ 76%]
+tests/outputhandling/test_output_sizes.py::TestBatchOutputSizes::test_explicit_initialization[zeros] PASSED [ 77%]
+tests/outputhandling/test_output_sizes.py::TestBatchOutputSizes::test_nonzero_functionality PASSED [ 77%]
+tests/outputhandling/test_output_sizes.py::TestIntegrationScenarios::test_realistic_scenario_no_zeros[loop_compile_settings_overrides0] PASSED [ 77%]
+tests/outputhandling/test_output_sizes.py::TestIntegrationScenarios::test_edge_case_all_zeros_with_nonzero[solver_settings_override0-loop_compile_settings_overrides0] PASSED [ 77%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_instantiation[Random test set with 10 coefficients of scale 1e-06 of type <class 'numpy.float32'>] PASSED [ 77%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_instantiation[Random test set with 10 coefficients of scale 1.0 of type <class 'numpy.float32'>] PASSED [ 77%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_instantiation[Random test set with 10 coefficients of scale 1000000.0 of type <class 'numpy.float32'>] PASSED [ 77%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_instantiation[Random test set with 100 coefficients of scale (-6, 6) of type <class 'numpy.float32'>] PASSED [ 77%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_instantiation[Random test set with 100 coefficients of scale (-6, 6) of type <class 'numpy.float64'>] PASSED [ 78%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_compilation[Random test set with 10 coefficients of scale 1e-06 of type <class 'numpy.float32'>] PASSED [ 78%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_compilation[Random test set with 10 coefficients of scale 1.0 of type <class 'numpy.float32'>] PASSED [ 78%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_compilation[Random test set with 10 coefficients of scale 1000000.0 of type <class 'numpy.float32'>] PASSED [ 78%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_compilation[Random test set with 100 coefficients of scale (-6, 6) of type <class 'numpy.float32'>] PASSED [ 78%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_compilation[Random test set with 100 coefficients of scale (-6, 6) of type <class 'numpy.float64'>] PASSED [ 78%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_correct_output[Random test set with 10 coefficients of scale 1e-06 of type <class 'numpy.float32'>] PASSED [ 78%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_correct_output[Random test set with 10 coefficients of scale 1.0 of type <class 'numpy.float32'>] PASSED [ 79%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_correct_output[Random test set with 10 coefficients of scale 1000000.0 of type <class 'numpy.float32'>] PASSED [ 79%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_correct_output[Random test set with 100 coefficients of scale (-6, 6) of type <class 'numpy.float32'>] PASSED [ 79%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_correct_output[Random test set with 100 coefficients of scale (-6, 6) of type <class 'numpy.float64'>] PASSED [ 79%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_constants_edit[Random test set with 10 coefficients of scale 1e-06 of type <class 'numpy.float32'>] PASSED [ 79%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_constants_edit[Random test set with 10 coefficients of scale 1.0 of type <class 'numpy.float32'>] PASSED [ 79%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_constants_edit[Random test set with 10 coefficients of scale 1000000.0 of type <class 'numpy.float32'>] PASSED [ 79%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_constants_edit[Random test set with 100 coefficients of scale (-6, 6) of type <class 'numpy.float32'>] PASSED [ 80%]
+tests/systemmodels/systems/test_decays.py::TestDecays::test_constants_edit[Random test set with 100 coefficients of scale (-6, 6) of type <class 'numpy.float64'>] PASSED [ 80%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[Single state, param, observable, no constants, 1 driver0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 80%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[Two states, two params, one observable, one constant, 2 drivers0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 80%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[Two states, two params, two observables, one constant, 1 driver] <- tests/systemmodels/systems/SystemTester.py PASSED [ 80%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[Two states, two params, one observables, two constants, 2 drivers] <- tests/systemmodels/systems/SystemTester.py PASSED [ 80%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[Two states, two params, one observables, two constants, 1 drivers] <- tests/systemmodels/systems/SystemTester.py PASSED [ 80%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[Two states, two params, two observables, two constants, 2 drivers] <- tests/systemmodels/systems/SystemTester.py PASSED [ 80%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[More states and obs (slots) than params and constants (values)0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 81%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[Single state, param, observable, no constants, 1 driver1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 81%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[Two states, two params, one observable, one constant, 2 drivers1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 81%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_instantiation[More states and obs (slots) than params and constants (values)1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 81%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[Single state, param, observable, no constants, 1 driver0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 81%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[Two states, two params, one observable, one constant, 2 drivers0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 81%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[Two states, two params, two observables, one constant, 1 driver] <- tests/systemmodels/systems/SystemTester.py PASSED [ 81%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[Two states, two params, one observables, two constants, 2 drivers] <- tests/systemmodels/systems/SystemTester.py PASSED [ 82%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[Two states, two params, one observables, two constants, 1 drivers] <- tests/systemmodels/systems/SystemTester.py PASSED [ 82%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[Two states, two params, two observables, two constants, 2 drivers] <- tests/systemmodels/systems/SystemTester.py PASSED [ 82%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[More states and obs (slots) than params and constants (values)0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 82%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[Single state, param, observable, no constants, 1 driver1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 82%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[Two states, two params, one observable, one constant, 2 drivers1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 82%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_compilation[More states and obs (slots) than params and constants (values)1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 82%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[Single state, param, observable, no constants, 1 driver0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 82%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[Two states, two params, one observable, one constant, 2 drivers0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 83%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[Two states, two params, two observables, one constant, 1 driver] <- tests/systemmodels/systems/SystemTester.py PASSED [ 83%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[Two states, two params, one observables, two constants, 2 drivers] <- tests/systemmodels/systems/SystemTester.py PASSED [ 83%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[Two states, two params, one observables, two constants, 1 drivers] <- tests/systemmodels/systems/SystemTester.py PASSED [ 83%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[Two states, two params, two observables, two constants, 2 drivers] <- tests/systemmodels/systems/SystemTester.py PASSED [ 83%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[More states and obs (slots) than params and constants (values)0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 83%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[Single state, param, observable, no constants, 1 driver1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 83%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[Two states, two params, one observable, one constant, 2 drivers1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 84%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_correct_output[More states and obs (slots) than params and constants (values)1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 84%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[Single state, param, observable, no constants, 1 driver0] PASSED [ 84%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[Two states, two params, one observable, one constant, 2 drivers0] PASSED [ 84%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[Two states, two params, two observables, one constant, 1 driver] PASSED [ 84%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[Two states, two params, one observables, two constants, 2 drivers] PASSED [ 84%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[Two states, two params, one observables, two constants, 1 drivers] PASSED [ 84%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[Two states, two params, two observables, two constants, 2 drivers] PASSED [ 85%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[More states and obs (slots) than params and constants (values)0] PASSED [ 85%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[Single state, param, observable, no constants, 1 driver1] PASSED [ 85%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[Two states, two params, one observable, one constant, 2 drivers1] PASSED [ 85%]
+tests/systemmodels/systems/test_genericODE.py::TestGenericODE::test_constants_edit[More states and obs (slots) than params and constants (values)1] PASSED [ 85%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale 1e-06 of type <class 'numpy.float32'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 85%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale 1.0 of type <class 'numpy.float32'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 85%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale 1000000.0 of type <class 'numpy.float32'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 85%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float32'>0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 86%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float32'>1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 86%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[All zeros0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 86%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[All nones0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 86%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[All lists0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 86%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Partial keys0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 86%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale 1e-06 of type <class 'numpy.float64'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 86%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale 1.0 of type <class 'numpy.float64'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 87%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale 1000000.0 of type <class 'numpy.float64'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 87%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float64'>0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 87%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float64'>1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 87%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[All zeros1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 87%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[All nones1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 87%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[All lists1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 87%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_instantiation[Partial keys1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 88%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale 1e-06 of type <class 'numpy.float32'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 88%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale 1.0 of type <class 'numpy.float32'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 88%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale 1000000.0 of type <class 'numpy.float32'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 88%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float32'>0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 88%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float32'>1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 88%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[All zeros0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 88%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[All nones0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 88%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[All lists0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 89%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Partial keys0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 89%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale 1e-06 of type <class 'numpy.float64'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 89%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale 1.0 of type <class 'numpy.float64'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 89%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale 1000000.0 of type <class 'numpy.float64'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 89%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float64'>0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 89%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float64'>1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 89%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[All zeros1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 90%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[All nones1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 90%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[All lists1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 90%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_compilation[Partial keys1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 90%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale 1e-06 of type <class 'numpy.float32'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 90%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale 1.0 of type <class 'numpy.float32'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 90%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale 1000000.0 of type <class 'numpy.float32'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 90%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float32'>0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 91%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float32'>1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 91%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[All zeros0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 91%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[All nones0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 91%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[All lists0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 91%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Partial keys0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 91%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale 1e-06 of type <class 'numpy.float64'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 91%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale 1.0 of type <class 'numpy.float64'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 91%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale 1000000.0 of type <class 'numpy.float64'>] <- tests/systemmodels/systems/SystemTester.py PASSED [ 92%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float64'>0] <- tests/systemmodels/systems/SystemTester.py PASSED [ 92%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float64'>1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 92%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[All zeros1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 92%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[All nones1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 92%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[All lists1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 92%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_correct_output[Partial keys1] <- tests/systemmodels/systems/SystemTester.py PASSED [ 92%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale 1e-06 of type <class 'numpy.float32'>] PASSED [ 93%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale 1.0 of type <class 'numpy.float32'>] PASSED [ 93%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale 1000000.0 of type <class 'numpy.float32'>] PASSED [ 93%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float32'>0] PASSED [ 93%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float32'>1] PASSED [ 93%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[All zeros0] PASSED [ 93%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[All nones0] PASSED [ 93%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[All lists0] PASSED [ 94%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Partial keys0] PASSED [ 94%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale 1e-06 of type <class 'numpy.float64'>] PASSED [ 94%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale 1.0 of type <class 'numpy.float64'>] PASSED [ 94%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale 1000000.0 of type <class 'numpy.float64'>] PASSED [ 94%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float64'>0] PASSED [ 94%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Random test set with numbers of scale (-6, 6) of type <class 'numpy.float64'>1] PASSED [ 94%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[All zeros1] PASSED [ 94%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[All nones1] PASSED [ 95%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[All lists1] PASSED [ 95%]
+tests/systemmodels/systems/test_threeCM.py::TestThreeCM::test_constants_edit[Partial keys1] PASSED [ 95%]
+tests/systemmodels/test_SystemValues.py::test_init_edge_cases PASSED     [ 95%]
+tests/systemmodels/test_SystemValues.py::test_param_array_and_indices_match_supplied_dict PASSED [ 95%]
+tests/systemmodels/test_SystemValues.py::test_get_index_of_key PASSED    [ 95%]
+tests/systemmodels/test_SystemValues.py::test_get_indices PASSED         [ 95%]
+tests/systemmodels/test_SystemValues.py::test_get_values_edge_cases PASSED [ 96%]
+tests/systemmodels/test_SystemValues.py::test_set_values_edge_cases PASSED [ 96%]
+tests/systemmodels/test_SystemValues.py::test_get_values_and_set_values PASSED [ 96%]
+tests/systemmodels/test_SystemValues.py::test_update_from_dict PASSED    [ 96%]
+tests/systemmodels/test_SystemValues.py::test_indexing_as_array_or_dict PASSED [ 96%]
+tests/systemmodels/test_SystemValues.py::test_init_with_invalid_precision PASSED [ 96%]
+tests/systemmodels/test_SystemValues.py::test_set_values_with_mismatched_lengths PASSED [ 96%]
+tests/systemmodels/test_SystemValues.py::test_set_values_with_non_list_values PASSED [ 97%]
+tests/systemmodels/test_SystemValues.py::test_update_from_dict_with_empty_dict PASSED [ 97%]
+tests/systemmodels/test_SystemValues.py::test_init_with_conflicting_keys PASSED [ 97%]
+tests/systemmodels/test_SystemValues.py::test_with_large_dictionary PASSED [ 97%]
+tests/test_CUDAFactory.py::test_setup_compile_settings PASSED            [ 97%]
+tests/test_CUDAFactory.py::test_update_compile_settings PASSED           [ 97%]
+tests/test_CUDAFactory.py::test_update_compile_settings_reports_correct_key PASSED [ 97%]
+tests/test_CUDAFactory.py::test_cache_invalidation PASSED                [ 97%]
+tests/test_CUDAFactory.py::test_build PASSED                             [ 98%]
+tests/test_CUDAFactory.py::test_build_with_dict_output PASSED            [ 98%]
+tests/test_CUDAFactory.py::test_device_function_from_dict PASSED         [ 98%]
+tests/test_utils.py::test_clamp_kernel_float64[float64] PASSED           [ 98%]
+tests/test_utils.py::test_clamp_kernel_float32[float32] PASSED           [ 98%]
+tests/test_utils.py::test_get_noise_64[float64] PASSED                   [ 98%]
+tests/test_utils.py::test_get_noise_32[float32] PASSED                   [ 98%]
+tests/test_utils.py::test_slice_variable_dimension PASSED                [ 99%]
+tests/test_utils.py::test_in_attr PASSED                                 [ 99%]
+tests/test_utils.py::test_is_attrs_class PASSED                          [ 99%]
+tests/test_utils.py::test_update_dicts_from_kwargs PASSED                [ 99%]
+tests/test_utils.py::test_timing_decorator PASSED                        [ 99%]
+tests/test_utils.py::test_round_sf PASSED                                [ 99%]
+tests/test_utils.py::test_round_list_sf PASSED                           [ 99%]
+tests/test_utils.py::test_get_readonly_view PASSED                       [100%]
+
+=============================== warnings summary ===============================
+tests/batchsolving/arrays/test_basearraymanager.py:41
+  /workspace/repo/tests/batchsolving/arrays/test_basearraymanager.py:41: PytestCollectionWarning: cannot collect test class 'TestArrays' because it has a __init__ constructor (from: tests/batchsolving/arrays/test_basearraymanager.py)
+    @attrs.define(slots=False)
+
+tests/batchsolving/arrays/test_basearraymanager.py:49
+  /workspace/repo/tests/batchsolving/arrays/test_basearraymanager.py:49: PytestCollectionWarning: cannot collect test class 'TestArraysSimple' because it has a __init__ constructor (from: tests/batchsolving/arrays/test_basearraymanager.py)
+    @attrs.define(slots=False)
+
+tests/test_utils.py:172
+  /workspace/repo/tests/test_utils.py:172: PytestCollectionWarning: cannot collect test class 'TestAttrsClass' because it has a __init__ constructor (from: tests/test_utils.py)
+    @attrs.define
+
+tests/test_utils.py:178
+  /workspace/repo/tests/test_utils.py:178: PytestCollectionWarning: cannot collect test class 'TestRegularClass' because it has a __init__ constructor (from: tests/test_utils.py)
+    class TestRegularClass:
+
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_initialize_device_zeros
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_basic[default_system]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_chunk_related_properties
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_instantiation_type_equivalence[solver_settings_override0]
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:310: UserWarning: Device array state_summaries not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/arrays/test_basearraymanager.py::TestBaseArrayManager::test_initialize_device_zeros
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_basic[default_system]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_chunk_related_properties
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_instantiation_type_equivalence[solver_settings_override0]
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:310: UserWarning: Device array observable_summaries not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_shape_change
+tests/batchsolving/arrays/test_basearraymanager.py::TestUpdateHostArrays::test_update_host_arrays_nonexistent_array
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:659: UserWarning: Provided arrays do not match the expected system sizes, ignoring update
+    warn(
+
+tests/batchsolving/arrays/test_batchinputarrays.py: 1 warning
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 8 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:157: UserWarning: Overwriting previous allocation for parameters at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/arrays/test_batchinputarrays.py: 1 warning
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 8 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:157: UserWarning: Overwriting previous allocation for forcing_vectors at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/arrays/test_batchinputarrays.py: 1 warning
+tests/batchsolving/test_SolverKernel.py: 2 warnings
+tests/batchsolving/test_solver.py: 8 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:157: UserWarning: Overwriting previous allocation for initial_values at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_basic[default_system]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_chunk_related_properties
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_instantiation_type_equivalence[solver_settings_override0]
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:310: UserWarning: Device array state not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_basic[default_system]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_chunk_related_properties
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_instantiation_type_equivalence[solver_settings_override0]
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:310: UserWarning: Device array observables not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_basic[default_system]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_chunk_related_properties
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_instantiation_type_equivalence[solver_settings_override0]
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:310: UserWarning: Device array initial_values not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_basic[default_system]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_chunk_related_properties
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_instantiation_type_equivalence[solver_settings_override0]
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:310: UserWarning: Device array parameters not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py::test_run[smoke_test]
+tests/batchsolving/test_solver.py::test_solve_basic[default_system]
+tests/batchsolving/test_solver.py::test_data_properties_after_solve
+tests/batchsolving/test_solver.py::test_chunk_related_properties
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+tests/batchsolving/test_solveresult.py::TestSolveResultInstantiation::test_instantiation_type_equivalence[solver_settings_override0]
+  /workspace/repo/src/cubie/batchsolving/arrays/BaseArrayManager.py:310: UserWarning: Device array forcing_vectors not found in allocation response. See BaseArrayManager._on_allocation_complete docstring for more info.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py: 1 warning
+tests/batchsolving/test_solver.py: 8 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:157: UserWarning: Overwriting previous allocation for observable_summaries at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py: 1 warning
+tests/batchsolving/test_solver.py: 8 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:157: UserWarning: Overwriting previous allocation for state at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py: 1 warning
+tests/batchsolving/test_solver.py: 8 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:157: UserWarning: Overwriting previous allocation for observables at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/test_SolverKernel.py: 1 warning
+tests/batchsolving/test_solver.py: 8 warnings
+tests/batchsolving/test_solveresult.py: 14 warnings
+  /workspace/repo/src/cubie/memory/mem_manager.py:157: UserWarning: Overwriting previous allocation for state_summaries at a settings level - this suggests that the previous array wasn't deallocated properly using the memory manager.
+    warn(
+
+tests/batchsolving/test_batch_grid_builder.py: 13 warnings
+  /workspace/repo/src/cubie/batchsolving/BatchGridBuilder.py:773: UserWarning: Provided input data has 2 columns, but there are 3 settable values. Missing values will be filled with default values, and extras ignored.
+    warn(
+
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+tests/batchsolving/test_solver.py::test_solve_ivp_function
+  /workspace/repo/src/cubie/integrators/IntegratorRunSettings.py:182: UserWarning: dt_max (0.1s) > dt_save (0.01s). The loop will never be able to stepthat far before stopping to save, so dt_max is redundant.
+    warn(
+
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop_compile_settings_passed_successfully[no_change]
+tests/integrators/algorithms/test_euler.py::TestEuler::test_loop_compile_settings_passed_successfully[change_all]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop_compile_settings_passed_successfully[no_change]
+tests/integrators/algorithms/test_genericIntegratorAlgorithm.py::TestGenericLoopAlgorithm::test_loop_compile_settings_passed_successfully[change_all]
+  /workspace/repo/src/cubie/outputhandling/summarymetrics/metrics.py:414: UserWarning: Metric 'state' is not registered. Skipping.
+    parsed_request = self.preprocess_request(output_types_requested)
+
+tests/integrators/test_integratorrunsettings.py::test_timing_validation[valid_timing]
+  /workspace/repo/src/cubie/integrators/IntegratorRunSettings.py:182: UserWarning: dt_max (1.0s) > dt_save (0.1s). The loop will never be able to stepthat far before stopping to save, so dt_max is redundant.
+    warn(
+
+tests/memory/test_cupyemm.py::test_cupy_wrapper_mgr_check
+tests/memory/test_cupyemm.py::test_correct_memalloc
+tests/memory/test_cupyemm.py::test_allocation[CuPyAsyncNumbaManager]
+tests/memory/test_cupyemm.py::test_allocation[CuPyAsyncNumbaManager]
+tests/memory/test_memmgmt.py::TestMemoryManager::test_register
+  /workspace/repo/src/cubie/memory/cupy_emm.py:337: FutureWarning: cupy.cuda.MemoryAsyncPool is experimental. The interface can change in the future.
+    self._mp = cp.cuda.MemoryAsyncPool()
+
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_edge_cases
+  /workspace/repo/src/cubie/outputhandling/summarymetrics/metrics.py:462: UserWarning: Metric 'peaks' has a callable size but parameter is set to 0. This results in a sizeof 0, which is likely not what you want
+    self._get_size(metric, self._buffer_sizes)
+
+tests/outputhandling/summarymetrics/test_summary_metrics.py::test_real_summary_metrics_edge_cases
+  /workspace/repo/src/cubie/outputhandling/summarymetrics/metrics.py:622: UserWarning: Metric 'peaks' has a callable size but parameter is set to 0. This results in a sizeof 0, which is likely not what you want
+    self._get_size(metric, self._output_sizes)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+-------------- generated xml file: /artifacts/pytest-results.xml ---------------
+===================================================== fixture duration top =====================================================
+total          name                                                                           num  avg            min           
+0:01:14.394859                                                             solver_with_arrays   14 0:00:05.356299 0:00:04.817742
+0:00:44.118747                                                           compare_input_output   24 0:00:00.774500 0:00:00.635347
+0:00:31.192100                                                                         system  229 0:00:00.121563 0:00:00.115800
+0:00:16.612585                                                            built_loop_function   10 0:00:01.445362 0:00:00.369070
+0:00:14.629535                                                               decays_123_model  222 0:00:00.061422 0:00:00.057729
+0:00:04.464186                                                           solved_solver_simple    2 0:00:02.232093 0:00:01.996702
+0:00:03.696725                                                                         solver   53 0:00:00.064574 0:00:00.061131
+0:00:02.129251                                                                solver_instance   30 0:00:00.066308 0:00:00.062969
+0:00:00.998338                                                          single_integrator_run   16 0:00:00.062394 0:00:00.060635
+0:00:00.991662                                                                loop_under_test   16 0:00:00.061856 0:00:00.059357
+0:00:00.932481                                                                   solverkernel   18 0:00:00.065075 0:00:00.008914
+0:00:00.838639                                                                expected_answer    6 0:00:00.005426 0:00:00.000133
+0:00:00.656080                                                                  threecm_model    5 0:00:00.131005 0:00:00.128308
+0:00:00.489496                                                   expected_batch_answers_euler    2 0:00:00.244748 0:00:00.079266
+0:00:00.203927                                                               genericODE_model    2 0:00:00.101963 0:00:00.101125
+0:00:00.080239                                                             expected_summaries   30 0:00:00.000165 0:00:00.000086
+0:00:00.062612                                                                 registered_mgr   24 0:00:00.000222 0:00:00.000174
+0:00:00.047213                                                   output_functions_test_kernel   24 0:00:00.001411 0:00:00.001354
+0:00:00.029581                                                               output_functions   56 0:00:00.000533 0:00:00.000392
+0:00:00.015002                                                            test_memory_manager   73 0:00:00.000155 0:00:00.000129
+0:00:00.013855                                                                system_override  229 0:00:00.000059 0:00:00.000041
+0:00:00.013157                                                                      precision  302 0:00:00.000043 0:00:00.000032
+0:00:00.012218                                                  test_arrays_with_stride_order   21 0:00:00.000530 0:00:00.000523
+0:00:00.011694                                                             precision_override  263 0:00:00.000040 0:00:00.000037
+0:00:00.010638                                                                    param_array   64 0:00:00.000165 0:00:00.000145
+0:00:00.010589                                                                      devarrays   30 0:00:00.000313 0:00:00.000304
+0:00:00.010481                                                          output_arrays_manager   22 0:00:00.000465 0:00:00.000427
+0:00:00.009581                                                loop_compile_settings_overrides  138 0:00:00.000068 0:00:00.000058
+0:00:00.009526                                                       expected_batch_summaries    2 0:00:00.004763 0:00:00.000241
+0:00:00.008975                                                                    test_arrmgr   30 0:00:00.000262 0:00:00.000245
+0:03:16.920686                                                                    grand total 4904 0:00:00.000064 0:00:00.000032
+==================================================== test call duration top ====================================================
+total          name                                                                           num  avg            min           
+0:00:14.062719                                                           TestEuler::test_loop    3 0:00:05.632962 0:00:01.238149
+0:00:12.665431                                                                       test_run    2 0:00:06.332715 0:00:02.176703
+0:00:12.173765                                            TestGenericLoopAlgorithm::test_loop    3 0:00:04.883909 0:00:00.788445
+0:00:10.487014                                               TestThreeCM::test_correct_output   18 0:00:00.581980 0:00:00.576961
+0:00:08.544500                                                TestDecays::test_constants_edit    5 0:00:00.850937 0:00:00.848773
+0:00:05.076374                                            TestGenericODE::test_correct_output   10 0:00:00.511396 0:00:00.483545
+0:00:04.597892                                                               test_solve_basic    2 0:00:02.298946 0:00:01.989754
+0:00:03.246900                                                TestDecays::test_correct_output    5 0:00:00.425289 0:00:00.422678
+0:00:02.424681                                         test_solve_with_different_result_types    1 0:00:02.424681 0:00:02.424681
+0:00:02.382259                             test_device_function_property_builds_automatically    1 0:00:02.382259 0:00:02.382259
+0:00:02.298604                                                  TestThreeCM::test_compilation   18 0:00:00.127309 0:00:00.125238
+0:00:02.127119                                                             test_kernel_builds    1 0:00:02.127119 0:00:02.127119
+0:00:02.106763                                                        test_solve_ivp_function    1 0:00:02.106763 0:00:02.106763
+0:00:02.066534                                                              test_get_noise_64    1 0:00:02.066534 0:00:02.066534
+0:00:01.996729                                           test_solve_with_different_grid_types    1 0:00:01.996729 0:00:01.996729
+0:00:01.185555                                                        test_cache_invalidation    2 0:00:00.592777 0:00:00.000328
+0:00:00.984709                                               TestGenericODE::test_compilation   10 0:00:00.097649 0:00:00.093780
+0:00:00.702729                                                              test_get_noise_32    1 0:00:00.702729 0:00:00.702729
+0:00:00.686727                                                          test_algorithm_change    2 0:00:00.343363 0:00:00.058990
+0:00:00.631360                                                      test_cache_valid_property    1 0:00:00.631360 0:00:00.631360
+0:00:00.563577                                                               test_getters_get    1 0:00:00.563577 0:00:00.563577
+0:00:00.563186                                                       test_shared_memory_bytes    1 0:00:00.563186 0:00:00.563186
+0:00:00.562259                                                     test_build_device_function    1 0:00:00.562259 0:00:00.562259
+0:00:00.376444                                                                test_allocation    3 0:00:00.126764 0:00:00.122910
+0:00:00.360993                                                      test_clamp_kernel_float64    1 0:00:00.360993 0:00:00.360993
+0:00:00.347265                                                      test_clamp_kernel_float32    1 0:00:00.347265 0:00:00.347265
+0:00:00.338131                             TestBaseArrayManager::test_initialize_device_zeros    1 0:00:00.338131 0:00:00.338131
+0:00:00.317261                                                   TestDecays::test_compilation    5 0:00:00.062012 0:00:00.060941
+0:00:00.307032                                        TestInputArrays::test_initialise_method    1 0:00:00.307032 0:00:00.307032
+0:00:00.257555                                                    test_cupy_wrapper_mgr_check    1 0:00:00.257555 0:00:00.257555
+0:01:36.316231                                                                    grand total  735 0:00:00.000406 0:00:00.000242
+=================================================== test setup duration top ====================================================
+total          name                                                                           num  avg            min           
+0:00:11.296446                                                         test_various_summaries    5 0:00:01.989336 0:00:01.436689
+0:00:09.671535                                                           TestEuler::test_loop    3 0:00:03.932263 0:00:00.816525
+0:00:08.125866                                                          test_call_input_types   64 0:00:00.121377 0:00:00.118017
+0:00:08.025027                                                              test_memory_types    2 0:00:04.012514 0:00:02.980813
+0:00:07.814631                                                    test_all_summaries_long_run    2 0:00:03.907316 0:00:03.899964
+0:00:07.743152                                                 test_all_summaries_long_window    2 0:00:03.871576 0:00:03.848805
+0:00:06.659993                                            TestGenericLoopAlgorithm::test_loop    3 0:00:02.993034 0:00:00.618942
+0:00:06.291957                TestSolveResultPandasIntegration::test_pandas_shape_consistency    1 0:00:06.291957 0:00:06.291957
+0:00:06.081245                    TestSolveResultProperties::test_per_summary_arrays_property    1 0:00:06.081245 0:00:06.081245
+0:00:05.997500                       TestSolveResultFromSolver::test_stride_order_from_solver    1 0:00:05.997500 0:00:05.997500
+0:00:05.936800                     TestSolveResultFromSolver::test_summary_legend_from_solver    1 0:00:05.936800 0:00:05.936800
+0:00:05.785979            TestSolveResultInstantiation::test_from_solver_pandas_instantiation    1 0:00:05.785979 0:00:05.785979
+0:00:05.701256             TestSolveResultInstantiation::test_from_solver_numpy_instantiation    1 0:00:05.701256 0:00:05.701256
+0:00:05.607179              TestSolveResultInstantiation::test_from_solver_full_instantiation    1 0:00:05.607179 0:00:05.607179
+0:00:05.489690              TestSolveResultInstantiation::test_instantiation_type_equivalence    1 0:00:05.489690 0:00:05.489690
+0:00:05.102229                    TestSolveResultPandasIntegration::test_pandas_time_indexing    1 0:00:05.102229 0:00:05.102229
+0:00:05.047721 TestSolveResultInstantiation::test_from_solver_numpy_per_summary_instantiation    1 0:00:05.047721 0:00:05.047721
+0:00:05.039688                             TestSolveResultProperties::test_as_pandas_property    1 0:00:05.039688 0:00:05.039688
+0:00:05.033429                        TestSolveResultProperties::test_active_outputs_property    1 0:00:05.033429 0:00:05.033429
+0:00:05.032652                              TestSolveResultProperties::test_as_numpy_property    1 0:00:05.032652 0:00:05.032652
+0:00:05.020044                 TestSolveResultFromSolver::test_time_domain_legend_from_solver    1 0:00:05.020044 0:00:05.020044
+0:00:03.597072                                                               test_no_summarys    5 0:00:00.722238 0:00:00.639205
+0:00:02.981211                                                     test_big_and_small_systems    4 0:00:00.743283 0:00:00.713586
+0:00:02.657159                                                  test_chunk_related_properties    1 0:00:02.657159 0:00:02.657159
+0:00:02.516358                                           TestEuler::test_loop_function_builds    2 0:00:01.258179 0:00:00.764470
+0:00:02.188421                                               test_data_properties_after_solve    1 0:00:02.188421 0:00:02.188421
+0:00:02.116148                                                        test_input_value_ranges    3 0:00:00.702118 0:00:00.701702
+0:00:02.087614                            TestGenericLoopAlgorithm::test_loop_function_builds    2 0:00:01.043807 0:00:00.562231
+0:00:01.089721                                                                       test_run    2 0:00:00.544861 0:00:00.485362
+0:00:01.005940                                       test_input_arrays_with_different_systems    3 0:00:00.310305 0:00:00.188300
+0:03:01.982417                                                                    grand total  735 0:00:00.001208 0:00:00.000198
+================================================== test teardown duration top ==================================================
+total          name                                                                           num  avg            min           
+0:00:00.064037                                                          test_call_input_types   64 0:00:00.000999 0:00:00.000960
+0:00:00.006631                                               TestThreeCM::test_correct_output   18 0:00:00.000365 0:00:00.000355
+0:00:00.006101                                                  TestThreeCM::test_compilation   18 0:00:00.000341 0:00:00.000293
+0:00:00.005895                                                               test_no_summarys    5 0:00:00.001050 0:00:00.001034
+0:00:00.005480                                                           TestEuler::test_loop    3 0:00:00.001848 0:00:00.001707
+0:00:00.005218                                                         test_various_summaries    5 0:00:00.001041 0:00:00.001034
+0:00:00.005090                                            TestGenericLoopAlgorithm::test_loop    3 0:00:00.001693 0:00:00.001673
+0:00:00.389267                                                                    grand total  735 0:00:00.000445 0:00:00.000139
+--------------------------------- JSON report ----------------------------------
+report saved to: tests/pytest_report.json
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.3-final-0 ________________
+
+Name                                                             Stmts   Miss Branch BrPart  Cover   Missing
+------------------------------------------------------------------------------------------------------------
+src/cubie/CUDAFactory.py                                            65      5     30      5    89%   96, 157, 160, 224, 227
+src/cubie/__init__.py                                               13      2      0      0    85%   26-28
+src/cubie/_utils.py                                                 77      0     28      0   100%
+src/cubie/batchsolving/BatchGridBuilder.py                         123     10     60      9    89%   416, 456, 459, 661, 670, 731-732, 762, 766, 780
+src/cubie/batchsolving/BatchSolverConfig.py                         10      0      0      0   100%
+src/cubie/batchsolving/BatchSolverKernel.py                        265     18     28      5    91%   336-344, 357-367, 379, 412, 555, 1157, 1169, 1181
+src/cubie/batchsolving/SystemInterface.py                           60      5     22      5    88%   109, 111, 113, 184, 287
+src/cubie/batchsolving/__init__.py                                  11      2      2      1    77%   6-9
+src/cubie/batchsolving/_utils.py                                    30      2     12      1    93%   55-72
+src/cubie/batchsolving/arrays/BaseArrayManager.py                  209     17     90     10    90%   108, 488-489, 494, 503-509, 517->529, 521->529, 530, 616, 618-620, 676->674, 694-695, 699-702
+src/cubie/batchsolving/arrays/BatchInputArrays.py                   92      6     10      3    91%   15, 343-351, 354->353
+src/cubie/batchsolving/arrays/BatchOutputArrays.py                  97      0     10      0   100%
+src/cubie/batchsolving/arrays/__init__.py                            0      0      0      0   100%
+src/cubie/batchsolving/solver.py                                   213     19     46     12    87%   233, 239, 340, 344, 359-363, 411, 413, 439, 441, 443, 453-456, 462, 652, 658, 664
+src/cubie/batchsolving/solveresult.py                              180      5     48      4    96%   205, 225-226, 257->269, 265, 284
+src/cubie/integrators/IntegratorRunSettings.py                      50      1     12      0    98%   253
+src/cubie/integrators/SingleIntegratorRun.py                       149      1     24      1    99%   328
+src/cubie/integrators/__init__.py                                    2      0      0      0   100%
+src/cubie/integrators/algorithms/IntegratorLoopSettings.py          43      1      0      0    98%   201
+src/cubie/integrators/algorithms/LoopStepConfig.py                  17      0      0      0   100%
+src/cubie/integrators/algorithms/__init__.py                        14      0      0      0   100%
+src/cubie/integrators/algorithms/euler.py                           34      0      0      0   100%
+src/cubie/integrators/algorithms/genericIntegratorAlgorithm.py      54      6     12      5    83%   292, 294, 296, 301-302, 306
+src/cubie/memory/__init__.py                                         4      0      0      0   100%
+src/cubie/memory/array_requests.py                                  28      1      8      1    94%   16
+src/cubie/memory/cupy_emm.py                                       112     17     26      9    81%   19-24, 34-35, 60, 63, 67-70, 97, 120->123, 141->exit, 172, 258, 282->exit, 300-301
+src/cubie/memory/mem_manager.py                                    358     21    118     11    93%   30-37, 59, 181-185, 297-310, 360, 488, 537, 642, 654, 691, 759->758, 934, 1232->1241
+src/cubie/memory/stream_groups.py                                   54      5     22      5    87%   15, 57, 59, 83, 180
+src/cubie/outputhandling/__init__.py                                 5      0      0      0   100%
+src/cubie/outputhandling/output_config.py                          240      3     56      6    97%   39->exit, 41, 302->307, 337->342, 790, 792
+src/cubie/outputhandling/output_functions.py                       114      5     10      5    92%   102, 151, 153, 155, 165
+src/cubie/outputhandling/output_sizes.py                           120      9      4      1    92%   58->56, 413-435
+src/cubie/outputhandling/save_state.py                               9      0      0      0   100%
+src/cubie/outputhandling/save_summaries.py                          39      1      2      0    98%   53
+src/cubie/outputhandling/summarymetrics/__init__.py                  7      0      0      0   100%
+src/cubie/outputhandling/summarymetrics/max.py                      10      0      0      0   100%
+src/cubie/outputhandling/summarymetrics/mean.py                     10      0      0      0   100%
+src/cubie/outputhandling/summarymetrics/metrics.py                 140      8     30      0    94%   504-512
+src/cubie/outputhandling/summarymetrics/peaks.py                    10      0      0      0   100%
+src/cubie/outputhandling/summarymetrics/rms.py                      11      0      0      0   100%
+src/cubie/outputhandling/update_summaries.py                        32      1      2      0    97%   54
+src/cubie/systemmodels/SystemValues.py                             111      5     62      6    94%   169->exit, 238, 408, 410, 433, 481
+src/cubie/systemmodels/__init__.py                                   2      0      0      0   100%
+src/cubie/systemmodels/systems/GenericODE.py                        95     14     18      6    82%   167, 178, 189, 200, 211, 222, 383-384, 387-388, 437, 439, 441, 449
+src/cubie/systemmodels/systems/ODEData.py                           42      0      0      0   100%
+src/cubie/systemmodels/systems/__init__.py                           4      0      0      0   100%
+src/cubie/systemmodels/systems/decays.py                            30      3      4      0    85%   128-130
+src/cubie/systemmodels/systems/threeCM.py                           30      0      4      0   100%
+------------------------------------------------------------------------------------------------------------
+TOTAL                                                             3425    193    800    111    92%
+Coverage XML written to file coverage.xml
+================ 735 passed, 244 warnings in 285.22s (0:04:45) =================
