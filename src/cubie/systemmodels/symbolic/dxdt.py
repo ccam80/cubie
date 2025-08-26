@@ -1,11 +1,15 @@
-from typing import TYPE_CHECKING
+from typing import Iterable, Tuple, Optional
+import sympy as sp
 
-if TYPE_CHECKING:
-    from cubie.systemmodels.symbolic.file_generation import GeneratedFile
+from cubie.systemmodels.symbolic.numba_cuda_printer import print_cuda_multiple
+from cubie.systemmodels.symbolic.parser import IndexedBases
+from cubie.systemmodels.symbolic.sym_utils import cse_and_stack
 
 DXDT_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED DXDT FACTORY\n"
     "def {func_name}(constants, precision):\n"
-    "    \"\"\"Auto-generated dxdt factory.\"\"\"\n"    
+    '    """Auto-generated dxdt factory."""\n'
     "    @cuda.jit((precision[:],\n"
     "               precision[:],\n"
     "               precision[:],\n"
@@ -19,7 +23,13 @@ DXDT_TEMPLATE = (
     "    return dxdt\n"
 )
 
-def generate_dxdt_function(code_lines, file: "GeneratedFile"):
-    return file.generate_import(code_lines,
-                               "_build_symbolic_dxdt",
-                               DXDT_TEMPLATE)
+def generate_dxdt_fac_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+                           index_map: Optional[IndexedBases] = None,
+                           func_name="dxdt_factory"):
+    """Return the dxdt factory function for the given equations."""
+    equations = cse_and_stack(equations)
+    dxdt_lines = print_cuda_multiple(equations,
+                                     symbol_map=index_map.all_symbols)
+    code = DXDT_TEMPLATE.format(func_name=func_name,
+                                body="\n    ".join(dxdt_lines))
+    return code

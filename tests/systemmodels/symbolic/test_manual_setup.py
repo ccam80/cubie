@@ -16,7 +16,7 @@ def manual_settings_defaults():
         "states": {"x1": 0.5,
                    'x2': 2.0},
         "dxdt": ["obs1 = k1 * x1 * d2 + d1 * c1",
-                 "obs2 = c2 * c2 * k2 + x1  + obs1",
+                 "obs2 = c2 * c2 * k2 + x1 + x2 ** 2 + obs1",
                  "dx1 = obs1 + c2",
                  "dx2 = c1 + obs1 + obs2"],
     }
@@ -119,7 +119,7 @@ def test_kernel(symbolic_system):
 @pytest.fixture(scope="function")
 def v(symbolic_system, input_values):
     test = np.zeros(symbolic_system.sizes.states, dtype=symbolic_system.precision)
-    test[:] = 0.001  # Small perturbation for finite difference approximation
+    test[:] = 1.0  # Small perturbation for finite difference approximation
     return cuda.to_device(test)
 
 @pytest.fixture(scope="function")
@@ -168,29 +168,46 @@ def test_dxdt_output(
     assert_allclose(dxdt_expected, dxdt_actual, rtol=1e-6, atol=1e-6)
     assert_allclose(obs_expected, obs_actual, rtol=1e-6, atol=1e-6)
 
-def test_jac_v_outpu(
+@pytest.mark.parametrize("precision_override", [np.float32, np.float64],
+                         indirect=True)
+def test_jac_v_output(
         run_dxdt, run_jac, test_kernel, manual_settings, device_arrays,
-        symbolic_system, v,
-                                                  correct_answer):
+        symbolic_system, v, correct_answer, precision):
+
     dxdt_actual, _ = run_dxdt
-    Jv = run_jac
-    dxdt_new = cuda.device_array(symbolic_system.sizes.states, dtype=symbolic_system.precision)
+
+    dxdt_new = cuda.device_array(symbolic_system.sizes.states, dtype=precision)
     state = device_arrays['state']
     current_state = state.copy_to_host()
-
-    # Use the same v vector that was used in the Jacobian computation
+    Jv = run_jac
     v_host = v.copy_to_host()
-    current_state = current_state + v_host  # This is x + ε*v where v already contains ε
-
+    current_state = current_state + v_host
     state = cuda.to_device(current_state)
-    test_kernel[1,1](state,
-                     device_arrays['parameters'],
-                     device_arrays['drivers'],
-                     device_arrays['observables'],
-                     dxdt_new)
-    dxdt_new_host = dxdt_new.copy_to_host()
 
-    dxdt_change = dxdt_new_host - dxdt_actual
-    error = Jv - dxdt_change
+    test_kernel[1, 1](
+        state,
+        device_arrays["parameters"],
+        device_arrays["drivers"],
+        device_arrays["observables"],
+        dxdt_new,
+    )
+
+    dxdt_fwd_host = dxdt_new.copy_to_host()
+    current_state = current_state - 2 * v_host
+    state = cuda.to_device(current_state)
+    test_kernel[1, 1](
+        state,
+        device_arrays["parameters"],
+        device_arrays["drivers"],
+        device_arrays["observables"],
+        dxdt_new,
+    )
+
+    dxdt_back_host = dxdt_new.copy_to_host()
+    fwd_diff = dxdt_fwd_host - dxdt_actual
+    back_diff = dxdt_actual - dxdt_back_host
+    Jv = Jv
+    dxdt_central_diff = (dxdt_fwd_host - dxdt_back_host) / 2
+    error = Jv - dxdt_central_diff
     print(error)
-    assert_allclose(Jv, dxdt_change, rtol=1e-3, atol=1e-3)
+    assert_allclose(Jv, dxdt_central_diff, rtol=1e-5, atol=1e-5)

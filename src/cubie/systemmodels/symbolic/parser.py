@@ -2,25 +2,175 @@
 
 import re
 from warnings import warn
-
-import numpy as np
+from typing import Iterable, Dict, Optional, Union
 import sympy as sp
+from numpy.typing import ArrayLike, NDArray
+from base64 import b64encode
 
-from cubie.systemmodels.symbolic.symbolicODE import SymbolicODE
 
 
 class EquationWarning(Warning):
     pass
 
+_func_call_re = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 
-def CUDA_substitutions(expr_str):
-    """Replace CUDA-specific substitutions in a string."""
+class IndexedBaseMap:
+    def __init__(self,
+                 base_name: str,
+                 input_symbols: Iterable[str],
+                 input_defaults: Optional[Union[ArrayLike, NDArray]] = None,
+                 length=0,
+                 real = True):
+
+        if length == 0:
+            length = len(input_symbols)
+
+        self.length = length
+        self.base_name = base_name
+        self.real = real
+        self.base = sp.IndexedBase(base_name, shape=(length,), real=real)
+        self.index_map = {name: index
+                        for index, name in enumerate(input_symbols)}
+        self.ref_map = {name: self.base[index]
+                        for index, name in enumerate(input_symbols)}
+        if input_defaults is None:
+            input_defaults = [0.0] * length
+        elif len(input_defaults) != length:
+            raise ValueError("Input defaults must be the same length as the "
+                             "list of symbols")
+        self.default_values = dict(zip(self.ref_map.keys(),
+                                       input_defaults))
+
+
+    def pop(self, name):
+        """Remove a symbol from this object"""
+        self.ref_map.pop(name)
+        self.index_map.pop(name)
+        self.base = sp.IndexedBase(self.base_name,
+                                   shape=(len(self.ref_map),),
+                                   real=self.real)
+        self.length = len(self.ref_map)
+
+    def push(self, name):
+        """Adds a symbol to this object"""
+        index = self.length
+        self.base = sp.IndexedBase(self.base_name,
+                                   shape=(index + 1,),
+                                   real=self.real)
+        self.ref_map[name] = self.base[index]
+        self.index_map[name] = index
+
+
+class IndexedBases:
+    def __init__(self,
+                 states: IndexedBaseMap,
+                 parameters: IndexedBaseMap,
+                 constants: IndexedBaseMap,
+                 observables: IndexedBaseMap,
+                 drivers: IndexedBaseMap,
+                 dxdt: IndexedBaseMap):
+        self.states = states
+        self.parameters = parameters
+        self.constants = constants
+        self.observables = observables
+        self.drivers = drivers
+        self.dxdt = dxdt
+        self.all_indices = {**self.states.ref_map,
+                            **self.parameters.ref_map,
+                            **self.constants.ref_map,
+                            **self.observables.ref_map,
+                            **self.drivers.ref_map,
+                            **self.dxdt.ref_map}
+
+    @classmethod
+    def from_user_inputs(cls,
+                         states: Union[dict,Iterable[str]],
+                         parameters: Union[dict,Iterable[str]],
+                         constants: Union[dict,Iterable[str]],
+                         observables: Iterable[str],
+                         drivers: Iterable[str]):
+        states_ = IndexedBaseMap(
+                "state",
+                [s for s in states])
+        parameters_ = IndexedBaseMap(
+                "parameters",
+                [p for p in parameters])
+        constants_ = IndexedBaseMap(
+                "constants",
+                [c for c in constants])
+        observables_ = IndexedBaseMap(
+                "observables",
+                observables)
+        drivers_ = IndexedBaseMap(
+                "drivers",
+                drivers)
+        dxdt_ = IndexedBaseMap(
+                "dxdt",
+                [f"d{s}" for s in states])
+        return cls(states_,
+                   parameters_,
+                   constants_,
+                   observables_,
+                   drivers_,
+                   dxdt_)
+
+    @property
+    def state_names(self):
+        return self.states.ref_map.keys()
+
+    @property
+    def state_values(self):
+        return self.states.default_values
+
+    @property
+    def parameter_names(self):
+        return self.parameters.ref_map.keys()
+
+    @property
+    def parameter_values(self):
+        return self.parameters.default_values
+
+    @property
+    def constant_names(self):
+        return self.constants.ref_map.keys()
+
+    @property
+    def constant_values(self):
+        return self.constants.default_values
+
+    @property
+    def observable_names(self):
+        return self.observables.ref_map.keys()
+
+    @property
+    def driver_names(self):
+        return self.drivers.ref_map.keys()
+
+    @property
+    def dxdt_names(self) -> Iterable[str]:
+        return list(self.dxdt.ref_map.keys())
+
+    @property
+    def all_symbols(self) -> dict[str, sp.Symbol]:
+        return {**self.states.ref_map,
+                **self.parameters.ref_map,
+                **self.constants.ref_map,
+                **self.observables.ref_map,
+                **self.drivers.ref_map,
+                **self.dxdt.ref_map}
+
+    def __getitem__(self, item):
+        """Returns a reference to the indexed base for any symbol in the map"""
+        return self.all_indices[item]
+
+
+# ---------------------------- Input cleaning ------------------------------- #
+def _sanitise_input_math(expr_str: str):
+    """Replace constructs that are logical in python but not in Sympy."""
     expr_str = _replace_if(expr_str)
-    # TODO: Math swaps - pow for *, etc.
     return expr_str
 
-
-def _replace_if(expr_str):
+def _replace_if(expr_str: str):
     match = re.search(r"(.+?) if (.+?) else (.+)", expr_str)
     if match:
         true_str = _replace_if(match.group(1).strip())
@@ -29,101 +179,100 @@ def _replace_if(expr_str):
         return f"Piecewise(({true_str}, {cond_str}), ({false_str}, True))"
     return expr_str
 
+# -------------------------- Process equations ------------------------------ #
+def _process_calls(equations_input: Iterable[str],
+                   user_functions: Optional[Dict[str, callable]] = None):
+    """ map known SymPy callables (e.g., 'exp') to Sympy functions """
+    calls = set()
+    for line in equations_input:
+        calls |= set(_func_call_re.findall(line))
+    funcs = {}
+    for name in calls:
+        fn = getattr(sp, name, None)
+        if callable(fn):
+            funcs[name] = fn
+        elif name in user_functions:
+            funcs[name] = user_functions[name] #TODO: Figure out how
+            # exactly this works with Sympy - really, in code we just want
+            # it to be pasted in in text as-is
+        else:
+            raise ValueError(f"Your dxdt code contains a call to a function"
+                            f" {name}() that isn't part of Sympy and wasn't "
+                             f"provided in the user_functions dict.")
+    return funcs
 
-
-
-def collect_symbols(containers):
-    """Get a complete dict of symbols from an iterable of lists/dicts"""
-    symbols = {}
-    for container in containers:
-        symbols.update({name: sp.symbols(name) for name in container})
-    return symbols
-
-
-# TODO: I think this is a good opportunity for a factory. - return SymbolicODE
-#  if dxdt is a string/list of strings, and return a generic ODE if it's a
-#  list of
-#  sympy expressions.
-def create_system(
-    observables,
-    parameters,
-    constants,
-    drivers,
-    states,
-    dxdt,
-    precision=np.float64,
-):
-    """Create a :class:`SymbolicODE` from manual string input."""
-    all_symbols = collect_symbols(
-        [observables, parameters, constants, drivers, states]
-    )
-
-    if isinstance(dxdt, str):
-        lines = [
-            line.strip() for line in dxdt.strip().splitlines() if line.strip()
-        ]
-    else:
-        lines = [line.strip() for line in dxdt if line.strip()]
-
-    lhs_outputs = _lhs_pass(lines=lines,
-                            states=states,
-                            parameters=parameters,
-                            constants=constants,
-                            drivers=drivers,
-                            observables=observables,
-                            all_symbols=all_symbols
-    )
-
-    states, observables, all_symbols = lhs_outputs
-    equations = _rhs_pass(lines, all_symbols)
-
-    state_syms = {all_symbols[n]: v for n, v in states.items()}
-    param_syms = {all_symbols[n]: v for n, v in parameters.items()}
-    const_syms = {all_symbols[n]: v for n, v in (constants or {}).items()}
-    obs_syms = [all_symbols[n] for n in observables]
-    driver_syms = [all_symbols[n] for n in drivers]
-
-    return SymbolicODE(
-        states=state_syms,
-        parameters=param_syms,
-        constants=const_syms,
-        observables=obs_syms,
-        drivers=driver_syms,
-        equations=equations,
-        precision=precision,
-    )
+def _process_parameters(states,
+                        parameters,
+                        constants,
+                        observables,
+                        drivers):
+    """Process parameters and constants into indexed bases."""
+    indexed_bases = IndexedBases.from_user_inputs(states,
+                                                  parameters,
+                                                  constants,
+                                                  observables,
+                                                  drivers)
+    return indexed_bases
 
 
 def _lhs_pass(
     lines,
-    states,
-    parameters,
-    constants,
-    drivers,
-    observables,
-    all_symbols
-):
+    indexed_bases: IndexedBases,
+    ) -> dict[str, sp.Symbol]:
+    """ Process the left-hand-sides of all equations.
+
+    Parameters
+    ----------
+    lines: list of str
+        User-supplied list of equations that make up the dxdt function
+    indexed_bases: IndexedBases
+        The collection of maps from labels to indexed bases for the system
+        generated by '_process_parameters'.
+
+    Returns
+    -------
+    Anonymous Auxiliaries: dict
+        Auxiliary(observable) variables that aren't defined in the
+        observables dictionary.
+
+    Notes
+    -----
+    It is assumed that anonymous auxiliaries were included to make
+    model-writing easier, and they won't be saved, but we need to keep
+    track of the symbols for the Sympy math used in code generation.
+    """
+    anonymous_auxiliaries = {}
     assigned_obs = set()
-    deriv_states = set()
+    underived_states = set(indexed_bases.dxdt_names)
+    state_names = indexed_bases.state_names
+    observable_names = indexed_bases.observable_names
+    param_names = indexed_bases.parameter_names
+    constant_names = indexed_bases.constant_names
+    driver_names = indexed_bases.driver_names
+    states = indexed_bases.states
+    observables = indexed_bases.observables
+    dxdt = indexed_bases.dxdt
+
     for line in lines:
         lhs, rhs = [p.strip() for p in line.split("=", 1)]
         if lhs.startswith("d"):
             state_name = lhs[1:]
-            if state_name not in states:
-                if state_name in observables:
+            if state_name not in state_names:
+                if state_name in observable_names:
                     warn(
                         f"Your equation included d{state_name}, but "
                         f"{state_name} was listed as an observable. It has"
                         "been converted into a state.",
                         EquationWarning,
                     )
-                    states.extend(state_name)
-                    deriv_states.add(state_name)
-                    observables.pop(state_name, None)
+                    states.push(state_name)
+                    dxdt.push(state_name)
+
+                    observables.pop(state_name)
                 else:
-                    ValueError(f"Unknown state derivative: d{state_name}.")
+                    ValueError(f"Unknown state derivative: {lhs}.")
                     f"No state or observable called {state_name} found."
-            deriv_states.add(state_name)
+            underived_states -= lhs
 
         elif lhs in states:
             raise ValueError(
@@ -132,64 +281,146 @@ def _lhs_pass(
                 f"{lhs} = [...]"
             )
 
-        elif lhs in parameters or lhs in constants or lhs in drivers:
+        elif lhs in param_names or lhs in constant_names or lhs in driver_names:
             raise ValueError(
                 f"{lhs} was entered as an immutable "
                 f"input (constant, parameter, or driver)"
                 ", but it is being assigned to. Cubie "
                 "can't handle this - if it's being "
-                "assigned to, it must be either an "
-                "observable."
+                "assigned to, it must be either a state, an "
+                "observable, or undefined."
             )
 
         else:
             if lhs not in observables:
                 warn(
                     f"The intermediate variable {lhs} was assigned to "
-                    f"but not listed as an observable. It has been added"
-                    f" as an observable.",
+                    f"but not listed as an observable. It's trajectory will "
+                    f"not be saved.",
                     EquationWarning,
                 )
-                observables.extend(lhs)
-                all_symbols[lhs] = sp.Symbol(lhs)
+                anonymous_auxiliaries[lhs] = sp.Symbol(lhs, real=True)
             assigned_obs.add(lhs)
 
-    missing_obs = set(observables) - assigned_obs
+    missing_obs = set(observable_names) - assigned_obs
     if missing_obs:
         raise ValueError(f"Observables {missing_obs} are never assigned "
                          f"to.")
-    missing_states = set(states) - deriv_states
-    if missing_states:
+
+    if underived_states:
         warn(
-            f"States {missing_states} have no associated derivative "
+            f"States {underived_states} have no associated derivative "
             f"term. In the Cubie world, this makes it an 'observable'. "
-            f"{missing_states} have been moved from states to observables.",
+            f"{underived_states} have been moved from states to observables.",
             EquationWarning,
         )
-        for state in missing_states:
+        for state in underived_states:
             if state in observables:
                 raise ValueError(
-                    f"State {state} is both observable and state"
+                    f"State {state} is already both observable and state. "
+                    f"It needs to be an observable if it has no derivative"
+                    f"term."
                 )
-            observables.extend(state)
-            states.pop(state, None)
+            observables.push(state)
+            states.pop(state)
+            dxdt.pop(state)
 
-    return states, observables, all_symbols
+    return anonymous_auxiliaries
+
+def _rhs_pass(lines: Iterable[str],
+              all_symbols: Dict[str, sp.Symbol],
+              user_funcs: Optional[Dict[str, callable]] = None):
+    """Process expressions, checking symbols and finding callables.
+
+    Parameters
+    ----------
+    lines: list of str
+        User-supplied list of equations that make up the dxdt function
+    all_symbols: dict
+        All symbols defined in the model, including anonymous auxiliaries.
+
+    returns:
 
 
-def _rhs_pass(lines, all_symbols):
-    """Setup equations from input lines with checked lhs symbols."""
-    equations = []
+    """
+    expressions = {}
+    funcs = _process_calls(lines, user_funcs)
+    all_symbols.update(funcs)
+    symbols_and_calls = all_symbols.update(funcs)
     for line in lines:
         lhs, rhs = [p.strip() for p in line.split("=", 1)]
         try:
-            rhs_expr = CUDA_substitutions(rhs)
-            rhs_expr = sp.sympify(rhs_expr, locals=all_symbols)
+            rhs_expr = _sanitise_input_math(rhs)
+            rhs_expr = sp.sympify(rhs_expr, locals=symbols_and_calls)
         except (NameError, TypeError):
             raise ValueError(f"Undefined symbols in equation '{line}'")
+        expressions[lhs] = rhs_expr
 
-        if lhs.startswith("d"):
-            lhs = lhs[1:]
-        equations.append(sp.Eq(all_symbols[lhs], rhs_expr))
+    return expressions, funcs
 
-    return equations
+
+def hash_dxdt(dxdt: Union[str, Iterable[str]]) -> str:
+    """Generate a hash of the dxdt function
+
+    Clean and hash the dxdt input, to compare with cached versions of the
+    function to check whether a rebuild is required.
+
+    Parameters
+    ----------
+    dxdt : str or iterable of str
+        The string representation of the dxdt function.
+
+    Returns
+    -------
+    int: hash of the dxdt function
+
+    Notes
+    -----
+    Concatenates all strings in the iterable into a single string, then removes
+    all whitespace characters. The result is hashed using Python's built-in
+    hash algorithm
+    """
+    if isinstance(dxdt, (list, tuple)):
+        dxdt = "".join(dxdt)
+
+    # Remove all whitespace characters
+    normalized = "".join(dxdt.split())
+
+    # Generate hash for compact, unique representation
+    return hash(normalized)
+
+def parse_input(
+        states: Union[Dict, Iterable[str]],
+        observables: Iterable[str],
+        parameters: Union[Dict, Iterable[str]],
+        constants: Union[Dict, Iterable[str]],
+        drivers: Iterable[str],
+        user_functions: Optional[Dict[str, callable]] = None,
+        dxdt = Union[str, Iterable[str]],
+):
+    """Create a :class:`SymbolicODE` from manual string input."""
+    index_map = _process_parameters(states=states,
+                                    parameters=parameters,
+                                    constants=constants,
+                                    observables=observables,
+                                    drivers=drivers)
+
+    if isinstance(dxdt, str):
+        lines = [
+            line.strip() for line in dxdt.strip().splitlines() if line.strip()
+        ]
+    elif isinstance(dxdt, list) or isinstance(dxdt, tuple):
+        lines = [line.strip() for line in dxdt if line.strip()]
+    else:
+        raise ValueError("dxdt must be a string or a list/tuple of strings")
+
+    fn_hash = hash_dxdt(dxdt)
+    anon_aux = _lhs_pass(lines, index_map)
+    all_symbols = index_map.all_symbols.copy()
+    all_symbols.update(anon_aux)
+    equation_map, funcs = _rhs_pass(lines=lines,
+                             all_symbols=all_symbols,
+                             user_funcs=user_functions)
+    # Funcs dead-end here, expose if they prove vital for codegen.
+
+    return index_map, all_symbols, equation_map, fn_hash
