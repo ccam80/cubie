@@ -66,9 +66,10 @@ def topological_sort(
 
     if len(result) != len(assignments):
         remaining = all_assignees - {sym for sym, _ in result}
-        raise ValueError(f"Circular dependency detected. Remaining symbols: {remaining}")
+        raise ValueError(f"Circular dependency detected. "
+                         f"Remaining symbols: {remaining}")
 
-    return result
+    return list(result)
 
 def cse_and_stack(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
                   symbol: Optional[str] = None,
@@ -80,7 +81,7 @@ def cse_and_stack(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     equations: iterable of (sp.Symbol, sp.Expr)
         A list of (lhs, rhs) tuples.
     symbol: str, optional
-        The desired prefix for newly-created cse symbols.
+        The desired prefix for newly created cse symbols.
 
     Returns
     -------
@@ -92,7 +93,7 @@ def cse_and_stack(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
         symbol = "_cse"
     expr_labels = (lhs for lhs, _ in equations)
     all_rhs = (rhs for _, rhs in equations)
-    while any(label.startswith(symbol) for label in expr_labels):
+    while any(str(label).startswith(symbol) for label in expr_labels):
         warnings.warn(f"CSE symbol {symbol} is already in use, it has been "
                       f"prepended with an underscore to _{symbol}")
         symbol = f"_{symbol}"
