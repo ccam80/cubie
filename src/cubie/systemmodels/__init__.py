@@ -5,5 +5,4 @@ ordinary differential equation systems on CUDA devices.
 """
 
 from cubie.systemmodels.systems import ThreeChamberModel, GenericODE, Decays
-from cubie.systemmodels.symbolic import SymbolicODE
-__all__ = ["ThreeChamberModel", "GenericODE", "Decays", "SymbolicODE"]
+__all__ = ["ThreeChamberModel", "GenericODE", "Decays"]
