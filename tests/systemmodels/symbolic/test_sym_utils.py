@@ -1,9 +1,11 @@
+import warnings
+
 import pytest
 import sympy as sp
-import warnings
+
 from cubie.systemmodels.symbolic.sym_utils import (
-    topological_sort,
     cse_and_stack,
+    topological_sort,
 )
 
 
