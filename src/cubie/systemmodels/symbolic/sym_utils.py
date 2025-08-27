@@ -1,6 +1,7 @@
 import warnings
 from collections import defaultdict, deque
-from typing import Union, List, Dict, Iterable, Tuple, Optional
+from typing import Dict, Iterable, List, Optional, Tuple, Union
+
 import sympy as sp
 
 
@@ -91,7 +92,7 @@ def cse_and_stack(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     """
     if symbol is None:
         symbol = "_cse"
-    expr_labels = (lhs for lhs, _ in equations)
+    expr_labels = list(lhs for lhs, _ in equations)
     all_rhs = (rhs for _, rhs in equations)
     while any(str(label).startswith(symbol) for label in expr_labels):
         warnings.warn(f"CSE symbol {symbol} is already in use, it has been "

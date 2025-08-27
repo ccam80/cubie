@@ -1,23 +1,4 @@
 """Symbolic system building utilities."""
 
-from cubie.systemmodels.symbolic.symbolicODE import SymbolicODE
-from cubie.systemmodels.symbolic.parser import create_system
-from cubie.systemmodels.symbolic.math_functions import (
-    exp_,
-    sin_,
-    cos_,
-    sqrt_,
-    log_,
-    subs_math_func_placeholders,
-)
-
-__all__ = [
-    "SymbolicODE",
-    "create_system",
-    "exp_",
-    "sin_",
-    "cos_",
-    "sqrt_",
-    "log_",
-    "subs_math_func_placeholders",
-]
+from cubie.systemmodels.symbolic.dxdt import *
+from cubie.systemmodels.symbolic.jacobian import *

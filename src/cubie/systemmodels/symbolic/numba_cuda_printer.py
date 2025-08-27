@@ -1,8 +1,8 @@
 import re
-from typing import Tuple, Optional, Dict, Iterable
+from typing import Dict, Iterable, Optional, Tuple
 
-from sympy.printing.pycode import PythonCodePrinter
 import sympy as sp
+from sympy.printing.pycode import PythonCodePrinter
 
 
 class CUDAPrinter(PythonCodePrinter):
@@ -37,12 +37,13 @@ class CUDAPrinter(PythonCodePrinter):
         return expr_str
 
     def _replace_square_powers(self, expr_str):
-        """Replace x**2 with x*x."""
-        return re.sub(r'(\w+(?:\[[^]]+\])?)\*\*2\b', r'\1*\1', expr_str)
+        """Replace x**2 with x*x, handling spaces around the ** operator."""
+        return re.sub(r"(\w+(?:\[[^]]+\])*)\s*\*\*\s*2\b", r"\1*\1", expr_str)
 
     def _replace_cube_powers(self, expr_str):
-        """Replace x**3 with x*x*x."""
-        return re.sub(r'(\w+(?:\[[^]]+\])?)\*\*3\b', r'\1*\1*\1', expr_str)
+        """Replace x**3 with x*x*x, handling spaces around the ** operator."""
+        return re.sub(r'(\w+(?:\[[^]]+\])*)\s*\*\*\s*3\b', r'\1*\1*\1',
+                      expr_str)
 
     def _ifelse_to_selp(self, expr_str):
         """Replace if-else statements with select statements."""
@@ -99,5 +100,3 @@ def print_cuda_multiple(exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
         lines.append(line)
 
     return lines
-
-
