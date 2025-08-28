@@ -24,7 +24,6 @@ from cubie._utils import (
     update_dicts_from_kwargs,
 )
 
-
 def clamp_tester(fn, value, clip_value, precision):
     out = cuda.device_array(1, dtype=precision)
     d_out = cuda.to_device(out)

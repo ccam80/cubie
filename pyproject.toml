@@ -94,11 +94,12 @@ exclude_also = [
     "raise AssertionError",
     "raise NotImplementedError",
     "if 0:",
-    "if __name__ == .__main__.:",
+    "if __name__ == \\.__main__\\.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
     'if environ\\.get\\("NUMBA_ENABLE_CUDASIM", "0"\\) == "1":'
 ]
+
 ignore_errors = true
 show_missing = true
 

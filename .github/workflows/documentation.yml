@@ -26,6 +26,12 @@ jobs:
       - name: Sphinx build
         run: |
           sphinx-build ./docs/source ./docs/build
+
+      - name: Inject Google Site Verification Meta Tag
+        run: |
+          META_TAG='<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />'
+          find ./docs/build -name "*.html" -exec sed -i "s|</head>|$META_TAG\n</head>|g" {} +
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
