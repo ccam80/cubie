@@ -8,7 +8,7 @@ Antoine Pironet's thesis , suitable for CUDA execution.
 import numpy as np
 from numba import cuda, from_dtype
 
-from cubie.systemmodels.systems.GenericODE import GenericODE
+from cubie.systemmodels.systems.baseODE import BaseODE, ODECache
 
 default_parameters = {
     "E_h": 0.52,
@@ -35,7 +35,7 @@ default_constants = {}
 
 
 # noinspection PyPep8Naming
-class ThreeChamberModel(GenericODE):
+class ThreeChamberModel(BaseODE):
     """Three chamber cardiovascular model.
 
     A cardiovascular model with three chambers (heart, arteries, veins) as
@@ -270,7 +270,7 @@ class ThreeChamberModel(GenericODE):
             dxdt[1] = dV_a
             dxdt[2] = dV_v
 
-        return three_chamber_model_dv
+        return ODECache(dxdt=three_chamber_model_dv)
         # no cover: stop
 
     def correct_answer_python(self, states, parameters, drivers):

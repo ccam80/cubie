@@ -53,7 +53,8 @@ class CUDAPrinter(PythonCodePrinter):
             expr_str,
         )
 
-    #TODO: Singularity skips from Chaste codegen, piecewise blend if required
+    # TODO: Singularity skips from Chaste codegen, piecewise blend if required
+    # TODO: Add translation to CUDA-native functions
 
 
 def print_cuda(expr: sp.Expr,

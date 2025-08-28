@@ -1,7 +1,8 @@
-import pytest
 import numpy as np
+import pytest
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
+
 from cubie.outputhandling import summary_metrics
 from cubie.outputhandling.output_sizes import (
     LoopBufferSizes,
@@ -100,7 +101,7 @@ class LoopAlgorithmTester:
         update_summaries = output_functions.update_summaries_func
         save_summaries = output_functions.save_summary_metrics_func
 
-        dxdt_function = system.device_function
+        dxdt_function = system.dxdt_function
         compile_flags = output_functions.compile_flags
 
         algorithm_instance = algorithm_class(
@@ -148,8 +149,8 @@ class LoopAlgorithmTester:
                     compile_settings.buffer_sizes.state_summaries
                     == output_functions.state_summaries_buffer_height
                 ), (
-                    f"Summary buffer requirement doesn't match expected - the loop_compile_settings change doesn't "
-                    f"get through."
+                    "Summary buffer requirement doesn't match expected - the loop_compile_settings change doesn't "
+                    "get through."
                 )
             elif hasattr(compile_settings, key):
                 assert getattr(compile_settings, key) == value, (

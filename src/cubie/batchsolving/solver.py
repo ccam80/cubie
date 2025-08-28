@@ -5,21 +5,19 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import Optional, Union, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional, Union
 
 import numpy as np
 
-from cubie.memory import default_memmgr
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
-from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
+from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
-from cubie.batchsolving.solveresult import SolveSpec
-
+from cubie.batchsolving.SystemInterface import SystemInterface
+from cubie.memory import default_memmgr
 
 if TYPE_CHECKING:
-    from numba.cuda.cudadrv import MappedNDArray
+    pass
 
 
 def solve_ivp(
@@ -85,7 +83,7 @@ class Solver:
 
     Parameters
     ----------
-    system : GenericODE
+    system : BaseODE
         System model containing the ODEs to integrate.
     algorithm : str, optional
         Integration algorithm to use. Defaults to ``"euler"``.

@@ -5,7 +5,10 @@ from pathlib import Path
 import pytest
 import sympy as sp
 
-from cubie.systemmodels.symbolic.parser import IndexedBaseMap, IndexedBases
+from cubie.systemmodels.symbolic.indexedbasemaps import (
+    IndexedBaseMap,
+    IndexedBases,
+)
 
 
 @pytest.fixture(scope="function")

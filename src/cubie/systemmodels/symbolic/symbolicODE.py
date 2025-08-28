@@ -10,37 +10,32 @@ The code copied from *chaste-codegen* is licensed under the MIT licence and has
 been adapted for use in this project.
 """
 
-from typing import Callable, Iterable, Optional, Union
+import warnings
+from typing import Callable, Iterable, Optional, Set, Union
 
-import attrs
 import numpy as np
 import sympy as sp
 from numba import cuda, from_dtype
 
+from cubie import is_devfunc
 from cubie.systemmodels.symbolic.odefile import ODEFile
 from cubie.systemmodels.symbolic.parser import IndexedBases, parse_input
-from cubie.systemmodels.systems.GenericODE import GenericODE
+from cubie.systemmodels.systems.baseODE import BaseODE, ODECache
 
-
-#TODO: Consider hoisting this into GenericODE - it's useful if we need to
-# add analytical derivatives to manually-defined systems.
-@attrs.define()
-class ODECache:
-    dxdt: Optional[Callable] = None
-    jvp: Optional[Callable] = None
-    vjp: Optional[Callable] = None
 
 def build_system(dxdt, jacobian=False):
     """Create an ODE system from SymPy expressions."""
+    pass
 
-class SymbolicODE(GenericODE):
+
+class SymbolicODE(BaseODE):
     """Create an ODE system from SymPy expressions.
 
     Parameters are provided as SymPy symbols.  The differential equations are
-    provided as a list of ``sympy.Eq`` objects where the left hand side is a
-    state or observable symbol and the right hand side is an expression
-    composed of states, parameters, constants and previously defined
-    observables.
+    provided as a list of (lhs, rhs) tuples objects where the left hand side
+    is a differential or auxiliary/observable symbol and the right hand side
+    is an expression composed of states, parameters, constants and previously
+    defined auxiliaries/observables.
     """
 
     def __init__(
@@ -75,6 +70,7 @@ class SymbolicODE(GenericODE):
         self.fn_hash = fn_hash
         self.user_jvp = jvp
         self.user_vjp = vjp
+        self.user_functions = user_functions
 
         super().__init__(
             initial_values=all_indexed_bases.state_values,
@@ -95,8 +91,7 @@ class SymbolicODE(GenericODE):
               drivers: Iterable[str],
               user_functions: Optional[dict[str, Callable]] = None,
               name: str = None):
-        #TODO: Handle the update_constants functionality updating the
-        # constant values in the indexedbasemap container.
+
         sys_components = parse_input(
                 states = states,
                 observables = observables,
@@ -117,73 +112,120 @@ class SymbolicODE(GenericODE):
 
 
     def build(self, jacobian=False):
-        """Compile the dxdt and (if requested_ jacobian device functions..
-        """
-        dxdt_func = self._build_dxdt()
-        jvp = self._build_jvp()
-        vjp = self._build_vjp()
+        """Compile the dxdt and (if requested_ jacobian device functions.."""
+        numba_precision = from_dtype(self.precision)
+        constants = self.indices.constant_values.astype(self.precision)
+        dxdt_func = self._build_dxdt(numba_precision, constants)
+        jvp = self._build_jvp(numba_precision, constants)
+        vjp = self._build_vjp(numba_precision, constants)
         return ODECache(dxdt = dxdt_func,
                         jvp = jvp,
                         vjp = vjp)
 
-    # ------------------------------------------------------------------
-    # Device code generation helpers
-    # ------------------------------------------------------------------
-
-    def _build_dxdt(self):
-        numba_precision = from_dtype(self.precision)
-        constants = self.indices.constant_values.astype(self.precision)
+    def _build_dxdt(self, numba_precision, constants):
         dxdt_factory = self.gen_file.get_dxdt_fac(self.equations,
                                                   self.indices)
         dxdt = dxdt_factory(constants, numba_precision)
         return dxdt
 
-    def _build_vjp(self):
-        if self.user_vjp:
-            if callable(self.user_vjp):
-                try:
-                    return cuda.jit()(self.user_vjp)
-                except Exception as e:
-                    print(f"Error compiling user-provided Jacobian: {e}")
+    def _build_jac_product(self,
+                           numba_precision,
+                           constants,
+                           direction = "jvp"):
+        """Compile (if not provided) the Jacobian-product device function.
+
+        Parameters
+        ----------
+        numba-precision : numba type
+            the desired floating-point type to compile for
+        constants : numpy array
+            constant values to be "baked in" to the compiled function
+        direction : "jvp" or "vjp"
+            Which product to produce: jacobian-vector or vector-jacobian
+            product.
+
+        Returns
+        -------
+        device function:
+            The compiled Jacobian-product device function.
+
+        Notes
+        -----
+        Does its best to use the user-provided function - if it's a device
+        function, return it straight away.  If it's a jit-compilable function,
+        jit-compile and return. Otherwise, fall back to generating the function
+        from the provided dxdt equations.
+        """
+        if direction == "jvp":
+            userfunc = self.user_jvp
+            fac_factory = self.gen_file.get_jvp_fac
+        elif direction == "vjp":
+            userfunc = self.user_vjp
+            fac_factory = self.gen_file.get_vjp_fac
+        else:
+            raise ValueError(f"Invalid direction: {direction}")
+
+        # Use user-provided function if we can
+        if userfunc:
+            if callable(userfunc):
+                if is_devfunc(userfunc):
+                    return userfunc
+                else:
+                    try:
+                        return cuda.jit()(userfunc)
+                    except Exception as e:
+                        warnings.warn(f"Error compiling user-provided "
+                                      f"{direction} function: {e}, falling "
+                                      f"back to automatic generation.")
             else:
-                raise ValueError(
-                    "user_vjp must be a callable or a Numba Dispatcher object"
+                warnings.warn("user_vjp must be a cuda-compilable function "
+                              "or a cuda device function, got type "
+                              f"{type(self.user_vjp)}. Falling back to "
+                              f"automatic generation."
                 )
-        else:
-            numba_precision = from_dtype(self.precision)
-            constants = self.indices.constant_values.values().astype(
-                self.precision
-            )
-            vjp_factory = self.gen_file.get_vjp_fac(
-                self.equations, self.indices
-            )
-            vjp = vjp_factory(constants, numba_precision)
-            return vjp
 
-    def _build_jvp(self):
-        if self.user_jvp:
-            if callable(self.user_jvp):
-                try:
-                    return cuda.jit()(self.user_jvp)
-                except Exception as e:
-                    print(f"Error compiling user-provided Jacobian: {e}")
-            else:
-                raise ValueError("user_jvp must be a callable or a "
-                                 "Numba Dispatcher object")
-        else:
+        # Generate one if not
+        jac_fac = fac_factory(self.equations, self.indices)
+        jac_product = jac_fac(constants, numba_precision)
+        return jac_product
 
-            numba_precision = from_dtype(self.precision)
-            constants = self.indices.constant_values.values(
-                                                    ).astype(self.precision)
-            jvp_factory = self.gen_file.get_jvp_fac(self.equations,
-                                                      self.indices)
-            jvp = jvp_factory(constants, numba_precision)
-            return jvp
+    def _build_vjp(self, numba_precision, constants):
+        """Compile (if none provided) and return the VJP device function."""
+        return self._build_jac_product(numba_precision, constants,
+                                       direction="vjp")
 
-    @property
-    def dxdt(self):
-        return self.get_cached_output("dxdt")
+    def _build_jvp(self, numba_precision, constants):
+        """Compile (if none provided) and return the JVP device function."""
 
-    @property
-    def jvp(self):
-        return self.get_cached_output("jvp")
+        return self._build_jac_product(numba_precision, constants,
+                                       direction="jvp")
+
+    def set_constants(self, updates_dict=None, silent=False, **kwargs
+                      ) -> Set[str]:
+        """Update the constants of the system.
+
+        Parameters
+        ----------
+            updates_dict : dict of strings, floats
+                A dictionary mapping constant names to their new values.
+            silent : bool
+                If True, suppress warnings about keys not found, default False.
+            **kwargs: key-value pairs
+                Additional constant updates in key=value form, overrides
+                updates_dict.
+
+        Returns
+        -------
+        set of str:
+            All labels that were recognized (and therefore updated)
+
+        Notes
+        -----
+        First silently updates the constants in the indexed base map, then
+        calls the base ODE class's set constants method.
+        """
+
+        self.indices.update_constants(updates_dict, **kwargs)
+        recognized = super().set_constants(updates_dict,
+                                 silent=silent)
+        return recognized

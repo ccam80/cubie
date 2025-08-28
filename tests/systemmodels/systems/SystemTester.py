@@ -1,5 +1,5 @@
-import pytest
 import numpy as np
+import pytest
 from numba import cuda
 from numpy.testing import assert_allclose
 
@@ -36,12 +36,12 @@ class SystemTester:
 
     def build_system(self):
         """Build or compile the system if needed."""
-        return self.system_instance.device_function
+        return self.system_instance.dxdt_function
 
     def build_test_kernel(self):
         """Builds a CUDA kernel used to check output correctness."""
         precision = self.system_instance.precision
-        dxdt_func = self.system_instance.device_function
+        dxdt_func = self.system_instance.dxdt_function
 
         n_states = self.system_instance.sizes.states
         n_par = self.system_instance.sizes.parameters
@@ -114,7 +114,7 @@ class SystemTester:
             const_dict,
             n_drivers,
         )
-        dxdt_function = self.system_instance.device_function
+        dxdt_function = self.system_instance.dxdt_function
         assert dxdt_function is not None, "dxdt function missing after build."
 
     def test_correct_output(

@@ -19,6 +19,7 @@ from cubie._utils import (
     round_sf,
     round_list_sf,
     get_readonly_view,
+    is_devfunc,
 )
 
 
@@ -211,19 +212,19 @@ def test_update_dicts_from_kwargs():
     # Test single dictionary
     d1 = {"a": 1, "b": 2}
     result = update_dicts_from_kwargs(d1, a=10, b=20)
-    assert result == True
+    assert result
     assert d1 == {"a": 10, "b": 20}
 
     # Test no changes
     d2 = {"a": 10, "b": 20}
     result = update_dicts_from_kwargs(d2, a=10, b=20)
-    assert result == False
+    assert not result
 
     # Test multiple dictionaries
     d3 = {"a": 1}
     d4 = {"b": 2}
     result = update_dicts_from_kwargs([d3, d4], a=10, b=20)
-    assert result == True
+    assert result
     assert d3 == {"a": 10}
     assert d4 == {"b": 20}
 
@@ -319,3 +320,29 @@ def test_get_readonly_view():
     assert original.flags.writeable
     original[0] = 10
     assert original[0] == 10
+
+
+def test_is_devfnc():
+    """Test is_devfnc function."""
+
+    @cuda.jit(device=True)
+    def cuda_device_func(x, y):
+        """A simple CUDA device function."""
+        return x + y
+
+    @cuda.jit(device=False)
+    def cuda_kernel(x, y):
+        """A regular Python function."""
+        y = x
+
+    def noncuda_func(x, y):
+        """A regular Python function."""
+        return x + y
+
+    dev_is_device = is_devfunc(cuda_device_func)
+    kernel_is_device = is_devfunc(cuda_kernel)
+    noncuda_is_device = is_devfunc(noncuda_func)
+
+    assert dev_is_device
+    assert not kernel_is_device
+    assert not noncuda_is_device

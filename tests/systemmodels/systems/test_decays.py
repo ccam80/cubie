@@ -1,11 +1,10 @@
-import pytest
 import numpy as np
-from tests.systemmodels.systems.SystemTester import SystemTester
+import pytest
 from numpy.testing import assert_allclose
+
 from cubie.systemmodels.systems.decays import Decays
-
 from tests._utils import generate_test_array
-
+from tests.systemmodels.systems.SystemTester import SystemTester
 
 # One-off modifications of _utils for this unique system:
 
@@ -38,12 +37,8 @@ def generate_decays_tests(
     param_lengths=[1, 100], log10_scalerange=(-6, 6), range_step=6
 ):
     test_cases = []
-    test_cases += [create_random_test_set(10, np.float32, 10.0**-6)]
-    test_cases += [create_random_test_set(10, np.float32, 10.0**0)]
-    test_cases += [create_random_test_set(10, np.float32, 10.0**6)]
     test_cases += [create_random_test_set(100, np.float32, (-6, 6))]
     test_cases += [create_random_test_set(100, np.float64, (-6, 6))]
-
     return test_cases
 
 

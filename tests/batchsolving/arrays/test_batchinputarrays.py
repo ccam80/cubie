@@ -1,20 +1,21 @@
 from os import environ
-import pytest
+
 import numpy as np
-from numpy.testing import assert_array_equal
+import pytest
 from numba import cuda
+from numpy.testing import assert_array_equal
 
 from cubie.batchsolving.arrays.BatchInputArrays import (
-    InputArrays,
     InputArrayContainer,
+    InputArrays,
 )
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_sizes import BatchInputSizes
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numpy import zeros as device_array
+    pass
 else:
-    from numba.cuda import device_array
+    pass
 
 
 @pytest.fixture(scope="function")
@@ -403,7 +404,7 @@ def test_input_arrays_with_different_configs(
 
 @pytest.mark.parametrize(
     "system_override",
-    ["ThreeChamber", "Decays123", "genericODE"],
+    ["ThreeChamber", "Decays123"],
     indirect=True,
 )
 def test_input_arrays_with_different_systems(

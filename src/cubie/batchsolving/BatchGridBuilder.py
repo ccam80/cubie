@@ -156,15 +156,15 @@ Same as individual dictionaries
 """
 
 from itertools import product
-from typing import List, Union, Dict, Optional
+from typing import Dict, List, Optional, Union
 from warnings import warn
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from cubie.systemmodels.SystemValues import SystemValues
-from cubie.systemmodels.systems.GenericODE import GenericODE
 from cubie.batchsolving.SystemInterface import SystemInterface
+from cubie.systemmodels.systems.baseODE import BaseODE
+from cubie.systemmodels.SystemValues import SystemValues
 
 
 def unique_cartesian_product(arrays: List[np.ndarray]):
@@ -519,13 +519,13 @@ class BatchGridBuilder:
         self.states = interface.states
 
     @classmethod
-    def from_system(cls, system: GenericODE):
+    def from_system(cls, system: BaseODE):
         """
         Create a BatchGridBuilder from a system model.
 
         Parameters
         ----------
-        system : GenericODE
+        system : BaseODE
             The system model to create the grid builder from.
 
         Returns

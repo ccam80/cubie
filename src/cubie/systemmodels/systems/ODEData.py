@@ -153,7 +153,7 @@ class ODEData:
         )
 
     @classmethod
-    def from_genericODE_initargs(
+    def from_BaseODE_initargs(
         cls,
         initial_values=None,
         parameters=None,
@@ -166,7 +166,7 @@ class ODEData:
         precision=np.float64,
         num_drivers=1,
     ):
-        """Create ODEData from GenericODE initialization arguments.
+        """Create ODEData from BaseODE initialization arguments.
 
         Parameters
         ----------

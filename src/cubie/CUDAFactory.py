@@ -1,7 +1,8 @@
 """Base classes for constructing cached CUDA device functions with Numba."""
 
-from typing import Set
 from abc import ABC, abstractmethod
+from typing import Set
+
 import attrs
 
 from cubie._utils import in_attr, is_attrs_class
@@ -217,6 +218,9 @@ class CUDAFactory(ABC):
         ------
         KeyError
             If ``output_name`` is not present in the cache.
+        NotImplementedError
+            If a cache has been filled with a "-1" integer, this indicates
+            that the requested object is not implemented in the subclass.
         """
         if not self.cache_valid:
             self._build()
@@ -227,4 +231,9 @@ class CUDAFactory(ABC):
                 raise KeyError(
                     f"Output '{output_name}' not found in cached outputs."
                 )
-            return getattr(self._cache, output_name)
+            cache_contents = getattr(self._cache, output_name)
+            if cache_contents == -1:
+                raise NotImplementedError(
+                    f"Output '{output_name}' is not implemented in this class."
+                )
+            return cache_contents
