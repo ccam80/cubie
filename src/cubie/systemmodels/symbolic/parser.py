@@ -8,6 +8,7 @@ import sympy as sp
 from sympy.parsing.sympy_parser import T, parse_expr
 
 from .indexedbasemaps import IndexedBases
+from .sym_utils import hash_system_definition
 
 # Lambda notation, Auto-number, factorial notation, implicit multiplication
 PARSE_TRANSORMS = (T[0][0],T[3][0], T[4][0], T[8][0])
@@ -219,37 +220,6 @@ def _rhs_pass(lines: Iterable[str],
 
     return expressions, funcs
 
-
-def hash_dxdt(dxdt: Union[str, Iterable[str]]) -> str:
-    """Generate a hash of the dxdt function
-
-    Clean and hash the dxdt input, to compare with cached versions of the
-    function to check whether a rebuild is required.
-
-    Parameters
-    ----------
-    dxdt : str or iterable of str
-        The string representation of the dxdt function.
-
-    Returns
-    -------
-    int: hash of the dxdt function
-
-    Notes
-    -----
-    Concatenates all strings in the iterable into a single string, then removes
-    all whitespace characters. The result is hashed using Python's built-in
-    hash algorithm
-    """
-    if isinstance(dxdt, (list, tuple)):
-        dxdt = "".join(dxdt)
-
-    # Remove all whitespace characters
-    normalized = "".join(dxdt.split())
-
-    # Generate hash for compact, unique representation
-    return hash(normalized)
-
 def parse_input(
         states: Union[Dict, Iterable[str]],
         observables: Iterable[str],
@@ -275,7 +245,8 @@ def parse_input(
     else:
         raise ValueError("dxdt must be a string or a list/tuple of strings")
 
-    fn_hash = hash_dxdt(dxdt)
+    constants = index_map.constants.default_values
+    fn_hash = hash_system_definition(dxdt, constants)
     anon_aux = _lhs_pass(lines, index_map)
     all_symbols = index_map.all_symbols.copy()
     all_symbols.update(anon_aux)

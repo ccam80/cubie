@@ -1,25 +1,27 @@
-import pytest
-import numpy as np
 import warnings
 from unittest.mock import patch
+
+import attrs
+import numpy as np
+import pytest
 from numba import cuda
 from numba.cuda.random import create_xoroshiro128p_states
-from numpy import float64, float32
-import attrs
+from numpy import float32, float64
+
 from cubie._utils import (
-    clamp_64,
     clamp_32,
-    get_noise_64,
+    clamp_64,
     get_noise_32,
-    slice_variable_dimension,
+    get_noise_64,
+    get_readonly_view,
     in_attr,
     is_attrs_class,
-    update_dicts_from_kwargs,
-    timing,
-    round_sf,
-    round_list_sf,
-    get_readonly_view,
     is_devfunc,
+    round_list_sf,
+    round_sf,
+    slice_variable_dimension,
+    timing,
+    update_dicts_from_kwargs,
 )
 
 

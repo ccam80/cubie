@@ -7,7 +7,7 @@ import sympy as sp
 
 def topological_sort(
         assignments: Union[List[tuple], Dict[sp.Symbol, sp.Expr]],
-        ) -> list[tuple[sp.Symbol, sp.Expr]]:
+        ) -> List[Tuple[sp.Symbol, sp.Expr]]:
     """
     Returns a topologically sorted list of assignments from an unsorted input.
 
@@ -70,11 +70,11 @@ def topological_sort(
         raise ValueError(f"Circular dependency detected. "
                          f"Remaining symbols: {remaining}")
 
-    return list(result)
+    return result
 
 def cse_and_stack(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
                   symbol: Optional[str] = None,
-                  ) -> Tuple[Tuple[sp.Symbol, sp.Expr]]:
+                  ) -> List[Tuple[sp.Symbol, sp.Expr]]:
     """Performs CSE and returns a list of provided and cse expressions.
 
     Parameters
@@ -86,7 +86,7 @@ def cse_and_stack(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
 
     Returns
     -------
-    tuple of tuples of (sp.Symbol, sp.Expr)
+    list of tuples of (sp.Symbol, sp.Expr)
         CSE expressions and provided expressions in terms of CSEs, in the same
         format as provided expressions.
     """
@@ -102,6 +102,57 @@ def cse_and_stack(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     cse_exprs, reduced_exprs = sp.cse(
         all_rhs, symbols=sp.numbered_symbols(symbol), order="none"
     )
-    expressions = list(zip(expr_labels, reduced_exprs)) + cse_exprs
-    expressions = topological_sort(expressions)
-    return expressions
+    expressions = list(zip(expr_labels, reduced_exprs)) + list(cse_exprs)
+    sorted_expressions = topological_sort(expressions)
+    return sorted_expressions
+
+def hash_system_definition(
+    dxdt: Union[str, Iterable[str]],
+    constants: Optional[Union[Dict[str, float], Iterable[str]]] = None
+) -> str:
+    """Generate a comprehensive hash of the system definition.
+
+    Combines the dxdt equations and constant values into a single hash to
+    properly detect when system definitions have changed and require rebuilding.
+
+    Parameters
+    ----------
+    dxdt : str or iterable of str
+        The string representation of the dxdt function.
+    constants : dict, iterable of str, or None
+        The constants definition. If dict, maps constant names to values.
+        If iterable, assumes default values. If None, no constants.
+
+    Returns
+    -------
+    str
+        Hash string representing the complete system definition.
+
+    Notes
+    -----
+    The hash includes:
+    1. Normalized dxdt equations (whitespace removed)
+    2. Sorted constant names and values (if provided)
+
+    This ensures that changes to either equations or constant values will
+    result in different hashes, triggering appropriate rebuilds.
+    """
+    # Process dxdt equations
+    if isinstance(dxdt, (list, tuple)):
+        dxdt_str = "".join(dxdt)
+    else:
+        dxdt_str = dxdt
+
+    # Normalize dxdt by removing whitespace
+    normalized_dxdt = "".join(dxdt_str.split())
+
+    # Process constants
+    constants_str = ""
+    if constants is not None:
+        constants_str = "|".join(f"{k}:{v}" for k, v in constants.items())
+
+    # Combine components with separator
+    combined = f"dxdt:{normalized_dxdt}|constants:{constants_str}"
+
+    # Generate hash
+    return str(hash(combined))

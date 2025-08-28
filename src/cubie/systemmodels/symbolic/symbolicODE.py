@@ -17,16 +17,21 @@ import numpy as np
 import sympy as sp
 from numba import cuda, from_dtype
 
-from cubie import is_devfunc
+from cubie._utils import is_devfunc
 from cubie.systemmodels.symbolic.odefile import ODEFile
 from cubie.systemmodels.symbolic.parser import IndexedBases, parse_input
+from cubie.systemmodels.symbolic.sym_utils import hash_system_definition
 from cubie.systemmodels.systems.baseODE import BaseODE, ODECache
 
 
-def build_system(dxdt, jacobian=False):
+def build_ODE(states,
+              parameters=None,
+              constants=None,
+              drivers=None,
+              dxdt=Union[str, Iterable[str]],
+              jacobians=True):
     """Create an ODE system from SymPy expressions."""
     pass
-
 
 class SymbolicODE(BaseODE):
     """Create an ODE system from SymPy expressions.
@@ -47,9 +52,18 @@ class SymbolicODE(BaseODE):
         fn_hash: Optional[int] =None,
         jvp: Optional[Callable] = None,
         vjp: Optional[Callable] = None,
+        autojvp: bool = True,
+        autovjp: bool = True,
         user_functions: Optional[dict[str, Callable]] = None,
         name: str = None,
     ):
+        """autojvp: bool
+                Automatically generate the Jacobian-vector product function on
+                build
+            autovjp: bool
+                Automatically generate the vector-Jacobian product function on
+                build
+        """
         if all_symbols is None:
             all_symbols = all_indexed_bases.all_symbols
         self.all_symbols = all_symbols
@@ -57,11 +71,12 @@ class SymbolicODE(BaseODE):
         if fn_hash is None:
             dxdt_str = [f"{lhs}={str(rhs)}" for lhs, rhs
                         in equations]
-            fn_hash = hash(dxdt_str)
+            constants = all_indexed_bases.constants.default_values
+            fn_hash = hash_system_definition(dxdt_str, constants)
         if name is None:
             name = fn_hash
 
-        self.filename = f"{name}.py"
+        self.name = name
         self.gen_file = ODEFile(name, fn_hash)
 
         ndriv = all_indexed_bases.drivers.length
@@ -70,6 +85,8 @@ class SymbolicODE(BaseODE):
         self.fn_hash = fn_hash
         self.user_jvp = jvp
         self.user_vjp = vjp
+        self.autojvp = autojvp
+        self.autovjp = autovjp
         self.user_functions = user_functions
 
         super().__init__(
@@ -111,13 +128,27 @@ class SymbolicODE(BaseODE):
                    precision=np.float64)
 
 
-    def build(self, jacobian=False):
-        """Compile the dxdt and (if requested_ jacobian device functions.."""
+    def build(self):
+        """Compile the dxdt and jvp/vjp."""
         numba_precision = from_dtype(self.precision)
         constants = self.indices.constant_values.astype(self.precision)
+
+        new_hash = hash_system_definition(
+            self.equations, self.indices.constants.default_values)
+        if new_hash != self.fn_hash:
+            self.gen_file = ODEFile(self.name, new_hash)
+
+
+        if self.autojvp:
+            jvp = self._build_jvp(numba_precision, constants)
+        else:
+            jvp = -1
+        if self.autovjp:
+            vjp = self._build_vjp(numba_precision, constants)
+        else:
+            vjp = -1
         dxdt_func = self._build_dxdt(numba_precision, constants)
-        jvp = self._build_jvp(numba_precision, constants)
-        vjp = self._build_vjp(numba_precision, constants)
+
         return ODECache(dxdt = dxdt_func,
                         jvp = jvp,
                         vjp = vjp)

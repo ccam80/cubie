@@ -14,6 +14,8 @@ from cubie.systemmodels.symbolic.odefile import (
     ODEFile,
 )
 from cubie.systemmodels.symbolic.parser import IndexedBases
+from cubie.systemmodels.symbolic.sym_utils import hash_system_definition
+
 
 
 class TestODEFileConstants:
@@ -643,6 +645,55 @@ class TestODEFileIntegration:
             new_mtime = ode_file3.file_path.stat().st_mtime
             # File should not have been modified
             assert original_mtime != new_mtime
+
+    def test_constant_changes_cache(self):
+        # Test that changing constants causes a rebuild
+
+        # Create a simple system with constants for testing
+        states = {"x": 1.0, "y": 2.0}
+        parameters = {"a": 0.1, "b": 0.2}
+        constants_original = {"c": 0.5, "d": 1.0}
+        observables = []
+        drivers = []
+
+        # Create indexed bases with original constants
+        indexed_bases = IndexedBases.from_user_inputs(
+            states, parameters, constants_original, observables, drivers
+        )
+
+        dx, dy, c, x, d, y = sp.symbols("dx dy c x d y", real=True)
+        # Simple dxdt equations that use constants
+        dxdt_str = ["dx = -c*x+d*y", "dy = c*x-d*y"]
+        dxdt_equations = [(dx, -c * x + d * y), (dy, c * x - d * y)]
+
+        # Generate hash with original constants
+        hash_orig = hash_system_definition(
+            dxdt_str, indexed_bases.constants.default_values
+        )
+
+
+        # Create ODEFile with original constants and generate function
+        ode_file_orig = ODEFile("constants_test", hash_orig)
+
+        ode_file_orig.get_dxdt_fac(dxdt_equations, indexed_bases)
+        orig_constants_mtime = ode_file_orig.file_path.stat().st_mtime
+
+        constants_modified = {c: 0.7, d: 1.0}  # Changed value of 'c'
+        # Generate hash with modified constants
+        hash_mod = hash_system_definition(dxdt_str, constants_modified)
+
+        # Hashes should be different
+        assert hash_orig != hash_mod
+
+        indexed_bases.update_constants(constants_modified)
+        ode_file_orig.get_dxdt_fac(dxdt_equations, indexed_bases)
+
+        ode_file_new = ODEFile("constants_test", hash_mod)
+        ode_file_new.get_dxdt_fac(dxdt_equations, indexed_bases)
+        mod_constants_mtime = ode_file_new.file_path.stat().st_mtime
+
+        # File should have been rebuilt due to changed constants
+        assert orig_constants_mtime != mod_constants_mtime
 
 
 def kernel_test_fac(

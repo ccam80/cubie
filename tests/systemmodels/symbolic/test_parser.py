@@ -3,6 +3,9 @@ import warnings
 import pytest
 import sympy as sp
 
+from cubie.systemmodels.symbolic.indexedbasemaps import (
+    IndexedBases,
+)
 from cubie.systemmodels.symbolic.parser import (
     EquationWarning,
     _lhs_pass,
@@ -11,12 +14,9 @@ from cubie.systemmodels.symbolic.parser import (
     _replace_if,
     _rhs_pass,
     _sanitise_input_math,
-    hash_dxdt,
     parse_input,
 )
-from cubie.systemmodels.symbolic.indexedbasemaps import (
-    IndexedBases,
-)
+from cubie.systemmodels.symbolic.sym_utils import hash_system_definition
 
 
 class TestInputCleaning:
@@ -260,46 +260,57 @@ class TestRhsPass:
         assert expressions[0] == [dx, Piecewise((a, x > 0), (b, True))]
 
 
-class TestHashDxdt:
-    """Test dxdt hashing function."""
+class TestHashSystemDefinition:
+    """Test system definition hashing function."""
 
-    def test_hash_dxdt_string(self):
+    def test_hash_system_definition_string(self):
         """Test hashing string input."""
         dxdt = "dx = x + y\ndy = x - y"
-        result = hash_dxdt(dxdt)
-        assert isinstance(result, int)
+        result = hash_system_definition(dxdt, {})
+        assert isinstance(result, str)
 
-    def test_hash_dxdt_list(self):
+    def test_hash_system_definition_list(self):
         """Test hashing list input."""
         dxdt = ["dx = x + y", "dy = x - y"]
-        result = hash_dxdt(dxdt)
-        assert isinstance(result, int)
+        result = hash_system_definition(dxdt, {})
+        assert isinstance(result, str)
 
-    def test_hash_dxdt_tuple(self):
+    def test_hash_system_definition_tuple(self):
         """Test hashing tuple input."""
         dxdt = ("dx = x + y", "dy = x - y")
-        result = hash_dxdt(dxdt)
-        assert isinstance(result, int)
+        result = hash_system_definition(dxdt, {})
+        assert isinstance(result, str)
 
-    def test_hash_dxdt_consistency(self):
+    def test_hash_system_definition_consistency(self):
         """Test that equivalent inputs produce same hash."""
         dxdt1 = "dx = x + y\ndy = x - y"
         dxdt2 = ["dx = x + y", "dy = x - y"]
         dxdt3 = "dx=x+y\ndy=x-y"  # Different whitespace
 
-        hash1 = hash_dxdt(dxdt1)
-        hash2 = hash_dxdt(dxdt2)
-        hash3 = hash_dxdt(dxdt3)
+        hash1 = hash_system_definition(dxdt1, {})
+        hash2 = hash_system_definition(dxdt2, {})
+        hash3 = hash_system_definition(dxdt3, {})
 
         assert hash1 == hash2 == hash3
 
-    def test_hash_dxdt_different_content(self):
+    def test_hash_system_definition_different_content(self):
         """Test that different content produces different hashes."""
         dxdt1 = "dx = x + y"
         dxdt2 = "dx = x - y"
 
-        hash1 = hash_dxdt(dxdt1)
-        hash2 = hash_dxdt(dxdt2)
+        hash1 = hash_system_definition(dxdt1, {})
+        hash2 = hash_system_definition(dxdt2, {})
+
+        assert hash1 != hash2
+
+    def test_hash_system_definition_with_constants(self):
+        """Test that different constants produce different hashes."""
+        dxdt = "dx = c * x + y"
+        constants1 = {"c": 1.0}
+        constants2 = {"c": 2.0}
+
+        hash1 = hash_system_definition(dxdt, constants1)
+        hash2 = hash_system_definition(dxdt, constants2)
 
         assert hash1 != hash2
 
@@ -333,7 +344,7 @@ class TestParseInput:
         assert isinstance(index_map, IndexedBases)
         assert isinstance(all_symbols, dict)
         assert isinstance(equation_map, list)
-        assert isinstance(fn_hash, int)
+        assert isinstance(fn_hash, str)  # Changed from int to str
 
         # Check that we got the expected symbols
         assert "one" in all_symbols  # state
@@ -370,7 +381,7 @@ class TestParseInput:
         """Test parsing with user-defined functions."""
         states = ["x"]
         parameters = ["a"]
-        constants = []
+        constants = {}
         observables = ["y"]
         drivers = []
         dxdt = ["dx = custom_func(x)", "y = x"]
