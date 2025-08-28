@@ -19,10 +19,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-      - name: Install dependencies
+
+      - name: Set up virtual environment
+        run: python -m venv .venv
+
+      - name: Activate venv and install dependencies
         run: |
+          source .venv/bin/activate
           pip install uv
-          uv pip install --system sphinx sphinx_rtd_theme myst_parser numba .[dev]
+          uv pip install sphinx sphinx_rtd_theme myst_parser numba .[dev]
+
       - name: Sphinx build
         run: |
           sphinx-build ./docs/source ./docs/build

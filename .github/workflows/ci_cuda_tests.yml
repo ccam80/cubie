@@ -8,8 +8,9 @@ on:
   # Running CUDA tests daily at 3am and occasionally on dispatch gives us room to add two more images to test different CUDA toolkit versions.
   push:
     branches: ["main"]
-  pull_request:
-    branches: ["main"]
+  # The git clone used in the workflow doesn't work on PR branches, so we can't run the tests on PRs.
+  #  pull_request:
+  #    branches: ["main"]
     
 jobs:
   cuda:
