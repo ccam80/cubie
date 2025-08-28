@@ -2,7 +2,8 @@
 
 Adapted from :mod:`chaste_codegen._jacobian` under the MIT licence.
 """
-from typing import TYPE_CHECKING, Dict, Iterable, Tuple, Union
+
+from typing import Dict, Iterable, Tuple, Union
 
 import sympy as sp
 from sympy import IndexedBase
@@ -13,30 +14,6 @@ from cubie.systemmodels.symbolic.sym_utils import (
     cse_and_stack,
     topological_sort,
 )
-
-if TYPE_CHECKING:
-    pass
-
-# Simple cache for Jacobian matrices
-_jacobian_cache = {}
-
-def _get_cache_key(equations, input_order, output_order):
-    """Generate a cache key for the Jacobian computation."""
-    # Convert equations to a hashable form
-    if isinstance(equations, dict):
-        eq_tuple = tuple(equations.items())
-    else:
-        eq_tuple = tuple(equations)
-
-    input_tuple = tuple(input_order.items())
-    output_tuple = tuple(output_order.items())
-
-    return (eq_tuple, input_tuple, output_tuple)
-
-def clear_jacobian_cache():
-    """Clear the Jacobian cache."""
-    global _jacobian_cache
-    _jacobian_cache.clear()
 
 JVP_TEMPLATE = (
     "\n"
@@ -50,7 +27,7 @@ JVP_TEMPLATE = (
     "               precision[:]),\n"
     "              device=True,\n"
     "             inline=True)\n"
-    "    def jvp(state, parameters, driver, v, jvp):\n"
+    "    def jvp(state, parameters, drivers, v, jvp):\n"
     "    {body}\n"
     "    \n"
     "    return jvp\n"
@@ -67,11 +44,31 @@ VJP_TEMPLATE = (
     "               precision[:]),\n"
     "              device=True,\n"
     "             inline=True)\n"
-    "    def vjp(state, parameters, driver, v, vjp):\n"
+    "    def vjp(state, parameters, drivers, v, vjp):\n"
     "    {body}\n"
     "    \n"
     "    return vjp\n"
 )
+# Simple cache for Jacobian matrices
+_jacobian_cache = {}
+
+def _get_cache_key(equations, input_order, output_order):
+    """Generate a cache key for the Jacobian computation."""
+    # Convert equations to a hashable form
+    if isinstance(equations, dict):
+        eq_tuple = tuple(equations.items())
+    else:
+        eq_tuple = tuple((tuple(eq_pair) for eq_pair in equations))
+
+    input_tuple = tuple(input_order.items())
+    output_tuple = tuple(output_order.items())
+
+    return (eq_tuple, input_tuple, output_tuple)
+
+def clear_jacobian_cache():
+    """Clear the Jacobian cache."""
+    global _jacobian_cache
+    _jacobian_cache.clear()
 
 def generate_jacobian(equations: Union[
                           Iterable[Tuple[sp.Symbol, sp.Expr]],
@@ -163,6 +160,7 @@ def generate_jac_product(equations: Union[
                               Dict[sp.Symbol, sp.Expr]],
                          input_order: Dict[sp.Symbol, int],
                          output_order: Dict[sp.Symbol, int],
+                         observables: Iterable[sp.Symbol] = None,
                          direction='jvp',
                          cse=True,
                          use_cache: bool = True
@@ -171,8 +169,13 @@ def generate_jac_product(equations: Union[
     product, depending on the direction argument.."""
     n_inputs = len(input_order)
     n_outputs = len(output_order)
-    v = IndexedBase("v", shape=(n_outputs,))
-
+    # Swap out observables for auxiliary variables
+    if observables is not None:
+        obs_subs = dict(zip(observables,sp.numbered_symbols("aux_", start=1)))
+    else:
+        obs_subs = {}
+    equations = [(lhs.subs(obs_subs), rhs.subs(obs_subs)) for lhs, rhs in
+                  equations]
     jac = generate_jacobian(equations, input_order, output_order, use_cache=use_cache)
 
     prod_exprs = []
@@ -223,6 +226,7 @@ def generate_analytical_jvp(equations: Union[
                                   Dict[sp.Symbol, sp.Expr]],
                               input_order: Dict[sp.Symbol, int],
                               output_order: Dict[sp.Symbol, int],
+                              observables: Iterable[sp.Symbol] = None,
                               cse=True,
                               use_cache: bool = True
                               ):
@@ -232,6 +236,7 @@ def generate_analytical_jvp(equations: Union[
     return generate_jac_product(equations=equations,
                                 input_order=input_order,
                                 output_order=output_order,
+                                observables=observables,
                                 direction='jvp',
                                 cse=cse,
                                 use_cache=use_cache)
@@ -241,6 +246,7 @@ def generate_analytical_vjp(equations: Union[
                                   Dict[sp.Symbol, sp.Expr]],
                               input_order: Dict[sp.Symbol, int],
                               output_order: Dict[sp.Symbol, int],
+                              observables: Iterable[sp.Symbol] = None,
                               cse=True,
                               use_cache: bool = True
                               ):
@@ -249,6 +255,7 @@ def generate_analytical_vjp(equations: Union[
     return generate_jac_product(equations=equations,
                                 input_order=input_order,
                                 output_order=output_order,
+                                observables=observables,
                                 direction='vjp',
                                 cse=cse,
                                 use_cache=use_cache)
@@ -261,6 +268,7 @@ def generate_jvp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
         equations,
         input_order=index_map.states.index_map,
         output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
         cse=cse,
     )
     jvp_lines = print_cuda_multiple(expressions,
@@ -279,6 +287,7 @@ def generate_vjp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
         equations,
         input_order=index_map.states.index_map,
         output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
         cse=cse,
     )
     vjp_lines = print_cuda_multiple(expressions,

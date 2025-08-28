@@ -6,8 +6,8 @@ import sympy as sp
 
 
 def topological_sort(
-        assignments: Union[List[tuple], Dict[sp.Symbol, sp.Expr]],
-        ) -> List[Tuple[sp.Symbol, sp.Expr]]:
+    assignments: Union[List[tuple], Dict[sp.Symbol, sp.Expr]],
+) -> List[Tuple[sp.Symbol, sp.Expr]]:
     """
     Returns a topologically sorted list of assignments from an unsorted input.
 
@@ -139,6 +139,8 @@ def hash_system_definition(
     """
     # Process dxdt equations
     if isinstance(dxdt, (list, tuple)):
+        if isinstance(dxdt[0], (list, tuple)):
+            dxdt = [str(symbol) + str(expr) for symbol, expr in dxdt]
         dxdt_str = "".join(dxdt)
     else:
         dxdt_str = dxdt

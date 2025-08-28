@@ -24,14 +24,28 @@ from cubie.systemmodels.symbolic.sym_utils import hash_system_definition
 from cubie.systemmodels.systems.baseODE import BaseODE, ODECache
 
 
-def build_ODE(states,
-              parameters=None,
-              constants=None,
-              drivers=None,
-              dxdt=Union[str, Iterable[str]],
-              jacobians=True):
+def create_ODE_system(
+    dxdt: Union[str, Iterable[str]],
+    states: Optional[Union[dict, Iterable[str]]] = None,
+    observables: Optional[Iterable[str]] = None,
+    parameters: Optional[Union[dict, Iterable[str]]] = None,
+    constants: Optional[Union[dict, Iterable[str]]] = None,
+    drivers: Optional[Iterable[str]] = None,
+    user_functions: Optional[dict[str, Callable]] = None,
+    name: Optional[str] = None,
+    strict: bool = False,
+):
     """Create an ODE system from SymPy expressions."""
-    pass
+    SymbODE = SymbolicODE.create(dxdt=dxdt,
+                                 states=states,
+                                 observables=observables,
+                                 parameters=parameters,
+                                 constants=constants,
+                                 drivers=drivers,
+                                 user_functions=user_functions,
+                                 name=name,
+                                 strict=strict,)
+    return SymbODE
 
 class SymbolicODE(BaseODE):
     """Create an ODE system from SymPy expressions.
@@ -101,13 +115,14 @@ class SymbolicODE(BaseODE):
     @classmethod
     def create(cls,
               dxdt: Union[str, Iterable[str]],
-              states: Union[dict,Iterable[str]],
-              observables: Iterable[str],
-              parameters: Union[dict,Iterable[str]],
-              constants: Union[dict,Iterable[str]],
-              drivers: Iterable[str],
-              user_functions: Optional[dict[str, Callable]] = None,
-              name: str = None):
+              states: Optional[Union[dict,Iterable[str]]] = None,
+              observables: Optional[Iterable[str]] = None,
+              parameters: Optional[Union[dict,Iterable[str]]] = None,
+              constants: Optional[Union[dict,Iterable[str]]] = None,
+              drivers: Optional[Iterable[str]] = None,
+              user_functions: Optional[Optional[dict[str, Callable]]] = None,
+              name: Optional[str] = None,
+              strict=False):
 
         sys_components = parse_input(
                 states = states,
@@ -117,8 +132,9 @@ class SymbolicODE(BaseODE):
                 drivers = drivers,
                 user_functions=user_functions,
                 dxdt = dxdt,
+                strict=strict
         )
-        equations, index_map, functions, all_symbols, fn_hash = sys_components
+        index_map, all_symbols, functions, equations, fn_hash = sys_components
         return cls(equations=equations,
                    all_indexed_bases=index_map,
                    all_symbols=all_symbols,
@@ -131,8 +147,7 @@ class SymbolicODE(BaseODE):
     def build(self):
         """Compile the dxdt and jvp/vjp."""
         numba_precision = from_dtype(self.precision)
-        constants = self.indices.constant_values.astype(self.precision)
-
+        constants = self.constants.values_array
         new_hash = hash_system_definition(
             self.equations, self.indices.constants.default_values)
         if new_hash != self.fn_hash:

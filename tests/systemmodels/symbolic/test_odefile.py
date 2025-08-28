@@ -17,7 +17,6 @@ from cubie.systemmodels.symbolic.parser import IndexedBases
 from cubie.systemmodels.symbolic.sym_utils import hash_system_definition
 
 
-
 class TestODEFileConstants:
     """Test the constants defined in the odefile module."""
 

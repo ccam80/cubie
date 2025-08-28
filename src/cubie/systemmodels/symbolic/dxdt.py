@@ -21,7 +21,7 @@ DXDT_TEMPLATE = (
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def dxdt(state, parameters, driver, observables, dxdt):\n"
+    "    def dxdt(state, parameters, drivers, observables, dxdt):\n"
     "    {body}\n"
     "    \n"
     "    return dxdt\n"

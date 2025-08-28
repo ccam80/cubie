@@ -518,5 +518,39 @@ class TestIntegrationWithFixtures:
         assigned_to = [expr[0] for expr in equation_map]
         expr = [expr[1] for expr in equation_map]
         # Check that equations were parsed correctly
-        assert sp.Symbol('done', real=True) in assigned_to
-        assert sp.Symbol('safari', real=True)  + sp.Symbol('zoo', real=True) == expr[-1]
+        assert sp.Symbol("done", real=True) in assigned_to
+        assert (
+            sp.Symbol("safari", real=True) + sp.Symbol("zoo", real=True)
+            == expr[-1]
+        )
+
+
+class TestNonStrictInput:
+    """Test non-strict input parsing."""
+
+    def test_simple(self, simple_system_defaults):
+        (
+            states,
+            parameters,
+            constants,
+            drivers,
+            observables,
+            dxdt_str,
+            dxdt_list,
+        ) = simple_system_defaults
+
+        with pytest.raises(ValueError, match="strict"):
+            index_map, all_symbols, _, equation_map, fn_hash = parse_input(
+                dxdt=dxdt_str, strict=True
+            )
+        index_map, all_symbols, _, equation_map, fn_hash = parse_input(
+                dxdt=dxdt_str,
+                strict=False
+        )
+        assert "apple" in index_map.parameter_names
+        assert "zebra" in index_map.parameter_names
+        assert "driver1" in index_map.parameter_names
+        assert "one" in index_map.state_names
+        assert "safari" in index_map.observable_names
+        assert "uninited" in index_map.observable_names
+        assert "dfoo" in index_map.dxdt_names
