@@ -1,9 +1,10 @@
-import pytest
 import numpy as np
 import pandas as pd
-from cubie.batchsolving.solveresult import SolveResult
+import pytest
+
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+from cubie.batchsolving.solveresult import SolveResult
 
 
 # ------------THESE COPIED FROM TEST_SOLVERKERNEL UNTIL REFACTOR  ----------- #
