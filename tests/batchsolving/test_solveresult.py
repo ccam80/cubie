@@ -182,7 +182,8 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_instantiation_type_equivalence(self, solver_with_arrays):
@@ -238,7 +239,8 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_from_solver_full_instantiation(self, solver_with_arrays):
@@ -259,7 +261,8 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_from_solver_numpy_instantiation(self, solver_with_arrays):
@@ -277,7 +280,8 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_from_solver_numpy_per_summary_instantiation(
@@ -299,7 +303,8 @@ class TestSolveResultInstantiation:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          'duration': 0.05}],
         indirect=True,
     )
     def test_from_solver_pandas_instantiation(self, solver_with_arrays):
@@ -320,7 +325,8 @@ class TestSolveResultFromSolver:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_time_domain_legend_from_solver(self, solver_with_arrays):
@@ -339,7 +345,8 @@ class TestSolveResultFromSolver:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_summary_legend_from_solver(self, solver_with_arrays):
@@ -360,7 +367,8 @@ class TestSolveResultFromSolver:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_stride_order_from_solver(self, solver_with_arrays):
@@ -383,7 +391,8 @@ class TestSolveResultProperties:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_as_numpy_property(self, solver_with_arrays):
@@ -405,7 +414,8 @@ class TestSolveResultProperties:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_per_summary_arrays_property(self, solver_with_arrays):
@@ -423,7 +433,8 @@ class TestSolveResultProperties:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+         'duration': 0.05}],
         indirect=True,
     )
     def test_as_pandas_property(self, solver_with_arrays):
@@ -455,7 +466,8 @@ class TestSolveResultProperties:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_active_outputs_property(self, solver_with_arrays):
@@ -509,7 +521,8 @@ class TestSolveResultPandasIntegration:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_pandas_shape_consistency(self, solver_with_arrays):
@@ -537,7 +550,8 @@ class TestSolveResultPandasIntegration:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"]}],
+        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.05}],
         indirect=True,
     )
     def test_pandas_time_indexing(self, solver_with_arrays):
