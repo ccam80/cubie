@@ -1,9 +1,10 @@
-import pytest
 import numpy as np
-from cubie.outputhandling.output_functions import OutputFunctions
+import pytest
+
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.memory import default_memmgr
+from cubie.outputhandling.output_functions import OutputFunctions
 
 
 @pytest.fixture(scope="function")
@@ -58,35 +59,6 @@ def decays_1_100_model(precision):
     return decays100
 
 
-def genericODE_settings(**kwargs):
-    generic_ode_settings = {
-        "constants": {"c0": 0.0, "c1": 2.0, "c2": 3.0},
-        "initial_values": {"x0": 1.0, "x1": 0.0, "x2": 3.0},
-        "parameters": {"p0": 2.0, "p1": 0.5, "p2": 5.5},
-        "observables": {"o0": 4.2, "o1": 1.8, "o2": 4.6},
-    }
-    generic_ode_settings.update(kwargs)
-    return generic_ode_settings
-
-
-@pytest.fixture(scope="function")
-def genericODE_model_override(request):
-    if hasattr(request, "param"):
-        return request.param
-    return {}
-
-
-@pytest.fixture(scope="function")
-def genericODE_model(precision, genericODE_model_override):
-    from cubie.systemmodels.systems.GenericODE import GenericODE
-
-    generic = GenericODE(
-        precision=precision, **genericODE_settings(**genericODE_model_override)
-    )
-    generic.build()
-    return generic
-
-
 @pytest.fixture(scope="function")
 def system_override(request):
     """Override for system model type, if provided."""
@@ -116,8 +88,6 @@ def system(request, system_override, precision):
         model = request.getfixturevalue("decays_123_model")
     elif model_type == "Decays1_100":
         model = request.getfixturevalue("decays_1_100_model")
-    elif model_type == "genericODE":
-        model = request.getfixturevalue("genericODE_model")
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 

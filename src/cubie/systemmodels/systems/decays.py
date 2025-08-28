@@ -8,10 +8,10 @@ exponentially at a rate proportional to its position.
 import numpy as np
 from numba import cuda, from_dtype
 
-from cubie.systemmodels.systems.GenericODE import GenericODE
+from cubie.systemmodels.systems.baseODE import BaseODE, ODECache
 
 
-class Decays(GenericODE):
+class Decays(BaseODE):
     """Exponential decay system for testing purposes.
 
     A system where each state variable decays exponentially at a rate
@@ -130,8 +130,7 @@ class Decays(GenericODE):
                 observables[i] = (
                     dxdt[i] * parameters[i] + global_constants[i] + driver[0]
                 )
-
-        return dxdtfunc
+        return ODECache(dxdt=dxdtfunc)
 
     def correct_answer_python(self, states, parameters, drivers):
         """Python testing function.

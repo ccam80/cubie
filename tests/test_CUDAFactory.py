@@ -180,3 +180,69 @@ def test_device_function_from_dict(factory_with_settings, monkeypatch):
     assert (
         factory_with_settings.get_cached_output("other_output") == "value"
     ), "Other attrs values not accessible"
+
+
+def test_get_cached_output_not_implemented_error(
+    factory_with_settings, monkeypatch
+):
+    """Test that get_cached_output raises NotImplementedError for -1 values."""
+    factory_with_settings._cache_valid = False
+
+    @attrs.define
+    class TestOutputsWithNotImplemented:
+        implemented_output: str = "value"
+        not_implemented_output: int = -1
+
+    monkeypatch.setattr(
+        factory_with_settings, "build", lambda: TestOutputsWithNotImplemented()
+    )
+
+    # Access device_function to trigger build
+    _ = factory_with_settings.device_function
+
+    # Test that implemented output works normally
+    assert (
+        factory_with_settings.get_cached_output("implemented_output")
+        == "value"
+    )
+
+    # Test that -1 value raises NotImplementedError
+    with pytest.raises(NotImplementedError) as exc:
+        factory_with_settings.get_cached_output("not_implemented_output")
+
+    assert "not_implemented_output" in str(exc.value)
+    assert "not implemented" in str(exc.value)
+
+
+def test_get_cached_output_not_implemented_error_multiple(
+    factory_with_settings, monkeypatch
+):
+    """Test NotImplementedError with multiple -1 values in cache."""
+    factory_with_settings._cache_valid = False
+
+    @attrs.define
+    class TestOutputsMultipleNotImplemented:
+        working_output: str = "works"
+        not_implemented_1: int = -1
+        not_implemented_2: int = -1
+
+    monkeypatch.setattr(
+        factory_with_settings,
+        "build",
+        lambda: TestOutputsMultipleNotImplemented(),
+    )
+
+    # Trigger build
+    _ = factory_with_settings.device_function
+
+    # Test that working output still works
+    assert factory_with_settings.get_cached_output("working_output") == "works"
+
+    # Test that both -1 values raise NotImplementedError
+    with pytest.raises(NotImplementedError) as exc1:
+        factory_with_settings.get_cached_output("not_implemented_1")
+    assert "not_implemented_1" in str(exc1.value)
+
+    with pytest.raises(NotImplementedError) as exc2:
+        factory_with_settings.get_cached_output("not_implemented_2")
+    assert "not_implemented_2" in str(exc2.value)

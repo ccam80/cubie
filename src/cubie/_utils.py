@@ -6,17 +6,15 @@ updates and CUDA utilities that are shared across the code base.
 
 from functools import wraps
 from time import time
+from typing import Callable
 from warnings import warn
-from contextlib import contextmanager
-from typing import Union
 
 import numpy as np
-from numba import cuda
-from numba import float64, int32, from_dtype, float32
+from numba import cuda, float32, float64, from_dtype, int32
 from numba.cuda.random import (
-    xoroshiro128p_normal_float64,
-    xoroshiro128p_normal_float32,
     xoroshiro128p_dtype,
+    xoroshiro128p_normal_float32,
+    xoroshiro128p_normal_float64,
 )
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
@@ -385,3 +383,22 @@ def get_readonly_view(array):
     view = array.view()
     view.flags.writeable = False
     return view
+
+def is_devfunc(func: Callable):
+    """Test whether a callable is a Numba-generated CUDA device function.
+
+    Parameters
+    ----------
+    func: Callable
+        The function to inspect.
+
+    Returns
+    -------
+    bool
+        Whether the function is a Numba CUDA device function.
+    """
+    is_device = False
+    if hasattr(func, 'targetoptions'):
+        if func.targetoptions.get('device', False):
+            is_device = True
+    return is_device

@@ -7,17 +7,19 @@ calculations and output arrays for results. All classes inherit from
 ArraySizingClass which provides utilities for memory allocation.
 """
 
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Tuple
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
     from cubie.outputhandling.output_functions import OutputFunctions
-    from cubie.systemmodels.systems.GenericODE import GenericODE
+    from cubie.systemmodels.systems.BaseODE import BaseODE
+
+from abc import ABC
 
 import attrs
-from cubie.batchsolving._utils import ensure_nonzero_size
 from numpy import ceil
-from abc import ABC
+
+from cubie.batchsolving._utils import ensure_nonzero_size
 
 
 @attrs.define
@@ -175,7 +177,7 @@ class LoopBufferSizes(ArraySizingClass):
     @classmethod
     def from_system_and_output_fns(
         cls,
-        system: "GenericODE",
+        system: "BaseODE",
         output_fns: "OutputFunctions",
     ) -> "LoopBufferSizes":
         """
@@ -183,7 +185,7 @@ class LoopBufferSizes(ArraySizingClass):
 
         Parameters
         ----------
-        system : GenericODE
+        system : BaseODE
             System model containing state and parameter dimensions.
         output_fns : OutputFunctions
             Output functions containing summary buffer requirements.

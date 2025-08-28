@@ -10,3 +10,4 @@ attrs
 scipy
 cupy-cuda12x
 pandas
+sympy

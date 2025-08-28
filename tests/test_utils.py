@@ -1,24 +1,27 @@
-import pytest
-import numpy as np
 import warnings
 from unittest.mock import patch
+
+import attrs
+import numpy as np
+import pytest
 from numba import cuda
 from numba.cuda.random import create_xoroshiro128p_states
-from numpy import float64, float32
-import attrs
+from numpy import float32, float64
+
 from cubie._utils import (
-    clamp_64,
     clamp_32,
-    get_noise_64,
+    clamp_64,
     get_noise_32,
-    slice_variable_dimension,
+    get_noise_64,
+    get_readonly_view,
     in_attr,
     is_attrs_class,
-    update_dicts_from_kwargs,
-    timing,
-    round_sf,
+    is_devfunc,
     round_list_sf,
-    get_readonly_view,
+    round_sf,
+    slice_variable_dimension,
+    timing,
+    update_dicts_from_kwargs,
 )
 
 
@@ -211,19 +214,19 @@ def test_update_dicts_from_kwargs():
     # Test single dictionary
     d1 = {"a": 1, "b": 2}
     result = update_dicts_from_kwargs(d1, a=10, b=20)
-    assert result == True
+    assert result
     assert d1 == {"a": 10, "b": 20}
 
     # Test no changes
     d2 = {"a": 10, "b": 20}
     result = update_dicts_from_kwargs(d2, a=10, b=20)
-    assert result == False
+    assert not result
 
     # Test multiple dictionaries
     d3 = {"a": 1}
     d4 = {"b": 2}
     result = update_dicts_from_kwargs([d3, d4], a=10, b=20)
-    assert result == True
+    assert result
     assert d3 == {"a": 10}
     assert d4 == {"b": 20}
 
@@ -319,3 +322,30 @@ def test_get_readonly_view():
     assert original.flags.writeable
     original[0] = 10
     assert original[0] == 10
+
+
+@pytest.mark.nocudasim
+def test_is_devfnc():
+    """Test is_devfnc function."""
+
+    @cuda.jit(device=True)
+    def cuda_device_func(x, y):
+        """A simple CUDA device function."""
+        return x + y
+
+    @cuda.jit(device=False)
+    def cuda_kernel(x, y):
+        """A regular Python function."""
+        y = x
+
+    def noncuda_func(x, y):
+        """A regular Python function."""
+        return x + y
+
+    dev_is_device = is_devfunc(cuda_device_func)
+    kernel_is_device = is_devfunc(cuda_kernel)
+    noncuda_is_device = is_devfunc(noncuda_func)
+
+    assert dev_is_device
+    assert not kernel_is_device
+    assert not noncuda_is_device

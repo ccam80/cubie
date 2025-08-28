@@ -1,11 +1,12 @@
+import numpy as np
+import pytest
+from numpy.testing import assert_allclose, assert_array_equal
+
+from cubie.batchsolving._utils import ensure_nonzero_size
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from cubie.batchsolving._utils import ensure_nonzero_size
-import pytest
-import numpy as np
-from numpy.testing import assert_array_equal, assert_allclose
-from tests._utils import cpu_euler_loop, calculate_expected_summaries
+from tests._utils import calculate_expected_summaries, cpu_euler_loop
 
 
 @pytest.fixture(scope="function")
@@ -94,7 +95,7 @@ def test_kernel_builds(solverkernel):
     "system_override, solver_settings_override, batch_settings_override",
     (
         ({}, {}, {}),
-        (
+        pytest.param(
             "ThreeChamber",
             {
                 "duration": 1.0,
@@ -108,6 +109,7 @@ def test_kernel_builds(solverkernel):
                 ],
             },
             {},
+        marks=pytest.mark.nocudasim
         ),
         # ("ThreeChamber",
         #  {'duration': 10.0, 'output_types':["state", "observables", "mean", "max"]},

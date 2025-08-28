@@ -9,6 +9,9 @@ initial value problems. The source code is available on `Github <https://github.
    :caption: Contents
 
    usage
+   systems
+   cuda
+   Algorithms
    api/index
 
 Indices and tables

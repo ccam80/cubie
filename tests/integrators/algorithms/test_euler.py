@@ -1,11 +1,12 @@
-import pytest
 import numpy as np
+import pytest
+
+from cubie.integrators.algorithms import Euler
+from cubie.outputhandling.output_sizes import LoopBufferSizes
+from tests._utils import cpu_euler_loop
 from tests.integrators.algorithms.LoopAlgorithmTester import (
     LoopAlgorithmTester,
 )
-from tests._utils import cpu_euler_loop
-from cubie.integrators.algorithms import Euler
-from cubie.outputhandling.output_sizes import LoopBufferSizes
 
 
 class TestEuler(LoopAlgorithmTester):
@@ -13,7 +14,7 @@ class TestEuler(LoopAlgorithmTester):
     of cases, including incomplete inputs and random floats of different scales."""
 
     @pytest.mark.parametrize(
-        "system_override", [None, "ThreeChamber", "Decays1_100", "genericODE"]
+        "system_override", ["ThreeChamber", "Decays1_100"]
     )
     def test_loop_function_builds(self, built_loop_function):
         pass

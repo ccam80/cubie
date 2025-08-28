@@ -21,7 +21,9 @@ dependencies = [
     "numpy==1.26.4",
     "numba",
     "numba-cuda[cu12]",
-    "attrs"
+    "attrs",
+    "sympy",
+
 ]
 
 [project.urls]
@@ -35,6 +37,7 @@ dev = [
     "pytest-durations",
     "pytest-json-report",
     "flake8",
+    "ruff",
     "cupy-cuda12x",
     "pandas"
 
@@ -86,7 +89,7 @@ exclude_also = [
     "if environ\\.get\\(:(?s:.)*?else", # omit cudasim checks - possibly too broad
     "if \\(environ\\.get\\(:(?s:.)*?else",
     "def __repr__",
-    "if self.debug:",
+    "if self\\.debug:",
     "if settings.DEBUG",
     "raise AssertionError",
     "raise NotImplementedError",
@@ -94,6 +97,7 @@ exclude_also = [
     "if __name__ == \\.__main__\\.:",
     "class .*\\bProtocol\\):",
     "@(abc\\.)?abstractmethod",
+    'if environ\\.get\\("NUMBA_ENABLE_CUDASIM", "0"\\) == "1":'
 ]
 
 ignore_errors = true

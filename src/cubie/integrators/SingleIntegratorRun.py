@@ -12,12 +12,12 @@ from typing import Optional
 
 from numpy.typing import ArrayLike
 
+from cubie._utils import in_attr
+from cubie.integrators.algorithms import ImplementedAlgorithms
+from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.outputhandling.output_sizes import LoopBufferSizes
-from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
-from cubie.integrators.algorithms import ImplementedAlgorithms
 from cubie.systemmodels.systems.ODEData import SystemSizes
-from cubie._utils import in_attr
 
 
 class SingleIntegratorRun:
@@ -32,7 +32,7 @@ class SingleIntegratorRun:
 
     Parameters
     ----------
-    system : GenericODE object
+    system : BaseODE object
         The ODE system to integrate.
     algorithm : str, default='euler'
         Name of the integration algorithm to use.
@@ -362,7 +362,7 @@ class SingleIntegratorRun:
         -------
         type
             Numerical precision type (e.g., float32, float64) from the
-            child GenericODE object.
+            child BaseODE object.
         """
         return self._system.precision
 
@@ -387,7 +387,7 @@ class SingleIntegratorRun:
         Returns
         -------
         callable
-            The dxdt function from the child GenericODE object.
+            The dxdt function from the child BaseODE object.
         """
         return self._system.dxdt_function
 
@@ -483,7 +483,7 @@ class SingleIntegratorRun:
         Returns
         -------
         SystemSizes
-            Size information from the child GenericODE object.
+            Size information from the child BaseODE object.
         """
         return self._system.sizes
 
@@ -591,6 +591,6 @@ class SingleIntegratorRun:
         Returns
         -------
         object
-            The child GenericODE system object.
+            The child BaseODE system object.
         """
         return self._system

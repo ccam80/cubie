@@ -20,8 +20,8 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 
+from cubie.systemmodels.systems.baseODE import BaseODE
 from cubie.systemmodels.SystemValues import SystemValues
-from cubie.systemmodels.systems.GenericODE import GenericODE
 
 
 class SystemInterface:
@@ -52,12 +52,12 @@ class SystemInterface:
         self.observables = observables
 
     @classmethod
-    def from_system(cls, system: GenericODE) -> "SystemInterface":
+    def from_system(cls, system: BaseODE) -> "SystemInterface":
         """Create a SystemInterface from a system model.
 
         Parameters
         ----------
-        system : GenericODE
+        system : BaseODE
             The system model to create an interface for.
 
         Returns

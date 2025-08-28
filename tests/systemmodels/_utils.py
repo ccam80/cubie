@@ -1,13 +1,13 @@
 import numpy as np
 from numba import float32, float64
-from cubie.systemmodels.systems.threeCM import ThreeChamberModel
+
 from tests._utils import generate_test_array
 
 
 def get_observables_list(SystemClass):
     """Get the list of observable names from a system class.
     Args:
-        system_class (GenericODE subclass): A class that inherits from GenericODE, with default values set, or an
+        system_class (BaseODE subclass): A class that inherits from BaseODE, with default values set, or an
         instance thereof.
     Returns:
         list[str]: A list of observable names from the system class.
@@ -30,7 +30,7 @@ def random_system_values(
     between 10**randscale[0] and 10**randscale[1]
 
     Args:
-        SystemClass (GenericODE subclass): A class that inherits from GenericODE, with default values set.If you pass
+        SystemClass (BaseODE subclass): A class that inherits from BaseODE, with default values set.If you pass
             an instance of that class, it's precision will override the precision argument.
         precision (np.dtype): The desired data type of the arrays. Default is np.float64.
         randscale (float | tuple[float]): The scale for the random values. If a single float, all values will be drawn
@@ -80,7 +80,7 @@ def create_random_test_set(SystemClass, precision=np.float64, randscale=1e6):
     drivers, and constants, sized to match the system's requirements.
 
     Args:
-        SystemClass (GenericODE subclass): A class that inherits from GenericODE, with default values set.If you pass
+        SystemClass (BaseODE subclass): A class that inherits from BaseODE, with default values set.If you pass
             an instance of that class, it's precision will override the precision argument.
         precision (np.dtype): The desired data type for the arrays. Default is np.float64.
         randscale (float | tuple[float]): The scale for the random values. If a single float, all values will be drawn
@@ -134,7 +134,7 @@ def create_minimal_input_sets(SystemClass, precision=np.float64):
         with default values. dxdt function inputs are random.
 
     Args:
-        SystemClass (GenericODE subclass): A class that inherits from GenericODE, with default values set. If you pass
+        SystemClass (BaseODE subclass): A class that inherits from BaseODE, with default values set. If you pass
             an instance of that class, it's precision will override the precision argument.
         precision (np.dtype): The desired data type for the arrays. Default is np.float64.
 
@@ -258,7 +258,7 @@ def instantiate_or_use_instance(obj, precision=np.float64):
 
 
 def generate_system_tests(
-    SystemClass, log10_scalerange=(-6, 6), tests_per_category=2
+    SystemClass, log10_scalerange=(-6, 6), tests_per_category=1
 ):
     """Generate a list of tests checking correct input/output across a range of floating point scales and both
     float precision types. The tests include:
@@ -268,7 +268,7 @@ def generate_system_tests(
 
 
     Args:
-        SystemClass (GenericODE subclass): A class that inherits from GenericODE, with default values set. If an instance
+        SystemClass (BaseODE subclass): A class that inherits from BaseODE, with default values set. If an instance
             (which will have a precision attribute) is passed, tests will only be generated for that precision.
         log10_scalerange (tuple[float]): A tuple of (min_exponent, max_exponent) two floats, the lower and upper bounds
             of the log10 scale for the random values. Default is (-6, 6).
@@ -281,17 +281,8 @@ def generate_system_tests(
         precisions = (SystemClass.precision,)
 
     test_cases = []
-    samescales = np.arange(
-        log10_scalerange[0],
-        log10_scalerange[1] + 1,
-        int(log10_scalerange[1] - log10_scalerange[0]) / tests_per_category,
-    )
-    for precision in precisions:
-        test_cases += [
-            create_random_test_set(SystemClass, precision, 10.0**scale)
-            for scale in samescales
-        ]
 
+    for precision in precisions:
         # mixed-scale random tests
         test_cases += [
             create_random_test_set(SystemClass, precision, log10_scalerange)

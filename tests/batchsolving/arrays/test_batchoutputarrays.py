@@ -1,11 +1,12 @@
 from os import environ
-import pytest
+
 import numpy as np
+import pytest
 
 from cubie.batchsolving.arrays.BatchOutputArrays import (
-    OutputArrays,
-    OutputArrayContainer,
     ActiveOutputs,
+    OutputArrayContainer,
+    OutputArrays,
 )
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
@@ -449,7 +450,7 @@ def test_output_arrays_with_different_configs(
 )
 @pytest.mark.parametrize(
     "system_override",
-    ["ThreeChamber", "Decays123", "genericODE"],
+    ["ThreeChamber", "Decays123"],
     indirect=True,
 )
 def test_output_arrays_with_different_systems(output_arrays_manager, solver):

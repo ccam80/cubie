@@ -15,11 +15,11 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 \
  && python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 # Set "python" to 3.12 and upgrade pip toolchain
-RUN python -m pip install --upgrade pip setuptools wheel
+RUN python -m pip install --upgrade pip setuptools wheel uv
 
 WORKDIR /workspace
 COPY ci/requirements.ci.txt /tmp/requirements.ci.txt
-RUN python -m pip install -r /tmp/requirements.ci.txt
+RUN python -m uv pip install --system -r /tmp/requirements.ci.txt
 
 # Working directory for the job
 
