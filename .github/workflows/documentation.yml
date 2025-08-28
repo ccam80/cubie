@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install uv
-          uv pip install sphinx sphinx_rtd_theme myst_parser numba .[dev]
+          uv pip install --system sphinx sphinx_rtd_theme myst_parser numba .[dev]
       - name: Sphinx build
         run: |
           sphinx-build ./docs/source ./docs/build

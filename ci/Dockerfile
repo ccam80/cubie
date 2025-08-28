@@ -19,7 +19,7 @@ RUN python -m pip install --upgrade pip setuptools wheel uv
 
 WORKDIR /workspace
 COPY ci/requirements.ci.txt /tmp/requirements.ci.txt
-RUN python -m uv pip install -r /tmp/requirements.ci.txt
+RUN python -m uv pip install --system -r /tmp/requirements.ci.txt
 
 # Working directory for the job
 

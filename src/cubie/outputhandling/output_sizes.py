@@ -22,7 +22,6 @@ from numpy import ceil
 from cubie.batchsolving._utils import ensure_nonzero_size
 
 
-
 @attrs.define
 class ArraySizingClass(ABC):
     """

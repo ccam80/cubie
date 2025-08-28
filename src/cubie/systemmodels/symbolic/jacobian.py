@@ -67,7 +67,6 @@ def _get_cache_key(equations, input_order, output_order):
 
 def clear_jacobian_cache():
     """Clear the Jacobian cache."""
-    global _jacobian_cache
     _jacobian_cache.clear()
 
 def generate_jacobian(equations: Union[
