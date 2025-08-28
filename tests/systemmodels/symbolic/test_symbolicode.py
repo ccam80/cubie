@@ -1,11 +1,11 @@
 import pytest
+from numpy.testing import assert_array_equal
 
 from cubie import is_devfunc
 from cubie.systemmodels.symbolic.symbolicODE import (
     SymbolicODE,
     create_ODE_system,
 )
-from numpy.testing import assert_array_equal
 
 
 @pytest.fixture(scope="function")
@@ -109,8 +109,10 @@ def built_simple_nonstrict(simple_ode_nonstrict):
     simple_ode_nonstrict.build()
     return simple_ode_nonstrict
 
+@pytest.mark.nocudasim
 def test_simple_strict_builds(built_simple_strict):
     assert is_devfunc(built_simple_strict.jvp_function)
 
+@pytest.mark.nocudasim
 def test_simple_nonstrict_builds(built_simple_nonstrict):
     assert is_devfunc(built_simple_nonstrict.jvp_function)

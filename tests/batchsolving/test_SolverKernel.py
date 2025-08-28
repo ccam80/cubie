@@ -94,7 +94,7 @@ def test_kernel_builds(solverkernel):
     "system_override, solver_settings_override, batch_settings_override",
     (
         ({}, {}, {}),
-        (
+        pytest.param(
             "ThreeChamber",
             {
                 "duration": 1.0,
@@ -108,6 +108,7 @@ def test_kernel_builds(solverkernel):
                 ],
             },
             {},
+        marks=pytest.mark.nocudasim
         ),
         # ("ThreeChamber",
         #  {'duration': 10.0, 'output_types':["state", "observables", "mean", "max"]},

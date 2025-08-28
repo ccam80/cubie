@@ -324,6 +324,7 @@ def test_get_readonly_view():
     assert original[0] == 10
 
 
+@pytest.mark.nocudasim
 def test_is_devfnc():
     """Test is_devfnc function."""
 

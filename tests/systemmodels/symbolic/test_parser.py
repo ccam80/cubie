@@ -227,7 +227,7 @@ class TestRhsPass:
             "sin": sp.sin,
         }
         dx, x, a, obs, sin = symbols.values()
-        expressions, funcs = _rhs_pass(lines, symbols)
+        expressions, funcs, new_symbols = _rhs_pass(lines, symbols)
 
         assert expressions[0] == [dx, x + a]
         assert expressions[1] == [obs, sin(x)]
@@ -256,7 +256,7 @@ class TestRhsPass:
         dx, x, a, b = symbols.values()
         from sympy import Piecewise
 
-        expressions, funcs = _rhs_pass(lines, symbols)
+        expressions, funcs, new_symbols = _rhs_pass(lines, symbols)
         assert expressions[0] == [dx, Piecewise((a, x > 0), (b, True))]
 
 
@@ -510,6 +510,7 @@ class TestIntegrationWithFixtures:
                 observables=observables,
                 drivers=drivers,
                 dxdt=dxdt_str,
+                strict=True,
             )
 
         # Should have warnings about anonymous auxiliaries
