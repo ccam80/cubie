@@ -110,6 +110,7 @@ class SymbolicODE(BaseODE):
             observables=all_indexed_bases.observable_names,
             precision=precision,
             num_drivers=ndriv,
+            name=name
         )
 
     @classmethod

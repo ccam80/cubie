@@ -3,7 +3,7 @@ from collections.abc import (
 )  # Workaround just to check if an argument has len()
 
 import numpy as np
-
+from sympy import Symbol
 
 class SystemValues:
     """A container for numerical values used to specify ODE systems.
@@ -46,6 +46,7 @@ class SystemValues:
         values_dict,
         precision,
         defaults=None,
+        name=None,
         **kwargs,
     ):
         """Initialize the system parameters.
@@ -75,8 +76,6 @@ class SystemValues:
         If the same value occurs in the dict and keyword args, the kwargs one
         will win.
         """
-        if values_dict is None:
-            values_dict = {}
 
         if np.issubdtype(precision, np.integer) or np.issubdtype(
             precision, np.floating
@@ -91,21 +90,21 @@ class SystemValues:
         self.values_array = None
         self.indices_dict = None
         self.keys_by_index = None
-
         self.values_dict = {}
 
-        # Assign zero values in the case that all we have is a list of keys
-        if isinstance(values_dict, (list, tuple)) and all(
-            isinstance(item, str) for item in values_dict
-        ):
+        if values_dict is None:
+            values_dict = {}
+        if defaults is None:
+            defaults = {}
+
+        if isinstance(values_dict, (list, tuple)):
             values_dict = {k: 0.0 for k in values_dict}
-        if isinstance(defaults, (list, tuple)) and all(
-            isinstance(item, str) for item in defaults
-        ):
+
+        if isinstance(defaults, (list, tuple)):
             defaults = {k: 0.0 for k in defaults}
 
-        if defaults == None:
-            defaults = {}
+        defaults = self._convert_symbol_keys(defaults)
+        values_dict = self._convert_symbol_keys(values_dict)
 
         # Set default values, then overwrite with values provided in values
         # dict, then any single-parameter keyword arguments.
@@ -119,6 +118,28 @@ class SystemValues:
         self.update_param_array_and_indices()
 
         self.n = len(self.values_array)
+        self.name = name
+    def __repr__(self):
+        if self.name is None:
+            name = "System Values"
+        else:
+            name = self.name
+        if all(val == 0.0 for val in self.values_dict.values()):
+            return f"{name}: variables ({list(self.values_dict.keys())})"
+        else:
+            return f"{name}: ({self.values_dict})"
+
+    def _convert_symbol_keys(self, input_dict):
+        """Convert symbol keys to strings for an input dictionary"""
+        if not isinstance(input_dict, dict):
+            return input_dict
+        converted = {}
+        for key, value in input_dict.items():
+            if isinstance(key, Symbol):
+                converted[str(key)] = value
+            elif isinstance(key, str):
+                converted[key] = value
+        return converted
 
     def update_param_array_and_indices(self):
         """Extract values and create array and indices mapping.
@@ -244,9 +265,9 @@ class SystemValues:
                     )
                 else:
                     raise TypeError(
-                        f"When specifying a variable to save or modify, "
-                        f"you can provide a list of strings or a list of "
-                        f"integers, but not a mixed list of both"
+                        "When specifying a variable to save or modify, "
+                        "you can provide a list of strings or a list of "
+                        "integers, but not a mixed list of both"
                     )
 
         elif isinstance(keys_or_indices, str):

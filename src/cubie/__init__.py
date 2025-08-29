@@ -4,13 +4,13 @@ cubie: CUDA Batch Integration Engine
 
 from importlib.metadata import version
 
-from cubie.batchsolving import *
-from cubie.integrators import *
-from cubie.outputhandling import *
-from cubie.memory import *
-import cubie.systemmodels as systems
-from cubie.systemmodels import *
-from cubie._utils import *
+from cubie.batchsolving import *        # noqa
+from cubie.integrators import *         # noqa
+from cubie.outputhandling import *      # noqa
+from cubie.memory import *              # noqa
+import cubie.systemmodels as systems    # noqa
+from cubie.systemmodels import *        # noqa
+from cubie._utils import *              # noqa
 
 __all__ = [
     "summary_metrics",
@@ -19,6 +19,8 @@ __all__ = [
     "ArrayTypes",
     "Solver",
     "solve_ivp",
+    "SymbolicODE",
+    "create_ODE_system"
 ]
 
 try:

@@ -47,12 +47,13 @@ class IndexedBaseMap:
         self.ref_map.pop(sym)
         self.index_map.pop(sym)
         self.symbol_map.pop(str(sym))
+        self.default_values.pop(sym)
         self.base = sp.IndexedBase(
             self.base_name, shape=(len(self.ref_map),), real=self.real
         )
         self.length = len(self.ref_map)
 
-    def push(self, sym):
+    def push(self, sym, default_value=0.0):
         """Adds a symbol to this object"""
         index = self.length
         self.base = sp.IndexedBase(
@@ -62,6 +63,7 @@ class IndexedBaseMap:
         self.ref_map[sym] = self.base[index]
         self.index_map[sym] = index
         self.symbol_map[str(sym)] = sym
+        self.default_values[sym] = default_value
 
     def update_values(
         self, updates_dict: Dict[Union[str, sp.Symbol], float] = None, **kwargs
@@ -140,7 +142,6 @@ class IndexedBases:
         drivers: Iterable[str],
         real=True,
     ):
-        # Handle states
         if isinstance(states, dict):
             state_names = list(states.keys())
             state_defaults = list(states.values())
@@ -148,7 +149,6 @@ class IndexedBases:
             state_names = list(states)
             state_defaults = None
 
-        # Handle parameters
         if isinstance(parameters, dict):
             param_names = list(parameters.keys())
             param_defaults = list(parameters.values())
@@ -156,7 +156,6 @@ class IndexedBases:
             param_names = list(parameters)
             param_defaults = None
 
-        # Handle constants
         if isinstance(constants, dict):
             const_names = list(constants.keys())
             const_defaults = list(constants.values())

@@ -197,13 +197,15 @@ class ODEData:
             Initialized ODEData object.
         """
         init_values = SystemValues(
-            initial_values, precision, default_initial_values
+            initial_values, precision, default_initial_values, name="States"
         )
-        parameters = SystemValues(parameters, precision, default_parameters)
+        parameters = SystemValues(parameters, precision, default_parameters,
+                                  name="Parameters")
         observables = SystemValues(
-            observables, precision, default_observable_names
+            observables, precision, default_observable_names, name="Observables"
         )
-        constants = SystemValues(constants, precision, default_constants)
+        constants = SystemValues(constants, precision, default_constants,
+                                 name="Constants")
 
         return cls(
             constants=constants,

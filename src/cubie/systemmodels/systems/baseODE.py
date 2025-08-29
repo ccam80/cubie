@@ -12,9 +12,7 @@ from cubie.systemmodels.systems.ODEData import ODEData
 @attrs.define()
 class ODECache:
     """Cache for compiled CUDA device functions.
-
     If jvp or vjp are not implemented, set them to -1."""
-
     dxdt: Optional[Callable] = attrs.field()
     jvp: Optional[Union[Callable, int]] = attrs.field(default=-1)
     vjp: Optional[Union[Callable, int]] = attrs.field(default=-1)
@@ -82,6 +80,7 @@ class BaseODE(CUDAFactory):
         default_observable_names=None,
         precision=np.float64,
         num_drivers=1,
+        name=None
     ):
         """Initialize the ODE system.
 
@@ -107,6 +106,8 @@ class BaseODE(CUDAFactory):
             Precision to use for calculations, by default np.float64.
         num_drivers : int, optional
             Number of driver/forcing functions, by default 1.
+        name: str, optional
+            String name for the system, for printing, default None.
         """
         super().__init__()
         system_data = ODEData.from_BaseODE_initargs(
@@ -122,6 +123,21 @@ class BaseODE(CUDAFactory):
             num_drivers=num_drivers,
         )
         self.setup_compile_settings(system_data)
+        self.name = name
+
+    def __repr__(self):
+        if self.name is None:
+            name = "ODE System"
+        else:
+            name = self.name
+        return (f"{self.name}"
+                "--"
+                f"\n{self.states},"
+                f"\n{self.parameters},"
+                f"\n{self.constants},"
+                f"\n{self.observables},"
+                f"\n{self.num_drivers})")
+
 
     @abstractmethod
     def build(self) -> ODECache:
@@ -234,6 +250,7 @@ class BaseODE(CUDAFactory):
 
         return recognised
 
+
     @property
     def parameters(self):
         """Get the parameters of the system.
@@ -246,8 +263,19 @@ class BaseODE(CUDAFactory):
         return self.compile_settings.parameters
 
     @property
+    def states(self):
+        """Get the states of the system.
+
+        Returns
+        -------
+        SystemValues
+            The initial values of the system.
+        """
+        return self.compile_settings.initial_states
+
+    @property
     def initial_values(self):
-        """Get the initial values of the system.
+        """Get the initial values of the system. Alias for BaseODE.states
 
         Returns
         -------
