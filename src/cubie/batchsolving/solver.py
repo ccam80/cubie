@@ -23,18 +23,20 @@ if TYPE_CHECKING:
 def solve_ivp(
     system,
     y0,
-    parameters,
-    forcing_vectors,
-    dt_eval,
+    parameters = None,
+    forcing_vectors = None,
+    dt_eval = 1e-2,
     method="euler",
     duration=1.0,
     settling_time=0.0,
+    grid_type='combinatorial',
     **options,
 ) -> SolveResult:
     """Solve a batch initial value problem.
 
     Parameters
     ----------
+
     system : object
         System model defining the differential equations.
     y0 : array-like
@@ -51,6 +53,11 @@ def solve_ivp(
         Total integration time. Default is ``1.0``.
     settling_time : float, optional
         Warm-up period prior to storing outputs. Default is ``0.0``.
+    grid_type : str, optional
+        'verbatim' or 'combinatorial' strategy for building the batch. Verbatim
+        will pair each input value and parameter set so that index 0 of all
+        inputs form one "run". 'combinatorial' will generate every combination
+        of every input variable, which scales combinatorially.
     **options
         Additional keyword arguments passed to :class:`Solver`.
 
@@ -73,6 +80,7 @@ def solve_ivp(
         forcing_vectors,
         duration=duration,
         warmup=settling_time,
+        grid_type=grid_type,
         **options,
     )
     return results
@@ -136,15 +144,15 @@ class Solver:
         duration: float = 1.0,
         warmup: float = 0.0,
         dt_min: float = 0.01,
-        dt_max: float = 0.1,
+        dt_max: float = 0.01,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
         atol: float = 1e-6,
         rtol: float = 1e-6,
-        saved_states: Optional[List[Union[str | int]]] = None,
-        saved_observables: Optional[List[Union[str | int]]] = None,
-        summarised_states: Optional[List[Union[str | int]]] = None,
-        summarised_observables: Optional[List[Union[str | int]]] = None,
+        saved_states: Optional[List[Union[str, int]]] = None,
+        saved_observables: Optional[List[Union[str, int]]] = None,
+        summarised_states: Optional[List[Union[str, int]]] = None,
+        summarised_observables: Optional[List[Union[str, int]]] = None,
         output_types: list[str] = None,
         precision: type = np.float64,
         profileCUDA: bool = False,
@@ -299,6 +307,9 @@ class Solver:
         """
         if kwargs:
             self.update(kwargs)
+
+        if forcing_vectors is None:
+            forcing_vectors = np.zeros((1,1), dtype=self.precision)
 
         inits, params = self.grid_builder(
             states=initial_values, params=parameters, kind=grid_type

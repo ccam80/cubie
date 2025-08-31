@@ -1,3 +1,4 @@
+import time
 from unittest.mock import patch
 
 import numpy as np
@@ -626,10 +627,10 @@ class TestODEFileIntegration:
             ode_file1 = ODEFile("cached_system", hash_value)
             ode_file1.get_dxdt_fac(simple_equations, indexed_bases)
             original_mtime = ode_file1.file_path.stat().st_mtime
+            time.sleep(0.1)
 
             # Create second instance with same hash
             ode_file2 = ODEFile("cached_system", hash_value)
-
             # we should be able to get the function without the file changing
             factory_func = ode_file2.get_dxdt_fac(
                 simple_equations, indexed_bases
@@ -640,7 +641,10 @@ class TestODEFileIntegration:
             assert original_mtime == new_mtime
 
             # And a different hash value should modify the file
-            ode_file3 = ODEFile("cached_system", hash_value[0:4])
+            ode_file3 = ODEFile("cached_system", "new_hash")
+            factory_func = ode_file2.get_dxdt_fac(
+                simple_equations, indexed_bases
+            )
             new_mtime = ode_file3.file_path.stat().st_mtime
             # File should not have been modified
             assert original_mtime != new_mtime

@@ -179,8 +179,7 @@ class IntegratorRunSettings:
             )
 
         if dt_max > dt_save:
-            warn(
-                f"dt_max ({dt_max}s) > dt_save ({dt_save}s). The loop will never be able to step"
+            warn(f"dt_max ({dt_max}s) > dt_save ({dt_save}s). The loop will never be able to step"
                 f"that far before stopping to save, so dt_max is redundant.",
                 UserWarning,
             )

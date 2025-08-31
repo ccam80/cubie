@@ -560,10 +560,11 @@ class BatchGridBuilder:
             2D parameter array for input into the integrator.
         """
         param_request = {
-            k: v for k, v in request.items() if k in self.parameters.names
+            k: np.asarray(v) for k, v in request.items() if k in
+                                                      self.parameters.names
         }
         state_request = {
-            k: v for k, v in request.items() if k in self.states.names
+            k: np.asarray(v) for k, v in request.items() if k in self.states.names
         }
 
         params_array = generate_array(
@@ -696,7 +697,6 @@ class BatchGridBuilder:
                     self.parameters.values_array,
                 )
                 return sarray, parray
-
             else:
                 return (
                     self.states.values_array[np.newaxis, :],

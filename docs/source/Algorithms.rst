@@ -16,10 +16,9 @@ method. In Euler's method, we calculate the derivative at the start of the step,
 the whole time step. Euler's method says:
 
 
-
 Runge-Kutta methods
 -------------------
-Runge-Kutta methods are a whole family of algorithms based on the same underlying idea - instead of just calculating the
+Runge-Kutta methods are a whole family of algorithms based on the same underlying idea: instead of just calculating the
 gradient at the start of the step, we calculate it at many sub-steps along the way, then average the results to get a
 more accurate estimate of the change over the whole step. The most common Runge-Kutta method is the fourth-order
 Runge-Kutta method, which calculates the gradient at four points along the step. One handy feature of these algorithms
@@ -38,4 +37,4 @@ so on. Implicit methods, on the other hand, use the solution to later sub-steps 
 sub-steps. This makes them better at handling stiff systems (ones which have very different time scales for different
 variables). To pull this off, however, they need to solve the system of equations for all steps simultaneously, which is
 computationally intense. Cubie uses a matrix-free solver for this process, which means that it doesn't need to store big
-matrices in memory.
+matrices in memory, allowing it to solve much larger problems than would otherwise be possible.

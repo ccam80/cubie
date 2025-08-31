@@ -8,7 +8,7 @@ initial value problems. The source code is available on `Github <https://github.
    :maxdepth: 2
    :caption: Contents
 
-   usage
+   getting_started
    systems
    cuda
    Algorithms
