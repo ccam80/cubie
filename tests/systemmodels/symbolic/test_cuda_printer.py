@@ -1,4 +1,5 @@
 import sympy as sp
+import re
 
 from cubie.systemmodels.symbolic.numba_cuda_printer import (
     CUDAPrinter,
@@ -235,3 +236,29 @@ class TestEdgeCases:
         printer = CUDAPrinter(symbol_map=symbol_map)
         result = printer._print_Symbol(x)
         assert "matrix[i, j]" in result
+
+def _compact(s: str) -> str:
+    return re.sub(r"\s+", "", s)
+
+
+def test_piecewise_assignment_is_wrapped_outside():
+    aux_4, aux_2 = sp.symbols('aux_4 aux_2')
+    _cse1, _cse2, _cse3 = sp.symbols('_cse1 _cse2 _cse3')
+    expr = sp.Piecewise((_cse1 * (_cse2 + aux_2), _cse3), (0, True))
+
+    p = CUDAPrinter()
+    out = p.doprint(expr, assign_to=aux_4)
+
+    # Expect: aux_4 = (_cse1*(_cse2 + aux_2) if _cse3 else (0))
+    assert _compact(out) == _compact("aux_4 = (_cse1*(_cse2 + aux_2) if _cse3 else (0))")
+
+
+def test_piecewise_inside_expression_assignment():
+    _cse10, _cse1, _cse3, E_v = sp.symbols('_cse10 _cse1 _cse3 E_v')
+    expr = E_v * sp.Piecewise((_cse1, _cse3), (0, True))
+
+    p = CUDAPrinter()
+    out = p.doprint(expr, assign_to=_cse10)
+
+    # Expect: _cse10 = E_v*(_cse1 if _cse3 else (0))
+    assert _compact(out) == _compact("_cse10 = E_v*(_cse1 if _cse3 else (0))")
