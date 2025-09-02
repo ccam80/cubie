@@ -1,6 +1,6 @@
 from collections.abc import (
     Sized,
-)  # Workaround just to check if an argument has len()
+)
 
 import numpy as np
 from sympy import Symbol

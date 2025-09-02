@@ -16,8 +16,8 @@ from numpy.typing import NDArray
 
 ArrayTypes = Optional[Union[NDArray, DeviceNDArrayBase, MappedNDArray]]
 
-from cubie.outputhandling import summary_metrics
-from cubie.batchsolving.solver import Solver, solve_ivp
+from cubie.outputhandling import summary_metrics  # noqa: E402
+from cubie.batchsolving.solver import Solver, solve_ivp  # noqa: E402
 
 
 

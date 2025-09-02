@@ -92,7 +92,7 @@ class BaseODE(CUDAFactory):
             Parameter values for the system.
         constants : dict, optional
             Constants that are not expected to change between simulations.
-        observables : dict, optional
+        observables : Sequence[str], optional
             Observable values to track.
         default_initial_values : dict, optional
             Default initial values if not provided in initial_values.
@@ -100,7 +100,7 @@ class BaseODE(CUDAFactory):
             Default parameter values if not provided in parameters.
         default_constants : dict, optional
             Default constant values if not provided in constants.
-        default_observable_names : dict, optional
+        default_observable_names : Sequence[str], optional
             Default observable names if not provided in observables.
         precision : numpy.dtype, optional
             Precision to use for calculations, by default np.float64.

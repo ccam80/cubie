@@ -7,7 +7,7 @@ The functions are automatically cached and compiled on demand through the
 CUDAFactory base class.
 """
 
-from typing import Sequence, Callable
+from typing import Sequence, Callable, Union
 
 import attrs
 from numpy.typing import ArrayLike
@@ -91,10 +91,10 @@ class OutputFunctions(CUDAFactory):
         max_states: int,
         max_observables: int,
         output_types: list[str] = None,
-        saved_state_indices: Sequence[int] | ArrayLike = None,
-        saved_observable_indices: Sequence[int] | ArrayLike = None,
-        summarised_state_indices: Sequence[int] | ArrayLike = None,
-        summarised_observable_indices: Sequence[int] | ArrayLike = None,
+        saved_state_indices: Union[Sequence[int], ArrayLike] = None,
+        saved_observable_indices: Union[Sequence[int], ArrayLike] = None,
+        summarised_state_indices: Union[Sequence[int], ArrayLike] = None,
+        summarised_observable_indices: Union[Sequence[int], ArrayLike] = None,
     ):
         super().__init__()
 

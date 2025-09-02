@@ -8,6 +8,7 @@ import warnings
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetrics,
     SummaryMetric,
+    MetricFuncCache,
 )
 from cubie.outputhandling import summary_metrics
 
@@ -52,11 +53,20 @@ def mock_metric_settings(request):
 
 
 class ConcreteMetric(SummaryMetric):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self,
+                 buffer_size,
+                 output_size,
+                 update_device_func,
+                 save_device_func,
+                 name):
+        super().__init__(buffer_size=buffer_size,
+                         output_size=output_size,
+                         name=name)
+        self.update_func = update_device_func
+        self.save_func = save_device_func
 
-    def CUDA_factory(self):
-        pass
+    def build(self):
+        return MetricFuncCache(update=self.update_func, save=self.save_func)
 
 
 @pytest.fixture(scope="function")
@@ -354,15 +364,15 @@ def test_save_functions_returns_correct_tuple(mock_metrics, mock_functions):
     requested = ["mock_metric", "parameterised[3]"]
     update_func, save_func = mock_functions
 
-    # Set up the save functions dictionary
-    mock_metrics._save_functions["mock_metric"] = save_func
-    mock_metrics._save_functions["parameterised"] = save_func
-
     functions_tuple = mock_metrics.save_functions(requested)
 
+    # The registered mock metrics should return the correct save functions
     assert len(functions_tuple) == 2
-    assert functions_tuple[0] == save_func
-    assert functions_tuple[1] == save_func
+    assert functions_tuple[0] is mock_metrics._metric_objects["mock_metric"].save_device_func
+    assert functions_tuple[1] is mock_metrics._metric_objects["parameterised"].save_device_func
+    # Also check they match the expected mock function
+    assert functions_tuple[0] is save_func
+    assert functions_tuple[1] is save_func
 
 
 def test_update_functions_returns_correct_tuple(mock_metrics, mock_functions):
@@ -370,15 +380,15 @@ def test_update_functions_returns_correct_tuple(mock_metrics, mock_functions):
     requested = ["mock_metric", "parameterised[3]"]
     update_func, save_func = mock_functions
 
-    # Set up the update functions dictionary
-    mock_metrics._update_functions["mock_metric"] = update_func
-    mock_metrics._update_functions["parameterised"] = update_func
-
     functions_tuple = mock_metrics.update_functions(requested)
 
+    # The registered mock metrics should return the correct update functions
     assert len(functions_tuple) == 2
-    assert functions_tuple[0] == update_func
-    assert functions_tuple[1] == update_func
+    assert functions_tuple[0] is mock_metrics._metric_objects["mock_metric"].update_device_func
+    assert functions_tuple[1] is mock_metrics._metric_objects["parameterised"].update_device_func
+    # Also check they match the expected mock function
+    assert functions_tuple[0] is update_func
+    assert functions_tuple[1] is update_func
 
 
 def test_complex_parameter_scenarios(mock_metrics, mock_functions):

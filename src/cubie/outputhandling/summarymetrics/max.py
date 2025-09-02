@@ -11,6 +11,7 @@ from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
     register_metric,
+    MetricFuncCache,
 )
 
 
@@ -37,17 +38,13 @@ class Max(SummaryMetric):
         Creates CUDA device functions for updating and saving maximum values
         and configures the metric with appropriate buffer and output sizes.
         """
-        update_func, save_func = self.CUDA_factory()
-
         super().__init__(
             name="max",
             buffer_size=1,
             output_size=1,
-            update_device_func=update_func,
-            save_device_func=save_func,
         )
 
-    def CUDA_factory(self):
+    def build(self):
         """
         Generate CUDA device functions for maximum value calculation.
 
@@ -56,9 +53,10 @@ class Max(SummaryMetric):
 
         Returns
         -------
-        tuple[callable, callable]
-            Tuple containing (update_function, save_function) for CUDA
-            execution.
+        MetricFuncCache[update: callable, save: callable]
+            Cache object containing update and save functions for CUDA
+            execution. Both functions must be compiled with @cuda.jit
+            decorators.
 
         Notes
         -----
@@ -149,4 +147,4 @@ class Max(SummaryMetric):
             buffer[0] = -1.0e30  # A very non-maximal number
 
         # no cover: end
-        return update, save
+        return MetricFuncCache(update = update, save = save)

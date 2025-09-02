@@ -8,7 +8,6 @@ the async allocator.
 """
 
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
 import logging
 from os import environ
 
@@ -93,7 +92,9 @@ class current_cupy_stream:
     """
 
     def __init__(self, nb_stream):
-        if cp is None:
+        try:
+            import cupy as cp
+        except ImportError:
             raise ImportError(
                 "To use Cupy memory managers, you must install cupy: pip "
                 "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
@@ -168,7 +169,9 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
     """
 
     def __init__(self, context):
-        if cp is None:
+        try:
+            import cupy as cp
+        except ImportError:
             raise ImportError(
                 "To use Cupy memory managers, you must install cupy: pip "
                 "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"

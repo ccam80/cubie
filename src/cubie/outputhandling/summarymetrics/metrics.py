@@ -8,9 +8,21 @@ device functions.
 
 from typing import Optional, Callable, Union, Any
 from warnings import warn
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 import attrs
 
+from cubie.CUDAFactory import CUDAFactory
+
+@attrs.define
+class MetricFuncCache:
+    """Cache container for compiled metric functions"""
+    update: Callable = attrs.field(default=None)
+    save: Callable = attrs.field(default=None)
+
+@attrs.define
+class CompileSettingsPlaceholder:
+    """Placeholder for compile settings"""
+    empty_dict: dict = attrs.field(factory=dict)
 
 def register_metric(registry):
     """
@@ -40,8 +52,7 @@ def register_metric(registry):
     return decorator
 
 
-@attrs.define
-class SummaryMetric(ABC):
+class SummaryMetric(CUDAFactory):
     """
     Abstract base class for summary metrics in the cubie integrator system.
 
@@ -60,78 +71,54 @@ class SummaryMetric(ABC):
         Size required in the output array, or a callable that computes
         the size based on parameters. For parameterized metrics (like peaks),
         use a lambda function: `lambda n: n`.
-    update_device_func : callable, default None
-        CUDA device function for updating the metric during integration.
-        Set by CUDA_factory() during initialization.
-    save_device_func : callable, default None
-        CUDA device function for saving final metric results.
-        Set by CUDA_factory() during initialization.
     name : str, default ""
         Name identifier for the metric (e.g., "max", "mean", "peaks").
-    input_variable : dict[str, int] or None, default None
-        Optional input variable specifications.
+    update_device_func : callable
+        CUDA device function for updating the metric during integration.
+        Property; compiled and cached when requested.
+    save_device_func : callable
+        CUDA device function for saving final metric results.
+        Property; compiled and cached when requested.
 
     Notes
     -----
     All concrete implementations must:
-    1. Implement __init__() to call CUDA_factory() and configure the metric
-    2. Implement CUDA_factory() to generate the required CUDA device
+    1. Implement build() to generate the required CUDA device
     functions
-    3. Follow the exact function signatures for update and save functions
-    4. Register the metric using the @register_metric(summary_metrics)
+    2. Follow the exact function signatures for update and save functions
+    3. Register the metric using the @register_metric(summary_metrics)
     decorator
+    4. Import the metric after summary_metrics is instantiated in
+    summary_metrics.__init__.py
 
-    The CUDA device functions must have these exact signatures:
+    The CUDA device functions must have these signatures:
     - update(value, buffer, current_index, customisable_variable)
     - save(buffer, output_array, summarise_every, customisable_variable)
 
-    Not included in this base class is an abstract init method, as it breaks
-    the attrs init method. The docstring for such a method is:
-    Initialize the summary metric.
-
-    This method must be implemented by all concrete metric classes.
-    It should call CUDA_factory() to generate the CUDA device functions
-    and then call super().__init__() with the appropriate parameters.
-
-    Notes
-    -----
-    The standard implementation pattern is:
-
-    1. Call self.CUDA_factory() to get update and save functions
-    2. Call super().__init__() with:
-       - name: string identifier for the metric
-       - buffer_size: int or callable for buffer memory requirements
-       - output_size: int or callable for output memory requirements
-       - update_device_func: CUDA function from CUDA_factory()
-       - save_device_func: CUDA function from CUDA_factory()
+    Subclasses should call super().__init__() with name, buffer_size and
+    output_size, and overload the build method.
 
     Examples
     --------
     For a simple metric with fixed sizes:
     ```python
     def __init__(self):
-        update_func, save_func = self.CUDA_factory()
         super().__init__(
             name="mean",
             buffer_size=1,
             output_size=1,
-            update_device_func=update_func,
-            save_device_func=save_func,
         )
     ```
 
-        For a parameterized metric:
-        ```python
-        def __init__(self):
-            update_func, save_func = self.CUDA_factory()
-            super().__init__(
-                name="peaks",
-                buffer_size=lambda n: 3 + n,
-                output_size=lambda n: n,
-                update_device_func=update_func,
-                save_device_func=save_func,
-            )
-        ```
+    For a parameterized metric:
+    ```python
+    def __init__(self):
+        super().__init__(
+            name="peaks",
+            buffer_size=lambda n: 3 + n,
+            output_size=lambda n: n,
+        )
+    ```
 
     Examples
     --------
@@ -139,27 +126,21 @@ class SummaryMetric(ABC):
     of how to properly implement this interface.
     """
 
-    buffer_size: Union[int, Callable] = attrs.field(
-        default=0, validator=attrs.validators.instance_of(Union[int, Callable])
-    )
-    output_size: Union[int, Callable] = attrs.field(
-        default=0, validator=attrs.validators.instance_of(Union[int, Callable])
-    )
-    update_device_func: Callable = attrs.field(
-        default=None, validator=attrs.validators.instance_of(Callable)
-    )
-    save_device_func: Callable = attrs.field(
-        default=None, validator=attrs.validators.instance_of(Callable)
-    )
-    name: str = attrs.field(
-        default="", validator=attrs.validators.instance_of(str)
-    )
-    input_variable: Optional[dict[str, int]] = attrs.field(
-        default=None, validator=attrs.validators.instance_of(Optional[dict])
-    )
+    def __init__(self,
+                 buffer_size: Union[int, Callable],
+                 output_size: Union[int, Callable],
+                 name: str):
+        super().__init__()
+        self.buffer_size = buffer_size
+        self.output_size = output_size
+        self.name = name
+
+        # Instantiate empty settings object for CUDAFactory compatibility
+        self.setup_compile_settings(CompileSettingsPlaceholder())
+
 
     @abstractmethod
-    def CUDA_factory(self):
+    def build(self):
         """
         Generate CUDA device functions for the metric.
 
@@ -169,8 +150,8 @@ class SummaryMetric(ABC):
 
         Returns
         -------
-        tuple[callable, callable]
-            Tuple containing (update_function, save_function) for CUDA
+        MetricFuncCache[update: callable, save: callable]
+            Cache object containing update and save functions for CUDA
             execution. Both functions must be compiled with @cuda.jit
             decorators.
 
@@ -207,7 +188,7 @@ class SummaryMetric(ABC):
         --------
         For a simple maximum value metric:
         ```python
-        def CUDA_factory(self):
+        def build(self):
             @cuda.jit([...], device=True, inline=True)
             def update(value, buffer, current_index, customisable_variable):
                 if value > buffer[0]:
@@ -220,12 +201,12 @@ class SummaryMetric(ABC):
                 output_array[0] = buffer[0]
                 buffer[0] = -1.0e30  # Reset for next period
 
-            return update, save
+            return MetricFuncCache(update = update, save = save)
         ```
 
         For a mean calculation metric:
         ```python
-        def CUDA_factory(self):
+        def build(self):
             @cuda.jit([...], device=True, inline=True)
             def update(value, buffer, current_index, customisable_variable):
                 buffer[0] += value  # Accumulate sum
@@ -237,11 +218,18 @@ class SummaryMetric(ABC):
                 output_array[0] = buffer[0] / summarise_every
                 buffer[0] = 0.0  # Reset for next period
 
-            return update, save
+            return MetricFuncCache(update = update, save = save)
         ```
         """
         pass
 
+    @property
+    def update_device_func(self):
+        return self.get_cached_output("update")
+
+    @property
+    def save_device_func(self):
+        return self.get_cached_output("save")
 
 @attrs.define
 class SummaryMetrics:
@@ -297,16 +285,6 @@ class SummaryMetrics:
         factory=dict,
         init=False,
     )
-    _save_functions: dict[str, Callable] = attrs.field(
-        validator=attrs.validators.instance_of(dict),
-        factory=dict,
-        init=False,
-    )
-    _update_functions: dict[str, Callable] = attrs.field(
-        validator=attrs.validators.instance_of(dict),
-        factory=dict,
-        init=False,
-    )
     _metric_objects = attrs.field(
         validator=attrs.validators.instance_of(dict), factory=dict, init=False
     )
@@ -348,8 +326,6 @@ class SummaryMetrics:
         self._buffer_sizes[metric.name] = metric.buffer_size
         self._output_sizes[metric.name] = metric.output_size
         self._metric_objects[metric.name] = metric
-        self._update_functions[metric.name] = metric.update_device_func
-        self._save_functions[metric.name] = metric.save_device_func
         self._params[metric.name] = 0
 
     def preprocess_request(self, request):
@@ -638,7 +614,8 @@ class SummaryMetrics:
             CUDA device save functions for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
-        return tuple(self._save_functions[metric] for metric in parsed_request)
+        # Retrieve device functions from metric objects at call time
+        return tuple(self._metric_objects[metric].save_device_func for metric in parsed_request)
 
     def update_functions(self, output_types_requested):
         """
@@ -655,9 +632,8 @@ class SummaryMetrics:
             CUDA device update functions for the requested metrics.
         """
         parsed_request = self.preprocess_request(output_types_requested)
-        return tuple(
-            self._update_functions[metric] for metric in parsed_request
-        )
+        # Retrieve device functions from metric objects at call time
+        return tuple(self._metric_objects[metric].update_device_func for metric in parsed_request)
 
     def params(self, output_types_requested: list[str]):
         """

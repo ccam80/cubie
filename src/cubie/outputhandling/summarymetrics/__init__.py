@@ -11,9 +11,9 @@ from cubie.outputhandling.summarymetrics.metrics import (
 summary_metrics = SummaryMetrics()
 
 # Import each metric once, to register it with the summary_metrics object.
-from cubie.outputhandling.summarymetrics import mean
-from cubie.outputhandling.summarymetrics import max
-from cubie.outputhandling.summarymetrics import rms
-from cubie.outputhandling.summarymetrics import peaks
+from cubie.outputhandling.summarymetrics import mean  # noqa
+from cubie.outputhandling.summarymetrics import max   # noqa
+from cubie.outputhandling.summarymetrics import rms   # noqa
+from cubie.outputhandling.summarymetrics import peaks # noqa
 
 __all__ = ["summary_metrics", "register_metric"]

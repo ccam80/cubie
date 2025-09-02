@@ -11,6 +11,7 @@ from cubie.outputhandling.summarymetrics import summary_metrics
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetric,
     register_metric,
+    MetricFuncCache,
 )
 
 
@@ -43,17 +44,13 @@ class Peaks(SummaryMetric):
         and configures the metric with parameterized buffer and output sizes
         based on the maximum number of peaks to detect.
         """
-        update_func, save_func = self.CUDA_factory()
-
         super().__init__(
             name="peaks",
             buffer_size=lambda n: 3 + n,
             output_size=lambda n: n,
-            update_device_func=update_func,
-            save_device_func=save_func,
         )
 
-    def CUDA_factory(self):
+    def build(self):
         """
         Generate CUDA device functions for peak detection.
 
@@ -62,9 +59,10 @@ class Peaks(SummaryMetric):
 
         Returns
         -------
-        tuple[callable, callable]
-            Tuple containing (update_function, save_function) for CUDA
-            execution.
+        MetricFuncCache[update: callable, save: callable]
+            Cache object containing update and save functions for CUDA
+            execution. Both functions must be compiled with @cuda.jit
+            decorators.
 
         Notes
         -----
@@ -174,4 +172,4 @@ class Peaks(SummaryMetric):
             buffer[2] = 0.0
 
         # no cover: end
-        return update, save
+        return MetricFuncCache(update = update, save = save)
