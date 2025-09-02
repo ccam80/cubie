@@ -52,6 +52,7 @@ VJP_TEMPLATE = (
 # Simple cache for Jacobian matrices
 _jacobian_cache = {}
 
+
 def _get_cache_key(equations, input_order, output_order):
     """Generate a cache key for the Jacobian computation."""
     # Convert equations to a hashable form
@@ -65,9 +66,11 @@ def _get_cache_key(equations, input_order, output_order):
 
     return (eq_tuple, input_tuple, output_tuple)
 
+
 def clear_jacobian_cache():
     """Clear the Jacobian cache."""
     _jacobian_cache.clear()
+
 
 def generate_jacobian(equations: Union[
                           Iterable[Tuple[sp.Symbol, sp.Expr]],
@@ -154,6 +157,52 @@ def generate_jacobian(equations: Union[
 
     return J
 
+
+def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
+    """Remove assignments that are not required to compute final jvp/vjp outputs.
+
+    The function assumes that the list is topologically sorted and that output
+    assignments have LHS symbols whose names start with either "jvp[" or "vjp[".
+    It preserves the relative order of kept assignments.
+
+    Parameters
+    ----------
+    expressions : Iterable[Tuple[sp.Symbol, sp.Expr]]
+        A topologically sorted list of (lhs, rhs) assignments.
+
+    Returns
+    -------
+        list of tuples of (sp.Symbol, sp.Expr)
+        The pruned list of assignments.
+    """
+    exprs = list(expressions)
+    if not exprs:
+        return exprs
+
+    lhs_symbols = [lhs for lhs, _ in exprs]
+    all_lhs = set(lhs_symbols)
+
+    # Detect outputs by name convention
+    output_syms = {lhs for lhs in lhs_symbols if
+                   (str(lhs).startswith("jvp[") or str(lhs).startswith("vjp["))}
+
+    # If we can't detect outputs, do nothing
+    if not output_syms:
+        return exprs
+
+    used: set[sp.Symbol] = set(output_syms)
+    kept: list[Tuple[sp.Symbol, sp.Expr]] = []
+
+    for lhs, rhs in reversed(exprs):
+        if lhs in used:
+            kept.append((lhs, rhs))
+            # Only follow dependencies that are assigned to
+            deps = rhs.free_symbols & all_lhs
+            used.update(deps)
+    kept.reverse()
+    return kept
+
+
 def generate_jac_product(equations: Union[
                               Iterable[Tuple[sp.Symbol, sp.Expr]],
                               Dict[sp.Symbol, sp.Expr]],
@@ -218,7 +267,12 @@ def generate_jac_product(equations: Union[
         all_exprs = cse_and_stack(all_exprs)
     else:
         all_exprs = topological_sort(all_exprs)
+
+    # Final sweep to drop any intermediates not contributing to jvp/vjp
+    all_exprs = _prune_unused_assignments(all_exprs)
+
     return all_exprs
+
 
 def generate_analytical_jvp(equations: Union[
                                   Iterable[Tuple[sp.Symbol, sp.Expr]],
@@ -240,6 +294,7 @@ def generate_analytical_jvp(equations: Union[
                                 cse=cse,
                                 use_cache=use_cache)
 
+
 def generate_analytical_vjp(equations: Union[
                                   Iterable[Tuple[sp.Symbol, sp.Expr]],
                                   Dict[sp.Symbol, sp.Expr]],
@@ -259,6 +314,7 @@ def generate_analytical_vjp(equations: Union[
                                 cse=cse,
                                 use_cache=use_cache)
 
+
 def generate_jvp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
                       index_map: IndexedBases,
                       func_name: str="jvp_factory",
@@ -277,6 +333,7 @@ def generate_jvp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     code = JVP_TEMPLATE.format(func_name=func_name,
                                body="    " + "\n        ".join(jvp_lines))
     return code
+
 
 def generate_vjp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
                       index_map: IndexedBases,
