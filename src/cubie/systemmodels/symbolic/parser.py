@@ -13,6 +13,18 @@ from .sym_utils import hash_system_definition
 # Lambda notation, Auto-number, factorial notation, implicit multiplication
 PARSE_TRANSORMS = (T[0][0],T[3][0], T[4][0], T[8][0])
 
+KNOWN_FUNCTIONS = {'exp': sp.exp,
+                   'log': sp.log,
+                   'sin': sp.sin,
+                   'cos': sp.cos,
+                   'tan': sp.tan,
+                   'sqrt': sp.sqrt,
+                   'Piecewise': sp.Piecewise,
+                   'Abs': sp.Abs,
+                   'Min': sp.Min,
+                   'Max': sp.Max,
+                   'sign': sp.sign,
+                   }
 class EquationWarning(Warning):
     pass
 
@@ -44,18 +56,18 @@ def _process_calls(equations_input: Iterable[str],
         calls |= set(_func_call_re.findall(line))
     funcs = {}
     for name in calls:
-        fn = getattr(sp, name, None)
-        if fn is None:
-            if name in user_functions:
-                funcs[name] = user_functions[name]
-            else:
-                raise ValueError(f"Your dxdt code contains a call to a "
-                                 f"function {name}() that isn't part of Sympy "
-                                 f"and wasn't provided in the user_functions "
-                                 f"dict.")
-        elif callable(fn):
-            funcs[name] = fn
-
+        if name in user_functions:
+            funcs[name] = user_functions[name]
+        elif name in KNOWN_FUNCTIONS:
+            funcs[name] = KNOWN_FUNCTIONS[name]
+        else:
+            raise ValueError(f"Your dxdt code contains a call to a "
+                             f"function {name}() that isn't part of Sympy "
+                             f"and wasn't provided in the user_functions "
+                             f"dict.")
+    # Tests: non-listed sympy function errors
+    # Tests: user function passes
+    # Tests: user function overrides listed sympy function
     return funcs
 
 def _process_parameters(states,

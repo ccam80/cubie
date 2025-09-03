@@ -4,6 +4,19 @@ from typing import Dict, Iterable, Optional, Tuple
 import sympy as sp
 from sympy.printing.pycode import PythonCodePrinter
 
+CUDA_FUNCTIONS: Dict[str, str] = {
+    'exp': 'math.exp',
+    'log': 'math.log',
+    'sin': 'math.sin',
+    'cos': 'math.cos',
+    'tan': 'math.tan',
+    'sqrt': 'math.sqrt',
+    'Abs': 'math.Abs',
+    'Min': 'math.Min',
+    'Max': 'math.Max',
+    'sign': 'math.sign',
+}
+
 
 class CUDAPrinter(PythonCodePrinter):
     """SymPy printer for CUDA code generation with symbol substitutions and optimizations."""
