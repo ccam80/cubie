@@ -175,7 +175,7 @@ class IndexedBases:
         observables_ = IndexedBaseMap("observables", observables, real=real)
         drivers_ = IndexedBaseMap("drivers", drivers, real=real)
         dxdt_ = IndexedBaseMap(
-            "dxdt", [f"d{s}" for s in state_names], real=real
+            "out", [f"d{s}" for s in state_names], real=real
         )
         return cls(
             states_, parameters_, constants_, observables_, drivers_, dxdt_
