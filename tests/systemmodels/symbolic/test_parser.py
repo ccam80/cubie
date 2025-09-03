@@ -3,8 +3,9 @@ import warnings
 
 import pytest
 import sympy as sp
-from sympy import Function
+from numba import cuda
 
+from cubie import clamp_32
 from cubie.systemmodels.symbolic import print_cuda_multiple, generate_jvp_code
 from cubie.systemmodels.symbolic.indexedbasemaps import (
     IndexedBases,
@@ -578,32 +579,19 @@ class TestFunctions:
         def custom_func(x):
             return x**2
 
-        class Clamp(Function):
-            def doit(self, deep=True, **hints):
-                x, lower, upper = self.args
-
-                if x > upper:
-                    return upper
-                elif x < lower:
-                   return lower
-                else:
-                   if deep:
-                       return x.doit(deep=deep, **hints)
-
-            def diff(self, argindex):
-                x, lower, upper = self.args
-                if x < lower:
+        @cuda.jit()
+        def d_clamp32(value, clipvalue, index):
+            if index == 0:
+                if value > clipvalue:
                     return 0
-                elif x > upper:
+                elif value < -clipvalue:
                     return 0
-                else:
-                    if argindex == 0:
-                        return 1
-                    return 0
+                return 1
+            return 0
 
         userfuncs = {'ex_squared': custom_func,
-                     'clamps': Clamp}
-        eqs = ["dx = ex_squared(a) + clamps(b, c, d)"]
+                     'clamp': clamp_32}
+        eqs = ["dx = ex_squared(a) + clamp(b, c, d)"]
 
         index_map, symbols, funcs, eq_map, fn_hash = parse_input(
                 dxdt=eqs,
