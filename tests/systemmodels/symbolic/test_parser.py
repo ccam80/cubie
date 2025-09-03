@@ -3,9 +3,7 @@ import warnings
 
 import pytest
 import sympy as sp
-from numba import cuda
 
-from cubie import clamp_32
 from cubie.systemmodels.symbolic import print_cuda_multiple, generate_jvp_code
 from cubie.systemmodels.symbolic.indexedbasemaps import (
     IndexedBases,
@@ -574,34 +572,6 @@ class TestFunctions:
             "dy = math.log(e) + min(c, d)",
         ]
 
-    def test_userfuncs(self):
-        """ Add equations with some simple user-defined functions in them"""
-        def custom_func(x):
-            return x**2
-
-        @cuda.jit()
-        def d_clamp32(value, clipvalue, index):
-            if index == 0:
-                if value > clipvalue:
-                    return 0
-                elif value < -clipvalue:
-                    return 0
-                return 1
-            return 0
-
-        userfuncs = {'ex_squared': custom_func,
-                     'clamp': clamp_32}
-        eqs = ["dx = ex_squared(a) + clamp(b, c, d)"]
-
-        index_map, symbols, funcs, eq_map, fn_hash = parse_input(
-                dxdt=eqs,
-                user_functions=userfuncs)
-        code = print_cuda_multiple(eq_map, symbols)
-
-        assert code == [
-            "dx = ex_squared(a) + clamps(b, c)"
-        ]
-
     def test_userfunc_priority(self):
         """Add equations with some simple user-defined functions in them
         that clobber sympy functions, test that the user-defined function is called"""
@@ -634,3 +604,30 @@ class TestFunctions:
 
         code = generate_jvp_code(eq_map, index_map)
         print(code)
+
+    def test_device_userfunc_derivative_mapping(self):
+        """Ensure device-like user functions use provided derivative name in JVP code without CUDA runtime."""
+        # Pseudo device function: has .targetoptions['device']=True and is callable
+        class MyFuncDevice:
+            targetoptions = {'device': True}
+            def __call__(self, *args, **kwargs):
+                return 0
+        def myfunc_grad(a, b, index):  # derivative callable name should appear in code
+            return 0
+
+        userfuncs = {"myfunc": MyFuncDevice()}
+        userfunc_grads = {"myfunc": myfunc_grad}
+        eqs = ["dx = myfunc(x, y)", "dy = x"]
+        index_map, symbols, funcs, eq_map, fn_hash = parse_input(
+            states=["x", "y"], parameters=[], constants=[], observables=[], drivers=[],
+            dxdt=eqs,
+            user_functions=userfuncs,
+            user_function_derivatives=userfunc_grads,
+        )
+        # Base code should reference the function name
+        lines = print_cuda_multiple(eq_map, symbols)
+        assert any("myfunc(x, y)" in ln for ln in lines)
+        # JVP code should contain calls to the provided derivative name
+        jvp_code = generate_jvp_code(eq_map, index_map)
+        assert "myfunc_grad(" in jvp_code
+        print(jvp_code)

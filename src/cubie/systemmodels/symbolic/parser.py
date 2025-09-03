@@ -6,12 +6,14 @@ from warnings import warn
 
 import sympy as sp
 from sympy.parsing.sympy_parser import T, parse_expr
+from sympy.core.function import AppliedUndef
 
 from .indexedbasemaps import IndexedBases
 from .sym_utils import hash_system_definition
+from cubie._utils import is_devfunc
 
 # Lambda notation, Auto-number, factorial notation, implicit multiplication
-PARSE_TRANSORMS = (T[0][0],T[3][0], T[4][0], T[8][0])
+PARSE_TRANSORMS = (T[0][0], T[3][0], T[4][0], T[8][0])
 
 KNOWN_FUNCTIONS = {
     # Basic mathematical functions
@@ -74,7 +76,6 @@ KNOWN_FUNCTIONS = {
     # 'isinf': sp.Function('isinf'),
     # 'isfinite': sp.Function('isfinite'),
 
-    # Existing functions
     'Piecewise': sp.Piecewise,
     'sign': sp.sign,
 }
@@ -97,6 +98,123 @@ def _replace_if(expr_str: str):
         false_str = _replace_if(match.group(3).strip())
         return f"Piecewise(({true_str}, {cond_str}), ({false_str}, True))"
     return expr_str
+
+# ---------------------------- Function handling --------------------------- #
+
+def _rename_user_calls(lines: Iterable[str], user_functions: Dict[str, callable]):
+    """Return new lines with user function names suffixed with '_' for parsing.
+
+    Also returns a mapping of original->underscored names for later use.
+    """
+    if not user_functions:
+        return list(lines), {}
+    rename = {name: f"{name}_" for name in user_functions.keys()}
+    renamed_lines = []
+    # Replace only function-call tokens: name( -> name_(
+    for line in lines:
+        new_line = line
+        for name, underscored in rename.items():
+            new_line = re.sub(rf"\b{name}\s*\(", f"{underscored}(", new_line)
+        renamed_lines.append(new_line)
+    return renamed_lines, rename
+
+
+def _build_sympy_user_functions(user_functions: Dict[str, callable], rename: Dict[str, str], user_function_derivatives: Optional[Dict[str, callable]] = None):
+    """Create SymPy Function placeholders (or subclasses) for user functions.
+
+    For device functions, create a dynamic SymPy Function subclass with fdiff
+    returning d_<name>(args..., argindex).
+
+    Returns
+    -------
+    parse_locals: Dict[str, Any]
+        Names (underscored) to SymPy Function objects/classes for parse_expr.
+    alias_map: Dict[str, str]
+        Underscored name -> original printable name for the code printer.
+    is_device_map: Dict[str, bool]
+        Underscored name -> whether it was a device function.
+    """
+    parse_locals: Dict[str, object] = {}
+    alias_map: Dict[str, str] = {}
+    is_device_map: Dict[str, bool] = {}
+
+    for orig_name, func in (user_functions or {}).items():
+        sym_name = rename.get(orig_name, orig_name)
+        alias_map[sym_name] = orig_name
+        dev = is_devfunc(func)
+        is_device_map[sym_name] = dev
+        # Resolve derivative print name (if provided)
+        deriv_callable = None
+        if user_function_derivatives and orig_name in user_function_derivatives:
+            deriv_callable = user_function_derivatives[orig_name]
+        deriv_print_name = None
+        if deriv_callable is not None:
+            try:
+                deriv_print_name = deriv_callable.__name__
+            except Exception:
+                deriv_print_name = None
+        if dev:
+            # Build a dynamic Function subclass with name sym_name and fdiff
+            # that generates <deriv_print_name or d_orig>(args..., argindex-1)
+            def _make_class(sym_name=sym_name, orig_name=orig_name, deriv_print_name=deriv_print_name):
+                class _UserDevFunc(sp.Function):
+                    nargs = None
+                    @classmethod
+                    def eval(cls, *args):
+                        return None
+                    def fdiff(self, argindex=1):
+                        target_name = deriv_print_name or f"d_{orig_name}"
+                        deriv_func = sp.Function(target_name)
+                        return deriv_func(*self.args, sp.Integer(argindex - 1))
+                _UserDevFunc.__name__ = sym_name
+                return _UserDevFunc
+            parse_locals[sym_name] = _make_class()
+        else:
+            parse_locals[sym_name] = sp.Function(sym_name)
+    return parse_locals, alias_map, is_device_map
+
+
+def _inline_nondevice_calls(expr: sp.Expr,
+                            user_functions: Dict[str, callable],
+                            rename: Dict[str, str]):
+    """Attempt to inline non-device user function calls if they can accept SymPy args.
+
+    This replaces f_(args) with user_functions['f'](*args) when evaluation succeeds.
+    """
+    if not user_functions:
+        return expr
+
+    def _try_inline(applied):
+        # applied is an AppliedUndef or similar; get its name
+        name = applied.func.__name__
+        # reverse-map if this is an underscored user function
+        orig_name = None
+        for k, v in rename.items():
+            if v == name:
+                orig_name = k
+                break
+        if orig_name is None:
+            return applied
+        fn = user_functions.get(orig_name)
+        if fn is None or is_devfunc(fn):
+            return applied
+        try:
+            # Try evaluate on SymPy args
+            val = fn(*applied.args)
+            # Ensure it's a SymPy expression
+            if isinstance(val, (sp.Expr, sp.Symbol)):
+                return val
+            # Fall back to keeping symbolic call
+            return applied
+        except Exception:
+            return applied
+
+    # Replace any AppliedUndef whose name matches an underscored function
+    for _, sym_name in rename.items():
+        f = sp.Function(sym_name)
+        expr = expr.replace(lambda e: isinstance(e, AppliedUndef) and e.func == f, _try_inline)
+    return expr
+
 
 def _process_calls(equations_input: Iterable[str],
                    user_functions: Optional[Dict[str, callable]] = None):
@@ -196,8 +314,10 @@ def _lhs_pass(
                     observables.pop(s_sym)
                 else:
                     if strict:
-                        ValueError(f"Unknown state derivative: {lhs}.")
-                        f"No state or observable called {state_name} found."
+                        raise ValueError(
+                            f"Unknown state derivative: {lhs}. "
+                            f"No state or observable called {state_name} found."
+                        )
                     else:
                         states.push(s_sym)
                         dxdt.push(sp.Symbol(f"d{state_name}", real=True))
@@ -263,6 +383,7 @@ def _lhs_pass(
 def _rhs_pass(lines: Iterable[str],
               all_symbols: Dict[str, sp.Symbol],
               user_funcs: Optional[Dict[str, callable]] = None,
+              user_function_derivatives: Optional[Dict[str, callable]] = None,
               strict=True):
     """Process expressions, checking symbols and finding callables.
 
@@ -283,32 +404,46 @@ def _rhs_pass(lines: Iterable[str],
 
     """
     expressions = []
+    # Detect all calls as before for erroring on unknown names and for returning funcs
     funcs = _process_calls(lines, user_funcs)
-    all_symbols.update(funcs)
+
+    # Prepare user function environment with underscore renaming to avoid collisions
+    sanitized_lines, rename = _rename_user_calls(lines, user_funcs or {})
+    parse_locals, alias_map, dev_map = _build_sympy_user_functions(user_funcs or {}, rename, user_function_derivatives)
+
+    # Expose mapping for the printer via special key in all_symbols (copied by caller)
+    local_dict = all_symbols.copy()
+    local_dict.update(parse_locals)
     new_symbols = []
-    for line in lines:
+    for raw_line, line in zip(lines, sanitized_lines):
         lhs, rhs = [p.strip() for p in line.split("=", 1)]
         rhs_expr = _sanitise_input_math(rhs)
         if strict:
-        #don't auto-add symbols
+            # don't auto-add symbols
             try:
                 rhs_expr = parse_expr(
                         rhs_expr,
                         transformations=PARSE_TRANSORMS,
-                        local_dict=all_symbols)
-            except (NameError, TypeError):
-                raise ValueError(f"Undefined symbols in equation '{line}'")
+                        local_dict=local_dict)
+            except (NameError, TypeError) as e:
+                # Provide the original (unsanitized) line in message
+                raise ValueError(f"Undefined symbols in equation '{raw_line}'") from e
         else:
             rhs_expr = parse_expr(
                     rhs_expr,
-                    local_dict=all_symbols,
+                    local_dict=local_dict,
             )
             new_inputs = [sym for sym in rhs_expr.free_symbols if sym
-            not in all_symbols.values()]
+            not in local_dict.values()]
             for sym in new_inputs:
                 new_symbols.append(sym)
-        expressions.append([all_symbols[lhs], rhs_expr])
 
+        # Attempt to inline non-device functions that can accept SymPy args
+        rhs_expr = _inline_nondevice_calls(rhs_expr, user_funcs or {}, rename)
+
+        expressions.append([local_dict.get(lhs, all_symbols[lhs] if lhs in all_symbols else sp.Symbol(lhs, real=True)), rhs_expr])
+
+    # Return expressions along with funcs mapping (original names)
     return expressions, funcs, new_symbols
 
 def parse_input(
@@ -319,8 +454,9 @@ def parse_input(
         constants: Optional[Union[Dict, Iterable[str]]] = None,
         drivers: Optional[Iterable[str]] = None,
         user_functions: Optional[Dict[str, callable]] = None,
+        user_function_derivatives: Optional[Dict[str, callable]] = None,
         strict=False
-) -> Tuple[IndexedBases,Dict[str,sp.Symbol],Dict[str,callable],dict,int]:
+) -> Tuple[IndexedBases,Dict[str,sp.Symbol],Dict[str,callable],list, str]:
     """Process user input in the form of equations and symbols.
 
     When strict is False, this function can accept a set of equations and
@@ -414,10 +550,25 @@ def parse_input(
     anon_aux = _lhs_pass(lines, index_map, strict=strict)
     all_symbols = index_map.all_symbols.copy()
     all_symbols.update(anon_aux)
+
     equation_map, funcs, new_params = _rhs_pass(lines=lines,
                                       all_symbols=all_symbols,
                                       user_funcs=user_functions,
+                                      user_function_derivatives=user_function_derivatives,
                                       strict=strict)
+
+    # Expose user functions in the returned symbols dict (original names)
+    # and alias mapping for the printer under a special key
+    if user_functions:
+        all_symbols.update({name: fn for name, fn in user_functions.items()})
+        # Also expose derivative callables if provided
+        if user_function_derivatives:
+            all_symbols.update({fn.__name__: fn for fn in user_function_derivatives.values() if callable(fn)})
+        # Build alias map underscored -> original for the printer
+        _, rename = _rename_user_calls(lines, user_functions or {})
+        if rename:
+            alias_map = {v: k for k, v in rename.items()}
+            all_symbols['__function_aliases__'] = alias_map
 
     for param in new_params:
         index_map.parameters.push(param)
