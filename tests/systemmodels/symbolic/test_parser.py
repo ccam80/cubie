@@ -1,8 +1,11 @@
+import math
 import warnings
 
 import pytest
 import sympy as sp
+from sympy import Function
 
+from cubie.systemmodels.symbolic import print_cuda_multiple, generate_jvp_code
 from cubie.systemmodels.symbolic.indexedbasemaps import (
     IndexedBases,
 )
@@ -555,3 +558,91 @@ class TestNonStrictInput:
         assert "safari" in index_map.observable_names
         assert "uninited" in index_map.observable_names
         assert "dfoo" in index_map.dxdt_names
+
+class TestFunctions:
+    """Test passing of functions in text in equations"""
+
+    def test_sympyfuncs(self):
+        """ Add equations with some simple sympy-known functions in them and no user input"""
+        eqs = ("dx = sin(a) + exp(b)", "dy = min(c,d) + log(e)")
+        index_map, symbols, funcs, eq_map, fn_hash = parse_input(
+                dxdt=eqs)
+        code = print_cuda_multiple(eq_map, symbols)
+        assert code == [
+            "dx = math.exp(b) + math.sin(a)",
+            "dy = math.log(e) + min(c, d)",
+        ]
+
+    def test_userfuncs(self):
+        """ Add equations with some simple user-defined functions in them"""
+        def custom_func(x):
+            return x**2
+
+        class Clamp(Function):
+            def doit(self, deep=True, **hints):
+                x, lower, upper = self.args
+
+                if x > upper:
+                    return upper
+                elif x < lower:
+                   return lower
+                else:
+                   if deep:
+                       return x.doit(deep=deep, **hints)
+
+            def diff(self, argindex):
+                x, lower, upper = self.args
+                if x < lower:
+                    return 0
+                elif x > upper:
+                    return 0
+                else:
+                    if argindex == 0:
+                        return 1
+                    return 0
+
+        userfuncs = {'ex_squared': custom_func,
+                     'clamps': Clamp}
+        eqs = ["dx = ex_squared(a) + clamps(b, c, d)"]
+
+        index_map, symbols, funcs, eq_map, fn_hash = parse_input(
+                dxdt=eqs,
+                user_functions=userfuncs)
+        code = print_cuda_multiple(eq_map, symbols)
+
+        assert code == [
+            "dx = ex_squared(a) + clamps(b, c)"
+        ]
+
+    def test_userfunc_priority(self):
+        """Add equations with some simple user-defined functions in them
+        that clobber sympy functions, test that the user-defined function is called"""
+
+        def custom_func(x):
+            return x**2
+        userfuncs = {'ex_squared': custom_func,
+                     'exp': lambda x: math.exp(x)}
+
+        eqs = ["dx = exp(a) + exp(b)",
+               "dy = x"]
+        ndex_map, symbols, funcs, eq_map, fn_hash = parse_input(
+            dxdt=eqs, user_functions=userfuncs
+        )
+        code = print_cuda_multiple(eq_map, symbols)
+
+        assert code == ["dx = exp(a) + exp(b)", "dy = x"]
+
+
+    def test_differentiation(self):
+        """ Run jacobian codegen on some code containing user-defined and sympy
+        functions."""
+        def custom_func(x):
+            return x**2
+        userfuncs = {'ex_squared': custom_func}
+        eqs = ["dx = ex_squared(y)",
+               "dy = ex_squared(x)"]
+        index_map, symbols, funcs, eq_map, fn_hash = parse_input(dxdt=eqs,
+                     user_functions=userfuncs)
+
+        code = generate_jvp_code(eq_map, index_map)
+        print(code)

@@ -4,24 +4,73 @@ from typing import Dict, Iterable, Optional, Tuple
 import sympy as sp
 from sympy.printing.pycode import PythonCodePrinter
 
+# Map SymPy function names to CUDA/Python math equivalents for printing
+# Keys should match expr.func.__name__ from SymPy expressions
 CUDA_FUNCTIONS: Dict[str, str] = {
-    'exp': 'math.exp',
-    'log': 'math.log',
+    # Elementary trig
     'sin': 'math.sin',
     'cos': 'math.cos',
     'tan': 'math.tan',
+    'asin': 'math.asin',
+    'acos': 'math.acos',
+    'atan': 'math.atan',
+    'atan2': 'math.atan2',
+
+    # Hyperbolic
+    'sinh': 'math.sinh',
+    'cosh': 'math.cosh',
+    'tanh': 'math.tanh',
+    'asinh': 'math.asinh',
+    'acosh': 'math.acosh',
+    'atanh': 'math.atanh',
+
+    # Exponential / Logarithmic
+    'exp': 'math.exp',
+    'expm1': 'math.expm1',
+    'log': 'math.log',
+    'log2': 'math.log2',
+    'log10': 'math.log10',
+    'log1p': 'math.log1p',
+
+    # Special functions
+    'erf': 'math.erf',
+    'erfc': 'math.erfc',
+    'gamma': 'math.gamma',
+    'loggamma': 'math.lgamma',  # map SymPy loggamma -> math.lgamma
+    'hypot': 'math.hypot',
+
+    # Rounding / absolute
+    'Abs': 'math.fabs',  # prefer math.fabs for CUDA
+    'floor': 'math.floor',
+    'ceiling': 'math.ceil',  # SymPy uses ceiling()
+
+    # Power / roots
     'sqrt': 'math.sqrt',
-    'Abs': 'math.Abs',
-    'Min': 'math.Min',
-    'Max': 'math.Max',
-    'sign': 'math.sign',
+    'pow': 'math.pow',
+
+    # Min/Max
+    'Min': 'min',
+    'Max': 'max',
+
+    # Misc math
+    'copysign': 'math.copysign',
+    'fmod': 'math.fmod',
+    'modf': 'math.modf',
+    'frexp': 'math.frexp',
+    'ldexp': 'math.ldexp',
+    'remainder': 'math.remainder',
+
+    # Classification
+    'isnan': 'math.isnan',
+    'isinf': 'math.isinf',
+    'isfinite': 'math.isfinite',
 }
 
 
 class CUDAPrinter(PythonCodePrinter):
     """SymPy printer for CUDA code generation with symbol substitutions and optimizations."""
 
-    def __init__(self, symbol_map=None, *args, **kwargs):
+    def __init__(self, symbol_map: Optional[Dict] = None, *args, **kwargs):
         """
         Initialize CUDA printer.
 
@@ -29,7 +78,8 @@ class CUDAPrinter(PythonCodePrinter):
             symbol_map: Dictionary mapping Symbol instances to IndexedBase references
         """
         super().__init__(*args, **kwargs)
-        self.symbol_map = symbol_map or {}
+        self.symbol_map: Dict = symbol_map or {}
+        self.cuda_functions: Dict[str, str] = CUDA_FUNCTIONS
 
     def doprint(self, expr, **kwargs):
         """Main printing method that applies all transformations."""
@@ -94,8 +144,20 @@ class CUDAPrinter(PythonCodePrinter):
             expr_str,
         )
 
+    def _print_Function(self, expr):
+        """Print Function, applying CUDA function mapping if available."""
+        func_name = expr.func.__name__
+
+        if func_name in self.cuda_functions:
+            # Get the CUDA equivalent function name
+            cuda_func = self.cuda_functions[func_name]
+            # Print arguments
+            args = [self._print(arg) for arg in expr.args]
+            return f"{cuda_func}({', '.join(args)})"
+        # Fall back to parent implementation for unknown functions
+        return super()._print_Function(expr)
+
     # TODO: Singularity skips from Chaste codegen, piecewise blend if required
-    # TODO: Add translation to CUDA-native functions
 
 
 def print_cuda(expr: sp.Expr,

@@ -13,18 +13,71 @@ from .sym_utils import hash_system_definition
 # Lambda notation, Auto-number, factorial notation, implicit multiplication
 PARSE_TRANSORMS = (T[0][0],T[3][0], T[4][0], T[8][0])
 
-KNOWN_FUNCTIONS = {'exp': sp.exp,
-                   'log': sp.log,
-                   'sin': sp.sin,
-                   'cos': sp.cos,
-                   'tan': sp.tan,
-                   'sqrt': sp.sqrt,
-                   'Piecewise': sp.Piecewise,
-                   'Abs': sp.Abs,
-                   'Min': sp.Min,
-                   'Max': sp.Max,
-                   'sign': sp.sign,
-                   }
+KNOWN_FUNCTIONS = {
+    # Basic mathematical functions
+    'exp': sp.exp,
+    'log': sp.log,
+    'sqrt': sp.sqrt,
+    'pow': sp.Pow,
+
+    # Trigonometric functions
+    'sin': sp.sin,
+    'cos': sp.cos,
+    'tan': sp.tan,
+    'asin': sp.asin,
+    'acos': sp.acos,
+    'atan': sp.atan,
+    'atan2': sp.atan2,
+
+    # Hyperbolic functions
+    'sinh': sp.sinh,
+    'cosh': sp.cosh,
+    'tanh': sp.tanh,
+    'asinh': sp.asinh,
+    'acosh': sp.acosh,
+    'atanh': sp.atanh,
+
+    # Special functions
+    'erf': sp.erf,
+    'erfc': sp.erfc,
+    'gamma': sp.gamma,
+    'lgamma': sp.loggamma,
+
+    # Rounding and absolute
+    'Abs': sp.Abs,
+    'abs': sp.Abs,
+    'floor': sp.floor,
+    'ceil': sp.ceiling,
+    'ceiling': sp.ceiling,
+
+    # Min/Max
+    'Min': sp.Min,
+    'Max': sp.Max,
+    'min': sp.Min,
+    'max': sp.Max,
+
+    # Functions that need custom handling - placeholder will not
+    # work for differentiation.
+    # 'log10': sp.Function('log10'),
+    # 'log2': sp.Function('log2'),
+    # 'log1p': sp.Function('log1p'),
+    # 'hypot': sp.Function('hypot'),
+    # 'expm1': sp.Function('expm1'),
+    # 'copysign': sp.Function('copysign'),
+    # 'fmod': sp.Function('fmod'),
+    # 'modf': sp.Function('modf'),
+    # 'frexp': sp.Function('frexp'),
+    # 'ldexp': sp.Function('ldexp'),
+    # 'remainder': sp.Function('remainder'),
+    # 'fabs': sp.Abs,
+    # 'isnan': sp.Function('isnan'),
+    # 'isinf': sp.Function('isinf'),
+    # 'isfinite': sp.Function('isfinite'),
+
+    # Existing functions
+    'Piecewise': sp.Piecewise,
+    'sign': sp.sign,
+}
 class EquationWarning(Warning):
     pass
 
@@ -45,7 +98,6 @@ def _replace_if(expr_str: str):
         return f"Piecewise(({true_str}, {cond_str}), ({false_str}, True))"
     return expr_str
 
-# -------------------------- Process equations ------------------------------ #
 def _process_calls(equations_input: Iterable[str],
                    user_functions: Optional[Dict[str, callable]] = None):
     """ map known SymPy callables (e.g., 'exp') to Sympy functions """
@@ -330,7 +382,7 @@ def parse_input(
     if states is None:
         states = {}
         if strict:
-            raise ValueError("No state symbols were provided - if you want to" 
+            raise ValueError("No state symbols were provided - if you want to"
             "build a model from a set of equations alone, set strict=False")
     if observables is None:
         observables = []

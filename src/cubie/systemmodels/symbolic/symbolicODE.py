@@ -123,6 +123,7 @@ class SymbolicODE(BaseODE):
               drivers: Optional[Iterable[str]] = None,
               user_functions: Optional[Optional[dict[str, Callable]]] = None,
               name: Optional[str] = None,
+              generate_jac = True,
               strict=False):
 
         sys_components = parse_input(
@@ -142,6 +143,8 @@ class SymbolicODE(BaseODE):
                    name=name,
                    fn_hash=fn_hash,
                    user_functions = functions,
+                   autojvp = generate_jac,
+                   autovjp = generate_jac,
                    precision=np.float64)
 
 
