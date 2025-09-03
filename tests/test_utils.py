@@ -173,19 +173,19 @@ def test_slice_variable_dimension():
 
 
 @attrs.define
-class TestAttrsClass:
+class AttrsClasstest:
     field1: int
     _field2: str
 
 
-class TestRegularClass:
+class RegularClasstest:
     def __init__(self):
         self.field1 = 1
 
 
 def test_in_attr():
     """Test in_attr function."""
-    attrs_instance = TestAttrsClass(1, "test")
+    attrs_instance = AttrsClasstest(1, "test")
 
     # Test existing field
     assert in_attr("field1", attrs_instance) == True
@@ -200,8 +200,8 @@ def test_in_attr():
 
 def test_is_attrs_class():
     """Test is_attrs_class function."""
-    attrs_instance = TestAttrsClass(1, "test")
-    regular_instance = TestRegularClass()
+    attrs_instance = AttrsClasstest(1, "test")
+    regular_instance = RegularClasstest()
 
     assert is_attrs_class(attrs_instance) == True
     assert is_attrs_class(regular_instance) == False

@@ -11,6 +11,7 @@ initial value problems. The source code is available on `Github <https://github.
    getting_started
    systems
    cuda
+   userfunctions
    Algorithms
    api/index
 

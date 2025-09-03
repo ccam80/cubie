@@ -4,11 +4,73 @@ from typing import Dict, Iterable, Optional, Tuple
 import sympy as sp
 from sympy.printing.pycode import PythonCodePrinter
 
+# Map SymPy function names to CUDA/Python math equivalents for printing
+# Keys should match expr.func.__name__ from SymPy expressions
+CUDA_FUNCTIONS: Dict[str, str] = {
+    # Elementary trig
+    'sin': 'math.sin',
+    'cos': 'math.cos',
+    'tan': 'math.tan',
+    'asin': 'math.asin',
+    'acos': 'math.acos',
+    'atan': 'math.atan',
+    'atan2': 'math.atan2',
+
+    # Hyperbolic
+    'sinh': 'math.sinh',
+    'cosh': 'math.cosh',
+    'tanh': 'math.tanh',
+    'asinh': 'math.asinh',
+    'acosh': 'math.acosh',
+    'atanh': 'math.atanh',
+
+    # Exponential / Logarithmic
+    'exp': 'math.exp',
+    'expm1': 'math.expm1',
+    'log': 'math.log',
+    'log2': 'math.log2',
+    'log10': 'math.log10',
+    'log1p': 'math.log1p',
+
+    # Special functions
+    'erf': 'math.erf',
+    'erfc': 'math.erfc',
+    'gamma': 'math.gamma',
+    'loggamma': 'math.lgamma',  # map SymPy loggamma -> math.lgamma
+    'hypot': 'math.hypot',
+
+    # Rounding / absolute
+    'Abs': 'math.fabs',  # prefer math.fabs for CUDA
+    'floor': 'math.floor',
+    'ceiling': 'math.ceil',  # SymPy uses ceiling()
+
+    # Power / roots
+    'sqrt': 'math.sqrt',
+    'pow': 'math.pow',
+
+    # Min/Max
+    'Min': 'min',
+    'Max': 'max',
+
+    # Misc math
+    'copysign': 'math.copysign',
+    'fmod': 'math.fmod',
+    'modf': 'math.modf',
+    'frexp': 'math.frexp',
+    'ldexp': 'math.ldexp',
+    'remainder': 'math.remainder',
+
+    # Classification
+    'isnan': 'math.isnan',
+    'isinf': 'math.isinf',
+    'isfinite': 'math.isfinite',
+}
+
 
 class CUDAPrinter(PythonCodePrinter):
     """SymPy printer for CUDA code generation with symbol substitutions and optimizations."""
 
-    def __init__(self, symbol_map=None, *args, **kwargs):
+    def __init__(self, symbol_map: Optional[Dict] = None, *args, **kwargs):
         """
         Initialize CUDA printer.
 
@@ -16,7 +78,14 @@ class CUDAPrinter(PythonCodePrinter):
             symbol_map: Dictionary mapping Symbol instances to IndexedBase references
         """
         super().__init__(*args, **kwargs)
-        self.symbol_map = symbol_map or {}
+        self.symbol_map: Dict = symbol_map or {}
+        self.cuda_functions: Dict[str, str] = CUDA_FUNCTIONS
+        # User function alias mapping: underscored symbolic name -> original printable name
+        self.func_aliases: Dict[str, str] = {}
+        if isinstance(self.symbol_map, dict) and '__function_aliases__' in self.symbol_map:
+            aliases = self.symbol_map.get('__function_aliases__')
+            if isinstance(aliases, dict):
+                self.func_aliases = aliases
 
     def doprint(self, expr, **kwargs):
         """Main printing method that applies all transformations."""
@@ -81,8 +150,38 @@ class CUDAPrinter(PythonCodePrinter):
             expr_str,
         )
 
+    def _print_Function(self, expr):
+        """Print Function, applying CUDA function mapping and user alias mapping.
+
+        Precedence:
+        - If this is a known CUDA-mapped SymPy function, use CUDA_FUNCTIONS mapping.
+        - Else if this is a user-defined function (underscored in SymPy), map back to original name via aliases.
+        - Else print as a plain function call "name(arg1, ...)" to avoid strict errors.
+        """
+        func_name = expr.func.__name__
+
+        # CUDA-known functions first
+        if func_name in self.cuda_functions:
+            cuda_func = self.cuda_functions[func_name]
+            args = [self._print(arg) for arg in expr.args]
+            return f"{cuda_func}({', '.join(args)})"
+
+        # User-defined functions that were underscored during parsing
+        if func_name in self.func_aliases:
+            real_name = self.func_aliases[func_name]
+            args = [self._print(arg) for arg in expr.args]
+            return f"{real_name}({', '.join(args)})"
+
+        # Derivative user functions d_<name>(...): print as-is
+        if func_name.startswith('d_'):
+            args = [self._print(arg) for arg in expr.args]
+            return f"{func_name}({', '.join(args)})"
+
+        # Fallback: print a plain function call to avoid PrintMethodNotImplementedError
+        args = [self._print(arg) for arg in expr.args]
+        return f"{func_name}({', '.join(args)})"
+
     # TODO: Singularity skips from Chaste codegen, piecewise blend if required
-    # TODO: Add translation to CUDA-native functions
 
 
 def print_cuda(expr: sp.Expr,

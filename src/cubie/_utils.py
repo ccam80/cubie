@@ -16,9 +16,9 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
+from attrs import fields, has
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
-from attrs import fields, has
 
 
 def slice_variable_dimension(slices, indices, ndim):
