@@ -49,6 +49,44 @@ VJP_TEMPLATE = (
     "    \n"
     "    return vjp\n"
 )
+
+I_MINUS_HJ_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED I_MINUS_HJ FACTORY\n"
+    "def {func_name}(constants, precision, stages=1):\n"
+    '    """Auto-generated I-hJ factory."""\n'
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision,\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def i_minus_hj(state, parameters, drivers, h, v, out):\n"
+    "    {body}\n"
+    "    \n"
+    "    return out\n"
+)
+
+RES_PLUS_I_MINUS_HJ_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED RESIDUAL PLUS I_MINUS_HJ FACTORY\n"
+    "def {func_name}(constants, precision, stages=1):\n"
+    '    """Auto-generated residual plus I-hJ factory."""\n'
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision,\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def residual_plus_i_minus_hj(state, parameters, drivers, h, v, out):\n"
+    "    {body}\n"
+    "    \n"
+    "    return out\n"
+)
 # Simple cache for Jacobian matrices
 _jacobian_cache = {}
 
@@ -217,11 +255,13 @@ def generate_jac_product(equations: Union[
     product, depending on the direction argument.."""
     n_inputs = len(input_order)
     n_outputs = len(output_order)
+
     # Swap out observables for auxiliary variables
     if observables is not None:
         obs_subs = dict(zip(observables,sp.numbered_symbols("aux_", start=1)))
     else:
         obs_subs = {}
+
     equations = [(lhs.subs(obs_subs), rhs.subs(obs_subs)) for lhs, rhs in
                   equations]
     jac = generate_jacobian(equations, input_order, output_order, use_cache=use_cache)
@@ -352,4 +392,99 @@ def generate_vjp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
         vjp_lines = ["pass"]
     code = VJP_TEMPLATE.format(func_name=func_name,
                                body="    " + "\n        ".join(vjp_lines))
+    return code
+
+def _split_jvp_expressions(exprs):
+    aux = []
+    jvp_terms = {}
+    for lhs, rhs in exprs:
+        lhs_str = str(lhs)
+        if lhs_str.startswith("jvp["):
+            index = int(lhs_str.split("[")[1].split("]")[0])
+            jvp_terms[index] = rhs
+        else:
+            aux.append((lhs, rhs))
+    return aux, jvp_terms
+
+
+def _split_residual_expressions(exprs, index_map):
+    aux = []
+    res_terms = {}
+    dxdt_syms = set(index_map.dxdt.ref_map.keys())
+    for lhs, rhs in exprs:
+        if lhs in dxdt_syms:
+            index = index_map.dxdt.index_map[lhs]
+            res_terms[index] = rhs
+        else:
+            aux.append((lhs, rhs))
+    return aux, res_terms
+
+def generate_i_minus_hj_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+                              index_map: IndexedBases,
+                              func_name: str = "i_minus_hj_factory",
+                              cse=True):
+    jvp_exprs = generate_analytical_jvp(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
+        cse=cse,
+    ) #TODO: Cache
+    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    n_out = len(index_map.dxdt.ref_map)
+    all_exprs = list(aux)
+    for i in range(n_out):
+        all_exprs.append(
+            (
+                sp.Symbol(f"out[{i}]"),
+                sp.Symbol(f"v[{i}]") - sp.Symbol("h") * jvp_terms[i],
+            )
+        )
+    if cse:
+        all_exprs = cse_and_stack(all_exprs)
+    else:
+        all_exprs = topological_sort(all_exprs)
+    lines = print_cuda_multiple(all_exprs, symbol_map=index_map.all_arrayrefs)
+    if not lines:
+        lines = ["pass"]
+    code = I_MINUS_HJ_TEMPLATE.format(func_name=func_name,
+                                      body="    " + "\n        ".join(lines))
+    return code
+
+
+def generate_residual_plus_i_minus_hj_code(
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    func_name: str = "residual_plus_i_minus_hj_factory",
+    cse=True,
+):
+    res_exprs = topological_sort(equations)
+    res_aux, res_terms = _split_residual_expressions(res_exprs, index_map)
+    jvp_exprs = generate_analytical_jvp(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
+        cse=cse,
+    )
+    jvp_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    all_exprs = res_aux + jvp_aux
+    n_out = len(index_map.dxdt.ref_map)
+    for i in range(n_out):
+        all_exprs.append(
+            (
+                sp.Symbol(f"out[{i}]"),
+                res_terms[i] + sp.Symbol(f"v[{i}]") - sp.Symbol("h") * jvp_terms[i],
+            )
+        )
+    if cse:
+        all_exprs = cse_and_stack(all_exprs)
+    else:
+        all_exprs = topological_sort(all_exprs)
+    lines = print_cuda_multiple(all_exprs, symbol_map=index_map.all_arrayrefs)
+    if not lines:
+        lines = ["pass"]
+    code = RES_PLUS_I_MINUS_HJ_TEMPLATE.format(
+        func_name=func_name, body="    " + "\n        ".join(lines)
+    )
     return code

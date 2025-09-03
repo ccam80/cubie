@@ -3,6 +3,7 @@ import sympy as sp
 from cubie.systemmodels.symbolic.dxdt import (
     DXDT_TEMPLATE,
     generate_dxdt_fac_code,
+    generate_residual_code,
 )
 from cubie.systemmodels.symbolic.parser import IndexedBases
 
@@ -21,7 +22,7 @@ class TestDxdtTemplate:
         assert "test body" in formatted
         assert "@cuda.jit" in formatted
         assert "def dxdt(" in formatted
-        assert "return dxdt" in formatted
+        assert "return out" in formatted
 
     def test_dxdt_template_structure(self):
         """Test the structure of DXDT_TEMPLATE."""
@@ -31,7 +32,7 @@ class TestDxdtTemplate:
         assert any("def {func_name}" in line for line in lines)
         assert any("@cuda.jit" in line for line in lines)
         assert any("def dxdt(" in line for line in lines)
-        assert any("return dxdt" in line for line in lines)
+        assert any("return out" in line for line in lines)
 
 
 class TestGenerateDxdtFacCode:
@@ -45,7 +46,7 @@ class TestGenerateDxdtFacCode:
         assert "def dxdt_factory" in code
         assert "@cuda.jit" in code
         assert "def dxdt(" in code
-        assert "return dxdt" in code
+        assert "return out" in code
 
     def test_custom_function_name(self, simple_equations, indexed_bases):
         """Test code generation with custom function name."""
@@ -223,3 +224,10 @@ class TestDxdtIntegration:
 
         assert isinstance(code, str)
         assert "def dxdt_factory" in code
+
+def test_residual_code_generation(linear_system_equations, indexed_bases):
+    code = generate_residual_code(linear_system_equations, indexed_bases)
+    assert isinstance(code, str)
+    assert "def residual_factory" in code
+    assert "def residual(" in code
+    assert "observables" not in code

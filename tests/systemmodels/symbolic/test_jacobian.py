@@ -10,6 +10,8 @@ from cubie.systemmodels.symbolic.jacobian import (
     generate_jacobian,
     generate_jvp_code,
     generate_vjp_code,
+    generate_i_minus_hj_code,
+    generate_residual_plus_i_minus_hj_code,
 )
 from cubie.systemmodels.symbolic.parser import IndexedBases
 
@@ -767,6 +769,26 @@ class TestGenerateVjpCode:
         assert "precision[:]" in code
         assert "device=True" in code
         assert "inline=True" in code
+
+
+class TestAdditionalFactories:
+    """Test additional Jacobian-level factory code generation."""
+
+    def test_i_minus_hj_code_generation(self, linear_system_equations, indexed_bases):
+        code = generate_i_minus_hj_code(linear_system_equations, indexed_bases)
+        assert "def i_minus_hj_factory" in code
+        assert "def i_minus_hj(" in code
+        assert "stages=1" in code
+
+    def test_residual_plus_i_minus_hj_generation(self,
+                                                 linear_system_equations,
+                                                 indexed_bases):
+        code = generate_residual_plus_i_minus_hj_code(
+            linear_system_equations, indexed_bases
+        )
+        assert "def residual_plus_i_minus_hj_factory" in code
+        assert "def residual_plus_i_minus_hj(" in code
+        assert "stages=1" in code
 
 
 class TestJacobianIntegration:
