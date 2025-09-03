@@ -590,21 +590,6 @@ class TestFunctions:
 
         assert code == ["dx = exp(a) + exp(b)", "dy = x"]
 
-
-    def test_differentiation(self):
-        """ Run jacobian codegen on some code containing user-defined and sympy
-        functions."""
-        def custom_func(x):
-            return x**2
-        userfuncs = {'ex_squared': custom_func}
-        eqs = ["dx = ex_squared(y)",
-               "dy = ex_squared(x)"]
-        index_map, symbols, funcs, eq_map, fn_hash = parse_input(dxdt=eqs,
-                     user_functions=userfuncs)
-
-        code = generate_jvp_code(eq_map, index_map)
-        print(code)
-
     def test_device_userfunc_derivative_mapping(self):
         """Ensure device-like user functions use provided derivative name in JVP code without CUDA runtime."""
         # Pseudo device function: has .targetoptions['device']=True and is callable

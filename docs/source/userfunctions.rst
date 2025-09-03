@@ -23,7 +23,9 @@ Example (Python function):
       user_functions={"ex_squared": ex_squared}
   )
 
-- print_cuda_multiple(eqs, symbols) will emit ex_squared(a) in code unless it could inline it symbolically.
+- print_cuda_multiple(eqs, symbols) will emit a*a in code if it can inline the function (i.e. it's simple and uses Sympy
+-compatible logic, otherwise it will call ex_squared(a) in code. If it calls ex_squared(a), it will also call
+ex_squared_grad(a, 0) in Jacobian terms, so you need to provide that function in user_function_derivatives.
 
 Device functions and derivatives
 --------------------------------
@@ -71,7 +73,7 @@ If your user function has the same name as a SymPy function, Cubie ensures your 
 
 Tips
 ----
-- If your derivative function is a CUDA device function, use @cuda.jit(device=True).
 - If you don’t provide a derivative for a device function, auto-generated jacobians will not work.
-- Pure Python user functions that can be evaluated on SymPy symbols may be inlined symbolically; otherwise they are called by name in code.
+- Pure Python user functions that can be evaluated on SymPy symbols may be inlined symbolically; otherwise they are
+called by name in code, and you'll need to provide a derivative function for differentiation.
 
