@@ -24,8 +24,8 @@ v0.0.4: Implicit integration methods.
   - Rosenbrock methods
   - Radau methods
   - Runge-Kutta methods
-v0.0.5: API improvements. This version should be stable enough for use in research - I will be using it in mine.
-V0.1.0: Documentation to match the API.
+- v0.0.5: API improvements. This version should be stable enough for use in research - I will be using it in mine.
+- v0.1.0: Documentation to match the API, organised in the sane way that a robot does not.
 
 I'm completing this project to use it to finish my PhD, so I've got a pretty solid driver to get to v0.0.5 as fast as my
 little fingers can type. I am motivated to get v0.1.0 out soon after to see if there is interest in this tool from the 
