@@ -109,7 +109,8 @@ def generate_residual_code(
             placeholder = str(sym)
             if placeholder.startswith("observable"):
                 placeholder = just_in_case.__next__()
-            res_lines = [ln.replace(ref, placeholder) for ln in dxdt_lines]
+            res_lines = [ln.replace(str(ref), placeholder) for ln in
+                         dxdt_lines]
     else:
         res_lines = dxdt_lines
 

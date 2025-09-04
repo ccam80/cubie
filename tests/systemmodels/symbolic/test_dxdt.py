@@ -22,7 +22,7 @@ class TestDxdtTemplate:
         assert "test body" in formatted
         assert "@cuda.jit" in formatted
         assert "def dxdt(" in formatted
-        assert "return out" in formatted
+        assert "return dxdt" in formatted
 
     def test_dxdt_template_structure(self):
         """Test the structure of DXDT_TEMPLATE."""
@@ -32,7 +32,7 @@ class TestDxdtTemplate:
         assert any("def {func_name}" in line for line in lines)
         assert any("@cuda.jit" in line for line in lines)
         assert any("def dxdt(" in line for line in lines)
-        assert any("return out" in line for line in lines)
+        assert any("return dxdt" in line for line in lines)
 
 
 class TestGenerateDxdtFacCode:
@@ -46,7 +46,9 @@ class TestGenerateDxdtFacCode:
         assert "def dxdt_factory" in code
         assert "@cuda.jit" in code
         assert "def dxdt(" in code
-        assert "return out" in code
+        assert "out[" in code
+        assert "dxdt[" not in code
+        assert "return dxdt" in code
 
     def test_custom_function_name(self, simple_equations, indexed_bases):
         """Test code generation with custom function name."""
