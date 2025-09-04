@@ -2,7 +2,7 @@
 from numba import cuda
 
 
-def newton_krylov_solver_factory(tolerance, max_iters):
+def newton_krylov_solver_factory(tolerance, max_iters, linear_solver):
     """Create a Newton-Krylov solver device function.
 
     Parameters
@@ -11,11 +11,13 @@ def newton_krylov_solver_factory(tolerance, max_iters):
         Residual norm required for convergence.
     max_iters : int
         Maximum number of Newton iterations.
+    linear_solver : callable
+        Device function solving ``J x = rhs``.
 
     Returns
     -------
     callable
-        CUDA device function implementing a simple Newton-Krylov method.
+        CUDA device function implementing a Newton-Krylov method.
     """
 
     @cuda.jit(device=True)
@@ -24,10 +26,12 @@ def newton_krylov_solver_factory(tolerance, max_iters):
         residual_function,
         state,
         residual,
-        direction,
-        temp_vec,
-        jvp_temp,
+        rhs,
+        delta,
+        z_vec,
+        v_vec,
         preconditioner,
+        precond_temp,
     ):
         """Solve ``F(state) = 0`` using a Newton-Krylov iteration."""
 
@@ -39,29 +43,32 @@ def newton_krylov_solver_factory(tolerance, max_iters):
             if norm ** 0.5 <= tolerance:
                 return
             for i in range(residual.shape[0]):
-                direction[i] = -residual[i]
-            if preconditioner is not None:
-                preconditioner(
-                    jvp_function, state, direction, temp_vec, jvp_temp
-                )
-                for i in range(state.shape[0]):
-                    state[i] += temp_vec[i]
-            else:
-                for i in range(state.shape[0]):
-                    state[i] += direction[i]
+                rhs[i] = -residual[i]
+                delta[i] = 0.0
+            linear_solver(
+                jvp_function,
+                state,
+                rhs,
+                delta,
+                residual,
+                z_vec,
+                v_vec,
+                preconditioner,
+                precond_temp,
+            )
+            for i in range(state.shape[0]):
+                state[i] += delta[i]
 
     return newton_krylov_solver
 
 
-def neumann_preconditioner_factory(order=1, stage_decoupled=False):
+def neumann_preconditioner_factory(order=1):
     """Create a Neumann polynomial preconditioner device function.
 
     Parameters
     ----------
     order : int, default=1
-        Polynomial order (1 or 2).
-    stage_decoupled : bool, default=False
-        Treat the input vector as stage-decoupled.
+        Polynomial order.
 
     Returns
     -------
@@ -73,58 +80,21 @@ def neumann_preconditioner_factory(order=1, stage_decoupled=False):
     def neumann_preconditioner(
         jvp_function, state, vector, out, temp_vec
     ):
-        """Approximate ``(I - J)^{-1}`` with a Neumann polynomial."""
+        """Approximate ``(I - J)^{-1}`` with a Neumann polynomial.
 
-        for i in range(vector.shape[0]):
+        Assumes state, vector, out, and temp_vec are sized consistently for the
+        Jacobian-vector product. The implementation performs:
+        out = (I + J + J^2) vector for order=2, or out = (I + J) vector for order=1.
+        """
+
+        # Initialize output with input vector
+        for i in range(out.shape[0]):
             out[i] = vector[i]
 
-        if stage_decoupled:
-            stages = state.shape[0] // vector.shape[0]
-            width = vector.shape[0]
-            for _ in range(order):
-                jvp_function(state, out, temp_vec)
-                for i in range(width * stages):
-                    out[i] += temp_vec[i]
-        else:
+        # Add J^n.v terms to output vector
+        for _ in range(order):
             jvp_function(state, out, temp_vec)
-            for i in range(vector.shape[0]):
+            for i in range(out.shape[0]):
                 out[i] += temp_vec[i]
-            if order == 2:
-                jvp_function(state, temp_vec, vector)
-                for i in range(vector.shape[0]):
-                    out[i] += vector[i]
 
     return neumann_preconditioner
-
-if __name__ == "__main__":
-    from numba import float64
-    from numba.cuda import jit
-
-    @jit(
-        (
-            float64[:],
-            float64[:],
-            float64[:],
-        ),
-        device=True,
-        inline=True,
-    )
-    def jvp_example(state, vector, out):
-        for i in range(state.shape[0]):
-            out[i] = state[i] * vector[i]
-
-    @jit(
-        (
-            float64[:],
-            float64[:],
-        ),
-        device=True,
-        inline=True,
-    )
-    def residual_example(state, out):
-        for i in range(state.shape[0]):
-            out[i] = state[i] ** 2 - 1.0
-
-    newton_solver = newton_krylov_solver_factory(tolerance=1e-6, max_iters=10)
-    preconditioner = neumann_preconditioner_factory(order=2)
-

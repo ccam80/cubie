@@ -2,9 +2,13 @@ import numpy as np
 import pytest
 from numba import cuda
 
+from cubie.integrators.matrix_free_solvers.minimal_residual import (
+    minimal_residual_solver_factory
+)
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    newton_krylov_solver_factory, neumann_preconditioner_factory)
-
+    neumann_preconditioner_factory,
+    newton_krylov_solver_factory,
+)
 
 
 @pytest.fixture(scope="function")
@@ -14,7 +18,7 @@ def preconditioner_settings_override(request):
 
 @pytest.fixture(scope="function")
 def preconditioner_settings(preconditioner_settings_override):
-    settings = {"order": 2, "stage_decoupled": False}
+    settings = {"order": 2}
     settings.update(preconditioner_settings_override)
     return settings
 
@@ -37,13 +41,22 @@ def solver_factory_settings(solver_factory_settings_override):
 
 
 @pytest.fixture(scope="function")
-def solver_device(solver_factory_settings):
-    return newton_krylov_solver_factory(**solver_factory_settings)
+def linear_solver_device():
+    settings = {"tolerance": 1e-6, "max_iters": 8}
+    return minimal_residual_solver_factory(**settings)
+
+
+@pytest.fixture(scope="function")
+def solver_device(solver_factory_settings, linear_solver_device):
+    return newton_krylov_solver_factory(
+        linear_solver=linear_solver_device, **solver_factory_settings
+    )
 
 
 @pytest.mark.parametrize(
     "preconditioner_settings_override, expected",
-    [({"order": 1}, 1.1), ({"order": 2}, 1.11)],
+    [({"order": 1}, np.asarray([1.1, 1.1, 1.1])),
+     ({"order": 2}, np.asarray([1.21, 1.21, 1.21]))],
     indirect=["preconditioner_settings_override"],
 )
 def test_neumann_preconditioner(
@@ -68,7 +81,7 @@ def test_neumann_preconditioner(
 
     out = cuda.to_device(np.zeros(n, dtype=precision))
     kernel[1, 1](out)
-    assert np.allclose(out.copy_to_host(), precision(expected))
+    assert np.allclose(out.copy_to_host(), expected.astype(precision))
 
 
 @pytest.mark.parametrize(
@@ -99,11 +112,22 @@ def test_newton_krylov_solver_linear_system(
     @cuda.jit
     def kernel(x):
         res = cuda.local.array(n, precision)
-        direction = cuda.local.array(n, precision)
-        temp = cuda.local.array(n, precision)
-        jvp_temp = cuda.local.array(n, precision)
+        rhs = cuda.local.array(n, precision)
+        delta = cuda.local.array(n, precision)
+        z_vec = cuda.local.array(n, precision)
+        v_vec = cuda.local.array(n, precision)
+        precond_temp = cuda.local.array(n, precision)
         solver_device(
-            jvp, residual, x, res, direction, temp, jvp_temp, preconditioner_device
+            jvp,
+            residual,
+            x,
+            res,
+            rhs,
+            delta,
+            z_vec,
+            v_vec,
+            preconditioner_device,
+            precond_temp,
         )
 
     x = cuda.to_device(np.zeros(n, dtype=precision))
