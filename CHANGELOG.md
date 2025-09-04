@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.0.3](https://github.com/ccam80/cubie/compare/v0.0.2...v0.0.3) (2025-09-04)
+
+
+### Features
+
+* Parser accepts and translates sympy and user-provided functions ([#108](https://github.com/ccam80/cubie/issues/108)) ([25f3c5d](https://github.com/ccam80/cubie/commit/25f3c5d89edca3d85040b1438995d45f010b99a4))
+* Symbolic input parsing added ([14577c1](https://github.com/ccam80/cubie/commit/14577c1e237791f2997ab53ffc842b5325763766))
+* symbolic interface and analytical jacobian generation added ([14577c1](https://github.com/ccam80/cubie/commit/14577c1e237791f2997ab53ffc842b5325763766))
+
+
+### Bug Fixes
+
+* BaseArrayManager.py once again contains all of it's methods, after half of the class was sausage-fingered clean off. ([96ba1cb](https://github.com/ccam80/cubie/commit/96ba1cb3d1fb6bb2bb0e6786ddb0e8dabd8512ae))
+* buggy regex removed from pyproject ([bc5606a](https://github.com/ccam80/cubie/commit/bc5606aa67ce84994a5009f0b26dbd5d8e45e603))
+* ignore generated python files ([14577c1](https://github.com/ccam80/cubie/commit/14577c1e237791f2997ab53ffc842b5325763766))
+* implement four-byte padding to reduce shared memory conflicts ([944066e](https://github.com/ccam80/cubie/commit/944066ee2ced3561b9607cbfcbfb48988f8256b9))
+* jacobian product codegen now does a simple dead-code removal sweep at the expression level ([5a46559](https://github.com/ccam80/cubie/commit/5a46559f273a8e4408fbc777ef25c55dbfc06be8))
+* metric function compilation now deferred until fn requested. ([fc42de7](https://github.com/ccam80/cubie/commit/fc42de7d438efb7968b4f4663016f9aae7cd82aa))
+* sympy piecewise printing patched in subclass ([ca20f84](https://github.com/ccam80/cubie/commit/ca20f84061dda44c44f0ccac451d1aaa128ca4bc))
+* SystemValues now interpreting sympy symbols correctly ([0549bea](https://github.com/ccam80/cubie/commit/0549beac411c21dd8a54167f517d8846a8500458))
+* SystemValues, BaseODE now have comprehensible repros ([0549bea](https://github.com/ccam80/cubie/commit/0549beac411c21dd8a54167f517d8846a8500458))
+
+
+### Documentation
+
+* batchsolving module now has all docstrings in numpydocs-friendly format ([8e6e8cf](https://github.com/ccam80/cubie/commit/8e6e8cf415b86017137cd00421e14de58168e019))
+* conf.py path reverted for Sphinx build ([5383de6](https://github.com/ccam80/cubie/commit/5383de6e551efde3ecf965efc50210608f136f12))
+* docs updated and thinned to match structure ([9df6978](https://github.com/ccam80/cubie/commit/9df69786697ccf35f29f528a828a057a67d302ab))
+* first-pass narrative docs added ([14577c1](https://github.com/ccam80/cubie/commit/14577c1e237791f2997ab53ffc842b5325763766))
+* get sphinx-build working again and ReadTheDocs themed ([6df9a82](https://github.com/ccam80/cubie/commit/6df9a82fefa6307a9ef981ebe70ee2bc0c72161f))
+* insert google verification tag, cross-link repo and docs ([0d61cd2](https://github.com/ccam80/cubie/commit/0d61cd2f93d1e79d2dc823a9830387d863cf8abb))
+* integrators section docstrings brought in line with numpydocs format ([8b22790](https://github.com/ccam80/cubie/commit/8b22790c912b50f0681b7fb6d7eda925e87be64b))
+* memory section docstrings brought into numpy format ([d495551](https://github.com/ccam80/cubie/commit/d495551cce6f0a150da76b6000f87ce512e4345a))
+* output_functions section docstrings brought into numpy format ([4e7b2c0](https://github.com/ccam80/cubie/commit/4e7b2c06d1ec8b0ee873d97e0e30e0f4b42a849c))
+* pypi version badge added ([8b22790](https://github.com/ccam80/cubie/commit/8b22790c912b50f0681b7fb6d7eda925e87be64b))
+* readme now has code coverage badge ([8e6e8cf](https://github.com/ccam80/cubie/commit/8e6e8cf415b86017137cd00421e14de58168e019))
+* systemmodels section docstrings brought into numpy format ([9df6978](https://github.com/ccam80/cubie/commit/9df69786697ccf35f29f528a828a057a67d302ab))
+
+
+### Miscellaneous Chores
+
+* release 0.0.3 ([684ef91](https://github.com/ccam80/cubie/commit/684ef91d144178828b2ec5fe7bf3addd58b625a9))
+
 ## [0.0.2](https://github.com/ccam80/cubie/compare/v0.0.1...v0.0.2) (2025-08-18)
 
 
