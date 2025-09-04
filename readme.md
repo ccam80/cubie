@@ -16,21 +16,20 @@ The interface is not yet stable. As of v0.0.3, the symbolic interface for creati
 solves can be performed using Euler's method only, with a slightly clumsy API and some disorganised documentation.
 
 ### Roadmap:
-v0.0.4: Implicit integration methods.
-- Currently in development: Matrix-free solvers
-- Next up: 
-  - Adaptive time-stepping loops and abstraction of the integrator loop base class.
-  - Backward Euler method
-  - Rosenbrock methods
-  - Radau methods
-  - Runge-Kutta methods
+-v0.0.4: Implicit integration methods.
+  - Currently in development: Matrix-free solvers
+  - Next up: 
+    - Adaptive time-stepping loops and abstraction of the integrator loop base class.
+    - Backward Euler method
+    - Rosenbrock methods
+    - Radau methods
+    - Runge-Kutta methods
 - v0.0.5: API improvements. This version should be stable enough for use in research - I will be using it in mine.
 - v0.1.0: Documentation to match the API, organised in the sane way that a robot does not.
 
 I'm completing this project to use it to finish my PhD, so I've got a pretty solid driver to get to v0.0.5 as fast as my
 little fingers can type. I am motivated to get v0.1.0 out soon after to see if there is interest in this tool from the 
-wider community. If there is interest, I will continue to develop it, otherwise I will maintain it for my own use and 
-that of my collaborators.
+wider community.
 
 ## Documentation:
 
