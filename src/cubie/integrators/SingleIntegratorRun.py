@@ -11,6 +11,7 @@ are properly communicated.
 from typing import Optional
 
 from numpy.typing import ArrayLike
+from numpy import float64
 
 from cubie._utils import in_attr
 from cubie.integrators.algorithms import ImplementedAlgorithms
@@ -329,12 +330,8 @@ class SingleIntegratorRun:
         loop_memory = self._integrator_instance.shared_memory_required
         summary_buffers = self._output_functions.total_summary_buffer_size
         total_elements = loop_memory + summary_buffers
-        if total_elements % 2 == 0:
-            total_elements += 1  # Make it odd to reduce bank conflicts
-        return (
-            self._integrator_instance.shared_memory_required
-            + self._output_functions.total_summary_buffer_size
-        )
+
+        return total_elements
 
     @property
     def shared_memory_bytes(self):
