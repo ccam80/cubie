@@ -111,8 +111,20 @@ def built_simple_nonstrict(simple_ode_nonstrict):
 
 @pytest.mark.nocudasim
 def test_simple_strict_builds(built_simple_strict):
-    assert is_devfunc(built_simple_strict.jvp_function)
+    assert is_devfunc(built_simple_strict.get_solver_helper("jvp"))
 
 @pytest.mark.nocudasim
 def test_simple_nonstrict_builds(built_simple_nonstrict):
-    assert is_devfunc(built_simple_nonstrict.jvp_function)
+    assert is_devfunc(built_simple_nonstrict.get_solver_helper("jvp"))
+
+
+@pytest.mark.nocudasim
+def test_vjp_builds(built_simple_strict):
+    assert is_devfunc(built_simple_strict.get_solver_helper("vjp"))
+
+
+def test_solver_helper_cached(built_simple_strict):
+    func1 = built_simple_strict.get_solver_helper("i-hj")
+    assert callable(func1)
+    func2 = built_simple_strict.get_solver_helper("i-hj")
+    assert func1 is func2

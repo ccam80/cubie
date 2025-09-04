@@ -9,13 +9,20 @@ from cubie.CUDAFactory import CUDAFactory
 from cubie.systemmodels.systems.ODEData import ODEData
 
 
-@attrs.define()
+@attrs.define
 class ODECache:
-    """Cache for compiled CUDA device functions.
-    If jvp or vjp are not implemented, set them to -1."""
+    """Cache for compiled CUDA device and support functions.
+
+    Attributes default to ``-1`` when the corresponding function is not built.
+    """
+
     dxdt: Optional[Callable] = attrs.field()
     jvp: Optional[Union[Callable, int]] = attrs.field(default=-1)
     vjp: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    i_minus_hj: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    residual_plus_i_minus_hj: Optional[Union[Callable, int]] = attrs.field(
+        default=-1
+    )
 
 
 class BaseODE(CUDAFactory):
@@ -25,6 +32,12 @@ class BaseODE(CUDAFactory):
     shared machinery used to interface with CUDA can be reused. When subclassing,
     you should overload the build() and correct_answer_python() methods to provide
     the specific ODE system you want to simulate.
+
+    Notes
+    -----
+    Only functions cached during :meth:`build` (typically ``dxdt``) are
+    available on this base class. Solver helper functions such as ``jvp`` and
+    ``vjp`` are generated only by subclasses like :class:`SymbolicODE`.
 
     Parameters
     ----------
@@ -397,10 +410,34 @@ class BaseODE(CUDAFactory):
 
     @property
     def jvp_function(self):
-        """ Returns the compiled jvp device function."""
-        return self.get_cached_output("jvp")
+        """Return the compiled JVP device function."""
+        return self.get_solver_helper("jvp")
 
     @property
     def vjp_function(self):
-        """ Returns the compiled vjp device function."""
-        return self.get_cached_output("vjp")
+        """Return the compiled VJP device function."""
+        return self.get_solver_helper("vjp")
+
+    @property
+    def i_minus_hj_function(self):
+        """Return the compiled ``i_minus_hj`` device function."""
+        return self.get_solver_helper("i-hj")
+
+    @property
+    def residual_plus_i_minus_hj_function(self):
+        """Return the compiled ``residual_plus_i_minus_hj`` device function."""
+        return self.get_solver_helper("r+i-hj")
+    def get_solver_helper(self, func_name: str):
+        """Retrieve a cached solver helper function.
+
+        Parameters
+        ----------
+        func_name : str
+            Identifier for the helper function.
+
+        Returns
+        -------
+        Callable
+            The cached device function corresponding to ``func_name``.
+        """
+        return self.get_cached_output(func_name)

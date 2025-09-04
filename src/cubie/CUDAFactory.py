@@ -224,16 +224,17 @@ class CUDAFactory(ABC):
         """
         if not self.cache_valid:
             self._build()
+        if self._cache is None:
+            raise RuntimeError("Cache has not been initialized by build().")
         if output_name == "device_function":
             return self._device_function
-        else:
-            if not in_attr(output_name, self._cache):
-                raise KeyError(
-                    f"Output '{output_name}' not found in cached outputs."
-                )
-            cache_contents = getattr(self._cache, output_name)
-            if cache_contents == -1:
-                raise NotImplementedError(
-                    f"Output '{output_name}' is not implemented in this class."
-                )
-            return cache_contents
+        if not in_attr(output_name, self._cache):
+            raise KeyError(
+                f"Output '{output_name}' not found in cached outputs."
+            )
+        cache_contents = getattr(self._cache, output_name)
+        if cache_contents == -1:
+            raise NotImplementedError(
+                f"Output '{output_name}' is not implemented in this class."
+            )
+        return cache_contents

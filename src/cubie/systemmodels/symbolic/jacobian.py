@@ -65,8 +65,7 @@ I_MINUS_HJ_TEMPLATE = (
     "              inline=True)\n"
     "    def i_minus_hj(state, parameters, drivers, h, v, out):\n"
     "    {body}\n"
-    "    \n"
-    "    return out\n"
+    "    return i_minus_hj\n"
 )
 
 RES_PLUS_I_MINUS_HJ_TEMPLATE = (
@@ -84,8 +83,7 @@ RES_PLUS_I_MINUS_HJ_TEMPLATE = (
     "              inline=True)\n"
     "    def residual_plus_i_minus_hj(state, parameters, drivers, h, v, out):\n"
     "    {body}\n"
-    "    \n"
-    "    return out\n"
+    "    return residual_plus_i_minus_hj\n"
 )
 
 _cache: dict = {}
