@@ -16,7 +16,7 @@ from typing import Optional
 from warnings import warn
 
 import numpy as np
-from numba import cuda
+from numba import cuda, float64, float32
 from numba import int32, int16, from_dtype
 from numpy.typing import NDArray, ArrayLike
 
@@ -349,9 +349,10 @@ class BatchSolverKernel(CUDAFactory):
         numruns = chunkruns
         output_length = chunklength
         warmup_length = self.warmup_length
-
+        pad_perrun = 4 if (self.precision is np.float64) else 0
+        padded_bytes_perrun = self.shared_memory_bytes_per_run + pad_perrun
         dynamic_sharedmem = int(
-            self.shared_memory_bytes_per_run * min(numruns, blocksize)
+            padded_bytes_perrun * min(numruns, blocksize)
         )
         while dynamic_sharedmem > 32768:
             if blocksize < 32:
@@ -365,7 +366,7 @@ class BatchSolverKernel(CUDAFactory):
                 )
             blocksize = blocksize / 2
             dynamic_sharedmem = int(
-                self.shared_memory_bytes_per_run * min(numruns, blocksize)
+                padded_bytes_perrun * min(numruns, blocksize)
             )
 
         threads_per_loop = self.single_integrator.threads_per_loop
@@ -411,6 +412,15 @@ class BatchSolverKernel(CUDAFactory):
         ):
             cuda.profile_stop()
 
+    def shared_memory_needs_padding(self):
+        """True if we need to pad shared memory to avoid bank conflicts"""
+        if self.precision == np.float64:
+            return True
+        elif self.shared_memory_elements_per_run % 2 == 0:
+            return True
+        else:
+            return False
+
     def build_kernel(self):
         """
         Build and compile the CUDA integration kernel.
@@ -434,13 +444,21 @@ class BatchSolverKernel(CUDAFactory):
         """
         precision = from_dtype(self.precision)
         loopfunction = self.single_integrator.device_function
-        shared_elements_per_run = self.shared_memory_elements_per_run
 
         output_flags = self.active_output_arrays
         save_state = output_flags.state
         save_observables = output_flags.observables
         save_state_summaries = output_flags.state_summaries
         save_observable_summaries = output_flags.observable_summaries
+        needs_padding = self.shared_memory_needs_padding()
+
+        # Shared memory strides are set to minimise bank conflicts - each run
+        # must span an odd number of 32b words.
+        shared_elements_per_run = self.shared_memory_elements_per_run
+        f32_per_element = 2 if (precision is float64) else 1
+        f32_pad_perrun = 1 if needs_padding else 0
+        run_stride_f32 = (f32_per_element * shared_elements_per_run +
+                          f32_pad_perrun)
 
         # no cover: start
         @cuda.jit(
@@ -479,14 +497,19 @@ class BatchSolverKernel(CUDAFactory):
             if run_index >= n_runs:
                 return None
 
-            shared_memory = cuda.shared.array(0, dtype=precision)
+            #Declare shared memory in 32b units to allow for skewing/padding
+            shared_memory = cuda.shared.array(0, dtype=float32)
             c_forcing_vector = cuda.const.array_like(forcing_vector)
 
             # Run-indexed slices of shared and output memory
-            rx_shared_memory = shared_memory[
-                ty * shared_elements_per_run : (ty + 1)
-                * shared_elements_per_run
-            ]
+
+            run_idx_low = ty * run_stride_f32
+            run_idx_high = (run_idx_low + f32_per_element *
+                            shared_elements_per_run)
+
+            rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
+                    precision)
+
             rx_inits = inits[run_index, :]
             rx_params = params[run_index, :]
             rx_state = state_output[:, run_index * save_state, :]
