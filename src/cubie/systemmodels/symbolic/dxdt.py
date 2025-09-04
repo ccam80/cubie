@@ -96,9 +96,6 @@ def generate_residual_code(
     # Generate dxdt code lines first
     dxdt_lines = generate_dxdt_lines(equations, index_map=index_map, cse=cse)
 
-    # Replace LHS target from dxdt[...] to out[...]
-    res_lines = [line.replace("dxdt[", "out[") for line in dxdt_lines]
-
     # Replace any observable array references with placeholder symbol names
     # e.g., replace "observables[3]" with the corresponding symbol name
     try:
@@ -107,12 +104,14 @@ def generate_residual_code(
         observable_ref_map = {}
 
     if observable_ref_map:
+        just_in_case = sp.numbered_symbols("_temp")
         for sym, ref in observable_ref_map.items():
             placeholder = str(sym)
-            res_lines = [ln.replace(ref, placeholder) for ln in res_lines]
-
-    if not res_lines:
-        res_lines = ["pass"]
+            if placeholder.startswith("observable"):
+                placeholder = just_in_case.__next__()
+            res_lines = [ln.replace(ref, placeholder) for ln in dxdt_lines]
+    else:
+        res_lines = dxdt_lines
 
     code = RESIDUAL_TEMPLATE.format(
         func_name=func_name, body="    " + "\n        ".join(res_lines)

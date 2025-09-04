@@ -12,6 +12,8 @@ from cubie.systemmodels.symbolic.jacobian import (
     generate_vjp_code,
     generate_i_minus_hj_code,
     generate_residual_plus_i_minus_hj_code,
+    clear_cache,
+    get_cache_counts,
 )
 from cubie.systemmodels.symbolic.parser import IndexedBases
 
@@ -867,7 +869,7 @@ class TestJacobianIntegration:
             drivers=drivers,
         )
 
-        x1, x2, x3, a, b, c = sp.symbols('x1 x2 x3 a b c')
+        x1, x2, x3, a, b, c = sp.symbols("x1 x2 x3 a b c")
         equations = [
             (sp.Symbol('dx1'), a*x1 + b*x2),
             (sp.Symbol('dx2'), b*x2 + c*x3),
@@ -882,3 +884,109 @@ class TestJacobianIntegration:
         assert isinstance(vjp_code, str)
         assert "def jvp_factory" in jvp_code
         assert "def vjp_factory" in vjp_code
+
+
+
+class TestCachingBehavior:
+    """Tests for unified caching of Jacobian, JVP, and VJP expressions."""
+
+    def setup_method(self):
+        clear_cache()
+
+    def test_jacobian_cache_counts(self):
+        counts = get_cache_counts()
+        assert counts["jac"] == 0 and counts["jvp"] == 0 and counts["vjp"] == 0
+
+        # Simple 2x2 linear system
+        x, y = sp.symbols("x y")
+        a, b, c, d = sp.symbols("a b c d")
+        equations = [
+            (sp.Symbol("dx"), a * x + b * y),
+            (sp.Symbol("dy"), c * x + d * y),
+        ]
+        input_order = {x: 0, y: 1}
+        output_order = {sp.Symbol("dx"): 0, sp.Symbol("dy"): 1}
+
+        _ = generate_jacobian(equations, input_order, output_order)
+        counts = get_cache_counts()
+        assert counts["jac"] == 1
+
+        # Second call should hit cache, not increase count
+        _ = generate_jacobian(equations, input_order, output_order)
+        counts2 = get_cache_counts()
+        assert counts2 == counts
+
+    def test_jvp_vjp_cache_counts_and_cse_key(self):
+        clear_cache()
+        counts = get_cache_counts()
+        assert counts["jac"] == 0 and counts["jvp"] == 0 and counts["vjp"] == 0
+
+        x, y = sp.symbols("x y")
+        a, b, c, d = sp.symbols("a b c d")
+        equations = [
+            (sp.Symbol("dx"), a * x + b * y),
+            (sp.Symbol("dy"), c * x + d * y),
+        ]
+        input_order = {x: 0, y: 1}
+        output_order = {sp.Symbol("dx"): 0, sp.Symbol("dy"): 1}
+
+        # JVP cache
+        _ = generate_analytical_jvp(equations, input_order, output_order, cse=True)
+        counts = get_cache_counts()
+        assert counts["jvp"] == 1
+
+        # Same call doesn't increase count
+        _ = generate_analytical_jvp(equations, input_order, output_order, cse=True)
+        counts2 = get_cache_counts()
+        assert counts2["jvp"] == 1
+
+        # Different CSE setting should create a separate cache entry
+        _ = generate_analytical_jvp(equations, input_order, output_order, cse=False)
+        counts3 = get_cache_counts()
+        assert counts3["jvp"] == 2
+
+        # VJP cache
+        _ = generate_analytical_vjp(equations, input_order, output_order, cse=True)
+        counts4 = get_cache_counts()
+        assert counts4["vjp"] == 1
+
+        # Clearing should reset all
+        clear_cache()
+        counts5 = get_cache_counts()
+        assert counts5["jac"] == 0 and counts5["jvp"] == 0 and counts5["vjp"] == 0
+
+    def test_factories_use_cached_jvp(self):
+        """Generating i_minus_hj and residual_plus_i_minus_hj should reuse cached JVP."""
+        clear_cache()
+        # Build a small system and index map
+        states = ["x", "y"]
+        parameters = ["a", "b"]
+        indexed_bases = IndexedBases.from_user_inputs(
+            states=states, parameters=parameters, constants=[], observables=[], drivers=[]
+        )
+
+        x, y, a, b = sp.symbols("x y a b")
+        equations = [
+            (sp.Symbol("dx", real=True), a * x + b * y),
+            (sp.Symbol("dy", real=True), b * x - a * y),
+        ]
+
+        # Precompute and cache JVP with same arguments the factories will use
+        _ = generate_analytical_jvp(
+            equations,
+            input_order=indexed_bases.states.index_map,
+            output_order=indexed_bases.dxdt.index_map,
+            observables=indexed_bases.observable_symbols,
+            cse=True,
+        )
+        counts_before = get_cache_counts()
+        assert counts_before["jvp"] == 1
+        
+        # Now generate factories; cache count should not increase
+        _ = generate_i_minus_hj_code(equations, indexed_bases)
+        counts_after_i_minus_hj = get_cache_counts()
+        assert counts_after_i_minus_hj["jvp"] == counts_before["jvp"]
+        
+        _ = generate_residual_plus_i_minus_hj_code(equations, indexed_bases)
+        counts_after_residual = get_cache_counts()
+        assert counts_after_residual["jvp"] == counts_before["jvp"]

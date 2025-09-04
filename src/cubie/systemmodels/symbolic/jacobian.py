@@ -87,12 +87,22 @@ RES_PLUS_I_MINUS_HJ_TEMPLATE = (
     "    \n"
     "    return out\n"
 )
-# Simple cache for Jacobian matrices
-_jacobian_cache = {}
 
+_cache: dict = {}
+
+def get_cache_counts() -> Dict[str, int]:
+    """Return counts of cached items by kind (jac, jvp, vjp).
+
+    Used in testing."""
+    counts: Dict[str, int] = {"jac": 0, "jvp": 0, "vjp": 0}
+    for key in _cache.keys():
+        kind = key[0] if isinstance(key, tuple) and key else None
+        if kind in counts:
+            counts[kind] += 1
+    return counts
 
 def _get_cache_key(equations, input_order, output_order):
-    """Generate a cache key for the Jacobian computation."""
+    """Generate a base cache key from equations and orders."""
     # Convert equations to a hashable form
     if isinstance(equations, dict):
         eq_tuple = tuple(equations.items())
@@ -105,9 +115,27 @@ def _get_cache_key(equations, input_order, output_order):
     return (eq_tuple, input_tuple, output_tuple)
 
 
-def clear_jacobian_cache():
-    """Clear the Jacobian cache."""
-    _jacobian_cache.clear()
+def _get_unified_cache_key(kind: str,
+                           equations,
+                           input_order,
+                           output_order,
+                           observables=None,
+                           cse=True):
+    """Generate a unified cache key for jac/jvp/vjp kinds."""
+    base = _get_cache_key(equations, input_order, output_order)
+    if kind == "jac":
+        return ("jac", base)
+    # jvp or vjp
+    if observables is None:
+        obs_tuple = None
+    else:
+        obs_tuple = tuple(observables)
+    return (kind, base, obs_tuple, bool(cse))
+
+
+def clear_cache():
+    """Clear the unified symbolic cache (kept for API compatibility)."""
+    _cache.clear()
 
 
 def generate_jacobian(equations: Union[
@@ -134,12 +162,17 @@ def generate_jacobian(equations: Union[
     -------
     sp.Matrix: The symbolic Jacobian matrix.
     """
+    if isinstance(equations, dict):
+        eq_list = list(equations.items())
+    else:
+        eq_list = list(equations)
+
     # Check cache first
     cache_key = None
     if use_cache:
-        cache_key = _get_cache_key(equations, input_order, output_order)
-        if cache_key in _jacobian_cache:
-            return _jacobian_cache[cache_key]
+        cache_key = _get_unified_cache_key("jac", eq_list, input_order, output_order)
+        if cache_key in _cache:
+            return _cache[cache_key]
 
     input_symbols = set(input_order.keys())
     sorted_inputs = sorted(input_symbols,
@@ -147,7 +180,7 @@ def generate_jacobian(equations: Union[
     output_symbols = set(output_order.keys())
     num_in = len(input_symbols)
 
-    equations = topological_sort(equations)
+    equations = topological_sort(eq_list)
     auxiliary_equations = [(lhs, eq) for lhs, eq in equations if lhs not in
                            output_symbols]
     aux_symbols = {lhs for lhs, _ in auxiliary_equations}
@@ -191,7 +224,7 @@ def generate_jacobian(equations: Union[
 
     # Cache the result before returning
     if use_cache and cache_key is not None:
-        _jacobian_cache[cache_key] = J
+        _cache[cache_key] = J
 
     return J
 
@@ -236,7 +269,8 @@ def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
             kept.append((lhs, rhs))
             # Only follow dependencies that are assigned to
             deps = rhs.free_symbols & all_lhs
-            used.update(deps)
+            deps_syms = {s for s in deps if isinstance(s, sp.Symbol)}
+            used.update(deps_syms)
     kept.reverse()
     return kept
 
@@ -249,10 +283,25 @@ def generate_jac_product(equations: Union[
                          observables: Iterable[sp.Symbol] = None,
                          direction='jvp',
                          cse=True,
-                         use_cache: bool = True
                               ):
     """Returns symbolic expressions for vector-jacobian or jacobian-vector
     product, depending on the direction argument.."""
+    # Materialize equations to avoid consuming generators and ensure stable keys
+    if isinstance(equations, dict):
+        eq_list = list(equations.items())
+    else:
+        eq_list = list(equations)
+
+    # Caching key before any mutation of inputs
+    cache_key = _get_unified_cache_key(direction,
+                                       eq_list,
+                                       input_order,
+                                       output_order,
+                                       observables,
+                                       cse)
+    if cache_key in _cache:
+        return _cache[cache_key]
+
     n_inputs = len(input_order)
     n_outputs = len(output_order)
 
@@ -263,8 +312,8 @@ def generate_jac_product(equations: Union[
         obs_subs = {}
 
     equations = [(lhs.subs(obs_subs), rhs.subs(obs_subs)) for lhs, rhs in
-                  equations]
-    jac = generate_jacobian(equations, input_order, output_order, use_cache=use_cache)
+                  eq_list]
+    jac = generate_jacobian(equations, input_order, output_order, use_cache=True)
 
     prod_exprs = []
 
@@ -311,6 +360,8 @@ def generate_jac_product(equations: Union[
     # Final sweep to drop any intermediates not contributing to jvp/vjp
     all_exprs = _prune_unused_assignments(all_exprs)
 
+    # Store in cache and return
+    _cache[cache_key] = all_exprs
     return all_exprs
 
 
@@ -321,7 +372,6 @@ def generate_analytical_jvp(equations: Union[
                               output_order: Dict[sp.Symbol, int],
                               observables: Iterable[sp.Symbol] = None,
                               cse=True,
-                              use_cache: bool = True
                               ):
     """Returns the symbolic expressions required to calculate
     the Jacobian-vector
@@ -331,8 +381,7 @@ def generate_analytical_jvp(equations: Union[
                                 output_order=output_order,
                                 observables=observables,
                                 direction='jvp',
-                                cse=cse,
-                                use_cache=use_cache)
+                                cse=cse)
 
 
 def generate_analytical_vjp(equations: Union[
@@ -342,7 +391,6 @@ def generate_analytical_vjp(equations: Union[
                               output_order: Dict[sp.Symbol, int],
                               observables: Iterable[sp.Symbol] = None,
                               cse=True,
-                              use_cache: bool = True
                               ):
     """Returns the symbolic expressions required to calculate
     the vector-Jacobian product."""
@@ -351,8 +399,7 @@ def generate_analytical_vjp(equations: Union[
                                 output_order=output_order,
                                 observables=observables,
                                 direction='vjp',
-                                cse=cse,
-                                use_cache=use_cache)
+                                cse=cse)
 
 
 def generate_jvp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
@@ -429,7 +476,8 @@ def generate_i_minus_hj_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
         output_order=index_map.dxdt.index_map,
         observables=index_map.observable_symbols,
         cse=cse,
-    ) #TODO: Cache
+    )
+
     aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
     n_out = len(index_map.dxdt.ref_map)
     all_exprs = list(aux)
@@ -440,6 +488,7 @@ def generate_i_minus_hj_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
                 sp.Symbol(f"v[{i}]") - sp.Symbol("h") * jvp_terms[i],
             )
         )
+
     if cse:
         all_exprs = cse_and_stack(all_exprs)
     else:
@@ -488,3 +537,4 @@ def generate_residual_plus_i_minus_hj_code(
         func_name=func_name, body="    " + "\n        ".join(lines)
     )
     return code
+
