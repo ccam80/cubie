@@ -8,15 +8,29 @@ A batch integration system for systems of ODEs and SDEs, for when elegant soluti
 1,000,000 systems, fast. This package was designed to simulate a large electrophysiological model as part of a 
 likelihood-free inference method (eventually, package [cubism]), but the machinery is domain-agnostic.
 
-The most basic use case is to define a system of ODEs or SDEs, and then call cubie.solve(system, inits, params, duration) with a description of the "batch" in the form of initial conditions and system parameters. There are a few seconds of overhead in the first call to Solve - cubie really shines when dealing with large problems or repeated calls with a similarly sized batch.
-
-Defining a system of ODEs is the most cumbersome part of using this library. Like in MATLAB or SciPy, we need to create a dxdt function that takes the current state and parameters, and returns the rate of change of the state. Unlike MATLAB and SciPy, this function needs to be CUDA-compatible, which means it cannot use some of the features of Python and numpy. Creating a system is done by subclassing cubie.SystemModel.GenericODE, and implementing the dxdt method. See ThreeCM.py for an example of a small system. Fabbri_linder.py for an example of a large system.
-
 While in early development, using this library as a way to experiment with and learn about some better software practice than I have used in 
 past, including testing, CI/CD, and other helpful tactics I stumble upon. As such, there will
 be some clunky bits.
 
-The interface is not yet stable, and the documentation is currently non-working AI-generated slop, but the library now works roughly as you might expect, and can get up and running quickly by reading docstrings. Documentation and SymPy integration (as a means to get Jacobians to use implicit algorithms) are on the hit list for v0.1.0.
+The interface is not yet stable. As of v0.0.3, the symbolic interface for creating problems is up and running, and batch 
+solves can be performed using Euler's method only, with a slightly clumsy API and some disorganised documentation.
+
+### Roadmap:
+v0.0.4: Implicit integration methods.
+- Currently in development: Matrix-free solvers
+- Next up: 
+  - Adaptive time-stepping loops and abstraction of the integrator loop base class.
+  - Backward Euler method
+  - Rosenbrock methods
+  - Radau methods
+  - Runge-Kutta methods
+v0.0.5: API improvements. This version should be stable enough for use in research - I will be using it in mine.
+V0.1.0: Documentation to match the API.
+
+I'm completing this project to use it to finish my PhD, so I've got a pretty solid driver to get to v0.0.5 as fast as my
+little fingers can type. I am motivated to get v0.1.0 out soon after to see if there is interest in this tool from the 
+wider community. If there is interest, I will continue to develop it, otherwise I will maintain it for my own use and 
+that of my collaborators.
 
 ## Documentation:
 
@@ -31,6 +45,10 @@ pip install cubie
 - Python 3.8 or later
 - CUDA Toolkit 12.9 or later
 - NVIDIA GPU with compute capability 6.0 or higher (i.e. GTX10-series or newer)
+
+## Contributing:
+Pull requests are very, very welcome! Please open an issue if you would like to discuss a feature or bug before doing a 
+bunch of work on it.
 
 ## Project Goals:
 
