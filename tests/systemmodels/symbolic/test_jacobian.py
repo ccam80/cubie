@@ -1,5 +1,8 @@
+import numpy as np
 import pytest
 import sympy as sp
+from numba import cuda
+from numpy.testing import assert_allclose
 from sympy import Matrix
 
 from cubie.systemmodels.symbolic.jacobian import (
@@ -16,6 +19,7 @@ from cubie.systemmodels.symbolic.jacobian import (
     get_cache_counts,
 )
 from cubie.systemmodels.symbolic.parser import IndexedBases
+from cubie.systemmodels.symbolic.symbolicODE import SymbolicODE
 
 
 def substitute_jacobian_elements(results_dict, auxiliaries):
@@ -990,3 +994,141 @@ class TestCachingBehavior:
         _ = generate_residual_plus_i_minus_hj_code(equations, indexed_bases)
         counts_after_residual = get_cache_counts()
         assert counts_after_residual["jvp"] == counts_before["jvp"]
+
+
+def test_biochemical_numerical(precision):
+    """Numerically validate JVP, VJP and solver helpers."""
+    states = ["Su", "En", "ES", "Pr"]
+    parameters = ["k1", "k2", "k3"]
+    constants = ["Et"]
+    indexed_bases = IndexedBases.from_user_inputs(
+        states=states,
+        parameters=parameters,
+        constants=constants,
+        observables=[],
+        drivers=[],
+    )
+
+    Su, En, ES, Pr, k1, k2, k3, Et = sp.symbols(
+        "Su En ES Pr k1 k2 k3 Et", real=True
+    )
+    equations = [
+        (sp.Symbol("dSu", real=True), -k1 * Su * En + k2 * ES),
+        (sp.Symbol("dEn", real=True), -k1 * Su * En + k2 * ES + k3 * ES),
+        (sp.Symbol("dES", real=True), k1 * Su * En - k2 * ES - k3 * ES),
+        (sp.Symbol("dPr", real=True), k3 * ES),
+    ]
+    system = SymbolicODE(
+        equations,
+        indexed_bases,
+        precision=precision,
+        name="biochemical_system",
+    )
+    system.build()
+    dxdt_fn = system.dxdt_function
+    jvp_fn = system.jvp_function
+    vjp_fn = system.vjp_function
+    i_minus_hj_fn = system.i_minus_hj_function
+    res_plus_i_minus_hj_fn = system.residual_plus_i_minus_hj_function
+
+    initial_values = np.asarray([0.5, 0.5, 0.5, 0.5], dtype=precision)
+    parameter_vals = np.asarray([0.5, 0.5, 0.5], dtype=precision)
+    driver_vals = np.zeros(1, dtype=precision)
+    v = np.asarray([0.2, 0.1, 0.1, 0.2], dtype=precision)
+    h = precision(0.1)
+
+    d_dxdt = cuda.device_array(4, dtype=precision)
+    d_jvp = cuda.device_array(4, dtype=precision)
+    d_vjp = cuda.device_array(4, dtype=precision)
+    d_i_minus_hj = cuda.device_array(4, dtype=precision)
+    d_residual = cuda.device_array(4, dtype=precision)
+    d_state = cuda.to_device(initial_values)
+    d_params = cuda.to_device(parameter_vals)
+    d_drivers = cuda.to_device(driver_vals)
+    d_observables = cuda.device_array(1, dtype=precision)
+    d_v = cuda.to_device(v)
+
+    @cuda.jit()
+    def kernel(
+        state,
+        params,
+        drivers,
+        observables,
+        dxdt,
+        vec,
+        jvp,
+        vjp,
+        step,
+        i_minus_hj,
+        residual,
+    ):
+        dxdt_fn(state, params, drivers, observables, dxdt)
+        jvp_fn(state, params, drivers, vec, jvp)
+        vjp_fn(state, params, drivers, vec, vjp)
+        i_minus_hj_fn(state, params, drivers, step, vec, i_minus_hj)
+        res_plus_i_minus_hj_fn(state, params, drivers, step, vec, residual)
+
+    kernel[1, 1](
+        d_state,
+        d_params,
+        d_drivers,
+        d_observables,
+        d_dxdt,
+        d_v,
+        d_jvp,
+        d_vjp,
+        h,
+        d_i_minus_hj,
+        d_residual,
+    )
+
+    dxdt = d_dxdt.copy_to_host()
+    jvp = d_jvp.copy_to_host()
+    vjp = d_vjp.copy_to_host()
+    i_minus_hj = d_i_minus_hj.copy_to_host()
+    residual = d_residual.copy_to_host()
+
+    p = parameter_vals
+    x = initial_values
+    expected_dxdt = np.zeros(4, dtype=precision)
+    expected_dxdt[0] = -p[0] * x[0] * x[1] + p[1] * x[2]
+    expected_dxdt[1] = -p[0] * x[0] * x[1] + (p[1] + p[2]) * x[2]
+    expected_dxdt[2] = p[0] * x[0] * x[1] - (p[1] + p[2]) * x[2]
+    expected_dxdt[3] = p[2] * x[2]
+
+    expected_jvp = np.zeros(4, dtype=precision)
+    expected_jvp[0] = -p[0] * x[1] * v[0] - p[0] * x[0] * v[1] + p[1] * v[2]
+    expected_jvp[1] = -p[0] * x[1] * v[0] - p[0] * x[0] * v[1] + (
+        p[1] + p[2]
+    ) * v[2]
+    expected_jvp[2] = p[0] * x[1] * v[0] + p[0] * x[0] * v[1] - (
+        p[1] + p[2]
+    ) * v[2]
+    expected_jvp[3] = p[2] * v[2]
+
+    expected_vjp = np.zeros(4, dtype=precision)
+    expected_vjp[0] = p[0] * x[1] * (v[2] - v[1] - v[0])
+    expected_vjp[1] = p[0] * x[0] * (v[2] - v[1] - v[0])
+    expected_vjp[2] = p[1] * v[0] + (p[1] + p[2]) * (v[1] - v[2]) + p[2] * v[3]
+    expected_vjp[3] = precision(0.0)
+
+    expected_i_minus_hj = v - h * expected_jvp
+    expected_residual = expected_dxdt + expected_i_minus_hj
+
+    assert_allclose(dxdt, expected_dxdt, atol=1e-6, rtol=1e-6, err_msg="dxdt")
+    assert_allclose(jvp, expected_jvp, atol=1e-6, rtol=1e-6, err_msg="jvp")
+    assert_allclose(vjp, expected_vjp, atol=1e-6, rtol=1e-6, err_msg="vjp")
+    assert_allclose(
+        i_minus_hj,
+        expected_i_minus_hj,
+        atol=1e-6,
+        rtol=1e-6,
+        err_msg="i_minus_hj",
+    )
+    assert_allclose(
+        residual,
+        expected_residual,
+        atol=1e-6,
+        rtol=1e-6,
+        err_msg="residual_plus_i_minus_hj",
+    )
