@@ -1,8 +1,12 @@
 """Device function factories for Newton-Krylov solvers."""
+from typing import Callable
+
 from numba import cuda
 
 
-def newton_krylov_solver_factory(tolerance, max_iters, linear_solver):
+def newton_krylov_solver_factory(
+    tolerance: float, max_iters: int, linear_solver: Callable
+) -> Callable:
     """Create a Newton-Krylov solver device function.
 
     Parameters
@@ -25,6 +29,9 @@ def newton_krylov_solver_factory(tolerance, max_iters, linear_solver):
         jvp_function,
         residual_function,
         state,
+        parameters,
+        drivers,
+        h,
         residual,
         rhs,
         delta,
@@ -36,7 +43,7 @@ def newton_krylov_solver_factory(tolerance, max_iters, linear_solver):
         """Solve ``F(state) = 0`` using a Newton-Krylov iteration."""
 
         for _ in range(max_iters):
-            residual_function(state, residual)
+            residual_function(state, parameters, drivers, h, rhs, residual)
             norm = 0.0
             for i in range(residual.shape[0]):
                 norm += residual[i] * residual[i]
@@ -45,9 +52,13 @@ def newton_krylov_solver_factory(tolerance, max_iters, linear_solver):
             for i in range(residual.shape[0]):
                 rhs[i] = -residual[i]
                 delta[i] = 0.0
+                residual[i] = rhs[i]
             linear_solver(
                 jvp_function,
                 state,
+                parameters,
+                drivers,
+                h,
                 rhs,
                 delta,
                 residual,
@@ -61,40 +72,3 @@ def newton_krylov_solver_factory(tolerance, max_iters, linear_solver):
 
     return newton_krylov_solver
 
-
-def neumann_preconditioner_factory(order=1):
-    """Create a Neumann polynomial preconditioner device function.
-
-    Parameters
-    ----------
-    order : int, default=1
-        Polynomial order.
-
-    Returns
-    -------
-    callable
-        CUDA device function implementing the preconditioner.
-    """
-
-    @cuda.jit(device=True)
-    def neumann_preconditioner(
-        jvp_function, state, vector, out, temp_vec
-    ):
-        """Approximate ``(I - J)^{-1}`` with a Neumann polynomial.
-
-        Assumes state, vector, out, and temp_vec are sized consistently for the
-        Jacobian-vector product. The implementation performs:
-        out = (I + J + J^2) vector for order=2, or out = (I + J) vector for order=1.
-        """
-
-        # Initialize output with input vector
-        for i in range(out.shape[0]):
-            out[i] = vector[i]
-
-        # Add J^n.v terms to output vector
-        for _ in range(order):
-            jvp_function(state, out, temp_vec)
-            for i in range(out.shape[0]):
-                out[i] += temp_vec[i]
-
-    return neumann_preconditioner

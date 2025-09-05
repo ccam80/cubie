@@ -1,6 +1,6 @@
 """Factories for matrix-free nonlinear solvers."""
 
-from .minimal_residual import minimal_residual_solver_factory
+from .linear_solver import minimal_residual_solver_factory
 from .newton_krylov import (
     neumann_preconditioner_factory,
     newton_krylov_solver_factory,

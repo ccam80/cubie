@@ -85,7 +85,7 @@ RES_PLUS_I_MINUS_HJ_TEMPLATE = (
     "    {body}\n"
     "    return residual_plus_i_minus_hj\n"
 )
-
+#TODO: R + (I - F)z, where F is maybe (I-hJ), for preconditioner
 _cache: dict = {}
 
 def get_cache_counts() -> Dict[str, int]:
