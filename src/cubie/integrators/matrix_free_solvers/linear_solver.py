@@ -144,7 +144,7 @@ def linear_solver_factory(
                     num += ti * residual[i]      # (Fz·r)
                     den += ti * ti               # (Fz·Fz)
 
-            alpha =  cuda.selp(vz != 0, rz / vz, 0.0) # noqa
+            alpha = cuda.selp(den != 0.0, num / den, 0.0)
             # Check convergence (norm of updated residual)
             acc = 0.0
             for i in range(n):

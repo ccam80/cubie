@@ -6,7 +6,6 @@ from cubie.integrators.matrix_free_solvers.linear_solver import (
     minimal_residual_solver_factory,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
-    neumann_preconditioner_factory,
     newton_krylov_solver_factory,
 )
 
@@ -21,11 +20,6 @@ def preconditioner_settings(preconditioner_settings_override):
     settings = {"order": 2}
     settings.update(preconditioner_settings_override)
     return settings
-
-
-@pytest.fixture(scope="function")
-def preconditioner_device(preconditioner_settings):
-    return neumann_preconditioner_factory(**preconditioner_settings)
 
 
 @pytest.fixture(scope="function")

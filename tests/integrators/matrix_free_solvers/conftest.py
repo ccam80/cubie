@@ -75,3 +75,69 @@ def system_setup(request, precision):
         "mr_expected": mr_expected,
         "nk_expected": nk_expected,
     }
+
+
+@pytest.fixture(scope="function")
+def neumann_kernel(precision):
+    """Compile a kernel for the Neumann preconditioner.
+
+    Parameters
+    ----------
+    precision : np.dtype
+        Floating point precision used for arrays.
+
+    Returns
+    -------
+    callable
+        Factory producing kernels of the form
+        ``(state_init, residual, out)``.
+    """
+
+    def factory(precond, n):
+        @cuda.jit
+        def kernel(state_init, residual, out):
+            state = cuda.local.array(n, precision)
+            for i in range(n):
+                state[i] = state_init[i]
+            parameters = cuda.local.array(1, precision)
+            drivers = cuda.local.array(1, precision)
+            h = precision(1.0)
+            precond(state, parameters, drivers, h, residual, out)
+
+        return kernel
+
+    return factory
+
+
+@pytest.fixture(scope="function")
+def solver_kernel(precision):
+    """Compile a kernel for linear solver device functions.
+
+    Parameters
+    ----------
+    precision : np.dtype
+        Floating point precision used for arrays.
+
+    Returns
+    -------
+    callable
+        Factory producing kernels executing
+        ``(state_init, rhs, x, residual, z_vec, temp)``.
+    """
+
+    def factory(solver, n):
+        @cuda.jit
+        def kernel(state_init, rhs, x, residual, z_vec, temp):
+            state = cuda.local.array(n, precision)
+            for i in range(n):
+                state[i] = state_init[i]
+            parameters = cuda.local.array(1, precision)
+            drivers = cuda.local.array(1, precision)
+            h = precision(1.0)
+            solver(
+                state, parameters, drivers, h, rhs, x, residual, z_vec, temp
+            )
+
+        return kernel
+
+    return factory

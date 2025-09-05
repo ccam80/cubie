@@ -15,7 +15,7 @@ def rosenbrock_solver_factory(
     system : SymbolicODE
         System providing solver helpers.
     linear_solver : callable
-        Device function solving ``(I - h \gamma J) x = rhs``.
+        Device function solving ``(I - h*gamma*J) x = rhs``.
     preconditioner : callable or None, optional
         Optional preconditioner device function.
 
