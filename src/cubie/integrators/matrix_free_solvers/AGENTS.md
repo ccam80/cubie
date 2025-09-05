@@ -14,3 +14,4 @@ was done to reduce memory usage and bandwidth requirements in the linear solvers
 Follow PEP8; max line length 79 characters, comment length 71 characters. Do not add commits that explain what you are doing 
 to the user; write comments that explain unconventional or complex operations to future developers. Write numpydocs-style
 docstrings for all functions and classes. Write type hints for all functions and methods.
+cuda.selp(cond, a, b) is preferred over a if cond else b in CUDA code.

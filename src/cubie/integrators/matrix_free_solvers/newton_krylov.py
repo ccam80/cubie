@@ -5,70 +5,97 @@ from numba import cuda
 
 
 def newton_krylov_solver_factory(
-    tolerance: float, max_iters: int, linear_solver: Callable
+    residual_function: Callable,
+    linear_solver: Callable,
+    tolerance: float,
+    max_iters: int,
+    damping: float = 0.5,
+    max_backtracks: int = 8,
 ) -> Callable:
     """Create a Newton-Krylov solver device function.
 
     Parameters
     ----------
+    residual_function : callable
+        Device function evaluating the nonlinear residual ``F(state)``.
+    linear_solver : callable
+        Device function solving ``J x = rhs`` for ``x``.
     tolerance : float
         Residual norm required for convergence.
     max_iters : int
         Maximum number of Newton iterations.
-    linear_solver : callable
-        Device function solving ``J x = rhs``.
+    damping : float, optional
+        Step shrink factor used during backtracking, default ``0.5``.
+    max_backtracks : int, optional
+        Maximum number of damping attempts.
 
     Returns
     -------
     callable
-        CUDA device function implementing a Newton-Krylov method.
+        CUDA device function implementing a damped Newton-Krylov method.
     """
+    tol_squared = tolerance*tolerance
 
     @cuda.jit(device=True)
     def newton_krylov_solver(
-        jvp_function,
-        residual_function,
-        state,
-        parameters,
-        drivers,
-        h,
-        residual,
-        rhs,
+        state, parameters, drivers, h,    # Operator context
+        linear_rhs,
         delta,
-        z_vec,
-        v_vec,
-        preconditioner,
-        precond_temp,
+        residual,
+        trial_state,
+        work_vec,
     ):
-        """Solve ``F(state) = 0`` using a Newton-Krylov iteration."""
+        n = state.shape[0]
 
         for _ in range(max_iters):
-            residual_function(state, parameters, drivers, h, rhs, residual)
-            norm = 0.0
-            for i in range(residual.shape[0]):
-                norm += residual[i] * residual[i]
-            if norm ** 0.5 <= tolerance:
-                return
-            for i in range(residual.shape[0]):
-                rhs[i] = -residual[i]
+            accepted = False
+            scale = 1.0
+            norm2_prev = 0.0
+
+            # Evaluate residual and check convergence
+            residual_function(state, parameters, drivers, h, linear_rhs, residual)
+            for i in range(n):
+                ri = residual[i]
+                linear_rhs[i] = -residual[i]
                 delta[i] = 0.0
-                residual[i] = rhs[i]
+                norm2_prev += ri * ri
+            if norm2_prev <= tol_squared:
+                return True
+
+            # Run Krylov solver on linearized (by matrix-free Jv) system to get
+            # a reasonable step direction
             linear_solver(
-                jvp_function,
-                state,
-                parameters,
-                drivers,
-                h,
-                rhs,
+                state, parameters, drivers, h,
+                linear_rhs,
                 delta,
                 residual,
-                z_vec,
-                v_vec,
-                preconditioner,
-                precond_temp,
+                trial_state,
+                work_vec,
             )
-            for i in range(state.shape[0]):
-                state[i] += delta[i]
+
+            # Backtrack loop - if the full step doesn't reduce the residual,
+            # try smaller steps until we either reduce the residual or run out
+            # of attempts
+            for _ in range(max_backtracks):
+                for i in range(n):
+                    trial_state[i] = state[i] + scale * delta[i]
+                # Residual function calculates guess - F(guess) - for example,
+                # in a single backward Euler step, this is guess - step
+                # start state - h*f(guess);
+                residual_function(trial_state, parameters, drivers, h, linear_rhs, residual)
+                norm2_new = 0.0
+                for i in range(n):
+                    ri = residual[i]
+                    norm2_new += ri * ri
+
+                if norm2_new <= tol_squared or norm2_new < norm2_prev:
+                    for i in range(n):
+                        state[i] = trial_state[i]
+                    if norm2_new <= tol_squared:
+                        return True
+                    accepted = True
+                    break
+                scale *= damping
+            return accepted
 
     return newton_krylov_solver
-

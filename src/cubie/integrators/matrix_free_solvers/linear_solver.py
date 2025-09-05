@@ -67,26 +67,26 @@ def linear_solver_factory(
     callable
         CUDA device function with signature:
         solver(state, parameters, drivers, h,
-             rhs, x, residual, z_vec, v_vec)
+             rhs, x, preconditioned, temp)
     """
     # Setup compile-time flags to kill code branches
     SD = 1 if correction_type == "steepest_descent" else 0
-    MR = 1 if correction_type == "minimal residual" else 0
+    MR = 1 if correction_type == "minimal_residual" else 0
+    if correction_type not in ("steepest_descent", "minimal_residual"):
+        raise ValueError("Correction type for krylov solver must be ("
+        "steepest_descent') or 'minimal_residual'.")
     PC = 1 if preconditioner is not None else 0
 
     @cuda.jit(device=True)
     def linear_solver(
         state, parameters, drivers, h,            # Operator context
-        rhs,                                      # rhs of linear system
+        rhs,                                      # in:rhs, out: residual
         x,                                        # in: guess, out: solution
-        residual, preconditioned, temp         # working vectors
+        z,                                        # working vector (pre. dir.)
+        temp                                      # working vector (F z)
     ):
         """ Linear solver: precond. steepest descent or minimal residual.
 
-        Preconditioning, steepest descent vs minimal residual, and operator
-        being applied are all configured in the factory.
-
-        Parameters
         ----------
         state: array of floats
             Input parameter for evaluating the Jacobian in the operator.
@@ -97,63 +97,72 @@ def linear_solver_factory(
         h: float
             Step size - set by outer solver, used in operator_apply.
         rhs: array of floats
-            Right-hand side of the linear system.
+            Right-hand side of the linear system. Updated in place with
+            running residual; duplicate before calling to preserve rhs.
         x: array of floats
             On input: initial guess; on output: solution.
-        residual: array of floats
-            Working array of size rhs.shape[0]. Holds current residual.
-        preconditioned: array of floats
-            Working array of size rhs.shape[0]. Holds preconditioner results.
+        z: array of floats
+            Working array of size rhs.shape[0]. Holds preconditioned
+            direction z.
         temp: array of floats
             Working array of size rhs.shape[0]. Holds operator_apply results.
+
+        Notes
+        -----
+        - Preconditioning, steepest descent vs minimal residual, and operator
+          being applied are all configured in the factory.
+        - rhs is overwritten with the current residual and maintained in place.
+        - state, parameters, drivers are immutable inputs to operator_apply.
+
+
         """
         n = rhs.shape[0]
 
         # Initial residual: r = rhs - F x
         operator_apply(state, parameters, drivers, h, x, temp)
+        tol_squared = tolerance*tolerance
+
         acc = 0.0
         for i in range(n):
             # z := M^{-1} r (or copy)
             r = rhs[i] - temp[i]
-            residual[i] = r
+            rhs[i] = r
             acc += r * r
-
-        rnorm = acc ** 0.5
-        if rnorm <= tolerance:
+        if acc <= tol_squared:
             return
 
         for _ in range(max_iters):
             if PC:
-                preconditioner(state, parameters, drivers, h, residual, preconditioned)
+                preconditioner(state, parameters, drivers, h, rhs,
+                               z)
             else:
                 for i in range(n):
-                    preconditioned[i] = residual[i]
+                    z[i] = rhs[i]
 
             # v = F z and line-search dot products
-            operator_apply(state, parameters, drivers, h, preconditioned, temp)
+            operator_apply(state, parameters, drivers, h, z, temp)
             num = 0.0
             den = 0.0
             if SD:
                 for i in range(n):
-                    zi = preconditioned[i]
-                    num += residual[i] * zi  # (r·z)
+                    zi = z[i]
+                    num += rhs[i] * zi  # (r·z)
                     den += temp[i] * zi  # (Fz·z)
             elif MR:
                 for i in range(n):
                     ti = temp[i]
-                    num += ti * residual[i]      # (Fz·r)
+                    num += ti * rhs[i]      # (Fz·r)
                     den += ti * ti               # (Fz·Fz)
 
             alpha = cuda.selp(den != 0.0, num / den, 0.0)
             # Check convergence (norm of updated residual)
             acc = 0.0
             for i in range(n):
-                x[i] += alpha * preconditioned[i]
-                residual[i] -= alpha * temp[i]
-                ri = residual[i]
+                x[i] += alpha * z[i]
+                rhs[i] -= alpha * temp[i]
+                ri = rhs[i]
                 acc += ri * ri
-            rnorm = acc ** 0.5
-            if rnorm <= tolerance:
+            if acc <= tol_squared:
                 return
 
     return linear_solver

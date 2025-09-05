@@ -69,10 +69,7 @@ def  toftest_neumann_preconditioner(
     "solver_device",
     [
         "steepest_descent",
-        pytest.param(
-            "minimal_residual",
-            marks=pytest.mark.xfail(reason="minimal residual variant fails"),
-        ),
+ "minimal_residual",
     ],
     indirect=True,
 )
@@ -98,53 +95,30 @@ def test_linear_solver_placeholder(solver_device, solver_kernel, precision):
 
 @pytest.mark.parametrize(
     "system_setup",
-    [
-        "linear",
-        pytest.param(
-            "nonlinear",
-            marks=pytest.mark.xfail(reason="nonlinear case diverges"),
-        ),
-    ],
+    ["linear",
+     "coupled_linear",
+     "stiff",
+     ],
     indirect=True,
 )
-def test_linear_solver_symbolic(system_setup, solver_kernel, precision):
+@pytest.mark.parametrize("correction_type", ["steepest_descent", "minimal_residual"])
+@pytest.mark.parametrize("preconditioner", [None, "neumann"])
+def test_linear_solver_symbolic(system_setup, solver_kernel, precision,
+                                correction_type, preconditioner):
     """Solve systems built from symbolic expressions."""
-
+    if preconditioner == "neumann":
+        precond = neumann_preconditioner_factory(order=2
+        )
     n = system_setup["n"]
     operator = system_setup["jvp"]
     rhs_vec = system_setup["mr_rhs"]
     expected = system_setup["mr_expected"]
     solver = linear_solver_factory(
         operator,
+
         correction_type="steepest_descent",
         tolerance=1e-8,
-        max_iters=64,
-    )
-    kernel = solver_kernel(solver, n)
-    state = cuda.to_device(expected)
-    rhs_dev = cuda.to_device(rhs_vec)
-    x_dev = cuda.to_device(np.zeros(n, dtype=precision))
-    residual = cuda.device_array(n, precision)
-    z_vec = cuda.device_array(n, precision)
-    temp = cuda.device_array(n, precision)
-    kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp)
-    assert np.allclose(x_dev.copy_to_host(), expected, atol=1e-4)
-
-
-@pytest.mark.parametrize("system_setup", ["stiff"], indirect=True)
-@pytest.mark.xfail(reason="solver struggles with stiff systems")
-def test_linear_solver_stiff_failure(system_setup, solver_kernel, precision):
-    """Demonstrate failure on a stiff system without preconditioning."""
-
-    n = system_setup["n"]
-    operator = system_setup["jvp"]
-    rhs_vec = system_setup["mr_rhs"]
-    expected = system_setup["mr_expected"]
-    solver = linear_solver_factory(
-        operator,
-        correction_type="minimal_residual",
-        tolerance=1e-8,
-        max_iters=4,
+        max_iters=1e3,
     )
     kernel = solver_kernel(solver, n)
     state = cuda.to_device(expected)
