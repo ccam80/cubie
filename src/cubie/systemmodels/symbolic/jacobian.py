@@ -20,14 +20,33 @@ def get_cache_counts() -> Dict[str, int]:
 
     Used in testing."""
     counts: Dict[str, int] = {"jac": 0, "jvp": 0}
-    for key in _cache.keys():
-        kind = key[0] if isinstance(key, tuple) and key else None
-        if kind in counts:
-            counts[kind] += 1
+    for value in _cache.values():
+        # New scheme: value is a dict possibly containing both kinds
+        if isinstance(value, dict):
+            if "jac" in value:
+                counts["jac"] += 1
+            if "jvp" in value:
+                counts["jvp"] += 1
+        else:
+            # Backward compatibility: count best-effort by type/shape
+            try:
+                if isinstance(value, sp.Matrix):
+                    counts["jac"] += 1
+                elif isinstance(value, list):
+                    counts["jvp"] += 1
+            except Exception:
+                pass
     return counts
 
-def _get_cache_key(equations, input_order, output_order):
-    """Generate a base cache key from equations and orders."""
+
+def get_cache_key(equations,
+                  input_order: Dict[sp.Symbol, int],
+                  output_order: Dict[sp.Symbol, int],
+                  cse: bool):
+    """Generate the cache key from equations, orders and cse flag.
+
+    This single key is shared across all built artifacts (e.g. jac, jvp).
+    """
     # Convert equations to a hashable form
     if isinstance(equations, dict):
         eq_tuple = tuple(equations.items())
@@ -37,25 +56,7 @@ def _get_cache_key(equations, input_order, output_order):
     input_tuple = tuple(input_order.items())
     output_tuple = tuple(output_order.items())
 
-    return (eq_tuple, input_tuple, output_tuple)
-
-
-def _get_unified_cache_key(kind: str,
-                           equations,
-                           input_order,
-                           output_order,
-                           observables=None,
-                           cse=True):
-    """Generate a unified cache key for Jacobian or JVP kinds."""
-    base = _get_cache_key(equations, input_order, output_order)
-    if kind == "jac":
-        return ("jac", base)
-    # jvp key includes observables and cse flag
-    if observables is None:
-        obs_tuple = None
-    else:
-        obs_tuple = tuple(observables)
-    return (kind, base, obs_tuple, bool(cse))
+    return (eq_tuple, input_tuple, output_tuple, bool(cse))
 
 
 def clear_cache():
@@ -69,6 +70,7 @@ def generate_jacobian(equations: Union[
                       input_order: Dict[sp.Symbol, int],
                       output_order: Dict[sp.Symbol, int],
                       use_cache: bool = True,
+                      cache_cse: bool = True,
                       ):
     """Return the symbolic Jacobian matrix for the given equations.
 
@@ -92,12 +94,13 @@ def generate_jacobian(equations: Union[
     else:
         eq_list = list(equations)
 
-    # Check cache first
+    # Check cache first (Jacobian is independent of cse but we normalize to True for keying)
     cache_key = None
     if use_cache:
-        cache_key = _get_unified_cache_key("jac", eq_list, input_order, output_order)
-        if cache_key in _cache:
-            return _cache[cache_key]
+        cache_key = get_cache_key(eq_list, input_order, output_order, cse=cache_cse)
+        cached_entry = _cache.get(cache_key)
+        if isinstance(cached_entry, dict) and "jac" in cached_entry:
+            return cached_entry["jac"]
 
     input_symbols = set(input_order.keys())
     sorted_inputs = sorted(input_symbols,
@@ -149,12 +152,18 @@ def generate_jacobian(equations: Union[
 
     # Cache the result before returning
     if use_cache and cache_key is not None:
-        _cache[cache_key] = J
+        entry = _cache.get(cache_key)
+        if isinstance(entry, dict):
+            entry["jac"] = J
+        else:
+            _cache[cache_key] = {"jac": J}
 
     return J
 
 
-def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
+def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol,
+sp.Expr]],
+                              outputsym_str: str = "jvp"):
     """Remove assignments not required to compute final JVP outputs.
 
     The function assumes that the list is topologically sorted and that output
@@ -179,7 +188,8 @@ def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
     all_lhs = set(lhs_symbols)
 
     # Detect outputs by name convention
-    output_syms = {lhs for lhs in lhs_symbols if str(lhs).startswith("jvp[")}
+    output_syms = {lhs for lhs in lhs_symbols
+                   if str(lhs).startswith(f"{outputsym_str}[")}
 
     # If we can't detect outputs, do nothing
     if not output_syms:
@@ -199,7 +209,7 @@ def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
     return kept
 
 
-def generate_jac_product(equations: Union[
+def generate_analytical_jvp(equations: Union[
                               Iterable[Tuple[sp.Symbol, sp.Expr]],
                               Dict[sp.Symbol, sp.Expr]],
                          input_order: Dict[sp.Symbol, int],
@@ -208,22 +218,17 @@ def generate_jac_product(equations: Union[
                          cse=True,
                               ):
     """Return symbolic expressions for the Jacobian-vector product."""
-    # Materialize equations to avoid consuming generators and ensure stable keys
+
     if isinstance(equations, dict):
         eq_list = list(equations.items())
-    else:
+    else: # convert a generator if present
         eq_list = list(equations)
 
-    # Caching key before any mutation of inputs
-    cache_key = _get_unified_cache_key(
-                                       "jvp",
-                                       eq_list,
-                                       input_order,
-                                       output_order,
-                                       observables,
-                                       cse)
-    if cache_key in _cache:
-        return _cache[cache_key]
+    # Cache key before any mutation of inputs
+    cache_key = get_cache_key(eq_list, input_order, output_order, cse=cse)
+    cached_entry = _cache.get(cache_key)
+    if isinstance(cached_entry, dict) and "jvp" in cached_entry:
+        return cached_entry["jvp"]
 
     n_inputs = len(input_order)
     n_outputs = len(output_order)
@@ -236,7 +241,7 @@ def generate_jac_product(equations: Union[
 
     equations = [(lhs.subs(obs_subs), rhs.subs(obs_subs)) for lhs, rhs in
                   eq_list]
-    jac = generate_jacobian(equations, input_order, output_order, use_cache=True)
+    jac = generate_jacobian(equations, input_order, output_order, use_cache=True, cache_cse=cse)
 
     prod_exprs = []
     j_symbols: Dict[Tuple[int, int], sp.Symbol] = {}
@@ -278,24 +283,10 @@ def generate_jac_product(equations: Union[
     all_exprs = _prune_unused_assignments(all_exprs)
 
     # Store in cache and return
-    _cache[cache_key] = all_exprs
+    entry = _cache.get(cache_key)
+    if isinstance(entry, dict):
+        entry["jvp"] = all_exprs
+    else:
+        _cache[cache_key] = {"jvp": all_exprs}
     return all_exprs
 
-
-def generate_analytical_jvp(equations: Union[
-                                  Iterable[Tuple[sp.Symbol, sp.Expr]],
-                                  Dict[sp.Symbol, sp.Expr]],
-                              input_order: Dict[sp.Symbol, int],
-                              output_order: Dict[sp.Symbol, int],
-                              observables: Iterable[sp.Symbol] = None,
-                              cse=True,
-                              ):
-    """Returns the symbolic expressions required to calculate
-    the Jacobian-vector
-    product."""
-    return generate_jac_product(equations=equations,
-                                input_order=input_order,
-                                output_order=output_order,
-                                observables=observables,
-                                cse=cse,
-    )
