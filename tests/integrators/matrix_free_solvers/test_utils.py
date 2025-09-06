@@ -12,7 +12,7 @@ def norm_kernel(precision):
     def factory(n):
         @cuda.jit
         def kernel(vec, out):
-            out[0] = vector_norm(vec)
+            vector_norm(vec, out)
 
         return kernel
 

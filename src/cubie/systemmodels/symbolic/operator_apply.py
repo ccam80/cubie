@@ -178,7 +178,6 @@ NEUMANN_TEMPLATE = (
     "                out[i] = v[i] + h_eff * jvp[i]\n"
     "        for i in range(n):\n"
     "            out[i] = beta_inv * out[i]\n"
-    "        return out\n"
     "    return preconditioner\n"
 )
 
@@ -267,7 +266,6 @@ RESIDUAL_TEMPLATE = (
     "        dxdt(work, parameters, drivers, work, out)\n"
     "\n"
     "{res_lines}\n"
-    "        return out\n"
     "    return residual\n"
 )
 
@@ -344,6 +342,7 @@ def generate_residual_end_state_code(
     else:
         M_mat = sp.Matrix(M)
     eval_lines, res_lines = _build_residual_mode_lines(index_map, M_mat, is_stage=False)
+    
     const_lines = [
         f"    {name} = precision(constants['{name}'])"
         for name in index_map.constants.symbol_map

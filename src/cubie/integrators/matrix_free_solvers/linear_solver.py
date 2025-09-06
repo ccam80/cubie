@@ -137,7 +137,7 @@ def linear_solver_factory(
             rhs[i] = r
             acc += r * r
         if acc <= tol_squared:
-            return
+            return True
 
         for _ in range(max_iters):
             if PC:
@@ -171,6 +171,8 @@ def linear_solver_factory(
                 ri = rhs[i]
                 acc += ri * ri
             if acc <= tol_squared:
-                return
+                return True
+
+        return False
 
     return linear_solver

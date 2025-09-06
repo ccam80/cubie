@@ -4,20 +4,17 @@ from numba import cuda
 
 
 @cuda.jit(device=True)
-def vector_norm(vector):
-    """Return the Euclidean norm of ``vector``.
+def vector_norm(vector, out):
+    """Compute the Euclidean norm of ``vector`` in place.
 
     Parameters
     ----------
     vector : numba.cuda.cudadrv.devicearray.DeviceNDArray
         Input vector.
-
-    Returns
-    -------
-    float
-        Euclidean norm of ``vector``.
+    out : numba.cuda.cudadrv.devicearray.DeviceNDArray
+        Single-element array receiving the norm.
     """
     norm = 0.0
     for i in range(vector.shape[0]):
         norm += vector[i] * vector[i]
-    return norm ** 0.5
+    out[0] = norm ** 0.5

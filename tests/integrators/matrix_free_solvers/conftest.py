@@ -24,7 +24,7 @@ def system_setup(request, precision):
     -------
     dict
         Problem definition including helper functions and reference
-        solutions.
+        solutions computed for a small implicit Euler step.
     """
     system = request.param
     if system == "linear":
@@ -34,8 +34,6 @@ def system_setup(request, precision):
             "dx2 = 0.5*x2 - 3.0",
         ]
         mr_rhs = np.array([1.0, 2.0, 3.0], dtype=precision)
-        mr_expected = 2 * mr_rhs
-        nk_expected = -mr_expected.copy()
     elif system == "nonlinear":
         dxdt = [
             "dx0 = 0.5*x0 - 1.0",
@@ -43,15 +41,6 @@ def system_setup(request, precision):
             "dx2 = -50.0*x2 + x2**3 - 1.0",
         ]
         mr_rhs = np.array([1.0, 1.0, 1.0], dtype=precision)
-        j0 = precision(0.5)
-        j1 = precision(3.0)
-        sol2 = precision(7.08104667829272)
-        j2 = precision(-50.0 + 3.0 * (sol2 ** 2))
-        mr_expected = np.array(
-            [1.0 / (1.0 - j0), 1.0 / (1.0 - j1), 1.0 / (1.0 - j2)],
-            dtype=precision,
-        )
-        nk_expected = np.array([2.0, 1.0, sol2], dtype=precision)
     elif system == "stiff":
         dxdt = [
             "dx0 = 1e-6*x0 - 1e-6",
@@ -59,11 +48,6 @@ def system_setup(request, precision):
             "dx2 = 1e6*x2 - 1e6",
         ]
         mr_rhs = np.array([1.0, 1.0, 1.0], dtype=precision)
-        mr_expected = np.array(
-            [1.0 / (1.0 - 1e-6), 1.0 / (1.0 - 0.5), 1.0 / (1.0 - 1e6)],
-            dtype=precision,
-        )
-        nk_expected = np.array([1.0, 1.0, 1.0], dtype=precision)
     elif system == "coupled_linear":
         dxdt = [
             "dx0 = 0.5*x0 + 0.1*x1 - 1.0",
@@ -71,33 +55,13 @@ def system_setup(request, precision):
             "dx2 = 0.1*x0 + 0.2*x1 + 0.4*x2 - 1.0",
         ]
         mr_rhs = np.array([1.0, 1.0, 1.0], dtype=precision)
-        j = np.array(
-            [[0.5, 0.1, 0.0], [0.2, 0.3, 0.0], [0.1, 0.2, 0.4]],
-            dtype=precision,
-        )
-        f_mat = np.eye(3, dtype=precision) - j
-        mr_expected = np.linalg.solve(f_mat, mr_rhs)
-        nk_expected = -mr_expected.copy()
     elif system == "coupled_nonlinear":
-        dxdt = [ "dx0 = 0.5*x0 - x1**2 - 1.0",
-                 "dx1 = x0*x1 - x1**3 - 1.0",
-                 "dx2 = x0 + x1**2 - x2**2 - 1.0",
-                 ]
+        dxdt = [
+            "dx0 = 0.5*x0 - x1**2 - 1.0",
+            "dx1 = x0*x1 - x1**3 - 1.0",
+            "dx2 = x0 + x1**2 - x2**2 - 1.0",
+        ]
         mr_rhs = np.array([1.0, 1.0, 1.0], dtype=precision)
-        # Approximate solution values for coupled nonlinear system
-        sol0 = precision(2.618)
-        sol1 = precision(1.618)
-        sol2 = precision(2.236)
-        # Jacobian diagonal elements at solution
-        j0 = precision(0.5 - 2.0 *  sol1)
-        j1 = precision(sol0 - 3.0 * (sol1 ** 2))
-        j2 = precision(-2.0 * sol2)
-        mr_expected = np.array( [1.0 / (1.0 - j0),
-                                 1.0 / (1.0 - j1),
-                                 1.0 / (1.0 - j2)],
-                                dtype=precision,
-                                )
-        nk_expected = np.array([sol0, sol1, sol2], dtype=precision)
     else:
         raise ValueError(f"Unknown system: {system}")
 
@@ -111,7 +75,6 @@ def system_setup(request, precision):
     neumann_factory = sym_system.gen_file.import_function(
         "neumann_preconditioner_factory", neumann_code
     )
-    base_state = cuda.to_device(np.zeros(3, dtype=precision))
     code = generate_residual_end_state_code(sym_system.indices)
     res_factory = sym_system.gen_file.import_function(
         "residual_end_state_factory", code
@@ -121,6 +84,52 @@ def system_setup(request, precision):
         from_dtype(sym_system.precision),
         dxdt_func,
     )
+
+    if system == "stiff":
+        h = precision(1e-4)
+        base_host = np.ones(3, dtype=precision)
+    else:
+        h = precision(0.01)
+        base_host = np.zeros(3, dtype=precision)
+    base_state = cuda.to_device(base_host)
+    params = np.zeros(1, dtype=precision)
+    drivers = np.zeros(1, dtype=precision)
+    observables = np.zeros(3, dtype=precision)
+    deriv = np.zeros(3, dtype=precision)
+
+    @cuda.jit()
+    def dxdt_kernel(state, params, drivers, observables, deriv):
+        dxdt_func(state, params, drivers, observables, deriv)
+
+    dxdt_kernel[1, 1](base_host, params, drivers, observables, deriv)
+    state_init_host = base_host + h * deriv * precision(1.01)
+    if system == "stiff":
+        state_init_host += precision(1e-3)
+
+    state_fp = state_init_host.copy()
+    for _ in range(32):
+        dxdt_kernel[1, 1](state_fp, params, drivers, observables, deriv)
+        new_state = base_host + h * deriv
+        if np.max(np.abs(new_state - state_fp)) < precision(1e-12):
+            state_fp = new_state
+            break
+        state_fp = new_state
+    nk_expected = state_fp
+
+    F = np.zeros((3, 3), dtype=precision)
+    temp_in = np.zeros(3, dtype=precision)
+    temp_out = np.zeros(3, dtype=precision)
+
+    @cuda.jit()
+    def operator_kernel(state, params, drivers, h, in_vec, out_vec):
+        operator(state, params, drivers, h, in_vec, out_vec)
+
+    for j in range(3):
+        temp_in.fill(0)
+        temp_in[j] = precision(1.0)
+        operator_kernel[1, 1](state_fp, params, drivers, h, temp_in, temp_out)
+        F[:, j] = temp_out
+    mr_expected = np.linalg.solve(F, mr_rhs)
 
     def make_precond(order):
         return neumann_factory(
@@ -132,9 +141,11 @@ def system_setup(request, precision):
     return {
         "id": system,
         "n": 3,
+        "h": h,
         "operator": operator,
         "residual": residual_func,
         "base_state": base_state,
+        "state_init": cuda.to_device(state_init_host),
         "preconditioner": make_precond,
         "mr_rhs": mr_rhs,
         "mr_expected": mr_expected,
@@ -158,7 +169,7 @@ def neumann_kernel(precision):
         ``(state_init, residual, out)``.
     """
 
-    def factory(precond, n):
+    def factory(precond, n, h):
         @cuda.jit
         def kernel(state_init, residual, out):
             state = cuda.local.array(n, precision)
@@ -166,9 +177,7 @@ def neumann_kernel(precision):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            h = precision(1.0)
             scratch = cuda.shared.array(n, precision)
-            # Call real preconditioner (expects a scratch buffer)
             precond(state, parameters, drivers, h, residual, out, scratch)
 
         return kernel
@@ -192,16 +201,15 @@ def solver_kernel(precision):
         ``(state_init, rhs, x, residual, z_vec, temp)``.
     """
 
-    def factory(solver, n):
+    def factory(solver, n, h):
         @cuda.jit
-        def kernel(state_init, rhs, x, residual, z_vec, temp):
+        def kernel(state_init, rhs, x, residual, z_vec, temp, flag):
             state = cuda.local.array(n, precision)
             for i in range(n):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            h = precision(1.0)
-            solver(
+            flag[0] = solver(
                 state, parameters, drivers, h, rhs, x, z_vec, temp
             )
 
