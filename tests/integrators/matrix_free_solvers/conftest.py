@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from numba import cuda
 
+from cubie.systemmodels.symbolic.operator_apply import residual_end_state_factory
 from cubie.systemmodels.symbolic.symbolicODE import create_ODE_system
 
 
@@ -104,17 +105,16 @@ def system_setup(request, precision):
         raise ValueError(f"Unknown system: {system}")
 
     sym_system = create_ODE_system(dxdt, states=[f"x{i}" for i in range(3)])
-    i_minus_hj = sym_system.get_solver_helper("i-hj")
-    residual_plus_i_minus_hj = sym_system.get_solver_helper("r+i-hj")
-
-    if 'preconditioner' in request.param:
-        if 'preconditioner' == 'neumann':
-            precond = neumann_preconditioner_factory()
+    sym_system.build()
+    dxdt_func = sym_system.dxdt_function
+    operator = sym_system.get_solver_helper("operator")
+    base_state = cuda.to_device(np.zeros(3, dtype=precision))
+    residual_func = residual_end_state_factory(base_state, dxdt_func)
 
     return {
         "n": 3,
-        "jvp": i_minus_hj,
-        "residual": residual_plus_i_minus_hj,
+        "operator": operator,
+        "residual": residual_func,
         "mr_rhs": mr_rhs,
         "mr_expected": mr_expected,
         "nk_expected": nk_expected,
@@ -171,7 +171,7 @@ def solver_kernel(precision):
 
     def factory(solver, n):
         @cuda.jit
-        def kernel(state_init, rhs, x, z_vec, temp):
+        def kernel(state_init, rhs, x, residual, z_vec, temp):
             state = cuda.local.array(n, precision)
             for i in range(n):
                 state[i] = state_init[i]

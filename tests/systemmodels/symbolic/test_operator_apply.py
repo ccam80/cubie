@@ -25,13 +25,12 @@ def operator_system():
 def operator_factory(operator_system, precision):
     """Return a factory producing operator_apply device functions."""
 
-    def factory(beta, gamma):
+    def factory(beta, gamma, M):
+        fname = f"operator_apply_factory_{abs(hash(M.tobytes()))}"
         code = generate_operator_apply_code(
-            operator_system.equations, operator_system.indices
+            operator_system.equations, operator_system.indices, M=M, func_name=fname
         )
-        op_fac = operator_system.gen_file.import_function(
-            "operator_apply_factory", code
-        )
+        op_fac = operator_system.gen_file.import_function(fname, code)
         return op_fac(
             operator_system.constants.values_array,
             from_dtype(operator_system.precision),
@@ -50,17 +49,18 @@ def operator_kernel(precision):
 
     def make_kernel(op):
         @cuda.jit
-        def kernel(h, M, vec, out):
+        def kernel(h, vec, out):
             state = cuda.local.array(n, precision)
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            op(state, parameters, drivers, h, M, vec, out)
+            op(state, parameters, drivers, h, vec, out)
 
         return kernel
 
     return make_kernel
 
 
+@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
 @pytest.mark.parametrize(
     "beta,gamma,M",
     [
@@ -74,14 +74,12 @@ def test_operator_apply_dense(
 ):
     """Evaluate operator_apply for several scalings and mass matrices."""
 
-    op = operator_factory(beta, gamma)
+    op = operator_factory(beta, gamma, M)
     kernel = operator_kernel(op)
     v = np.array([1.0, -1.0], dtype=precision)
     h = precision(0.25)
-    M_dev = cuda.to_device(M.astype(precision))
-    v_dev = cuda.to_device(v)
-    out_dev = cuda.device_array(2, precision)
-    kernel[1, 1](h, M_dev, v_dev, out_dev)
+    out = np.zeros(2, dtype=precision)
+    kernel[1, 1](h, v, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     expected = beta * M @ v - gamma * h * J @ v
-    assert np.allclose(out_dev.copy_to_host(), expected, atol=1e-6)
+    assert np.allclose(out, expected, atol=1e-6)

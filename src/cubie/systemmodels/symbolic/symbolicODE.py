@@ -14,14 +14,12 @@ from typing import Callable, Iterable, Optional, Set, Union
 
 import numpy as np
 import sympy as sp
-from numba import from_dtype
+from numba import cuda, from_dtype
 from cubie.systemmodels.symbolic.dxdt import generate_dxdt_fac_code
 from cubie.systemmodels.symbolic.odefile import ODEFile
-from cubie.systemmodels.symbolic.jacobian import (
-    generate_i_minus_hj_code,
-    generate_jvp_code,
-    generate_residual_plus_i_minus_hj_code,
-    generate_vjp_code,
+from cubie.systemmodels.symbolic.operator_apply import (
+    generate_neumann_preconditioner_code,
+    generate_operator_apply_code,
 )
 from cubie.systemmodels.symbolic.parser import IndexedBases, parse_input
 from cubie.systemmodels.symbolic.sym_utils import hash_system_definition
@@ -193,7 +191,7 @@ class SymbolicODE(BaseODE):
         ----------
         func_name : str
             Identifier for the requested helper. Accepted keys are
-            ``"jvp"``, ``"vjp"``, ``"i-hj"`` and ``"r+i-hj"``.
+            ``"operator"`` and ``"neumann"``.
 
         Returns
         -------
@@ -206,10 +204,8 @@ class SymbolicODE(BaseODE):
             If ``func_name`` is not recognised.
         """
         name_map = {
-            "jvp": "jvp",
-            "vjp": "vjp",
-            "i-hj": "i_minus_hj",
-            "r+i-hj": "residual_plus_i_minus_hj",
+            "operator": "linear_operator",
+            "neumann": "neumann_preconditioner",
         }
         if func_name not in name_map:
             raise KeyError(
@@ -224,31 +220,27 @@ class SymbolicODE(BaseODE):
         numba_precision = from_dtype(self.precision)
         constants = self.constants.values_array
 
-        if attr_name == "i_minus_hj":
-            code = generate_i_minus_hj_code(self.equations, self.indices)
-            factory = self.gen_file.import_function(
-                "i_minus_hj_factory", code
-            )
-            func = factory(constants, numba_precision)
-        elif attr_name == "residual_plus_i_minus_hj":
-            code = generate_residual_plus_i_minus_hj_code(
-                self.equations, self.indices
+        if attr_name == "linear_operator":
+            n = len(self.indices.states.index_map)
+            code = generate_operator_apply_code(
+                self.equations,
+                self.indices,
+                M=sp.eye(n),
+                func_name="linear_operator_factory",
             )
             factory = self.gen_file.import_function(
-                "residual_plus_i_minus_hj_factory", code
+                "linear_operator_factory", code
             )
             func = factory(constants, numba_precision)
-        elif attr_name in {"jvp", "vjp"}:
-            if attr_name == "jvp":
-                code = generate_jvp_code(
-                    self.equations, self.indices, "jvp_factory"
-                )
-                factory = self.gen_file.import_function("jvp_factory", code)
-            else:
-                code = generate_vjp_code(
-                    self.equations, self.indices, "vjp_factory"
-                )
-                factory = self.gen_file.import_function("vjp_factory", code)
+        elif attr_name == "neumann_preconditioner":
+            code = generate_neumann_preconditioner_code(
+                self.equations,
+                self.indices,
+                "neumann_preconditioner_factory",
+            )
+            factory = self.gen_file.import_function(
+                "neumann_preconditioner_factory", code
+            )
             func = factory(constants, numba_precision)
         else:
             raise KeyError(

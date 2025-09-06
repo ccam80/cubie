@@ -4,6 +4,7 @@ from typing import Callable
 
 from numba import cuda
 
+from cubie.systemmodels.symbolic.operator_apply import residual_end_state_factory
 from .linear_solver import linear_solver_factory
 from .newton_krylov import newton_krylov_solver_factory
 
@@ -34,17 +35,22 @@ def radauiia5_solver_factory(
     callable
         CUDA device function performing the solve.
     """
-    i_minus_hj = system.get_solver_helper("i-hj")
-    residual_plus_i_minus_hj = system.get_solver_helper("r+i-hj")
+    system.build()
+    base_state = cuda.to_device(
+        system.initial_values.values_array.astype(system.precision)
+    )
+    dxdt = system.dxdt_function
+    residual = residual_end_state_factory(base_state, dxdt)
+    operator = system.get_solver_helper("operator")
 
     linear_solver = linear_solver_factory(
-        i_minus_hj,
+        operator,
         correction_type="minimal_residual",
         tolerance=linear_tolerance,
         max_iters=linear_max_iters,
     )
     newton_solver = newton_krylov_solver_factory(
-        residual_plus_i_minus_hj,
+        residual,
         linear_solver,
         newton_tolerance,
         newton_max_iters,

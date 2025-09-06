@@ -110,7 +110,7 @@ def test_linear_solver_symbolic(system_setup, solver_kernel, precision,
         precond = neumann_preconditioner_factory(order=2
         )
     n = system_setup["n"]
-    operator = system_setup["jvp"]
+    operator = system_setup["operator"]
     rhs_vec = system_setup["mr_rhs"]
     expected = system_setup["mr_expected"]
     solver = linear_solver_factory(

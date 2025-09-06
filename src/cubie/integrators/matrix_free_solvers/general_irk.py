@@ -4,6 +4,7 @@ from typing import Callable, Optional
 
 from numba import cuda
 
+from cubie.systemmodels.symbolic.operator_apply import residual_end_state_factory
 from .newton_krylov import newton_krylov_solver_factory
 
 
@@ -35,10 +36,17 @@ def general_irk_solver_factory(
         CUDA device function performing Newton--Krylov iterations.
     """
 
-    i_minus_hj = system.get_solver_helper("i-hj")
-    residual_plus_i_minus_hj = system.get_solver_helper("r+i-hj")
+    system.build()
+    base_state = cuda.to_device(
+        system.initial_values.values_array.astype(system.precision)
+    )
+    dxdt = system.dxdt_function
+    residual = residual_end_state_factory(base_state, dxdt)
     newton_solver = newton_krylov_solver_factory(
-        tolerance, max_iters, linear_solver
+        residual_function=residual,
+        linear_solver=linear_solver,
+        tolerance=tolerance,
+        max_iters=max_iters,
     )
 
     @cuda.jit(device=True)
@@ -57,8 +65,6 @@ def general_irk_solver_factory(
         """Solve the IRK nonlinear system."""
 
         newton_solver(
-            i_minus_hj,
-            residual_plus_i_minus_hj,
             state,
             parameters,
             drivers,
@@ -68,8 +74,6 @@ def general_irk_solver_factory(
             residual,
             z_vec,
             v_vec,
-            preconditioner,
-            precond_temp,
         )
 
     return general_irk_solver

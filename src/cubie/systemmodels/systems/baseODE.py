@@ -17,10 +17,8 @@ class ODECache:
     """
 
     dxdt: Optional[Callable] = attrs.field()
-    jvp: Optional[Union[Callable, int]] = attrs.field(default=-1)
-    vjp: Optional[Union[Callable, int]] = attrs.field(default=-1)
-    i_minus_hj: Optional[Union[Callable, int]] = attrs.field(default=-1)
-    residual_plus_i_minus_hj: Optional[Union[Callable, int]] = attrs.field(
+    linear_operator: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    neumann_preconditioner: Optional[Union[Callable, int]] = attrs.field(
         default=-1
     )
 
@@ -36,8 +34,9 @@ class BaseODE(CUDAFactory):
     Notes
     -----
     Only functions cached during :meth:`build` (typically ``dxdt``) are
-    available on this base class. Solver helper functions such as ``jvp`` and
-    ``vjp`` are generated only by subclasses like :class:`SymbolicODE`.
+    available on this base class. Solver helper functions such as the linear
+    operator or preconditioner are generated only by subclasses like
+    :class:`SymbolicODE`.
 
     Parameters
     ----------
@@ -159,19 +158,15 @@ class BaseODE(CUDAFactory):
         Returns
         -------
         ODECache
-            ODECache containing built dxdt, jvp, and vjp functions. If you
-            haven't implemented the jcp and vjp functions, fill them with
-            "-1" integers to signal to the system that they are not
-            implemented.
+            Cache containing the built ``dxdt`` function. Subclasses may add
+            further solver helpers to this cache as needed.
 
         Notes
         -----
         Bring constants into local (outer) scope before you define the dxdt
         function, as the CUDA device function can't handle a reference to self.
         """
-        # return ODECache(dxdt=dxdt,
-        #                 jvp=-1,
-        #                 vjp=-1, )
+        # return ODECache(dxdt=dxdt)
 
     def correct_answer_python(
         self, states, parameters, drivers
@@ -409,24 +404,14 @@ class BaseODE(CUDAFactory):
         return self.get_cached_output("dxdt")
 
     @property
-    def jvp_function(self):
-        """Return the compiled JVP device function."""
-        return self.get_solver_helper("jvp")
+    def operator_function(self):
+        """Return the compiled linear-operator device function."""
+        return self.get_solver_helper("operator")
 
     @property
-    def vjp_function(self):
-        """Return the compiled VJP device function."""
-        return self.get_solver_helper("vjp")
-
-    @property
-    def i_minus_hj_function(self):
-        """Return the compiled ``i_minus_hj`` device function."""
-        return self.get_solver_helper("i-hj")
-
-    @property
-    def residual_plus_i_minus_hj_function(self):
-        """Return the compiled ``residual_plus_i_minus_hj`` device function."""
-        return self.get_solver_helper("r+i-hj")
+    def neumann_preconditioner_function(self):
+        """Return the compiled Neumann preconditioner device function."""
+        return self.get_solver_helper("neumann")
     def get_solver_helper(self, func_name: str):
         """Retrieve a cached solver helper function.
 

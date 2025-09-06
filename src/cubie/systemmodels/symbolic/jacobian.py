@@ -8,91 +8,18 @@ from typing import Dict, Iterable, Tuple, Union
 import sympy as sp
 from sympy import IndexedBase
 
-from cubie.systemmodels.symbolic.numba_cuda_printer import print_cuda_multiple
-from cubie.systemmodels.symbolic.parser import IndexedBases
 from cubie.systemmodels.symbolic.sym_utils import (
     cse_and_stack,
     topological_sort,
 )
 
-JVP_TEMPLATE = (
-    "\n"
-    "# AUTO-GENERATED JACOBIAN-VECTOR PRODUCT FACTORY\n"
-    "def {func_name}(constants, precision):\n"
-    '    """Auto-generated Jacobian factory."""\n'
-    "    @cuda.jit((precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:]),\n"
-    "              device=True,\n"
-    "             inline=True)\n"
-    "    def jvp(state, parameters, drivers, v, jvp):\n"
-    "    {body}\n"
-    "    \n"
-    "    return jvp\n"
-)
-VJP_TEMPLATE = (
-    "\n"
-    "# AUTO-GENERATED VECTOR-JACOBIAN PRODUCT FACTORY\n"
-    "def {func_name}(constants, precision):\n"
-    '    """Auto-generated Jacobian factory."""\n'
-    "    @cuda.jit((precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:]),\n"
-    "              device=True,\n"
-    "             inline=True)\n"
-    "    def vjp(state, parameters, drivers, v, vjp):\n"
-    "    {body}\n"
-    "    \n"
-    "    return vjp\n"
-)
-
-I_MINUS_HJ_TEMPLATE = (
-    "\n"
-    "# AUTO-GENERATED I_MINUS_HJ FACTORY\n"
-    "def {func_name}(constants, precision, stages=1):\n"
-    '    """Auto-generated I-hJ factory."""\n'
-    "    @cuda.jit((precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision,\n"
-    "               precision[:],\n"
-    "               precision[:]),\n"
-    "              device=True,\n"
-    "              inline=True)\n"
-    "    def i_minus_hj(state, parameters, drivers, h, v, out):\n"
-    "    {body}\n"
-    "    return i_minus_hj\n"
-)
-
-RES_PLUS_I_MINUS_HJ_TEMPLATE = (
-    "\n"
-    "# AUTO-GENERATED RESIDUAL PLUS I_MINUS_HJ FACTORY\n"
-    "def {func_name}(constants, precision, stages=1):\n"
-    '    """Auto-generated residual plus I-hJ factory."""\n'
-    "    @cuda.jit((precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision,\n"
-    "               precision[:],\n"
-    "               precision[:]),\n"
-    "              device=True,\n"
-    "              inline=True)\n"
-    "    def residual_plus_i_minus_hj(state, parameters, drivers, h, v, out):\n"
-    "    {body}\n"
-    "    return residual_plus_i_minus_hj\n"
-)
-#TODO: R + (I - F)z, where F is maybe (I-hJ), for preconditioner
 _cache: dict = {}
 
 def get_cache_counts() -> Dict[str, int]:
-    """Return counts of cached items by kind (jac, jvp, vjp).
+    """Return counts of cached items by kind (jac, jvp).
 
     Used in testing."""
-    counts: Dict[str, int] = {"jac": 0, "jvp": 0, "vjp": 0}
+    counts: Dict[str, int] = {"jac": 0, "jvp": 0}
     for key in _cache.keys():
         kind = key[0] if isinstance(key, tuple) and key else None
         if kind in counts:
@@ -119,11 +46,11 @@ def _get_unified_cache_key(kind: str,
                            output_order,
                            observables=None,
                            cse=True):
-    """Generate a unified cache key for jac/jvp/vjp kinds."""
+    """Generate a unified cache key for Jacobian or JVP kinds."""
     base = _get_cache_key(equations, input_order, output_order)
     if kind == "jac":
         return ("jac", base)
-    # jvp or vjp
+    # jvp key includes observables and cse flag
     if observables is None:
         obs_tuple = None
     else:
@@ -228,11 +155,11 @@ def generate_jacobian(equations: Union[
 
 
 def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
-    """Remove assignments that are not required to compute final jvp/vjp outputs.
+    """Remove assignments not required to compute final JVP outputs.
 
     The function assumes that the list is topologically sorted and that output
-    assignments have LHS symbols whose names start with either "jvp[" or "vjp[".
-    It preserves the relative order of kept assignments.
+    assignments have LHS symbols whose names start with ``"jvp["``. It preserves
+    the relative order of kept assignments.
 
     Parameters
     ----------
@@ -252,8 +179,7 @@ def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
     all_lhs = set(lhs_symbols)
 
     # Detect outputs by name convention
-    output_syms = {lhs for lhs in lhs_symbols if
-                   (str(lhs).startswith("jvp[") or str(lhs).startswith("vjp["))}
+    output_syms = {lhs for lhs in lhs_symbols if str(lhs).startswith("jvp[")}
 
     # If we can't detect outputs, do nothing
     if not output_syms:
@@ -279,11 +205,9 @@ def generate_jac_product(equations: Union[
                          input_order: Dict[sp.Symbol, int],
                          output_order: Dict[sp.Symbol, int],
                          observables: Iterable[sp.Symbol] = None,
-                         direction='jvp',
                          cse=True,
                               ):
-    """Returns symbolic expressions for vector-jacobian or jacobian-vector
-    product, depending on the direction argument.."""
+    """Return symbolic expressions for the Jacobian-vector product."""
     # Materialize equations to avoid consuming generators and ensure stable keys
     if isinstance(equations, dict):
         eq_list = list(equations.items())
@@ -291,7 +215,8 @@ def generate_jac_product(equations: Union[
         eq_list = list(equations)
 
     # Caching key before any mutation of inputs
-    cache_key = _get_unified_cache_key(direction,
+    cache_key = _get_unified_cache_key(
+                                       "jvp",
                                        eq_list,
                                        input_order,
                                        output_order,
@@ -314,37 +239,31 @@ def generate_jac_product(equations: Union[
     jac = generate_jacobian(equations, input_order, output_order, use_cache=True)
 
     prod_exprs = []
+    j_symbols: Dict[Tuple[int, int], sp.Symbol] = {}
 
-    # Flatten Jacobian
+    # Flatten Jacobian, dropping zero-valued entries
     for i in range(n_outputs):
         for j in range(n_inputs):
-            prod_exprs.append((sp.Symbol(f"j_{i}{j}"), jac[i, j]))
+            expr = jac[i, j]
+            if expr == 0:
+                continue
+            sym = sp.Symbol(f"j_{i}{j}")
+            prod_exprs.append((sym, expr))
+            j_symbols[(i, j)] = sym
 
-    # Sum over inputs for jvp, and outputs for vjp
-    if direction == "jvp":
-        # Sort outputs by their order for JVP
-        sorted_outputs = sorted(
-            output_order.keys(), key=lambda sym: output_order[sym]
-        )
-        v = IndexedBase("v", shape=(n_inputs,))
-        for out_sym in sorted_outputs:
-            sum_ = sp.S.Zero
-            for j in range(n_inputs):
-                sum_ += sp.Symbol(f"j_{output_order[out_sym]}{j}") * v[j]
-            prod_exprs.append(
-                (sp.Symbol(f"jvp[{output_order[out_sym]}]"), sum_)
-            )
-    else:
-        # Sort inputs by their order for VJP
-        sorted_inputs = sorted(
-            input_order.keys(), key=lambda sym: input_order[sym]
-        )
-        v = IndexedBase("v", shape=(n_outputs,))
-        for in_sym in sorted_inputs:
-            sum_ = sp.S.Zero
-            for j in range(n_outputs):
-                sum_ += sp.Symbol(f"j_{j}{input_order[in_sym]}") * v[j]
-            prod_exprs.append((sp.Symbol(f"vjp[{input_order[in_sym]}]"), sum_))
+    # Sort outputs by their order for JVP
+    sorted_outputs = sorted(
+        output_order.keys(), key=lambda sym: output_order[sym]
+    )
+    v = IndexedBase("v", shape=(n_inputs,))
+    for out_sym in sorted_outputs:
+        sum_ = sp.S.Zero
+        i = output_order[out_sym]
+        for j in range(n_inputs):
+            sym = j_symbols.get((i, j))
+            if sym is not None:
+                sum_ += sym * v[j]
+        prod_exprs.append((sp.Symbol(f"jvp[{i}]"), sum_))
 
     # Remove output equations - they're not required
     exprs = [expr for expr in equations if expr[0] not in output_order]
@@ -355,7 +274,7 @@ def generate_jac_product(equations: Union[
     else:
         all_exprs = topological_sort(all_exprs)
 
-    # Final sweep to drop any intermediates not contributing to jvp/vjp
+    # Final sweep to drop any intermediates not contributing to the JVP
     all_exprs = _prune_unused_assignments(all_exprs)
 
     # Store in cache and return
@@ -378,161 +297,5 @@ def generate_analytical_jvp(equations: Union[
                                 input_order=input_order,
                                 output_order=output_order,
                                 observables=observables,
-                                direction='jvp',
-                                cse=cse)
-
-
-def generate_analytical_vjp(equations: Union[
-                                  Iterable[Tuple[sp.Symbol, sp.Expr]],
-                                  Dict[sp.Symbol, sp.Expr]],
-                              input_order: Dict[sp.Symbol, int],
-                              output_order: Dict[sp.Symbol, int],
-                              observables: Iterable[sp.Symbol] = None,
-                              cse=True,
-                              ):
-    """Returns the symbolic expressions required to calculate
-    the vector-Jacobian product."""
-    return generate_jac_product(equations=equations,
-                                input_order=input_order,
-                                output_order=output_order,
-                                observables=observables,
-                                direction='vjp',
-                                cse=cse)
-
-
-def generate_jvp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-                      index_map: IndexedBases,
-                      func_name: str="jvp_factory",
-                      cse=True):
-    expressions = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
+                                cse=cse,
     )
-    jvp_lines = print_cuda_multiple(expressions,
-                                    symbol_map=index_map.all_arrayrefs)
-    if not jvp_lines:
-        jvp_lines = ["pass"]
-    code = JVP_TEMPLATE.format(func_name=func_name,
-                               body="    " + "\n        ".join(jvp_lines))
-    return code
-
-
-def generate_vjp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-                      index_map: IndexedBases,
-                      func_name: str="vjp_factory",
-                      cse=True):
-    expressions = generate_analytical_vjp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
-    vjp_lines = print_cuda_multiple(expressions,
-                                    symbol_map=index_map.all_arrayrefs)
-    if not vjp_lines:
-        vjp_lines = ["pass"]
-    code = VJP_TEMPLATE.format(func_name=func_name,
-                               body="    " + "\n        ".join(vjp_lines))
-    return code
-
-def _split_jvp_expressions(exprs):
-    aux = []
-    jvp_terms = {}
-    for lhs, rhs in exprs:
-        lhs_str = str(lhs)
-        if lhs_str.startswith("jvp["):
-            index = int(lhs_str.split("[")[1].split("]")[0])
-            jvp_terms[index] = rhs
-        else:
-            aux.append((lhs, rhs))
-    return aux, jvp_terms
-
-
-def _split_residual_expressions(exprs, index_map):
-    aux = []
-    res_terms = {}
-    dxdt_syms = set(index_map.dxdt.ref_map.keys())
-    for lhs, rhs in exprs:
-        if lhs in dxdt_syms:
-            index = index_map.dxdt.index_map[lhs]
-            res_terms[index] = rhs
-        else:
-            aux.append((lhs, rhs))
-    return aux, res_terms
-
-def generate_i_minus_hj_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-                              index_map: IndexedBases,
-                              func_name: str = "i_minus_hj_factory",
-                              cse=True):
-    jvp_exprs = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
-
-    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
-    n_out = len(index_map.dxdt.ref_map)
-    all_exprs = list(aux)
-    for i in range(n_out):
-        all_exprs.append(
-            (
-                sp.Symbol(f"out[{i}]"),
-                sp.Symbol(f"v[{i}]") - sp.Symbol("h") * jvp_terms[i],
-            )
-        )
-
-    if cse:
-        all_exprs = cse_and_stack(all_exprs)
-    else:
-        all_exprs = topological_sort(all_exprs)
-    lines = print_cuda_multiple(all_exprs, symbol_map=index_map.all_arrayrefs)
-    if not lines:
-        lines = ["pass"]
-    code = I_MINUS_HJ_TEMPLATE.format(func_name=func_name,
-                                      body="    " + "\n        ".join(lines))
-    return code
-
-
-def generate_residual_plus_i_minus_hj_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-    index_map: IndexedBases,
-    func_name: str = "residual_plus_i_minus_hj_factory",
-    cse=True,
-):
-    res_exprs = topological_sort(equations)
-    res_aux, res_terms = _split_residual_expressions(res_exprs, index_map)
-    jvp_exprs = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
-    jvp_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
-    all_exprs = res_aux + jvp_aux
-    n_out = len(index_map.dxdt.ref_map)
-    for i in range(n_out):
-        all_exprs.append(
-            (
-                sp.Symbol(f"out[{i}]"),
-                res_terms[i] + sp.Symbol(f"v[{i}]") - sp.Symbol("h") * jvp_terms[i],
-            )
-        )
-    if cse:
-        all_exprs = cse_and_stack(all_exprs)
-    else:
-        all_exprs = topological_sort(all_exprs)
-    lines = print_cuda_multiple(all_exprs, symbol_map=index_map.all_arrayrefs)
-    if not lines:
-        lines = ["pass"]
-    code = RES_PLUS_I_MINUS_HJ_TEMPLATE.format(
-        func_name=func_name, body="    " + "\n        ".join(lines)
-    )
-    return code
-

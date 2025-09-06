@@ -25,8 +25,6 @@ def rosenbrock_solver_factory(
         CUDA device function computing the stage update.
     """
 
-    i_minus_hj = system.get_solver_helper("i-hj")
-
     @cuda.jit(device=True)
     def rosenbrock_solver(
         state,
@@ -35,26 +33,20 @@ def rosenbrock_solver_factory(
         h,
         rhs,
         x,
-        residual,
         z_vec,
-        v_vec,
-        precond_temp,
+        temp,
     ) -> None:
         """Solve the Rosenbrock linear system for one stage."""
 
         linear_solver(
-            i_minus_hj,
             state,
             parameters,
             drivers,
             h,
             rhs,
             x,
-            residual,
             z_vec,
-            v_vec,
-            preconditioner,
-            precond_temp,
+            temp,
         )
 
     return rosenbrock_solver

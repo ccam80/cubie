@@ -42,10 +42,10 @@ def solver_factory_settings(solver_factory_settings_override):
 
 @pytest.fixture(scope="function")
 def solver_device(solver_factory_settings, system_setup):
-    jvp = system_setup["jvp"]
+    operator = system_setup["operator"]
     residual_func = system_setup["residual"]
     linear_solver = linear_solver_factory(
-        jvp,
+        operator,
         correction_type="minimal_residual",
         tolerance=1e-6,
         max_iters=32,
