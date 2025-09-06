@@ -1,0 +1,12 @@
+cubie.systemmodels.symbolic.odefile
+===================================
+
+.. automodule:: cubie.systemmodels.symbolic.odefile
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      ODEFile
+   

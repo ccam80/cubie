@@ -1,0 +1,16 @@
+cubie.integrators.algorithms
+============================
+
+.. automodule:: cubie.integrators.algorithms
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   IntegratorLoopSettings
+   LoopStepConfig
+   euler
+   genericIntegratorAlgorithm

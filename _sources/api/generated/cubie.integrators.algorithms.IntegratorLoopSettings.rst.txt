@@ -1,0 +1,12 @@
+cubie.integrators.algorithms.IntegratorLoopSettings
+===================================================
+
+.. automodule:: cubie.integrators.algorithms.IntegratorLoopSettings
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      IntegratorLoopSettings
+   

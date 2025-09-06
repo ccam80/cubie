@@ -1,0 +1,372 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.systemmodels.symbolic.numba_cuda_printer &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.systemmodels.symbolic.numba_cuda_printer</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.systemmodels.symbolic.numba_cuda_printer</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">sympy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sympy.printing.pycode</span><span class="w"> </span><span class="kn">import</span> <span class="n">PythonCodePrinter</span>
+
+<span class="c1"># Map SymPy function names to CUDA/Python math equivalents for printing</span>
+<span class="c1"># Keys should match expr.func.__name__ from SymPy expressions</span>
+<span class="n">CUDA_FUNCTIONS</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="c1"># Elementary trig</span>
+    <span class="s1">&#39;sin&#39;</span><span class="p">:</span> <span class="s1">&#39;math.sin&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;cos&#39;</span><span class="p">:</span> <span class="s1">&#39;math.cos&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;tan&#39;</span><span class="p">:</span> <span class="s1">&#39;math.tan&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;asin&#39;</span><span class="p">:</span> <span class="s1">&#39;math.asin&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;acos&#39;</span><span class="p">:</span> <span class="s1">&#39;math.acos&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;atan&#39;</span><span class="p">:</span> <span class="s1">&#39;math.atan&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;atan2&#39;</span><span class="p">:</span> <span class="s1">&#39;math.atan2&#39;</span><span class="p">,</span>
+
+    <span class="c1"># Hyperbolic</span>
+    <span class="s1">&#39;sinh&#39;</span><span class="p">:</span> <span class="s1">&#39;math.sinh&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;cosh&#39;</span><span class="p">:</span> <span class="s1">&#39;math.cosh&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;tanh&#39;</span><span class="p">:</span> <span class="s1">&#39;math.tanh&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;asinh&#39;</span><span class="p">:</span> <span class="s1">&#39;math.asinh&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;acosh&#39;</span><span class="p">:</span> <span class="s1">&#39;math.acosh&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;atanh&#39;</span><span class="p">:</span> <span class="s1">&#39;math.atanh&#39;</span><span class="p">,</span>
+
+    <span class="c1"># Exponential / Logarithmic</span>
+    <span class="s1">&#39;exp&#39;</span><span class="p">:</span> <span class="s1">&#39;math.exp&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;expm1&#39;</span><span class="p">:</span> <span class="s1">&#39;math.expm1&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;log&#39;</span><span class="p">:</span> <span class="s1">&#39;math.log&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;log2&#39;</span><span class="p">:</span> <span class="s1">&#39;math.log2&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;log10&#39;</span><span class="p">:</span> <span class="s1">&#39;math.log10&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;log1p&#39;</span><span class="p">:</span> <span class="s1">&#39;math.log1p&#39;</span><span class="p">,</span>
+
+    <span class="c1"># Special functions</span>
+    <span class="s1">&#39;erf&#39;</span><span class="p">:</span> <span class="s1">&#39;math.erf&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;erfc&#39;</span><span class="p">:</span> <span class="s1">&#39;math.erfc&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;gamma&#39;</span><span class="p">:</span> <span class="s1">&#39;math.gamma&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;loggamma&#39;</span><span class="p">:</span> <span class="s1">&#39;math.lgamma&#39;</span><span class="p">,</span>  <span class="c1"># map SymPy loggamma -&gt; math.lgamma</span>
+    <span class="s1">&#39;hypot&#39;</span><span class="p">:</span> <span class="s1">&#39;math.hypot&#39;</span><span class="p">,</span>
+
+    <span class="c1"># Rounding / absolute</span>
+    <span class="s1">&#39;Abs&#39;</span><span class="p">:</span> <span class="s1">&#39;math.fabs&#39;</span><span class="p">,</span>  <span class="c1"># prefer math.fabs for CUDA</span>
+    <span class="s1">&#39;floor&#39;</span><span class="p">:</span> <span class="s1">&#39;math.floor&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;ceiling&#39;</span><span class="p">:</span> <span class="s1">&#39;math.ceil&#39;</span><span class="p">,</span>  <span class="c1"># SymPy uses ceiling()</span>
+
+    <span class="c1"># Power / roots</span>
+    <span class="s1">&#39;sqrt&#39;</span><span class="p">:</span> <span class="s1">&#39;math.sqrt&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;pow&#39;</span><span class="p">:</span> <span class="s1">&#39;math.pow&#39;</span><span class="p">,</span>
+
+    <span class="c1"># Min/Max</span>
+    <span class="s1">&#39;Min&#39;</span><span class="p">:</span> <span class="s1">&#39;min&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;Max&#39;</span><span class="p">:</span> <span class="s1">&#39;max&#39;</span><span class="p">,</span>
+
+    <span class="c1"># Misc math</span>
+    <span class="s1">&#39;copysign&#39;</span><span class="p">:</span> <span class="s1">&#39;math.copysign&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;fmod&#39;</span><span class="p">:</span> <span class="s1">&#39;math.fmod&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;modf&#39;</span><span class="p">:</span> <span class="s1">&#39;math.modf&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;frexp&#39;</span><span class="p">:</span> <span class="s1">&#39;math.frexp&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;ldexp&#39;</span><span class="p">:</span> <span class="s1">&#39;math.ldexp&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;remainder&#39;</span><span class="p">:</span> <span class="s1">&#39;math.remainder&#39;</span><span class="p">,</span>
+
+    <span class="c1"># Classification</span>
+    <span class="s1">&#39;isnan&#39;</span><span class="p">:</span> <span class="s1">&#39;math.isnan&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;isinf&#39;</span><span class="p">:</span> <span class="s1">&#39;math.isinf&#39;</span><span class="p">,</span>
+    <span class="s1">&#39;isfinite&#39;</span><span class="p">:</span> <span class="s1">&#39;math.isfinite&#39;</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<div class="viewcode-block" id="CUDAPrinter">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">CUDAPrinter</span><span class="p">(</span><span class="n">PythonCodePrinter</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;SymPy printer for CUDA code generation with symbol substitutions and optimizations.&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="CUDAPrinter.__init__">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">symbol_map</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize CUDA printer.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            symbol_map: Dictionary mapping Symbol instances to IndexedBase references</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">symbol_map</span><span class="p">:</span> <span class="n">Dict</span> <span class="o">=</span> <span class="n">symbol_map</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cuda_functions</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">CUDA_FUNCTIONS</span>
+        <span class="c1"># User function alias mapping: underscored symbolic name -&gt; original printable name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">func_aliases</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">symbol_map</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s1">&#39;__function_aliases__&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">symbol_map</span><span class="p">:</span>
+            <span class="n">aliases</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">symbol_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;__function_aliases__&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">aliases</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">func_aliases</span> <span class="o">=</span> <span class="n">aliases</span></div>
+
+
+<div class="viewcode-block" id="CUDAPrinter.doprint">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter.doprint">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">doprint</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expr</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Main printing method that applies all transformations.&quot;&quot;&quot;</span>
+        <span class="n">assign_to</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;assign_to&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+        <span class="c1"># Force outer assignment for Piecewise to avoid assignments inside ternaries</span>
+        <span class="k">if</span> <span class="n">assign_to</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Piecewise</span><span class="p">):</span>
+            <span class="n">rhs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span>
+            <span class="n">lhs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="n">assign_to</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">lhs</span><span class="si">}</span><span class="s2"> = </span><span class="si">{</span><span class="n">rhs</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">doprint</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_replace_powers_with_multiplication</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+        <span class="c1"># result = self._ifelse_to_selp(result)</span>
+        <span class="k">return</span> <span class="n">result</span></div>
+
+
+<div class="viewcode-block" id="CUDAPrinter._print_Symbol">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter._print_Symbol">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_print_Symbol</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expr</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Print Symbol, applying symbol-to-IndexedBase mapping if available.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">expr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">symbol_map</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">symbol_map</span><span class="p">[</span><span class="n">expr</span><span class="p">])</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_print_Symbol</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="CUDAPrinter._print_Piecewise">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter._print_Piecewise">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_print_Piecewise</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expr</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Piecewise</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Always render Piecewise as a pure expression (nested ternaries).</span>
+
+<span class="sd">        This avoids generating assignments inside conditional expressions when</span>
+<span class="sd">        ``assign_to`` is provided to ``doprint``. The outer assignment will be</span>
+<span class="sd">        handled by ``doprint`` itself (&quot;lhs = &lt;expr&gt;&quot;).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># expr.args is a tuple of (expr_i, cond_i). The last cond may be True.</span>
+        <span class="n">pieces</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">expr</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+        <span class="c1"># Build nested ternary from the end to the start.</span>
+        <span class="c1"># Start with the last expression (which should have a True condition or be the fallback).</span>
+        <span class="n">last_expr</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">pieces</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">rendered</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="n">last_expr</span><span class="p">)</span>
+        <span class="c1"># Process in reverse, skipping the last fallback.</span>
+        <span class="k">for</span> <span class="n">e</span><span class="p">,</span> <span class="n">c</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">pieces</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]):</span>
+            <span class="n">cond</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+            <span class="n">rendered</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">val</span><span class="si">}</span><span class="s2"> if </span><span class="si">{</span><span class="n">cond</span><span class="si">}</span><span class="s2"> else (</span><span class="si">{</span><span class="n">rendered</span><span class="si">}</span><span class="s2">))&quot;</span>
+        <span class="k">return</span> <span class="n">rendered</span></div>
+
+
+<div class="viewcode-block" id="CUDAPrinter._replace_powers_with_multiplication">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter._replace_powers_with_multiplication">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_replace_powers_with_multiplication</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expr_str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace **2 and **3 with explicit multiplications for efficiency.&quot;&quot;&quot;</span>
+        <span class="n">expr_str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_replace_square_powers</span><span class="p">(</span><span class="n">expr_str</span><span class="p">)</span>
+        <span class="n">expr_str</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_replace_cube_powers</span><span class="p">(</span><span class="n">expr_str</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">expr_str</span></div>
+
+
+<div class="viewcode-block" id="CUDAPrinter._replace_square_powers">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter._replace_square_powers">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_replace_square_powers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expr_str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace x**2 with x*x, handling spaces around the ** operator.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(\w+(?:\[[^]]+])*)\s*\*\*\s*2\b&quot;</span><span class="p">,</span> <span class="sa">r</span><span class="s2">&quot;\1*\1&quot;</span><span class="p">,</span> <span class="n">expr_str</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="CUDAPrinter._replace_cube_powers">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter._replace_cube_powers">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_replace_cube_powers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expr_str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace x**3 with x*x*x, handling spaces around the ** operator.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">r</span><span class="s1">&#39;(\w+(?:\[[^]]+])*)\s*\*\*\s*3\b&#39;</span><span class="p">,</span> <span class="sa">r</span><span class="s1">&#39;\1*\1*\1&#39;</span><span class="p">,</span>
+                      <span class="n">expr_str</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="CUDAPrinter._ifelse_to_selp">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter._ifelse_to_selp">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_ifelse_to_selp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expr_str</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Replace if-else statements with select statements.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span>
+            <span class="sa">r</span><span class="s2">&quot;\s+(.+?)\sif\s+(.+?)\s+else\s+(.+)&quot;</span><span class="p">,</span>
+            <span class="sa">r</span><span class="s2">&quot;cuda.selp(\2, \1, \3)&quot;</span><span class="p">,</span>
+            <span class="n">expr_str</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="CUDAPrinter._print_Function">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.CUDAPrinter._print_Function">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_print_Function</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expr</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Print Function, applying CUDA function mapping and user alias mapping.</span>
+
+<span class="sd">        Precedence:</span>
+<span class="sd">        - If this is a known CUDA-mapped SymPy function, use CUDA_FUNCTIONS mapping.</span>
+<span class="sd">        - Else if this is a user-defined function (underscored in SymPy), map back to original name via aliases.</span>
+<span class="sd">        - Else print as a plain function call &quot;name(arg1, ...)&quot; to avoid strict errors.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">func_name</span> <span class="o">=</span> <span class="n">expr</span><span class="o">.</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span>
+
+        <span class="c1"># CUDA-known functions first</span>
+        <span class="k">if</span> <span class="n">func_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">cuda_functions</span><span class="p">:</span>
+            <span class="n">cuda_func</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cuda_functions</span><span class="p">[</span><span class="n">func_name</span><span class="p">]</span>
+            <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">expr</span><span class="o">.</span><span class="n">args</span><span class="p">]</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">cuda_func</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span>
+
+        <span class="c1"># User-defined functions that were underscored during parsing</span>
+        <span class="k">if</span> <span class="n">func_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">func_aliases</span><span class="p">:</span>
+            <span class="n">real_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">func_aliases</span><span class="p">[</span><span class="n">func_name</span><span class="p">]</span>
+            <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">expr</span><span class="o">.</span><span class="n">args</span><span class="p">]</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">real_name</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span>
+
+        <span class="c1"># Derivative user functions d_&lt;name&gt;(...): print as-is</span>
+        <span class="k">if</span> <span class="n">func_name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;d_&#39;</span><span class="p">):</span>
+            <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">expr</span><span class="o">.</span><span class="n">args</span><span class="p">]</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">func_name</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span>
+
+        <span class="c1"># Fallback: print a plain function call to avoid PrintMethodNotImplementedError</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_print</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">expr</span><span class="o">.</span><span class="n">args</span><span class="p">]</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">func_name</span><span class="si">}</span><span class="s2">(</span><span class="si">{</span><span class="s1">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">args</span><span class="p">)</span><span class="si">}</span><span class="s2">)&quot;</span></div>
+</div>
+
+
+    <span class="c1"># TODO: Singularity skips from Chaste codegen, piecewise blend if required</span>
+
+
+<div class="viewcode-block" id="print_cuda">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.print_cuda">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">print_cuda</span><span class="p">(</span><span class="n">expr</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">,</span>
+               <span class="n">symbol_map</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+               <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Convenience function to print SymPy expressions as CUDA-optimized code.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        expr: SymPy expression to print</span>
+<span class="sd">        symbol_map: Dictionary mapping Symbol instances to IndexedBase references</span>
+<span class="sd">        **kwargs: Additional arguments passed to the printer</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        String representation of the expression optimized for CUDA</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">printer</span> <span class="o">=</span> <span class="n">CUDAPrinter</span><span class="p">(</span><span class="n">symbol_map</span><span class="o">=</span><span class="n">symbol_map</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">printer</span><span class="o">.</span><span class="n">doprint</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="print_cuda_multiple">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.symbolic.numba_cuda_printer.html#cubie.systemmodels.symbolic.numba_cuda_printer.print_cuda_multiple">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">print_cuda_multiple</span><span class="p">(</span><span class="n">exprs</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+                        <span class="n">symbol_map</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+                        <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Convenience function to print SymPy expressions as CUDA-optimized code.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">        exprs: iterable of tuples of (sp.Symbol, sp.Expr)</span>
+<span class="sd">            Iterable of symbol, expression pairs for &quot;symbol = expression&quot;</span>
+<span class="sd">            assignments</span>
+<span class="sd">        symbol_map: dict of sp.Symbol to IndexedBase or str</span>
+<span class="sd">            Dictionary mapping algebraic symbols to their array or variable</span>
+<span class="sd">            names</span>
+<span class="sd">        **kwargs: Additional arguments passed to the printer</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        String representation of the expression optimized for CUDA</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">printer</span> <span class="o">=</span> <span class="n">CUDAPrinter</span><span class="p">(</span><span class="n">symbol_map</span><span class="o">=</span><span class="n">symbol_map</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+    <span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">assign_to</span><span class="p">,</span> <span class="n">expr</span> <span class="ow">in</span> <span class="n">exprs</span><span class="p">:</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">printer</span><span class="o">.</span><span class="n">doprint</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">assign_to</span><span class="o">=</span><span class="n">assign_to</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">lines</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

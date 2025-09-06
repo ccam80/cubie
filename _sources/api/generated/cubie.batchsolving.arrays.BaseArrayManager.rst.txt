@@ -1,0 +1,13 @@
+cubie.batchsolving.arrays.BaseArrayManager
+==========================================
+
+.. automodule:: cubie.batchsolving.arrays.BaseArrayManager
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      ArrayContainer
+      BaseArrayManager
+   

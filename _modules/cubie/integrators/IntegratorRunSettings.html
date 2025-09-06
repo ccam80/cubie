@@ -1,0 +1,374 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.IntegratorRunSettings &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.integrators.IntegratorRunSettings</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.integrators.IntegratorRunSettings</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Runtime configuration settings for numerical integration algorithms.</span>
+
+<span class="sd">This module provides the IntegratorRunSettings class which manages timing,</span>
+<span class="sd">tolerance, and output configuration parameters for ODE integration runs.</span>
+<span class="sd">It includes validation logic to ensure consistent and achievable parameter</span>
+<span class="sd">combinations for fixed-step algorithms.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">warnings</span><span class="w"> </span><span class="kn">import</span> <span class="n">warn</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">attrs</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="kn">import</span> <span class="n">ceil</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.algorithms.LoopStepConfig</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoopStepConfig</span>
+
+
+<div class="viewcode-block" id="IntegratorRunSettings">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.IntegratorRunSettings.html#cubie.integrators.IntegratorRunSettings.IntegratorRunSettings">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">IntegratorRunSettings</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Container for runtime/timing settings that are commonly grouped together.</span>
+
+<span class="sd">    This class manages the configuration parameters for numerical integration</span>
+<span class="sd">    runs, including step sizes, tolerances, and output types. It provides</span>
+<span class="sd">    validation to ensure that timing parameters are consistent and achievable</span>
+<span class="sd">    for fixed-step integration algorithms.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    dt_min : float, default=1e-6</span>
+<span class="sd">        Minimum time step size for integration.</span>
+<span class="sd">    dt_max : float, default=1.0</span>
+<span class="sd">        Maximum time step size for integration.</span>
+<span class="sd">    dt_save : float, default=0.1</span>
+<span class="sd">        Time interval between saved output samples.</span>
+<span class="sd">    dt_summarise : float, default=0.1</span>
+<span class="sd">        Time interval between summary calculations.</span>
+<span class="sd">    atol : float, default=1e-6</span>
+<span class="sd">        Absolute tolerance for integration error control.</span>
+<span class="sd">    rtol : float, default=1e-6</span>
+<span class="sd">        Relative tolerance for integration error control.</span>
+<span class="sd">    output_types : list of str, default=empty list</span>
+<span class="sd">        List of output types to generate during integration.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The class automatically validates timing relationships and discretizes</span>
+<span class="sd">    step sizes to ensure they are compatible with fixed-step algorithms.</span>
+<span class="sd">    Warnings are issued if requested parameters cannot be achieved exactly.</span>
+
+<span class="sd">    See Also</span>
+<span class="sd">    --------</span>
+<span class="sd">    LoopStepConfig : Low-level step configuration class</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">dt_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">dt_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">dt_save</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">dt_summarise</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mf">0.1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">atol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">rtol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">output_types</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">Factory</span><span class="p">(</span><span class="nb">list</span><span class="p">),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">deep_iterable</span><span class="p">(</span>
+            <span class="n">member_validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">str</span><span class="p">),</span>
+            <span class="n">iterable_validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">list</span><span class="p">),</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+    <span class="c1"># saved_state_indices: Optional[Sequence | NDArray[int]] = attrs.field(</span>
+    <span class="c1">#         default=attrs.Factory(list),</span>
+    <span class="c1">#         validator=attrs.validators.optional(</span>
+    <span class="c1">#                 attrs.validators.deep_iterable(</span>
+    <span class="c1">#                         member_validator=attrs.validators.instance_of(int),</span>
+    <span class="c1">#                         iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),</span>
+    <span class="c1">#                         ),</span>
+    <span class="c1">#                 ),</span>
+    <span class="c1">#         eq=attrs.cmp_using(eq=array_equal),</span>
+    <span class="c1">#         )</span>
+    <span class="c1"># saved_observable_indices: Optional[Sequence | NDArray[int]] = attrs.field(</span>
+    <span class="c1">#         default=attrs.Factory(list),</span>
+    <span class="c1">#         validator=attrs.validators.optional(</span>
+    <span class="c1">#                 attrs.validators.deep_iterable(</span>
+    <span class="c1">#                         member_validator=attrs.validators.instance_of(int),</span>
+    <span class="c1">#                         iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),</span>
+    <span class="c1">#                         ),</span>
+    <span class="c1">#                 ),</span>
+    <span class="c1">#         eq=attrs.cmp_using(eq=array_equal),</span>
+    <span class="c1">#         )</span>
+    <span class="c1"># summarised_state_indices: Optional[Sequence | NDArray[int]] = attrs.field(</span>
+    <span class="c1">#         default=attrs.Factory(list),</span>
+    <span class="c1">#         validator=attrs.validators.optional(</span>
+    <span class="c1">#                 attrs.validators.deep_iterable(</span>
+    <span class="c1">#                         member_validator=attrs.validators.instance_of(int),</span>
+    <span class="c1">#                         iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),</span>
+    <span class="c1">#                         ),</span>
+    <span class="c1">#                 ),</span>
+    <span class="c1">#         eq=attrs.cmp_using(eq=array_equal),</span>
+    <span class="c1">#         )</span>
+    <span class="c1">#</span>
+    <span class="c1"># summarised_observable_indices: Optional[Sequence | NDArray[int]] = attrs.field(</span>
+    <span class="c1">#         default=attrs.Factory(list),</span>
+    <span class="c1">#         validator=attrs.validators.optional(</span>
+    <span class="c1">#                 attrs.validators.deep_iterable(</span>
+    <span class="c1">#                         member_validator=attrs.validators.instance_of(int),</span>
+    <span class="c1">#                         iterable_validator=attrs.validators.instance_of(Sequence | NDArray[int]),</span>
+    <span class="c1">#                         ),</span>
+    <span class="c1">#                 ),</span>
+    <span class="c1">#         eq=attrs.cmp_using(eq=array_equal),</span>
+    <span class="c1">#         )</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__attrs_post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Validate timing relationships after initialization.</span>
+
+<span class="sd">        Automatically called after object creation to ensure all timing</span>
+<span class="sd">        parameters are consistent and achievable.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">validate_settings</span><span class="p">()</span>
+
+<div class="viewcode-block" id="IntegratorRunSettings.validate_settings">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.IntegratorRunSettings.html#cubie.integrators.IntegratorRunSettings.IntegratorRunSettings.validate_settings">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">validate_settings</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check the timing settings for consistency and raise errors or warnings as appropriate.</span>
+
+<span class="sd">        This method validates timing relationships and discretizes step sizes</span>
+<span class="sd">        for compatibility with fixed-step algorithms.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_validate_timing</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_discretize_steps</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="IntegratorRunSettings._validate_timing">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.IntegratorRunSettings.html#cubie.integrators.IntegratorRunSettings.IntegratorRunSettings._validate_timing">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_validate_timing</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check for impossible or inconsistent timing settings.</span>
+
+<span class="sd">        Validates timing relationships such as ensuring dt_max &gt;= dt_min,</span>
+<span class="sd">        dt_save &gt;= dt_min, and dt_summarise &gt;= dt_save. Raises errors for</span>
+<span class="sd">        impossibilities and warnings if parameters are ignored.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If timing parameters have impossible relationships (e.g., dt_max &lt; dt_min).</span>
+
+<span class="sd">        Warns</span>
+<span class="sd">        -----</span>
+<span class="sd">        UserWarning</span>
+<span class="sd">            If dt_max &gt; dt_save, making dt_max redundant.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">dt_min</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_min</span>
+        <span class="n">dt_max</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_max</span>
+        <span class="n">dt_save</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_save</span>
+        <span class="n">dt_summarise</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_summarise</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_max</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_min</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;dt_max (</span><span class="si">{</span><span class="n">dt_max</span><span class="si">}</span><span class="s2">s) must be &gt;= dt_min (</span><span class="si">{</span><span class="n">dt_min</span><span class="si">}</span><span class="s2">s).&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">dt_save</span> <span class="o">&lt;</span> <span class="n">dt_min</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;dt_save (</span><span class="si">{</span><span class="n">dt_save</span><span class="si">}</span><span class="s2">s) must be &gt;= dt_min (</span><span class="si">{</span><span class="n">dt_min</span><span class="si">}</span><span class="s2">s). &quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">dt_summarise</span> <span class="o">&lt;</span> <span class="n">dt_save</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;dt_summarise (</span><span class="si">{</span><span class="n">dt_summarise</span><span class="si">}</span><span class="s2">s) must be &gt;= to dt_save (</span><span class="si">{</span><span class="n">dt_save</span><span class="si">}</span><span class="s2">s)&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">dt_max</span> <span class="o">&gt;</span> <span class="n">dt_save</span><span class="p">:</span>
+            <span class="n">warn</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;dt_max (</span><span class="si">{</span><span class="n">dt_max</span><span class="si">}</span><span class="s2">s) &gt; dt_save (</span><span class="si">{</span><span class="n">dt_save</span><span class="si">}</span><span class="s2">s). The loop will never be able to step&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;that far before stopping to save, so dt_max is redundant.&quot;</span><span class="p">,</span>
+                <span class="ne">UserWarning</span><span class="p">,</span>
+            <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="IntegratorRunSettings._discretize_steps">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.IntegratorRunSettings.html#cubie.integrators.IntegratorRunSettings.IntegratorRunSettings._discretize_steps">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_discretize_steps</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Discretize the step sizes for saving and summarising.</span>
+
+<span class="sd">        Adjusts dt_save and dt_summarise to be integer multiples of the</span>
+<span class="sd">        minimum step size (dt_min) and issues warnings if the requested</span>
+<span class="sd">        values are not achievable in a fixed-step algorithm.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">step_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_min</span>
+        <span class="n">dt_save</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_save</span>
+        <span class="n">dt_summarise</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_summarise</span>
+
+        <span class="n">n_steps_save</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">dt_save</span> <span class="o">/</span> <span class="n">step_size</span><span class="p">)</span>
+        <span class="n">actual_dt_save</span> <span class="o">=</span> <span class="n">n_steps_save</span> <span class="o">*</span> <span class="n">step_size</span>
+
+        <span class="n">n_steps_summarise</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">dt_summarise</span> <span class="o">/</span> <span class="n">actual_dt_save</span><span class="p">)</span>
+        <span class="n">actual_dt_summarise</span> <span class="o">=</span> <span class="n">n_steps_summarise</span> <span class="o">*</span> <span class="n">actual_dt_save</span>
+
+        <span class="c1"># Update parameters if they differ from requested values and warn the user</span>
+        <span class="k">if</span> <span class="n">actual_dt_save</span> <span class="o">!=</span> <span class="n">dt_save</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dt_save</span> <span class="o">=</span> <span class="n">actual_dt_save</span>
+            <span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;dt_save(</span><span class="si">{</span><span class="n">dt_save</span><span class="si">}</span><span class="s2">s) is not an integer multiple of loop step size (</span><span class="si">{</span><span class="n">step_size</span><span class="si">}</span><span class="s2">s), &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;so is unachievable in a fixed-step algorithm. The actual time between output samples is &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">actual_dt_save</span><span class="si">}</span><span class="s2">s)&quot;</span><span class="p">,</span>
+                <span class="ne">UserWarning</span><span class="p">,</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">actual_dt_summarise</span> <span class="o">!=</span> <span class="n">dt_summarise</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dt_summarise</span> <span class="o">=</span> <span class="n">actual_dt_summarise</span>
+            <span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;dt_summarise(</span><span class="si">{</span><span class="n">dt_summarise</span><span class="si">}</span><span class="s2">s) is not an integer multiple of dt_save (</span><span class="si">{</span><span class="n">actual_dt_save</span><span class="si">}</span><span class="s2">s), &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;so is unachievable in a fixed-step algorithm. The actual time between summary values is &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="n">actual_dt_summarise</span><span class="si">}</span><span class="s2">s)&quot;</span><span class="p">,</span>
+                <span class="ne">UserWarning</span><span class="p">,</span>
+            <span class="p">)</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">loop_step_config</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the step-size configuration for the integration loop.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        LoopStepConfig</span>
+<span class="sd">            Configuration object containing all timing parameters for the loop.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">LoopStepConfig</span><span class="p">(</span>
+            <span class="n">dt_min</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dt_min</span><span class="p">,</span>
+            <span class="n">dt_max</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dt_max</span><span class="p">,</span>
+            <span class="n">dt_save</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dt_save</span><span class="p">,</span>
+            <span class="n">dt_summarise</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dt_summarise</span><span class="p">,</span>
+            <span class="n">atol</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">atol</span><span class="p">,</span>
+            <span class="n">rtol</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rtol</span><span class="p">,</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="IntegratorRunSettings.dt_save_samples">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.IntegratorRunSettings.html#cubie.integrators.IntegratorRunSettings.IntegratorRunSettings.dt_save_samples">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dt_save_samples</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Calculate the number of samples per save interval.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of integration steps between each saved output sample.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">ceil</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dt_save</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_min</span><span class="p">))</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

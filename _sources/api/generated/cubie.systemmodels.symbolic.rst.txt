@@ -1,0 +1,22 @@
+cubie.systemmodels.symbolic
+===========================
+
+.. automodule:: cubie.systemmodels.symbolic
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   cellml
+   dxdt
+   indexedbasemaps
+   jacobian
+   numba_cuda_printer
+   odefile
+   operator_apply
+   parser
+   sym_utils
+   symbolicODE

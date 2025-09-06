@@ -1,0 +1,18 @@
+cubie.systemmodels.symbolic.symbolicODE
+=======================================
+
+.. automodule:: cubie.systemmodels.symbolic.symbolicODE
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      create_ODE_system
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      SymbolicODE
+   

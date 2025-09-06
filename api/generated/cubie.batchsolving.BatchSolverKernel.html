@@ -1,0 +1,1076 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.batchsolving.BatchSolverKernel &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.batchsolving.SystemInterface" href="cubie.batchsolving.SystemInterface.html" />
+    <link rel="prev" title="cubie.batchsolving.BatchSolverConfig" href="cubie.batchsolving.BatchSolverConfig.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.html#cubie.batchsolving.Solver"><code class="docutils literal notranslate"><span class="pre">Solver</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.html#cubie.batchsolving.solve_ivp"><code class="docutils literal notranslate"><span class="pre">solve_ivp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.BatchGridBuilder.html">cubie.batchsolving.BatchGridBuilder</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.BatchSolverConfig.html">cubie.batchsolving.BatchSolverConfig</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">cubie.batchsolving.BatchSolverKernel</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel"><code class="docutils literal notranslate"><span class="pre">BatchSolverKernel</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.SystemInterface.html">cubie.batchsolving.SystemInterface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.arrays.html">cubie.batchsolving.arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.solver.html">cubie.batchsolving.solver</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.solveresult.html">cubie.batchsolving.solveresult</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.systemmodels.html">cubie.systemmodels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+      <li class="breadcrumb-item active">cubie.batchsolving.BatchSolverKernel</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.batchsolving.BatchSolverKernel.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.batchsolving.BatchSolverKernel">
+<span id="cubie-batchsolving-batchsolverkernel"></span><h1>cubie.batchsolving.BatchSolverKernel<a class="headerlink" href="#module-cubie.batchsolving.BatchSolverKernel" title="Link to this heading"></a></h1>
+<p>Batch Solver Kernel Module.</p>
+<p>This module provides the BatchSolverKernel class, which manages GPU-based
+batch integration of ODE systems using CUDA. The kernel handles the distribution
+of work across GPU threads and manages memory allocation for batched integrations.</p>
+<p>Created on Tue May 27 17:45:03 2025</p>
+<p>&#64;author: cca79</p>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel" title="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BatchSolverKernel</span></code></a>(system, algorithm, ...[, ...])</p></td>
+<td><p>CUDA-based batch solver kernel for ODE integration.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchSolverKernel.</span></span><span class="sig-name descname"><span class="pre">BatchSolverKernel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">system</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">algorithm:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">'euler'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">duration:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">warmup:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_min:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_max:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_save:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_summarise:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">atol:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">1e-06</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rtol:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">1e-06</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saved_state_indices:</span> <span class="pre">~numpy.ndarray[~typing.Any</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~numpy.dtype[~numpy.int64]]</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">saved_observable_indices:</span> <span class="pre">~numpy.ndarray[~typing.Any</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">~numpy.dtype[~numpy.int64]]</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarised_state_indices:</span> <span class="pre">~collections.abc.Buffer</span> <span class="pre">|</span> <span class="pre">~numpy._typing._array_like._SupportsArray[~numpy.dtype[~typing.Any]]</span> <span class="pre">|</span> <span class="pre">~numpy._typing._nested_sequence._NestedSequence[~numpy._typing._array_like._SupportsArray[~numpy.dtype[~typing.Any]]]</span> <span class="pre">|</span> <span class="pre">bool</span> <span class="pre">|</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">complex</span> <span class="pre">|</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">bytes</span> <span class="pre">|</span> <span class="pre">~numpy._typing._nested_sequence._NestedSequence[bool</span> <span class="pre">|</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">complex</span> <span class="pre">|</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">bytes]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarised_observable_indices:</span> <span class="pre">~collections.abc.Buffer</span> <span class="pre">|</span> <span class="pre">~numpy._typing._array_like._SupportsArray[~numpy.dtype[~typing.Any]]</span> <span class="pre">|</span> <span class="pre">~numpy._typing._nested_sequence._NestedSequence[~numpy._typing._array_like._SupportsArray[~numpy.dtype[~typing.Any]]]</span> <span class="pre">|</span> <span class="pre">bool</span> <span class="pre">|</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">complex</span> <span class="pre">|</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">bytes</span> <span class="pre">|</span> <span class="pre">~numpy._typing._nested_sequence._NestedSequence[bool</span> <span class="pre">|</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">complex</span> <span class="pre">|</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">bytes]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_types:</span> <span class="pre">list[str]</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">precision:</span> <span class="pre">type</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float64'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">profileCUDA:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_manager=MemoryManager(totalmem=8589934592</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">registry={}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream_groups=StreamGroups(groups={}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">streams={})</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_mode='passive'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_allocator=&lt;class</span> <span class="pre">'cubie.cudasim_utils.FakeNumbaCUDAMemoryManager'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_auto_pool=[]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_manual_pool=[]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_stride_order=('time'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">'run'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">'variable')</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_queued_allocations={})</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream_group='solver'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mem_proportion=None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverKernel.html#BatchSolverKernel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">CUDAFactory</span></code></p>
+<p>CUDA-based batch solver kernel for ODE integration.</p>
+<p>This class builds and holds the integrating kernel and interfaces with
+lower-level modules including loop algorithms, ODE systems, and output
+functions. The kernel function accepts single or batched sets of inputs
+and distributes those amongst the threads on the GPU.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>system</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a>) – The ODE system to be integrated.</p></li>
+<li><p><strong>algorithm</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default='euler'</em>) – Integration algorithm to use.</p></li>
+<li><p><strong>duration</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default=1.0</em>) – Duration of the simulation.</p></li>
+<li><p><strong>warmup</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default=0.0</em>) – Warmup time before the main simulation.</p></li>
+<li><p><strong>dt_min</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default=0.01</em>) – Minimum allowed time step.</p></li>
+<li><p><strong>dt_max</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default=0.1</em>) – Maximum allowed time step.</p></li>
+<li><p><strong>dt_save</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default=0.1</em>) – Time step for saving output.</p></li>
+<li><p><strong>dt_summarise</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default=1.0</em>) – Time step for saving summaries.</p></li>
+<li><p><strong>atol</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default=1e-6</em>) – Absolute tolerance for adaptive stepping.</p></li>
+<li><p><strong>rtol</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default=1e-6</em>) – Relative tolerance for adaptive stepping.</p></li>
+<li><p><strong>saved_state_indices</strong> (NDArray[<a href="#id1"><span class="problematic" id="id2">np.int_</span></a>], optional) – Indices of state variables to save.</p></li>
+<li><p><strong>saved_observable_indices</strong> (NDArray[<a href="#id3"><span class="problematic" id="id4">np.int_</span></a>], optional) – Indices of observable variables to save.</p></li>
+<li><p><strong>summarised_state_indices</strong> (<em>ArrayLike</em><em>, </em><em>optional</em>) – Indices of state variables to summarise.</p></li>
+<li><p><strong>summarised_observable_indices</strong> (<em>ArrayLike</em><em>, </em><em>optional</em>) – Indices of observable variables to summarise.</p></li>
+<li><p><strong>output_types</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>]</em><em>, </em><em>optional</em>) – Types of outputs to generate. Default is [“state”].</p></li>
+<li><p><strong>precision</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><em>type</em></a><em>, </em><em>default=np.float64</em>) – Numerical precision to use.</p></li>
+<li><p><strong>profileCUDA</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>default=False</em>) – Whether to enable CUDA profiling.</p></li>
+<li><p><strong>memory_manager</strong> (<a class="reference internal" href="cubie.memory.mem_manager.html#cubie.memory.mem_manager.MemoryManager" title="cubie.memory.mem_manager.MemoryManager"><em>MemoryManager</em></a><em>, </em><em>default=default_memmgr</em>) – Memory manager instance to use.</p></li>
+<li><p><strong>stream_group</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default='solver'</em>) – CUDA stream group identifier.</p></li>
+<li><p><strong>mem_proportion</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>optional</em>) – Proportion of GPU memory to allocate.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This class is one level down from the user, managing sanitised inputs
+and handling the machinery of batching and running integrators. It does
+not handle:</p>
+<ul class="simple">
+<li><p>Integration logic/algorithms - these are handled in SingleIntegratorRun
+and below</p></li>
+<li><p>Input sanitisation / batch construction - this is handled in the solver api</p></li>
+<li><p>System equations - these are handled in the system model classes</p></li>
+</ul>
+<p>The class runs the loop device function on a given slice of its allocated
+memory and serves as the distributor of work amongst the individual runs
+of the integrators.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel._on_allocation">
+<span class="sig-name descname"><span class="pre">_on_allocation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">response</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverKernel.html#BatchSolverKernel._on_allocation"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel._on_allocation" title="Link to this definition"></a></dt>
+<dd><p>Handle memory allocation response.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>response</strong> (<a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayResponse" title="cubie.memory.array_requests.ArrayResponse"><em>ArrayResponse</em></a>) – Memory allocation response containing chunk information.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.active_output_arrays">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">active_output_arrays</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.batchsolving.arrays.BatchOutputArrays.html#cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs" title="cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs"><span class="pre">ActiveOutputs</span></a></em><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.active_output_arrays" title="Link to this definition"></a></dt>
+<dd><p>Get active output arrays.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Active output arrays configuration.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.batchsolving.arrays.BatchOutputArrays.html#cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs" title="cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs">ActiveOutputs</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the _active_outputs attribute from the child OutputArrays object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.algorithm">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">algorithm</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.algorithm" title="Link to this definition"></a></dt>
+<dd><p>Get the integration algorithm.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The integration algorithm being used.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.atol">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">atol</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.atol" title="Link to this definition"></a></dt>
+<dd><p>Get absolute tolerance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Absolute tolerance for the solver.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.build">
+<span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverKernel.html#BatchSolverKernel.build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.build" title="Link to this definition"></a></dt>
+<dd><p>Build the integration kernel.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The built integration kernel.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>CUDA device function</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.build_kernel">
+<span class="sig-name descname"><span class="pre">build_kernel</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverKernel.html#BatchSolverKernel.build_kernel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.build_kernel" title="Link to this definition"></a></dt>
+<dd><p>Build and compile the CUDA integration kernel.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Compiled CUDA kernel function for integration.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>function</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This method creates a CUDA kernel that:
+1. Distributes work across GPU threads
+2. Manages shared memory allocation
+3. Calls the underlying integration loop function
+4. Handles output array indexing and slicing</p>
+<p>The kernel uses a 2D thread block structure where:
+- x-dimension handles intra-run parallelism
+- y-dimension handles different runs</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.device_observable_summaries_array">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">device_observable_summaries_array</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.device_observable_summaries_array" title="Link to this definition"></a></dt>
+<dd><p>Get device observable summaries array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Device observable summaries array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the observable_summaries attribute from the child OutputArrays object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.device_observables_array">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">device_observables_array</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.device_observables_array" title="Link to this definition"></a></dt>
+<dd><p>Get device observables array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Device observables array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the observables attribute from the child OutputArrays object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.device_state_array">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">device_state_array</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.device_state_array" title="Link to this definition"></a></dt>
+<dd><p>Get device state array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Device state array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the state attribute from the child OutputArrays object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.device_state_summaries_array">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">device_state_summaries_array</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.device_state_summaries_array" title="Link to this definition"></a></dt>
+<dd><p>Get device state summaries array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Device state summaries array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the state_summaries attribute from the child OutputArrays object.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.disable_profiling">
+<span class="sig-name descname"><span class="pre">disable_profiling</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverKernel.html#BatchSolverKernel.disable_profiling"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.disable_profiling" title="Link to this definition"></a></dt>
+<dd><p>Disable CUDA profiling for the solver.</p>
+<p class="rubric">Notes</p>
+<p>This will stop profiling the performance of the solver on the GPU,
+but will speed things up.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.dt_max">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_max</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.dt_max" title="Link to this definition"></a></dt>
+<dd><p>Get maximum step size.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Maximum step size allowed for the solver.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.dt_min">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_min</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.dt_min" title="Link to this definition"></a></dt>
+<dd><p>Get minimum step size.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Minimum step size allowed for the solver.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.dt_save">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_save</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.dt_save" title="Link to this definition"></a></dt>
+<dd><p>Get save time step.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Time step for saving output.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the dt_save attribute from the child SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.dt_summarise">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_summarise</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.dt_summarise" title="Link to this definition"></a></dt>
+<dd><p>Get summary time step.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Time step for saving summaries.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the dt_summarise attribute from the child SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.duration">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">duration</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.duration" title="Link to this definition"></a></dt>
+<dd><p>Get simulation duration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Duration of the simulation.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.enable_profiling">
+<span class="sig-name descname"><span class="pre">enable_profiling</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverKernel.html#BatchSolverKernel.enable_profiling"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.enable_profiling" title="Link to this definition"></a></dt>
+<dd><p>Enable CUDA profiling for the solver.</p>
+<p class="rubric">Notes</p>
+<p>This will allow you to profile the performance of the solver on the
+GPU, but will slow things down. Consider disabling optimisation and
+enabling debug and line info for profiling.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.fixed_step_size">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">fixed_step_size</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.fixed_step_size" title="Link to this definition"></a></dt>
+<dd><p>Get the fixed step size.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Fixed step size for the solver.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the step_size attribute from the child SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.forcing_vectors">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">forcing_vectors</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.forcing_vectors" title="Link to this definition"></a></dt>
+<dd><p>Get forcing vectors array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The forcing vectors array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>array_like</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.initial_values">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">initial_values</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.initial_values" title="Link to this definition"></a></dt>
+<dd><p>Get initial values array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The initial values array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>array_like</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.kernel">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">kernel</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.kernel" title="Link to this definition"></a></dt>
+<dd><p>Get the device function kernel.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The compiled CUDA device function.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.mem_proportion">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">mem_proportion</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.mem_proportion" title="Link to this definition"></a></dt>
+<dd><p>Get the memory proportion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The memory proportion the solver is assigned.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.memory_manager">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">memory_manager</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.memory_manager" title="Link to this definition"></a></dt>
+<dd><p>Get the memory manager.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The memory manager the solver is registered with.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.memory.mem_manager.html#cubie.memory.mem_manager.MemoryManager" title="cubie.memory.mem_manager.MemoryManager">MemoryManager</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.observable_summaries">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">observable_summaries</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.observable_summaries" title="Link to this definition"></a></dt>
+<dd><p>Get observable summaries array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The observable summaries array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>array_like</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.observables">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">observables</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.observables" title="Link to this definition"></a></dt>
+<dd><p>Get observables array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The observables array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>array_like</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.ouput_array_sizes_2d">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">ouput_array_sizes_2d</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.ouput_array_sizes_2d" title="Link to this definition"></a></dt>
+<dd><p>Get 2D output array sizes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The 2D output array sizes for a single run.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_array_heights">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">output_array_heights</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_array_heights" title="Link to this definition"></a></dt>
+<dd><p>Get output array heights.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Output array heights information.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the output_array_heights attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_array_sizes_3d">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">output_array_sizes_3d</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_array_sizes_3d" title="Link to this definition"></a></dt>
+<dd><p>Get 3D output array sizes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The 3D output array sizes for a batch of runs.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_heights">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">output_heights</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_heights" title="Link to this definition"></a></dt>
+<dd><p>Get output array heights.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Output array heights from the child SingleIntegratorRun object.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.OutputArrayHeights" title="cubie.outputhandling.output_sizes.OutputArrayHeights">OutputArrayHeights</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the output_array_heights attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_length">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">output_length</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_length" title="Link to this definition"></a></dt>
+<dd><p>Get number of output samples per run.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of output samples per run.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_stride_order">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">output_stride_order</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_stride_order" title="Link to this definition"></a></dt>
+<dd><p>Get output stride order.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The axis order of the output arrays.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_types">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">output_types</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.output_types" title="Link to this definition"></a></dt>
+<dd><p>Get output types.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Types of outputs generated.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the output_types attribute from the child SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.parameters">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">parameters</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.parameters" title="Link to this definition"></a></dt>
+<dd><p>Get parameters array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The parameters array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>array_like</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.precision">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">precision</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.precision" title="Link to this definition"></a></dt>
+<dd><p>Get numerical precision type.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Numerical precision type (e.g., np.float64).</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)">type</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the precision attribute from the child SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.rtol">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">rtol</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.rtol" title="Link to this definition"></a></dt>
+<dd><p>Get relative tolerance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Relative tolerance for the solver.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.run">
+<span class="sig-name descname"><span class="pre">run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">inits</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">params</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forcing_vectors</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">duration</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">blocksize</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">256</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">warmup</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_axis</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'run'</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverKernel.html#BatchSolverKernel.run"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.run" title="Link to this definition"></a></dt>
+<dd><p>Execute the solver kernel for batch integration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>inits</strong> (<em>array_like</em>) – Initial conditions for each run. Shape should be (n_runs, n_states).</p></li>
+<li><p><strong>params</strong> (<em>array_like</em>) – Parameters for each run. Shape should be (n_runs, n_params).</p></li>
+<li><p><strong>forcing_vectors</strong> (<em>array_like</em>) – Forcing vectors for each run.</p></li>
+<li><p><strong>duration</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a>) – Duration of the simulation.</p></li>
+<li><p><strong>blocksize</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>default=256</em>) – CUDA block size for kernel execution.</p></li>
+<li><p><strong>stream</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><em>object</em></a><em>, </em><em>optional</em>) – CUDA stream to use. If None, uses the solver’s assigned stream.</p></li>
+<li><p><strong>warmup</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>default=0.0</em>) – Warmup time before the main simulation.</p></li>
+<li><p><strong>chunk_axis</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default='run'</em>) – Axis along which to chunk the computation (‘run’ or ‘time’).</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This method performs the main batch integration by:
+1. Setting up input and output arrays
+2. Allocating GPU memory in chunks
+3. Executing the CUDA kernel for each chunk
+4. Handling memory management and synchronization</p>
+<p>The method automatically adjusts block size if shared memory requirements
+exceed GPU limits, warning the user about potential performance impacts.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.save_time">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_time</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.save_time" title="Link to this definition"></a></dt>
+<dd><p>Get save time array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Time points for saved output.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>array_like</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the save_time attribute from the child SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.saved_observable_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">saved_observable_indices</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.saved_observable_indices" title="Link to this definition"></a></dt>
+<dd><p>Get saved observable indices.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Indices of observable variables to save.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>NDArray[<a href="#id5"><span class="problematic" id="id6">np.int_</span></a>]</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the saved_observable_indices attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.saved_state_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">saved_state_indices</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.saved_state_indices" title="Link to this definition"></a></dt>
+<dd><p>Get saved state indices.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Indices of state variables to save.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>NDArray[<a href="#id7"><span class="problematic" id="id8">np.int_</span></a>]</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the saved_state_indices attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.shared_memory_bytes_per_run">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">shared_memory_bytes_per_run</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.shared_memory_bytes_per_run" title="Link to this definition"></a></dt>
+<dd><p>Get shared memory bytes per run.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Shared memory bytes required per run.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the shared_memory_bytes attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.shared_memory_elements_per_run">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">shared_memory_elements_per_run</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.shared_memory_elements_per_run" title="Link to this definition"></a></dt>
+<dd><p>Get shared memory elements per run.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of shared memory elements required per run.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the shared_memory_elements attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.shared_memory_needs_padding">
+<span class="sig-name descname"><span class="pre">shared_memory_needs_padding</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverKernel.html#BatchSolverKernel.shared_memory_needs_padding"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.shared_memory_needs_padding" title="Link to this definition"></a></dt>
+<dd><p>True if we need to pad shared memory to avoid bank conflicts</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.state">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.state" title="Link to this definition"></a></dt>
+<dd><p>Get state array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The state array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>array_like</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.state_summaries">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state_summaries</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.state_summaries" title="Link to this definition"></a></dt>
+<dd><p>Get state summaries array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The state summaries array.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>array_like</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.stream">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">stream</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.stream" title="Link to this definition"></a></dt>
+<dd><p>Get the assigned CUDA stream.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The CUDA stream assigned to the solver.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Stream</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.stream_group">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">stream_group</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.stream_group" title="Link to this definition"></a></dt>
+<dd><p>Get the stream group.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The stream group the solver is in.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summaries_buffer_sizes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summaries_buffer_sizes</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summaries_buffer_sizes" title="Link to this definition"></a></dt>
+<dd><p>Get summaries buffer sizes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Summaries buffer sizes information.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the summaries_buffer_sizes attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summaries_length">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summaries_length</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summaries_length" title="Link to this definition"></a></dt>
+<dd><p>Get number of summary samples per run.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of summary samples per run.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summarised_observable_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summarised_observable_indices</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summarised_observable_indices" title="Link to this definition"></a></dt>
+<dd><p>Get summarised observable indices.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Indices of observable variables to summarise.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>ArrayLike</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the summarised_observable_indices attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summarised_state_indices">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summarised_state_indices</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summarised_state_indices" title="Link to this definition"></a></dt>
+<dd><p>Get summarised state indices.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Indices of state variables to summarise.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>ArrayLike</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the summarised_state_indices attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summary_legend_per_variable">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">summary_legend_per_variable</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.summary_legend_per_variable" title="Link to this definition"></a></dt>
+<dd><p>Get summary legend per variable.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Summary legend per variable information.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the summary_legend_per_variable attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.system">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">system</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.system" title="Link to this definition"></a></dt>
+<dd><p>Get the ODE system.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The ODE system being integrated.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the system attribute from the SingleIntegratorRun instance.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.system_sizes">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">system_sizes</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.system_sizes" title="Link to this definition"></a></dt>
+<dd><p>Get system sizes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>System sizes information.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)">object</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the system_sizes attribute from the child SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.threads_per_loop">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">threads_per_loop</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.threads_per_loop" title="Link to this definition"></a></dt>
+<dd><p>Get threads per loop.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of threads per integration loop.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Exposes the threads_per_loop attribute from the child
+SingleIntegratorRun object.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.update">
+<span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">updates_dict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">silent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverKernel.html#BatchSolverKernel.update"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.update" title="Link to this definition"></a></dt>
+<dd><p>Update solver configuration parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>updates_dict</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Dictionary of parameter updates.</p></li>
+<li><p><strong>silent</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>default=False</em>) – If True, suppresses error messages for unrecognized parameters.</p></li>
+<li><p><strong>**kwargs</strong> – Additional parameter updates passed as keyword arguments.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Set of recognized parameter names that were updated.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#set" title="(in Python v3.13)">set</a></p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#KeyError" title="(in Python v3.13)"><strong>KeyError</strong></a> – If unrecognized parameters are provided and silent=False.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This method attempts to update parameters in both the compile settings
+and the single integrator instance. Unrecognized parameters are
+collected and reported as an error unless silent mode is enabled.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.warmup">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">warmup</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.warmup" title="Link to this definition"></a></dt>
+<dd><p>Get warmup time.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Warmup time of the simulation.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.warmup_length">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">warmup_length</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverKernel.BatchSolverKernel.warmup_length" title="Link to this definition"></a></dt>
+<dd><p>Get number of warmup samples.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Number of warmup samples.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.batchsolving.BatchSolverConfig.html" class="btn btn-neutral float-left" title="cubie.batchsolving.BatchSolverConfig" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.batchsolving.SystemInterface.html" class="btn btn-neutral float-right" title="cubie.batchsolving.SystemInterface" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

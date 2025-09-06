@@ -1,0 +1,21 @@
+cubie.memory.mem\_manager
+=========================
+
+.. automodule:: cubie.memory.mem_manager
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      get_total_request_size
+      placeholder_dataready
+      placeholder_invalidate
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      InstanceMemorySettings
+      MemoryManager
+   

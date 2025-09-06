@@ -1,0 +1,18 @@
+cubie.systemmodels.symbolic.parser
+==================================
+
+.. automodule:: cubie.systemmodels.symbolic.parser
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      parse_input
+   
+   .. rubric:: Exceptions
+
+   .. autosummary::
+   
+      EquationWarning
+   

@@ -1,0 +1,14 @@
+cubie.integrators.matrix\_free\_solvers
+=======================================
+
+.. automodule:: cubie.integrators.matrix_free_solvers
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   linear_solver
+   newton_krylov

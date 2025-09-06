@@ -1,0 +1,6 @@
+cubie.systemmodels.systems.GenericODE
+=====================================
+
+.. automodule:: cubie.systemmodels.systems.GenericODE
+
+   

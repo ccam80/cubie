@@ -1,0 +1,13 @@
+cubie.systemmodels.symbolic.indexedbasemaps
+===========================================
+
+.. automodule:: cubie.systemmodels.symbolic.indexedbasemaps
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      IndexedBaseMap
+      IndexedBases
+   

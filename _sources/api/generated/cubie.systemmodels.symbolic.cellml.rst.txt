@@ -1,0 +1,12 @@
+cubie.systemmodels.symbolic.cellml
+==================================
+
+.. automodule:: cubie.systemmodels.symbolic.cellml
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      load_cellml_model
+   

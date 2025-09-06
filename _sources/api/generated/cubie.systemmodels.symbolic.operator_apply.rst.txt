@@ -1,0 +1,16 @@
+cubie.systemmodels.symbolic.operator\_apply
+===========================================
+
+.. automodule:: cubie.systemmodels.symbolic.operator_apply
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      generate_neumann_preconditioner_code
+      generate_operator_apply_code
+      generate_operator_apply_code_from_jvp
+      generate_residual_end_state_code
+      generate_stage_residual_code
+   

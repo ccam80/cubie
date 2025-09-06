@@ -1,0 +1,13 @@
+cubie.batchsolving.arrays.BatchInputArrays
+==========================================
+
+.. automodule:: cubie.batchsolving.arrays.BatchInputArrays
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      InputArrayContainer
+      InputArrays
+   

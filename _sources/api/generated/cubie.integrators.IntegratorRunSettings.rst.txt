@@ -1,0 +1,12 @@
+cubie.integrators.IntegratorRunSettings
+=======================================
+
+.. automodule:: cubie.integrators.IntegratorRunSettings
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      IntegratorRunSettings
+   

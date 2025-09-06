@@ -1,0 +1,13 @@
+cubie.batchsolving.solveresult
+==============================
+
+.. automodule:: cubie.batchsolving.solveresult
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      SolveResult
+      SolveSpec
+   

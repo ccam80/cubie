@@ -1,0 +1,12 @@
+cubie.outputhandling.summarymetrics.peaks
+=========================================
+
+.. automodule:: cubie.outputhandling.summarymetrics.peaks
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      Peaks
+   

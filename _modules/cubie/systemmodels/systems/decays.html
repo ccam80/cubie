@@ -1,0 +1,285 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.systemmodels.systems.decays &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.systemmodels.systems.decays</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.systemmodels.systems.decays</h1><div class="highlight"><pre>
+<span></span><span class="c1"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;Exponential decay ODE system for testing.</span>
+
+<span class="sd">This module provides a simple ODE system where each state variable decays</span>
+<span class="sd">exponentially at a rate proportional to its position.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">from_dtype</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.systemmodels.systems.baseODE</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseODE</span><span class="p">,</span> <span class="n">ODECache</span>
+
+
+<div class="viewcode-block" id="Decays">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.decays.html#cubie.systemmodels.Decays">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Decays</span><span class="p">(</span><span class="n">BaseODE</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Exponential decay system for testing purposes.</span>
+
+<span class="sd">    A system where each state variable decays exponentially at a rate</span>
+<span class="sd">    proportional to its position. Observables are the same as state variables</span>
+<span class="sd">    * parameters (coefficients) + index.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    precision : numpy.dtype, optional</span>
+<span class="sd">        Data type for calculations, by default np.float64.</span>
+<span class="sd">    **kwargs : dict</span>
+<span class="sd">        Must contain &#39;coefficients&#39; key with list of decay coefficients.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    If coefficients = [c1, c2, c3], then the system will have three state</span>
+<span class="sd">    variables x0, x1, x2, and:</span>
+
+<span class="sd">    dx[0] = -x[0]/1,</span>
+<span class="sd">    dx[1] = x[1]/2,</span>
+<span class="sd">    dx[2] = x[2]/3</span>
+
+<span class="sd">    obs[0] = dx[0]*c1 + 1 + step_count,</span>
+<span class="sd">    obs[1] = dx[1]*c2 + 2 + step_count,</span>
+<span class="sd">    obs[2] = dx[2]*c3 + 3 + step_count.</span>
+
+<span class="sd">    Really just exists for testing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="Decays.__init__">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.decays.html#cubie.systemmodels.Decays.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">precision</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the decay system.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        precision : numpy.dtype, optional</span>
+<span class="sd">            Data type for calculations, by default np.float64.</span>
+<span class="sd">        **kwargs : dict</span>
+<span class="sd">            Must contain &#39;coefficients&#39; key with list of decay coefficients.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">coefficients</span> <span class="o">=</span> <span class="n">kwargs</span><span class="p">[</span><span class="s2">&quot;coefficients&quot;</span><span class="p">]</span>
+
+        <span class="n">nterms</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">coefficients</span><span class="p">)</span>
+        <span class="n">observables</span> <span class="o">=</span> <span class="p">[</span><span class="sa">f</span><span class="s2">&quot;o</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nterms</span><span class="p">)]</span>
+        <span class="n">initial_values</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;x</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="mf">1.0</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nterms</span><span class="p">)}</span>
+        <span class="n">parameters</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;p</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">coefficients</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nterms</span><span class="p">)}</span>
+        <span class="n">constants</span> <span class="o">=</span> <span class="p">{</span><span class="sa">f</span><span class="s2">&quot;c</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nterms</span><span class="p">)}</span>
+        <span class="n">n_drivers</span> <span class="o">=</span> <span class="mi">1</span>  <span class="c1"># use time as the driver</span>
+
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
+            <span class="n">initial_values</span><span class="o">=</span><span class="n">initial_values</span><span class="p">,</span>
+            <span class="n">parameters</span><span class="o">=</span><span class="n">parameters</span><span class="p">,</span>
+            <span class="n">constants</span><span class="o">=</span><span class="n">constants</span><span class="p">,</span>
+            <span class="n">observables</span><span class="o">=</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">num_drivers</span><span class="o">=</span><span class="n">n_drivers</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Decays.build">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.decays.html#cubie.systemmodels.Decays.build">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build the CUDA device function for the decay system.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        function</span>
+<span class="sd">            Compiled CUDA device function implementing the decay dynamics.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Hoist fixed parameters to global namespace</span>
+        <span class="k">global</span> <span class="n">global_constants</span>
+        <span class="n">global_constants</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_settings</span><span class="o">.</span><span class="n">constants</span><span class="o">.</span><span class="n">values_array</span>
+        <span class="n">n_terms</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sizes</span><span class="o">.</span><span class="n">states</span>
+        <span class="n">numba_precision</span> <span class="o">=</span> <span class="n">from_dtype</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">)</span>
+
+        <span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span>
+            <span class="p">(</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+                <span class="n">numba_precision</span><span class="p">[:],</span>
+            <span class="p">),</span>
+            <span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">inline</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">def</span><span class="w"> </span><span class="nf">dxdtfunc</span><span class="p">(</span>
+            <span class="n">state</span><span class="p">,</span>
+            <span class="n">parameters</span><span class="p">,</span>
+            <span class="n">driver</span><span class="p">,</span>
+            <span class="n">observables</span><span class="p">,</span>
+            <span class="n">dxdt</span><span class="p">,</span>
+        <span class="p">):</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;Decay dynamics implementation.</span>
+
+<span class="sd">            Parameters</span>
+<span class="sd">            ----------</span>
+<span class="sd">            state : numpy.ndarray</span>
+<span class="sd">                Current state values.</span>
+<span class="sd">            parameters : numpy.ndarray</span>
+<span class="sd">                Parameter values (coefficients).</span>
+<span class="sd">            driver : numpy.ndarray</span>
+<span class="sd">                Driver/forcing values (time).</span>
+<span class="sd">            observables : numpy.ndarray</span>
+<span class="sd">                Output array for observable values.</span>
+<span class="sd">            dxdt : numpy.ndarray</span>
+<span class="sd">                Output array for state derivatives.</span>
+
+<span class="sd">            Notes</span>
+<span class="sd">            -----</span>
+<span class="sd">            dx[i] = state[i] / (i+1)</span>
+<span class="sd">            observables[i] = state[i] * parameters[i] + constants[i] + driver[0]</span>
+<span class="sd">            &quot;&quot;&quot;</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_terms</span><span class="p">):</span>
+                <span class="n">dxdt</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">state</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">/</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="n">observables</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">dxdt</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">parameters</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">global_constants</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">driver</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="p">)</span>
+        <span class="k">return</span> <span class="n">ODECache</span><span class="p">(</span><span class="n">dxdt</span><span class="o">=</span><span class="n">dxdtfunc</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Decays.correct_answer_python">
+<a class="viewcode-back" href="../../../../api/generated/cubie.systemmodels.systems.decays.html#cubie.systemmodels.Decays.correct_answer_python">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">correct_answer_python</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">states</span><span class="p">,</span> <span class="n">parameters</span><span class="p">,</span> <span class="n">drivers</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Python testing function.</span>
+
+<span class="sd">        Do it in python and compare results with CUDA implementation.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        states : numpy.ndarray</span>
+<span class="sd">            Current state values.</span>
+<span class="sd">        parameters : numpy.ndarray</span>
+<span class="sd">            Parameter values.</span>
+<span class="sd">        drivers : numpy.ndarray</span>
+<span class="sd">            Driver values.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple of numpy.ndarray</span>
+<span class="sd">            A tuple containing (dxdt, observables) arrays.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">states</span><span class="p">))</span>
+        <span class="n">observables</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">)</span>
+        <span class="n">dxdt</span> <span class="o">=</span> <span class="o">-</span><span class="n">states</span> <span class="o">/</span> <span class="p">(</span><span class="n">indices</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">):</span>
+            <span class="n">observables</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">dxdt</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">sizes</span><span class="o">.</span><span class="n">states</span><span class="p">]</span>
+                <span class="o">*</span> <span class="n">parameters</span><span class="p">[</span><span class="n">i</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">sizes</span><span class="o">.</span><span class="n">parameters</span><span class="p">]</span>
+                <span class="o">+</span> <span class="n">drivers</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="o">+</span> <span class="n">global_constants</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">dxdt</span><span class="p">,</span> <span class="n">observables</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

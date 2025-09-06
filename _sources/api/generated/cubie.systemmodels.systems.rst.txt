@@ -1,0 +1,17 @@
+cubie.systemmodels.systems
+==========================
+
+.. automodule:: cubie.systemmodels.systems
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   GenericODE
+   ODEData
+   baseODE
+   decays
+   threeCM
