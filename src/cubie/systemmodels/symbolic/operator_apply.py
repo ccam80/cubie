@@ -245,23 +245,23 @@ def generate_neumann_preconditioner_code(
 RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision, dxdt, {extra_args}beta=1.0, gamma=1.0):\n"
+    "def {func_name}(constants, precision, dxdt,  beta=1.0, gamma=1.0):\n"
     '    """Auto-generated residual. Mode fixed at codegen time.\n'
     "    - Stage mode: eval at base_state + a_ij*u; residual uses M@u\n"
     "    - End-state mode: eval at u; residual uses M@(u - base_state)\n"
     '    """\n'
     "{const_lines}"
-    "{mode_lines}"
     "    @cuda.jit((precision[:],\n"
     "               precision[:],\n"
     "               precision[:],\n"
     "               precision,\n"
+    "               precision,\n"  
     "               precision[:],\n"
     "               precision[:],\n"
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def residual(u, parameters, drivers, h, base_state, work, out):\n"
+    "    def residual(u, parameters, drivers, h, a_ij, base_state, work, out):\n"
     "{eval_lines}\n"
     "\n"
     "        dxdt(work, parameters, drivers, work, out)\n"
@@ -352,9 +352,7 @@ def generate_residual_end_state_code(
 
     return RESIDUAL_TEMPLATE.format(
         func_name=func_name,
-        extra_args="",
         const_lines=const_block,
-        mode_lines="",
         eval_lines=eval_lines,
         res_lines=res_lines,
     )

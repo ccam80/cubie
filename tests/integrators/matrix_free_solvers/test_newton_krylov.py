@@ -15,15 +15,13 @@ def placeholder_system(precision):
     """Provide residual and operator for a scalar nonlinear equation."""
 
     @cuda.jit(device=True)
-    def residual(state, parameters, drivers, h, base_state, work, out):
-        # Ignore base_state and work in this placeholder
+    def residual(state, parameters, drivers, h, a_ij, base_state, work, out):
         out[0] = state[0] * state[0] - precision(2.0)
 
     @cuda.jit(device=True)
     def operator(state, parameters, drivers, h, vec, out):
         out[0] = precision(2.0) * state[0] * vec[0]
 
-    # Provide a trivial base_state for the test kernel to pass through
     base = cuda.to_device(np.array([0.0], dtype=precision))
     return residual, operator, base
 
@@ -53,9 +51,11 @@ def test_newton_krylov_placeholder(placeholder_system, precision):
         h = precision(1.0)
         solver(state, params, drivers, h, base, delta, res, z_vec, v_vec)
 
-    x = cuda.to_device(np.array([1.0], dtype=precision))
-    kernel[1, 1](x, base_state)
+    # Start ~10% away from the known solution
     expected = np.array([np.sqrt(2.0)], dtype=precision)
+    x0 = expected * precision(0.9)
+    x = cuda.to_device(x0)
+    kernel[1, 1](x, base_state)
     assert np.allclose(x.copy_to_host(), expected, atol=1e-4)
 
 
@@ -70,16 +70,22 @@ def test_newton_krylov_placeholder(placeholder_system, precision):
     ],
     indirect=True,
 )
-def test_newton_krylov_symbolic(system_setup, precision):
-    """Solve systems built from symbolic expressions."""
+@pytest.mark.parametrize("precond_order", [0, 1, 2])
+def test_newton_krylov_symbolic(system_setup, precision, precond_order):
+    """Solve a symbolic system with optional preconditioning provided by fixture."""
 
     n = system_setup["n"]
     operator = system_setup["operator"]
     residual_func = system_setup["residual"]
     base_state = system_setup["base_state"]
     expected = system_setup["nk_expected"]
+    # Use the real Neumann preconditioner factory from the fixture
+    precond = (
+        None if precond_order == 0 else system_setup["preconditioner"](precond_order)
+    )
     linear_solver = linear_solver_factory(
         operator,
+        preconditioner=precond,
         correction_type="minimal_residual",
         tolerance=1e-6,
         max_iters=1000,
@@ -88,11 +94,11 @@ def test_newton_krylov_symbolic(system_setup, precision):
         residual_function=residual_func,
         linear_solver=linear_solver,
         tolerance=1e-8,
-        max_iters=32,
+        max_iters=1000,
     )
 
     @cuda.jit
-    def kernel(state, base):
+    def kernel(state, base, flag):
         res = cuda.local.array(n, precision)
         delta = cuda.local.array(n, precision)
         z_vec = cuda.local.array(n, precision)
@@ -100,8 +106,57 @@ def test_newton_krylov_symbolic(system_setup, precision):
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
         h = precision(1.0)
-        solver(state, params, drivers, h, base, delta, res, z_vec, v_vec)
+        a_ij = precision(1.0)
+        flag[0] = solver(
+            state, params, drivers, h, a_ij, base, delta, res, z_vec, v_vec
+        )
 
-    x = cuda.to_device(np.zeros(n, dtype=precision))
-    kernel[1, 1](x, base_state)
+    # Start ~10% away from the known solution for robustness
+    x0 = expected * precision(0.9)
+    x = cuda.to_device(x0)
+    out_flag = cuda.to_device(np.array([0], dtype=np.int32))
+    kernel[1, 1](x, base_state, out_flag)
+    assert out_flag.copy_to_host()[0] == 1
     assert np.allclose(x.copy_to_host(), expected, atol=1e-4)
+
+
+def test_newton_krylov_failure(precision):
+    """Solver returns False when residual cannot be reduced."""
+
+    @cuda.jit(device=True)
+    def residual(state, parameters, drivers, h, a_ij, base_state, work, out):
+        out[0] = precision(1.0)
+
+    @cuda.jit(device=True)
+    def operator(state, parameters, drivers, h, vec, out):
+        out[0] = vec[0]
+
+    linear_solver = linear_solver_factory(operator, tolerance=1e-12, max_iters=8)
+    solver = newton_krylov_solver_factory(
+        residual_function=residual,
+        linear_solver=linear_solver,
+        tolerance=1e-8,
+        max_iters=2,
+    )
+
+    @cuda.jit
+    def kernel(flag):
+        state = cuda.local.array(1, precision)
+        res = cuda.local.array(1, precision)
+        delta = cuda.local.array(1, precision)
+        z_vec = cuda.local.array(1, precision)
+        v_vec = cuda.local.array(1, precision)
+        params = cuda.local.array(1, precision)
+        drivers = cuda.local.array(1, precision)
+        h = precision(1.0)
+        a_ij = precision(1.0)
+        base = cuda.local.array(1, precision)
+        flag[0] = solver(
+            state, params, drivers, h, a_ij, base, delta, res, z_vec, v_vec
+        )
+
+    out_flag = cuda.to_device(np.array([1], dtype=np.int32))
+    out = cuda.to_device(np.array([0], dtype=precision))
+    kernel[1, 1](out_flag)
+    assert out_flag.copy_to_host()[0] == 0
+

@@ -4,6 +4,7 @@ from numba import cuda, from_dtype
 
 from cubie.systemmodels.symbolic.operator_apply import (
     generate_residual_end_state_code,
+    generate_neumann_preconditioner_code,
 )
 from cubie.systemmodels.symbolic.symbolicODE import create_ODE_system
 
@@ -34,7 +35,7 @@ def system_setup(request, precision):
         ]
         mr_rhs = np.array([1.0, 2.0, 3.0], dtype=precision)
         mr_expected = 2 * mr_rhs
-        nk_expected = mr_expected.copy()
+        nk_expected = -mr_expected.copy()
     elif system == "nonlinear":
         dxdt = [
             "dx0 = 0.5*x0 - 1.0",
@@ -64,25 +65,19 @@ def system_setup(request, precision):
         )
         nk_expected = np.array([1.0, 1.0, 1.0], dtype=precision)
     elif system == "coupled_linear":
-        dxdt = [ "dx0 = 0.5*x0 + 0.1*x1 - 1.0",
-                 "dx1 = 0.2*x0 + 0.3*x1 - 1.0",
-                 "dx2 = 0.1*x0 + 0.2*x1 + 0.4*x2 - 1.0",
-                 ]
+        dxdt = [
+            "dx0 = 0.5*x0 + 0.1*x1 - 1.0",
+            "dx1 = 0.2*x0 + 0.3*x1 - 1.0",
+            "dx2 = 0.1*x0 + 0.2*x1 + 0.4*x2 - 1.0",
+        ]
         mr_rhs = np.array([1.0, 1.0, 1.0], dtype=precision)
-        # Solution values for linear coupled system
-        sol0 = precision(1.923)
-        sol1 = precision(1.538)
-        sol2 = precision(1.346)
-        # Jacobian diagonal elements
-        j0 = precision(0.5)
-        j1 = precision(0.3)
-        j2 = precision(0.4)
-        mr_expected = np.array( [1.0 / (1.0 - j0),
-                                 1.0 / (1.0 - j1),
-                                 1.0 / (1.0 - j2)],
-                                dtype=precision,
-                                )
-        nk_expected = np.array([sol0, sol1, sol2], dtype=precision)
+        j = np.array(
+            [[0.5, 0.1, 0.0], [0.2, 0.3, 0.0], [0.1, 0.2, 0.4]],
+            dtype=precision,
+        )
+        f_mat = np.eye(3, dtype=precision) - j
+        mr_expected = np.linalg.solve(f_mat, mr_rhs)
+        nk_expected = -mr_expected.copy()
     elif system == "coupled_nonlinear":
         dxdt = [ "dx0 = 0.5*x0 - x1**2 - 1.0",
                  "dx1 = x0*x1 - x1**3 - 1.0",
@@ -110,7 +105,12 @@ def system_setup(request, precision):
     sym_system.build()
     dxdt_func = sym_system.dxdt_function
     operator = sym_system.get_solver_helper("operator")
-    neumann_factory = sym_system.get_solver_helper("neumann")
+    neumann_code = generate_neumann_preconditioner_code(
+        sym_system.equations, sym_system.indices
+    )
+    neumann_factory = sym_system.gen_file.import_function(
+        "neumann_preconditioner_factory", neumann_code
+    )
     base_state = cuda.to_device(np.zeros(3, dtype=precision))
     code = generate_residual_end_state_code(sym_system.indices)
     res_factory = sym_system.gen_file.import_function(
@@ -126,10 +126,11 @@ def system_setup(request, precision):
         return neumann_factory(
             sym_system.constants.values_dict,
             from_dtype(sym_system.precision),
-            iterations=order,
+            order=order,
         )
 
     return {
+        "id": system,
         "n": 3,
         "operator": operator,
         "residual": residual_func,
@@ -166,7 +167,9 @@ def neumann_kernel(precision):
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             h = precision(1.0)
-            precond(state, parameters, drivers, h, residual, out)
+            scratch = cuda.shared.array(n, precision)
+            # Call real preconditioner (expects a scratch buffer)
+            precond(state, parameters, drivers, h, residual, out, scratch)
 
         return kernel
 

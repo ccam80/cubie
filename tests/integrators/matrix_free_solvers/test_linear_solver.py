@@ -20,19 +20,35 @@ def placeholder_operator(precision):
     return operator
 
 
-@pytest.fixture(scope="function")
-def placeholder_neumann_operator(precision):
-    """Operator used inside the Neumann preconditioner tests."""
+# Removed placeholder Neumann factory usage; use real generated preconditioner via system_setup
+@pytest.mark.parametrize(
+    "order, expected_scalar",
+    [
+        (1, 1.0 + 0.5),           # 1 + (h*J) with J=0.5, h=1
+        (2, 1.0 + 0.5 + 0.25),    # 1 + (h*J) + (h*J)^2
+    ],
+)
+@pytest.mark.parametrize("system_setup", ["linear"], indirect=True)
+def test_neumann_preconditioner(order, expected_scalar, system_setup, neumann_kernel, precision):
+    """Validate Neumann preconditioner equals truncated series on the linear system.
 
-    c0, c1, c2 = precision(0.1), precision(0.2), precision(0.3)
+    Uses the real generated preconditioner from system_setup and applies it to a
+    vector of ones. For the 'linear' system, J is diagonal with 0.5 entries, beta=gamma=1
+    and h=1, so the truncated series is sum_{k=0..order} (h*J)^k v.
+    """
 
-    @cuda.jit(device=True)
-    def neumann(state, parameters, drivers, h, residual, out):
-        out[0] = residual[0] + h * c0 * out[0]
-        out[1] = residual[1] + h * c1 * out[1]
-        out[2] = residual[2] + h * c2 * out[2]
+    n = system_setup["n"]
+    precond = system_setup["preconditioner"](order)
+    kernel = neumann_kernel(precond, n)
 
-    return neumann
+    residual = cuda.to_device(np.ones(n, dtype=precision))
+    out = cuda.device_array(n, precision)
+    state = cuda.to_device(np.zeros(n, dtype=precision))
+
+    kernel[1, 1](state, residual, out)
+
+    expected = np.full(n, expected_scalar, dtype=precision)
+    assert np.allclose(out.copy_to_host(), expected, atol=1e-7)
 
 
 @pytest.fixture(scope="function")
@@ -45,29 +61,6 @@ def solver_device(request, placeholder_operator):
         tolerance=1e-12,
         max_iters=32,
     )
-
-
-# @pytest.mark.parametrize(
-#     "order,expected",
-#     [
-#         (1, np.array([1.1, 1.2, 1.3])),
-#         (2, np.array([1.11, 1.24, 1.39])),
-#     ],
-# )
-# def test_neumann_preconditioner(
-#     order, expected, placeholder_neumann_operator, neumann_kernel, precision
-# ):
-    """Validate Neumann preconditioner against a polynomial expansion."""
-    #
-    # precond = neumann_preconditioner_factory(
-    #     placeholder_neumann_operator, order=order
-    # )
-    # kernel = neumann_kernel(precond, 3)
-    # residual = cuda.to_device(np.ones(3, dtype=precision))
-    # out = cuda.device_array(3, precision)
-    # state = cuda.to_device(np.zeros(3, dtype=precision))
-    # kernel[1, 1](state, residual, out)
-    # assert np.allclose(out.copy_to_host(), expected.astype(precision), atol=1e-7)
 
 
 @pytest.mark.parametrize(
@@ -126,4 +119,3 @@ def test_linear_solver_symbolic(
     temp = cuda.device_array(n, precision)
     kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp)
     assert np.allclose(x_dev.copy_to_host(), expected, atol=1e-4)
-

@@ -42,6 +42,7 @@ def newton_krylov_solver_factory(
         parameters,
         drivers,
         h,  # Operator context
+        a_ij,
         base_state,
         delta,
         residual,
@@ -61,6 +62,8 @@ def newton_krylov_solver_factory(
             Model drivers.
         h: float
             Timestep or other operator context.
+        a_ij: float
+            stage weight (if multi-stage; set to 1.0 for single-stage).
         base_state: device array
             Base state for residual evaluation (e.g., previous step y_n).
         delta: device array
@@ -89,7 +92,8 @@ def newton_krylov_solver_factory(
         n = state.shape[0]
 
         # Build initial rhs = -F(state) and norm in one pass
-        residual_function(state, parameters, drivers, h, base_state, work_vec, residual)
+        residual_function(state, parameters, drivers, h, a_ij, base_state,
+                          work_vec, residual)
         norm2_prev = 0.0
         for i in range(n):
             ri = residual[i]
@@ -124,7 +128,7 @@ def newton_krylov_solver_factory(
                 # Residual function calculates guess - F(guess) - for example,
                 # in a single backward Euler step, this is guess - step
                 # start state - h*f(guess);
-                residual_function(state, parameters, drivers, h,
+                residual_function(state, parameters, drivers, h, a_ij,
                                   base_state, work_vec, residual)
                 norm2_new = 0.0
                 for i in range(n):

@@ -26,6 +26,7 @@ def residual_system():
 @pytest.fixture(scope="function")
 def end_residual_factory(residual_system, precision):
     def factory(beta, gamma, M):
+        base = cuda.to_device(np.array([0.5, -0.5], dtype=precision))
         fname = f"residual_end_factory_{abs(hash(M.tobytes()))}"
         code = generate_residual_end_state_code(
             residual_system.indices, M=M, func_name=fname
@@ -45,6 +46,7 @@ def end_residual_factory(residual_system, precision):
 @pytest.fixture(scope="function")
 def stage_residual_factory(residual_system, precision):
     def factory(beta, gamma, a_ii, M):
+        base = cuda.to_device(np.array([0.25, -0.25], dtype=precision))
         fname = f"stage_residual_factory_{abs(hash(M.tobytes()))}"
         code = generate_stage_residual_code(
             residual_system.indices, M=M, func_name=fname
@@ -54,7 +56,6 @@ def stage_residual_factory(residual_system, precision):
             residual_system.constants.values_dict,
             from_dtype(residual_system.precision),
             residual_system.dxdt_function,
-            a_ii,
             beta=beta,
             gamma=gamma,
         )
@@ -68,11 +69,11 @@ def residual_kernel(precision):
 
     def make_kernel(residual):
         @cuda.jit
-        def kernel(h, vec, base_state, out):
+        def kernel(h, aij, vec, base_state, out):
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             tmp = cuda.local.array(n, precision)
-            residual(vec, parameters, drivers, h, base_state, tmp, out)
+            residual(vec, parameters, drivers, h, aij, base_state, tmp, out)
 
         return kernel
 
@@ -94,7 +95,7 @@ def test_residual_end_state(beta, gamma, h, M, end_residual_factory, residual_ke
     state = np.array([1.0, -1.0], dtype=precision)
     base = np.array([0.5, -0.5], dtype=precision)
     out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(h), state, base, out)
+    kernel[1, 1](precision(h), precision(1.0), state, base, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     expected = beta * M @ (state - base) - gamma * h * (J @ state)
     assert np.allclose(out, expected, atol=1e-6)
@@ -115,7 +116,7 @@ def test_stage_residual(beta, gamma, h, a_ii, M, stage_residual_factory, residua
     stage = np.array([0.5, -0.3], dtype=precision)
     base = np.array([0.25, -0.25], dtype=precision)
     out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(h), stage, base, out)
+    kernel[1, 1](precision(h), precision(a_ii), stage, base, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     eval_point = base + a_ii * stage
     expected = beta * (M @ stage) - gamma * h * (J @ eval_point)
