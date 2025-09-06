@@ -272,8 +272,8 @@ class TestIndexedBases:
         assert isinstance(ib.drivers, IndexedBaseMap)
         assert isinstance(ib.dxdt, IndexedBaseMap)
 
-        # Check all_indices combines all mappings
-        assert len(ib.all_indices) == 9  # 2+2+1+1+1+2 symbols
+        # Check all_indices combines all mappings except constants
+        assert len(ib.all_indices) == 8  # 2+2+1+1+2 symbols
 
     def test_from_user_inputs(self):
         """Test creating IndexedBases from user inputs."""

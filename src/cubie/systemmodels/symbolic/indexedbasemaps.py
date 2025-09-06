@@ -126,7 +126,6 @@ class IndexedBases:
         self.all_indices = {
             **self.states.ref_map,
             **self.parameters.ref_map,
-            **self.constants.ref_map,
             **self.observables.ref_map,
             **self.drivers.ref_map,
             **self.dxdt.ref_map,
@@ -175,7 +174,7 @@ class IndexedBases:
         observables_ = IndexedBaseMap("observables", observables, real=real)
         drivers_ = IndexedBaseMap("drivers", drivers, real=real)
         dxdt_ = IndexedBaseMap(
-            "dxdt", [f"d{s}" for s in state_names], real=real
+            "out", [f"d{s}" for s in state_names], real=real
         )
         return cls(
             states_, parameters_, constants_, observables_, drivers_, dxdt_
@@ -265,7 +264,6 @@ class IndexedBases:
         return {
             **self.states.ref_map,
             **self.parameters.ref_map,
-            **self.constants.ref_map,
             **self.observables.ref_map,
             **self.drivers.ref_map,
             **self.dxdt.ref_map,
