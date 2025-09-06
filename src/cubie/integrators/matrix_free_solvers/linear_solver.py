@@ -6,8 +6,10 @@ Implementation notes
 --------------------
 - Matrix-free: only operator_apply is required.
 - Low memory: keeps a few vectors and fuses simple passes to reduce traffic.
-- Preconditioner interface: preconditioner(operator_apply, state, parameters,
+- Preconditioner interface: preconditioner(state, parameters,
   drivers, h, residual, z, scratch) writes z ≈ M^{-1} r; if None, z := r.
+  The solver passes a scratch vector that the preconditioner may overwrite;
+  this buffer is then reused by the solver internally.
 
 This module keeps function bodies small; each operation is factored into a helper.
 """
@@ -41,13 +43,15 @@ def linear_solver_factory(
             Rosenbrock or IRK methods).
         In the simplest case ODE integrator, backward-Euler, F ≈ I − h J at
         the current guess.
-        M, J, h, B, gamma should all be compiled-in to the operator_apply
+        M, J, h, beta, gamma should all be compiled-in to the operator_apply
         function.
-    preconditioner : callable(state, parameters, drivers, h, residual, z),
+    preconditioner : callable(state, parameters, drivers, h, residual, z,
+    jvp_scratch),
     optional, default=None
         Preconditioner function that approximately solves M z = residual,
-        writing the result into z. If None, no preconditioning is applied and
-        z is simply set to the residual.
+        writing the result into z. The solver provides a scratch vector
+        (\"jvp_scratch\") which the preconditioner may use and overwrite.
+        If None, no preconditioning is applied and z is simply set to the residual.
     correction_type : str
         Type of line search to perform. These affect the calculation of the
         correction step length alpha:
@@ -67,7 +71,8 @@ def linear_solver_factory(
     callable
         CUDA device function with signature:
         solver(state, parameters, drivers, h,
-             rhs, x, preconditioned, temp)
+             rhs, x, z, temp)
+        where "temp" is also passed as a scratch buffer to the preconditioner.
     """
     # Setup compile-time flags to kill code branches
     SD = 1 if correction_type == "steepest_descent" else 0
@@ -105,7 +110,8 @@ def linear_solver_factory(
             Working array of size rhs.shape[0]. Holds preconditioned
             direction z.
         temp: array of floats
-            Working array of size rhs.shape[0]. Holds operator_apply results.
+            Working array of size rhs.shape[0]. Holds operator_apply results;
+            also passed as the scratch buffer to the preconditioner.
 
         Notes
         -----
@@ -113,6 +119,8 @@ def linear_solver_factory(
           being applied are all configured in the factory.
         - rhs is overwritten with the current residual and maintained in place.
         - state, parameters, drivers are immutable inputs to operator_apply.
+        - Scratch space required: 2 vectors of size rhs.shape[0]. The solver
+          reuses its temporary vector ("temp") as the preconditioner scratch.
 
 
         """
@@ -134,7 +142,7 @@ def linear_solver_factory(
         for _ in range(max_iters):
             if PC:
                 preconditioner(state, parameters, drivers, h, rhs,
-                               z)
+                               z, temp)
             else:
                 for i in range(n):
                     z[i] = rhs[i]
@@ -168,53 +176,58 @@ def linear_solver_factory(
     return linear_solver
 
 
-def neumann_preconditioner_factory(neumann_operator, order: int = 1) -> Callable:
-    """Create a Neumann polynomial preconditioner device function.
-
-    Parameters
-    ----------
-    neumann_operator: callable(state, parameters, drivers, h, residual,
-    out)
-        Device function applying [out = r + h*J*out]
-    order : int, default=1
-        Polynomial order.
-
-    Returns
-    -------
-    callable
-        CUDA device function implementing the preconditioner.
-    """
-
-    @cuda.jit(device=True)
-    def neumann_preconditioner(
-        state, parameters, drivers, h, residual, out
-    ):
-        """Approximate ``(I - J)^{-1}`` with a Neumann polynomial.
-
-        The implementation performs:
-
-        ``out = residual + h*J*residual + (h*J)^2*residual (for order=2)``.
-
-        Parameters
-        ----------
-        state: array of floats
-            Input parameter for evaluating the Jacobian in the operator
-        parameters: array of floats
-            Input parameter for evaluating the Jacobian in the operator
-        drivers: array of floats
-            Input parameter for evaluating the Jacobian in the operator
-        h: float
-            Step size - set by outer solver, used in neumann_operator
-        residual: array of floats
-            Input residual vector
-        out: array of floats
-            Output vector, to be overwritten with the preconditioned result
-        """
-
-        for i in range(out.shape[0]):
-            out[i] = residual[i]
-
-        for _ in range(order):
-            neumann_operator(state, parameters, drivers, h, residual, out)
-
-    return neumann_preconditioner
+# def neumann_preconditioner_factory(neumann_operator, order: int = 1) -> Callable:
+#     """Create a Neumann polynomial preconditioner device function.
+#
+#     Parameters
+#     ----------
+#     neumann_operator: callable(state, parameters, drivers, h, residual,
+#     out)
+#         Device function applying [out = r + h*J*out]
+#     order : int, default=1
+#         Polynomial order.
+#
+#     Returns
+#     -------
+#     callable
+#         CUDA device function implementing the preconditioner.
+#         Note: the general solver interface may pass an additional scratch
+#         buffer to preconditioners; this simple factory returns a preconditioner
+#         that does not take or use a scratch buffer.
+#     """
+#
+#     @cuda.jit(device=True)
+#     def neumann_preconditioner(
+#         state, parameters, drivers, h, residual, out
+#     ):
+#         """Approximate ``(I - J)^{-1}`` with a Neumann polynomial.
+#
+#         The implementation performs:
+#
+#         ``out = residual + h*J*residual + (h*J)^2*residual (for order=2)``.
+#
+#         Parameters
+#         ----------
+#         state: array of floats
+#             Input parameter for evaluating the Jacobian in the operator
+#         parameters: array of floats
+#             Input parameter for evaluating the Jacobian in the operator
+#         drivers: array of floats
+#             Input parameter for evaluating the Jacobian in the operator
+#         h: float
+#             Step size - set by outer solver, used in neumann_operator
+#         residual: array of floats
+#             Input residual vector
+#         out: array of floats
+#             Output vector, to be overwritten with the preconditioned result
+#         """
+#
+#         # Initialize accumulator with residual
+#         for i in range(out.shape[0]):
+#             out[i] = residual[i]
+#
+#         # Horner-like accumulation of Neumann terms
+#         for _ in range(order):
+#             neumann_operator(state, parameters, drivers, h, residual, out)
+#
+#     return neumann_preconditioner

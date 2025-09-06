@@ -4,7 +4,6 @@ from numba import cuda
 
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     linear_solver_factory,
-    neumann_preconditioner_factory,
 )
 from cubie.integrators.matrix_free_solvers.newton_krylov import (
     newton_krylov_solver_factory,
@@ -12,88 +11,52 @@ from cubie.integrators.matrix_free_solvers.newton_krylov import (
 
 
 @pytest.fixture(scope="function")
-def preconditioner_settings_override(request):
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def preconditioner_settings(preconditioner_settings_override):
-    settings = {"order": 2}
-    settings.update(preconditioner_settings_override)
-    return settings
-
-
-@pytest.fixture(scope="function")
-def preconditioner_device(preconditioner_settings):
-    return neumann_preconditioner_factory(**preconditioner_settings)
-
-
-@pytest.fixture(scope="function")
-def solver_factory_settings_override(request):
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def solver_factory_settings(solver_factory_settings_override):
-    settings = {"tolerance": 1e-6, "max_iters": 64}
-    settings.update(solver_factory_settings_override)
-    return settings
-
-
-@pytest.fixture(scope="function")
-def solver_device(solver_factory_settings, system_setup):
-    operator = system_setup["operator"]
-    residual_func = system_setup["residual"]
-    linear_solver = linear_solver_factory(
-        operator,
-        correction_type="minimal_residual",
-        tolerance=1e-6,
-        max_iters=32,
-    )
-    return newton_krylov_solver_factory(
-        residual_function=residual_func,
-        linear_solver=linear_solver,
-        **solver_factory_settings,
-    )
-
-
-@pytest.mark.parametrize(
-    "preconditioner_settings_override, expected",
-    [
-        ({"order": 1}, np.asarray([1.1, 1.1, 1.1])),
-        ({"order": 2}, np.asarray([1.21, 1.21, 1.21])),
-    ],
-    indirect=["preconditioner_settings_override"],
-)
-def test_neumann_preconditioner(
-    preconditioner_settings, expected, precision
-):
-    n = 3
+def placeholder_system(precision):
+    """Provide residual and operator for a scalar nonlinear equation."""
 
     @cuda.jit(device=True)
-    def neumann_operator(state, parameters, drivers, h, residual, out):
-        for i in range(n):
-            out[i] = out[i] + h * precision(0.1) * out[i]
+    def residual(state, parameters, drivers, h, base_state, work, out):
+        # Ignore base_state and work in this placeholder
+        out[0] = state[0] * state[0] - precision(2.0)
 
-    preconditioner = neumann_preconditioner_factory(
-        neumann_operator, **preconditioner_settings
+    @cuda.jit(device=True)
+    def operator(state, parameters, drivers, h, vec, out):
+        out[0] = precision(2.0) * state[0] * vec[0]
+
+    # Provide a trivial base_state for the test kernel to pass through
+    base = cuda.to_device(np.array([0.0], dtype=precision))
+    return residual, operator, base
+
+
+def test_newton_krylov_placeholder(placeholder_system, precision):
+    """Solve a simple nonlinear system using Newton-Krylov."""
+
+    residual, operator, base_state = placeholder_system
+    linear_solver = linear_solver_factory(
+        operator, tolerance=1e-12, max_iters=32
+    )
+    solver = newton_krylov_solver_factory(
+        residual_function=residual,
+        linear_solver=linear_solver,
+        tolerance=1e-10,
+        max_iters=16,
     )
 
     @cuda.jit
-    def kernel(out_array):
-        vec = cuda.local.array(n, precision)
-        state = cuda.local.array(n, precision)
-        parameters = cuda.local.array(1, precision)
+    def kernel(state, base):
+        res = cuda.local.array(1, precision)
+        delta = cuda.local.array(1, precision)
+        z_vec = cuda.local.array(1, precision)
+        v_vec = cuda.local.array(1, precision)
+        params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
         h = precision(1.0)
-        for i in range(n):
-            vec[i] = precision(1.0)
-            state[i] = precision(0.0)
-        preconditioner(state, parameters, drivers, h, vec, out_array)
+        solver(state, params, drivers, h, base, delta, res, z_vec, v_vec)
 
-    out = cuda.to_device(np.zeros(n, dtype=precision))
-    kernel[1, 1](out)
-    assert np.allclose(out.copy_to_host(), expected.astype(precision))
+    x = cuda.to_device(np.array([1.0], dtype=precision))
+    kernel[1, 1](x, base_state)
+    expected = np.array([np.sqrt(2.0)], dtype=precision)
+    assert np.allclose(x.copy_to_host(), expected, atol=1e-4)
 
 
 @pytest.mark.parametrize(
@@ -101,72 +64,44 @@ def test_neumann_preconditioner(
     [
         "linear",
         "nonlinear",
+        "stiff",
+        "coupled_linear",
+        "coupled_nonlinear",
     ],
     indirect=True,
 )
-def test_newton_krylov_solver(system_setup, solver_device, precision):
+def test_newton_krylov_symbolic(system_setup, precision):
+    """Solve systems built from symbolic expressions."""
+
     n = system_setup["n"]
+    operator = system_setup["operator"]
+    residual_func = system_setup["residual"]
+    base_state = system_setup["base_state"]
     expected = system_setup["nk_expected"]
+    linear_solver = linear_solver_factory(
+        operator,
+        correction_type="minimal_residual",
+        tolerance=1e-6,
+        max_iters=1000,
+    )
+    solver = newton_krylov_solver_factory(
+        residual_function=residual_func,
+        linear_solver=linear_solver,
+        tolerance=1e-8,
+        max_iters=32,
+    )
 
     @cuda.jit
-    def kernel(state):
+    def kernel(state, base):
         res = cuda.local.array(n, precision)
-        rhs = cuda.local.array(n, precision)
         delta = cuda.local.array(n, precision)
         z_vec = cuda.local.array(n, precision)
         v_vec = cuda.local.array(n, precision)
-        parameters = cuda.local.array(1, precision)
+        params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
         h = precision(1.0)
-        for i in range(n):
-            rhs[i] = precision(0.0)
-        solver_device(
-            state,
-            parameters,
-            drivers,
-            h,
-            rhs,
-            delta,
-            res,
-            z_vec,
-            v_vec,
-        )
+        solver(state, params, drivers, h, base, delta, res, z_vec, v_vec)
 
     x = cuda.to_device(np.zeros(n, dtype=precision))
-    kernel[1, 1](x)
-    assert np.allclose(x.copy_to_host(), expected, atol=1e-4)
-
-
-@pytest.mark.parametrize("system_setup", ["stiff"], indirect=True)
-@pytest.mark.xfail(reason="solver struggles with stiff systems")
-def test_newton_krylov_stiff_failure(system_setup, solver_device, precision):
-    n = system_setup["n"]
-    expected = system_setup["nk_expected"]
-
-    @cuda.jit
-    def kernel(state):
-        res = cuda.local.array(n, precision)
-        rhs = cuda.local.array(n, precision)
-        delta = cuda.local.array(n, precision)
-        z_vec = cuda.local.array(n, precision)
-        v_vec = cuda.local.array(n, precision)
-        parameters = cuda.local.array(1, precision)
-        drivers = cuda.local.array(1, precision)
-        h = precision(1.0)
-        for i in range(n):
-            rhs[i] = precision(0.0)
-        solver_device(
-            state,
-            parameters,
-            drivers,
-            h,
-            rhs,
-            delta,
-            res,
-            z_vec,
-            v_vec,
-        )
-
-    x = cuda.to_device(np.zeros(n, dtype=precision))
-    kernel[1, 1](x)
+    kernel[1, 1](x, base_state)
     assert np.allclose(x.copy_to_host(), expected, atol=1e-4)

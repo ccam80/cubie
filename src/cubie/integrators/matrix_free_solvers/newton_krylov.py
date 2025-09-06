@@ -42,15 +42,54 @@ def newton_krylov_solver_factory(
         parameters,
         drivers,
         h,  # Operator context
+        base_state,
         delta,
         residual,
         preconditioned_vec,
         work_vec,
     ):
+        """ Damped Newton-Krylov solver.
+
+        Parameters
+        ----------
+        state: device array
+            On entry, the initial guess; on exit, the solution if
+            convergence was achieved.
+        parameters: device array
+            Model parameters.
+        drivers: device array
+            Model drivers.
+        h: float
+            Timestep or other operator context.
+        base_state: device array
+            Base state for residual evaluation (e.g., previous step y_n).
+        delta: device array
+            Workspace for Newton step.
+        residual: device array
+            Workspace for residual evaluation.
+        preconditioned_vec: device array
+            Workspace for preconditioned vector in linear solver.
+        work_vec: device array
+            Workspace for residual evaluation.
+        Returns
+        -------
+        bool
+            True if convergence was achieved, false otherwise.
+
+        Notes
+        -----
+        - Scratch space required: 4*n where n = len(state).
+        - The linear solver is expected to solve J*delta = rhs where rhs
+          is provided in-place in the residual array, and delta is used
+          as an initial guess and returns the solution in-place.
+        - The residual function is expected to compute F(state) in-place
+            in the residual array.
+        - The state is updated in-place and reverted if no acceptable
+        """
         n = state.shape[0]
 
         # Build initial rhs = -F(state) and norm in one pass
-        residual_function(state, parameters, drivers, h, work_vec, residual)
+        residual_function(state, parameters, drivers, h, base_state, work_vec, residual)
         norm2_prev = 0.0
         for i in range(n):
             ri = residual[i]
@@ -86,7 +125,7 @@ def newton_krylov_solver_factory(
                 # in a single backward Euler step, this is guess - step
                 # start state - h*f(guess);
                 residual_function(state, parameters, drivers, h,
-                                  work_vec, residual)
+                                  base_state, work_vec, residual)
                 norm2_new = 0.0
                 for i in range(n):
                     ri = residual[i]

@@ -7,7 +7,6 @@ device routine to avoid extra passes or buffers.
 
 from typing import Iterable, Tuple, Dict
 import sympy as sp
-from numba import cuda
 
 from cubie.systemmodels.symbolic.parser import IndexedBases
 from cubie.systemmodels.symbolic.numba_cuda_printer import print_cuda_multiple
@@ -22,7 +21,7 @@ OPERATOR_APPLY_TEMPLATE = (
     "    Returns device function:\n"
     "      operator_apply(state, parameters, drivers, h, v, out)\n"
     '    """\n'
-    "    from numba import cuda\n"
+    "{const_lines}"
     "    @cuda.jit((precision[:],\n"
     "               precision[:],\n"
     "               precision[:],\n"
@@ -93,9 +92,21 @@ def generate_operator_apply_code_from_jvp(
     func_name: str = "operator_apply_factory",
     cse: bool = True,
 ) -> str:
-    """Emit code for the operator apply factory using precomputed JVP expressions."""
+    """Emit code for the operator apply factory using precomputed JVP expressions.
+
+    The emitted factory expects ``constants`` as a mapping from names to values
+    and embeds each constant as a standalone variable in the generated device
+    function.
+    """
     body = _build_body_from_jvp(jvp_exprs, index_map, M)
-    return OPERATOR_APPLY_TEMPLATE.format(func_name=func_name, body=body)
+    const_lines = [
+        f"    {name} = precision(constants['{name}'])"
+        for name in index_map.constants.symbol_map
+    ]
+    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    return OPERATOR_APPLY_TEMPLATE.format(
+        func_name=func_name, body=body, const_lines=const_block
+    )
 
 
 def generate_operator_apply_code(
@@ -134,113 +145,48 @@ def generate_operator_apply_code(
 NEUMANN_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED NEUMANN PRECONDITIONER FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, iterations=1):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
     '    """Auto-generated Neumann preconditioner.\n'
-    "    Approximates (beta*M - gamma*h*J)^{-1} via a truncated\n"
+    "    Approximates (beta*M - gamma*h*J)^[-1] via a truncated\n"
     "    Neumann series. Returns device function:\n"
-    "      preconditioner(state, parameters, drivers, h, v, out)\n"
+    "      preconditioner(state, parameters, drivers, h, v, out, jvp)\n"
+    "    where `jvp` is a caller-provided scratch buffer for J*v.\n"
     '    """\n'
     "    n = {n_out}\n"
-    "    from numba import cuda\n"
-    "    h_eff_factor = gamma / beta\n"
+    "    beta_inv = 1.0 / beta\n"
+    "    h_eff_factor = gamma * beta_inv\n"
+    "{const_lines}"
     "    @cuda.jit((precision[:],\n"
     "               precision[:],\n"
     "               precision[:],\n"
     "               precision,\n"
     "               precision[:],\n"
+    "               precision[:],\n"
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def preconditioner(state, parameters, drivers, h, v, out):\n"
-    "        tmp = cuda.local.array(n, precision)\n"
+    "    def preconditioner(state, parameters, drivers, h, v, out, jvp):\n"
+    "        # Horner form: S[m] = v + T S[m-1], T = (gamma/beta) * h * J\n"
+    "        # Accumulator lives in `out`. Uses caller-provided `jvp` for "
+    "JVP.\n"
     "        for i in range(n):\n"
     "            out[i] = v[i]\n"
     "        h_eff = h * h_eff_factor\n"
-    "        for _ in range(iterations):\n"
+    "        for _ in range(order):\n"
     "{jv_body}\n"
     "            for i in range(n):\n"
-    "                out[i] = out[i] + h_eff * out[i] + tmp[i]\n"
+    "                out[i] = v[i] + h_eff * jvp[i]\n"
     "        for i in range(n):\n"
-    "            out[i] = beta * out[i]\n"
+    "            out[i] = beta_inv * out[i]\n"
     "        return out\n"
     "    return preconditioner\n"
 )
-
-
-def _build_jv_eval_body(
-    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
-    index_map: IndexedBases,
-    vec_name: str = "out",
-    out_name: str = "tmp",
-) -> str:
-    """Return code evaluating ``J`` times ``vec_name`` into ``out_name``.
-
-    Parameters
-    ----------
-    jvp_exprs : iterable of tuple
-        Topologically sorted symbolic expressions representing the Jacobian
-        vector product.
-    index_map : IndexedBases
-        Mapping of symbolic arrays to their CUDA representations.
-    vec_name : str, optional
-        Name of the input vector in the generated code, default ``"out"``.
-    out_name : str, optional
-        Name of the output vector in the generated code, default ``"tmp"``.
-
-    Returns
-    -------
-    str
-        CUDA code lines computing ``J * vec_name`` into ``out_name``.
-    """
-    symbol_map = dict(index_map.all_arrayrefs)
-    symbol_map[sp.Symbol("v")] = vec_name
-    symbol_map[sp.Symbol("jvp")] = out_name
-    lines = print_cuda_multiple(jvp_exprs, symbol_map=symbol_map)
-    if not lines:
-        lines = ["pass"]
-    return "\n".join("            " + ln for ln in lines)
-
-
-def generate_neumann_preconditioner_code_from_jvp(
-    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
-    index_map: IndexedBases,
-    func_name: str = "neumann_preconditioner_factory",
-    iterations: int = 1,
-    cse: bool = True,
-) -> str:
-    """Generate code for a Neumann preconditioner.
-
-    Parameters
-    ----------
-    jvp_exprs : iterable of tuple
-        Precomputed Jacobian-vector product expressions.
-    index_map : IndexedBases
-        Mapping of symbolic arrays to CUDA references.
-    func_name : str, optional
-        Name of the emitted factory, default
-        ``"neumann_preconditioner_factory"``.
-    iterations : int, optional
-        Number of Neumann iterations to inline, default ``1``.
-    cse : bool, optional
-        Unused placeholder for API symmetry, default ``True``.
-
-    Returns
-    -------
-    str
-        Source code for the factory function.
-    """
-    n_out = len(index_map.dxdt.ref_map)
-    jv_body = _build_jv_eval_body(jvp_exprs, index_map)
-    return NEUMANN_TEMPLATE.format(
-        func_name=func_name, n_out=n_out, jv_body=jv_body
-    )
 
 
 def generate_neumann_preconditioner_code(
     equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     index_map: IndexedBases,
     func_name: str = "neumann_preconditioner_factory",
-    iterations: int = 1,
     cse: bool = True,
 ) -> str:
     """High-level entry for Neumann preconditioner code generation.
@@ -254,8 +200,6 @@ def generate_neumann_preconditioner_code(
     func_name : str, optional
         Name of the emitted factory, default
         ``"neumann_preconditioner_factory"``.
-    iterations : int, optional
-        Number of Neumann iterations to inline, default ``1``.
     cse : bool, optional
         Apply common-subexpression elimination, default ``True``.
 
@@ -264,6 +208,12 @@ def generate_neumann_preconditioner_code(
     str
         Source code for the factory function.
     """
+    n_out = len(index_map.dxdt.ref_map)
+    const_lines = [
+        f"    {name} = precision(constants['{name}'])"
+        for name in index_map.constants.symbol_map
+    ]
+    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
     jvp_exprs = generate_analytical_jvp(
         equations,
         input_order=index_map.states.index_map,
@@ -271,98 +221,169 @@ def generate_neumann_preconditioner_code(
         observables=index_map.observable_symbols,
         cse=cse,
     )
-    return generate_neumann_preconditioner_code_from_jvp(
-        jvp_exprs=jvp_exprs,
-        index_map=index_map,
-        func_name=func_name,
-        iterations=iterations,
-        cse=cse,
+    # Emit using canonical names, then rewrite to drive JVP with `out` and
+    # write into the caller-provided scratch buffer `jvp`.
+    lines = print_cuda_multiple(jvp_exprs, symbol_map=index_map.all_arrayrefs)
+    if not lines:
+        lines = ["pass"]
+    else:
+        lines = [
+            ln.replace("v[", "out[").replace("jvp[", "jvp[")
+            for ln in lines
+        ]
+    jv_body = "\n".join("            " + ln for ln in lines)
+    return NEUMANN_TEMPLATE.format(
+            func_name=func_name, n_out=n_out, jv_body=jv_body,
+            const_lines=const_block
     )
 
 
+# ---------------------------------------------------------------------------
+# Residual function code generation (Unified, compile-time mode)
+# ---------------------------------------------------------------------------
 
-def residual_end_state_factory(
-    base_state,                  # device array with the fixed base state for this solve
-    dxdt,                        # device function
-    mass_apply=None,             # optional device function: M(out) := M(in)
-    beta=1.0,                    # matches β in your linear operator
-    gamma=1.0,                   # matches γ in your linear operator
-):
-    USE_M = 1 if mass_apply is not None else 0
-
-    @cuda.jit(device=True)
-    def residual_function(state, parameters, drivers, h, linear_rhs, residual):
-        """
-        Residual: β·M·(state - base_state) - γ·h·f(eval_point, drivers) == 0
-        Here eval_point == state (end-of-step unknown).
-        - state: current guess for the end-of-step state (length n)
-        - drivers: external inputs; passed through to dxdt
-        - h: step size
-        - linear_rhs: scratch buffer (length n), used for f(state)
-        - residual: output mismatch (length n)
-        """
-        n = state.shape[0]
-
-        # 1) rate at the evaluation point (the guess itself)
-        dxdt(state, parameters, drivers, linear_rhs)  # linear_rhs := f(state)
-
-        # 2) β·(state - base_state)
-        for i in range(n):
-            residual[i] = beta * (state[i] - base_state[i])
-
-        # 3) apply mass if present: residual := β·M·(state - base)
-        if USE_M:
-            # Signature: mass_apply(state, parameters, drivers, in_vec, out_vec)
-            mass_apply(state, parameters, drivers, residual, residual)
-
-        # 4) subtract γ·h·f(state)
-        for i in range(n):
-            residual[i] -= gamma * h * linear_rhs[i]
-
-    return residual_function
+RESIDUAL_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED RESIDUAL FACTORY\n"
+    "def {func_name}(constants, precision, dxdt, {extra_args}beta=1.0, gamma=1.0):\n"
+    '    """Auto-generated residual. Mode fixed at codegen time.\n'
+    "    - Stage mode: eval at base_state + a_ij*u; residual uses M@u\n"
+    "    - End-state mode: eval at u; residual uses M@(u - base_state)\n"
+    '    """\n'
+    "{const_lines}"
+    "{mode_lines}"
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision,\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def residual(u, parameters, drivers, h, base_state, work, out):\n"
+    "{eval_lines}\n"
+    "\n"
+    "        dxdt(work, parameters, drivers, work, out)\n"
+    "\n"
+    "{res_lines}\n"
+    "        return out\n"
+    "    return residual\n"
+)
 
 
+def _build_residual_mode_lines(index_map: IndexedBases, M: sp.Matrix, is_stage: bool) -> Tuple[str, str]:
+    """Return eval and residual lines for the chosen residual mode.
 
-def stage_residual_factory(
-    base_state,                  # device array with the fixed base for this stage
-    a_ii,                        # scalar weight for how the increment contributes to the eval point
-    dxdt,                        # device function
-    mass_apply=None,             # optional device function: M(out) := M(in)
-    beta=1.0,                    # matches β in your linear operator
-    gamma=1.0,                   # matches γ in your linear operator
-):
-    USE_M = 1 if mass_apply is not None else 0
+    - eval_lines: assignments to `work` for dxdt evaluation point
+    - res_lines: final residual updates into `out`
+    """
+    n = len(index_map.states.index_map)
 
-    @cuda.jit(device=True)
-    def residual_function(stage, parameters, drivers, h, linear_rhs, residual):
-        """
-        Residual: β·M·stage - γ·h·f(eval_point, drivers) == 0
-        eval_point := base_state + a_ii * stage
-        - stage: current guess for the stage increment (length n)
-        - drivers: external inputs; passed through to dxdt
-        - h: step size
-        - linear_rhs: scratch (length n); used for eval_point and M·stage
-        - residual: output mismatch (length n); also holds f(eval_point) transiently
-        """
-        n = stage.shape[0]
+    beta_sym = sp.Symbol("beta")
+    gamma_sym = sp.Symbol("gamma")
+    h_sym = sp.Symbol("h")
+    aij_sym = sp.Symbol("a_ij")
+    u = sp.IndexedBase("u", shape=(n,))
+    base = sp.IndexedBase("base_state", shape=(n,))
+    work = sp.IndexedBase("work", shape=(n,))
+    out = sp.IndexedBase("out", shape=(n,))
 
-        # 1) build eval_point in linear_rhs
-        for i in range(n):
-            linear_rhs[i] = base_state[i] + a_ii * stage[i]
+    symbol_map = dict(index_map.all_arrayrefs)
+    symbol_map.update(
+        {
+            "beta": beta_sym,
+            "gamma": gamma_sym,
+            "h": h_sym,
+            "a_ij": aij_sym,
+            "u": u,
+            "base_state": base,
+            "work": work,
+            "out": out,
+        }
+    )
 
-        # 2) rate at eval_point into residual
-        dxdt(linear_rhs, parameters, drivers, residual)  # residual := f(eval_point)
+    # Eval point
+    eval_exprs = []
+    for i in range(n):
+        if is_stage:
+            eval_exprs.append((work[i], base[i] + aij_sym * u[i]))
+        else:
+            eval_exprs.append((work[i], u[i]))
+    eval_lines_list = print_cuda_multiple(eval_exprs, symbol_map=symbol_map) or ["pass"]
+    eval_lines = "\n".join("        " + ln for ln in eval_lines_list)
 
-        # 3) linear_rhs := β·stage, then apply mass if present
-        for i in range(n):
-            linear_rhs[i] = beta * stage[i]
-        if USE_M:
-            # Signature: mass_apply(state_like, parameters, drivers, in_vec, out_vec)
-            mass_apply(linear_rhs, parameters, drivers, linear_rhs, linear_rhs)
+    # Residual
+    res_exprs = []
+    for i in range(n):
+        mv = sp.S.Zero
+        for j in range(n):
+            entry = M[i, j]
+            if entry == 0:
+                continue
+            if is_stage:
+                mv += entry * u[j]
+            else:
+                mv += entry * (u[j] - base[j])
+        res_exprs.append((out[i], beta_sym * mv - gamma_sym * h_sym * out[i]))
+    res_lines_list = print_cuda_multiple(res_exprs, symbol_map=symbol_map) or ["pass"]
+    res_lines = "\n".join("        " + ln for ln in res_lines_list)
 
-        # 4) residual := β·M·stage - γ·h·f(eval_point)
-        for i in range(n):
-            residual[i] = linear_rhs[i] - gamma * h * residual[i]
+    return eval_lines, res_lines
 
-    return residual_function
 
+def generate_residual_end_state_code(
+    index_map: IndexedBases,
+    M=None,
+    func_name: str = "residual_end_state_factory",
+) -> str:
+    """Emit code for the end-state residual factory (compile-time mode)."""
+    if M is None:
+        n = len(index_map.states.index_map)
+        M_mat = sp.eye(n)
+    else:
+        M_mat = sp.Matrix(M)
+    eval_lines, res_lines = _build_residual_mode_lines(index_map, M_mat, is_stage=False)
+    const_lines = [
+        f"    {name} = precision(constants['{name}'])"
+        for name in index_map.constants.symbol_map
+    ]
+    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+
+    return RESIDUAL_TEMPLATE.format(
+        func_name=func_name,
+        extra_args="",
+        const_lines=const_block,
+        mode_lines="",
+        eval_lines=eval_lines,
+        res_lines=res_lines,
+    )
+
+
+def generate_stage_residual_code(
+    index_map: IndexedBases,
+    M=None,
+    func_name: str = "stage_residual_factory",
+) -> str:
+    """Emit code for the stage residual factory (compile-time mode)."""
+    if M is None:
+        n = len(index_map.states.index_map)
+        M_mat = sp.eye(n)
+    else:
+        M_mat = sp.Matrix(M)
+    eval_lines, res_lines = _build_residual_mode_lines(index_map, M_mat, is_stage=True)
+    const_lines = [
+        f"    {name} = precision(constants['{name}'])"
+        for name in index_map.constants.symbol_map
+    ]
+    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+
+    mode_lines = "    a_ij = precision(a_ij)\n"
+    return RESIDUAL_TEMPLATE.format(
+        func_name=func_name,
+        extra_args="a_ij, ",
+        const_lines=const_block,
+        mode_lines=mode_lines,
+        eval_lines=eval_lines,
+        res_lines=res_lines,
+    )

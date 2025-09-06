@@ -135,7 +135,7 @@ class SymbolicODE(BaseODE):
     def build(self):
         """Compile the ``dxdt`` function and populate the cache."""
         numba_precision = from_dtype(self.precision)
-        constants = self.constants.values_array
+        constants = self.constants.values_dict
         new_hash = hash_system_definition(
             self.equations, self.indices.constants.default_values
         )
@@ -218,7 +218,7 @@ class SymbolicODE(BaseODE):
             pass
 
         numba_precision = from_dtype(self.precision)
-        constants = self.constants.values_array
+        constants = self.constants.values_dict
 
         if attr_name == "linear_operator":
             n = len(self.indices.states.index_map)

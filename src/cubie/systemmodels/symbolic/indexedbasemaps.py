@@ -126,7 +126,6 @@ class IndexedBases:
         self.all_indices = {
             **self.states.ref_map,
             **self.parameters.ref_map,
-            **self.constants.ref_map,
             **self.observables.ref_map,
             **self.drivers.ref_map,
             **self.dxdt.ref_map,
@@ -265,7 +264,6 @@ class IndexedBases:
         return {
             **self.states.ref_map,
             **self.parameters.ref_map,
-            **self.constants.ref_map,
             **self.observables.ref_map,
             **self.drivers.ref_map,
             **self.dxdt.ref_map,

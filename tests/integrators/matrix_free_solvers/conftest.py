@@ -1,8 +1,10 @@
 import numpy as np
 import pytest
-from numba import cuda
+from numba import cuda, from_dtype
 
-from cubie.systemmodels.symbolic.operator_apply import residual_end_state_factory
+from cubie.systemmodels.symbolic.operator_apply import (
+    generate_residual_end_state_code,
+)
 from cubie.systemmodels.symbolic.symbolicODE import create_ODE_system
 
 
@@ -108,13 +110,31 @@ def system_setup(request, precision):
     sym_system.build()
     dxdt_func = sym_system.dxdt_function
     operator = sym_system.get_solver_helper("operator")
+    neumann_factory = sym_system.get_solver_helper("neumann")
     base_state = cuda.to_device(np.zeros(3, dtype=precision))
-    residual_func = residual_end_state_factory(base_state, dxdt_func)
+    code = generate_residual_end_state_code(sym_system.indices)
+    res_factory = sym_system.gen_file.import_function(
+        "residual_end_state_factory", code
+    )
+    residual_func = res_factory(
+        sym_system.constants.values_dict,
+        from_dtype(sym_system.precision),
+        dxdt_func,
+    )
+
+    def make_precond(order):
+        return neumann_factory(
+            sym_system.constants.values_dict,
+            from_dtype(sym_system.precision),
+            iterations=order,
+        )
 
     return {
         "n": 3,
         "operator": operator,
         "residual": residual_func,
+        "base_state": base_state,
+        "preconditioner": make_precond,
         "mr_rhs": mr_rhs,
         "mr_expected": mr_expected,
         "nk_expected": nk_expected,

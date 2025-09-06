@@ -14,6 +14,7 @@ DXDT_TEMPLATE = (
     "# AUTO-GENERATED DXDT FACTORY\n"
     "def {func_name}(constants, precision):\n"
     '    """Auto-generated dxdt factory."""\n'
+    "{const_lines}"
     "    @cuda.jit((precision[:],\n"
     "               precision[:],\n"
     "               precision[:],\n"
@@ -27,22 +28,7 @@ DXDT_TEMPLATE = (
     "    return dxdt\n"
 )
 
-RESIDUAL_TEMPLATE = (
-    "\n"
-    "# AUTO-GENERATED RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision):\n"
-    '    """Auto-generated residual factory."""\n'
-    "    @cuda.jit((precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:]),\n"
-    "              device=True,\n"
-    "              inline=True)\n"
-    "    def residual(state, parameters, drivers, out):\n"
-    "    {body}\n"
-    "    \n"
-    "    return out\n"
-)
+
 
 def generate_dxdt_lines(
     equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
@@ -54,7 +40,6 @@ def generate_dxdt_lines(
         equations = cse_and_stack(equations)
     else:
         equations = topological_sort(equations)
-
     dxdt_lines = print_cuda_multiple(
         equations, symbol_map=index_map.all_arrayrefs
     )
@@ -62,59 +47,31 @@ def generate_dxdt_lines(
         dxdt_lines = ["pass"]
     return dxdt_lines
 
-def generate_dxdt_fac_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-                           index_map: Optional[IndexedBases] = None,
-                           func_name="dxdt_factory",
-                           cse=True):
-    """Return the dxdt factory function for the given equations."""
+def generate_dxdt_fac_code(
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: Optional[IndexedBases] = None,
+    func_name: str = "dxdt_factory",
+    cse: bool = True,
+) -> str:
+    """Return source for a ``dx/dt`` factory.
+
+    The emitted factory has signature ``func(constants, precision)`` where
+    ``constants`` is a mapping from constant names to numeric values. Each
+    constant is embedded as a separate variable in the generated device
+    function.
+    """
     dxdt_lines = generate_dxdt_lines(equations, index_map=index_map, cse=cse)
+    const_lines = [
+        f"    {name} = precision(constants['{name}'])"
+        for name in index_map.constants.symbol_map
+    ]
+    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
 
     code = DXDT_TEMPLATE.format(
         func_name=func_name,
-        body="    " + "\n        ".join(dxdt_lines)
+        const_lines=const_block,
+        body="    " + "\n        ".join(dxdt_lines),
     )
     return code
 
 
-
-
-def generate_residual_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-    index_map: IndexedBases,
-    func_name: str = "residual_factory",
-    cse: bool = True,
-):
-    """Return a residual factory for the provided equations.
-
-    Implementation note: reuse generate_dxdt_lines to avoid duplicating symbolic-to-CUDA
-    printing logic. We post-process the resulting lines to:
-      - write into `out[...]` instead of `dxdt[...]`
-      - replace any references to observables (e.g., "observables[i]") with
-        placeholder symbol names so that the generated code does not reference the
-        observables array directly.
-    """
-    # Generate dxdt code lines first
-    dxdt_lines = generate_dxdt_lines(equations, index_map=index_map, cse=cse)
-
-    # Replace any observable array references with placeholder symbol names
-    # e.g., replace "observables[3]" with the corresponding symbol name
-    try:
-        observable_ref_map = index_map.observables.ref_map
-    except AttributeError:
-        observable_ref_map = {}
-
-    if observable_ref_map:
-        just_in_case = sp.numbered_symbols("_temp")
-        for sym, ref in observable_ref_map.items():
-            placeholder = str(sym)
-            if placeholder.startswith("observable"):
-                placeholder = just_in_case.__next__()
-            res_lines = [ln.replace(str(ref), placeholder) for ln in
-                         dxdt_lines]
-    else:
-        res_lines = dxdt_lines
-
-    code = RESIDUAL_TEMPLATE.format(
-        func_name=func_name, body="    " + "\n        ".join(res_lines)
-    )
-    return code

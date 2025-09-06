@@ -1,9 +1,12 @@
 import sympy as sp
 
+import numpy as np
+import pytest
+from numba import cuda, from_dtype
+
 from cubie.systemmodels.symbolic.dxdt import (
     DXDT_TEMPLATE,
     generate_dxdt_fac_code,
-    generate_residual_code,
 )
 from cubie.systemmodels.symbolic.parser import IndexedBases
 
@@ -16,7 +19,9 @@ class TestDxdtTemplate:
         func_name = "test_factory"
         body = "    # test body"
 
-        formatted = DXDT_TEMPLATE.format(func_name=func_name, body=body)
+        formatted = DXDT_TEMPLATE.format(
+            func_name=func_name, const_lines="", body=body
+        )
 
         assert func_name in formatted
         assert "test body" in formatted
@@ -158,6 +163,13 @@ class TestGenerateDxdtFacCode:
         assert "observables" in func_def_line
         assert "dxdt" in func_def_line
 
+    def test_constants_unpacked(self, indexed_bases):
+        """Constants should be defined as standalone variables."""
+        x, c = sp.symbols("x c", real=True)
+        equations = [(sp.Symbol("dx", real=True), c * x)]
+        code = generate_dxdt_fac_code(equations, indexed_bases)
+        assert "c = precision(constants['c'])" in code
+
 
 class TestDxdtIntegration:
     """Integration tests for DXDT functionality."""
@@ -227,9 +239,33 @@ class TestDxdtIntegration:
         assert isinstance(code, str)
         assert "def dxdt_factory" in code
 
-def test_residual_code_generation(linear_system_equations, indexed_bases):
-    code = generate_residual_code(linear_system_equations, indexed_bases)
-    assert isinstance(code, str)
-    assert "def residual_factory" in code
-    assert "def residual(" in code
-    assert "observables" not in code
+
+def test_recompile_updates_constants(indexed_bases, precision):
+    """Recompiling with a new constants dict updates the device function."""
+    x, c = sp.symbols("x c", real=True)
+    equations = [(sp.Symbol("dx", real=True), c * x)]
+    code = generate_dxdt_fac_code(equations, indexed_bases)
+    namespace = {"cuda": cuda}
+    exec(code, namespace)
+    factory = namespace["dxdt_factory"]
+    numba_precision = from_dtype(precision)
+    func1 = factory({"c": precision(2.0)}, numba_precision)
+    func2 = factory({"c": precision(3.0)}, numba_precision)
+
+    def run_dxdt(dxdt_func):
+        @cuda.jit
+        def kernel(state, parameters, drivers, observables, out):
+            dxdt_func(state, parameters, drivers, observables, out)
+
+        state = np.array([precision(1.0), precision(0.0)], dtype=precision)
+        parameters = np.zeros(2, dtype=precision)
+        drivers = np.zeros(1, dtype=precision)
+        observables = np.zeros(1, dtype=precision)
+        out = np.zeros(2, dtype=precision)
+        kernel[1, 1](state, parameters, drivers, observables, out)
+        return out[0]
+
+    res1 = run_dxdt(func1)
+    res2 = run_dxdt(func2)
+    assert res1 == pytest.approx(2.0)
+    assert res2 == pytest.approx(3.0)
