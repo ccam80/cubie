@@ -18,6 +18,7 @@ from warnings import warn
 import numpy as np
 from numba import cuda, float64, float32
 from numba import int32, int16, from_dtype
+from cubie.cudasim_utils import from_dtype as simsafe_dtype
 from numpy.typing import NDArray, ArrayLike
 
 from cubie.memory import default_memmgr
@@ -349,7 +350,7 @@ class BatchSolverKernel(CUDAFactory):
         numruns = chunkruns
         output_length = chunklength
         warmup_length = self.warmup_length
-        pad_perrun = 4 if (self.precision is np.float64) else 0
+        pad_perrun = 4 if self.shared_memory_needs_padding else 0
         padded_bytes_perrun = self.shared_memory_bytes_per_run + pad_perrun
         dynamic_sharedmem = int(
             padded_bytes_perrun * min(numruns, blocksize)
@@ -412,6 +413,7 @@ class BatchSolverKernel(CUDAFactory):
         ):
             cuda.profile_stop()
 
+    @property
     def shared_memory_needs_padding(self):
         """True if we need to pad shared memory to avoid bank conflicts"""
         if self.precision == np.float64:
@@ -442,7 +444,10 @@ class BatchSolverKernel(CUDAFactory):
         - x-dimension handles intra-run parallelism
         - y-dimension handles different runs
         """
+        # Internal casting should use this simulator-safe dtype
+        simsafe_precision = simsafe_dtype(self.precision)
         precision = from_dtype(self.precision)
+
         loopfunction = self.single_integrator.device_function
 
         output_flags = self.active_output_arrays
@@ -450,15 +455,15 @@ class BatchSolverKernel(CUDAFactory):
         save_observables = output_flags.observables
         save_state_summaries = output_flags.state_summaries
         save_observable_summaries = output_flags.observable_summaries
-        needs_padding = self.shared_memory_needs_padding()
+        needs_padding = self.shared_memory_needs_padding
 
         # Shared memory strides are set to minimise bank conflicts - each run
         # must span an odd number of 32b words.
         shared_elements_per_run = self.shared_memory_elements_per_run
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
-        run_stride_f32 = (f32_per_element * shared_elements_per_run +
-                          f32_pad_perrun)
+        run_stride_f32 = int((f32_per_element * shared_elements_per_run +
+                          f32_pad_perrun))
 
         # no cover: start
         @cuda.jit(
@@ -508,7 +513,7 @@ class BatchSolverKernel(CUDAFactory):
                             shared_elements_per_run)
 
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
-                    precision)
+                    simsafe_precision)
 
             rx_inits = inits[run_index, :]
             rx_params = params[run_index, :]

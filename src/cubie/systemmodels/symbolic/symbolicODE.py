@@ -14,7 +14,7 @@ from typing import Callable, Iterable, Optional, Set, Union
 
 import numpy as np
 import sympy as sp
-from numba import cuda, from_dtype
+from numba import from_dtype
 from cubie.systemmodels.symbolic.dxdt import generate_dxdt_fac_code
 from cubie.systemmodels.symbolic.odefile import ODEFile
 from cubie.systemmodels.symbolic.operator_apply import (
@@ -128,7 +128,7 @@ class SymbolicODE(BaseODE):
                    all_indexed_bases=index_map,
                    all_symbols=all_symbols,
                    name=name,
-                   fn_hash=fn_hash,
+                   fn_hash=int(fn_hash),
                    user_functions = functions,
                    autojvp = generate_jac,
                    autovjp = generate_jac,
