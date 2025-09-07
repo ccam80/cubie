@@ -6,6 +6,7 @@ import sympy as sp
 
 from cubie.systemmodels.symbolic import print_cuda_multiple
 from cubie.systemmodels.symbolic.operator_apply import generate_operator_apply_code
+
 from cubie.systemmodels.symbolic.indexedbasemaps import (
     IndexedBases,
 )
