@@ -1,10 +1,24 @@
 import numpy as np
 import pytest
+from pathlib import Path
+from pytest import MonkeyPatch
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_functions import OutputFunctions
+
+
+@pytest.fixture(scope="session", autouse=True)
+def codegen_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Redirect code generation to a temporary directory."""
+    from cubie.systemmodels.symbolic import odefile
+
+    gen_dir = tmp_path_factory.mktemp("generated")
+    mp = MonkeyPatch()
+    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
+    yield gen_dir
+    mp.undo()
 
 
 @pytest.fixture(scope="function")
