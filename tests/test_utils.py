@@ -70,11 +70,13 @@ def noise_tester_64(sigmas, precision):
     d_sigmas = cuda.to_device(np.array(sigmas, dtype=precision))
 
     # Create RNG state
-    rng_states = create_xoroshiro128p_states(1, seed=42)
+    rng_states = create_xoroshiro128p_states(n_elements, seed=42)
 
     @cuda.jit()
     def noise_test_kernel(noise_arr, sig_arr, rng):
         idx = cuda.grid(1)
+        if idx > n_elements:
+            return
         if idx < noise_arr.size:
             get_noise_64(noise_arr, sig_arr, idx, rng)
 
@@ -90,11 +92,13 @@ def noise_tester_32(sigmas, precision):
     d_sigmas = cuda.to_device(np.array(sigmas, dtype=precision))
 
     # Create RNG state
-    rng_states = create_xoroshiro128p_states(1, seed=42)
+    rng_states = create_xoroshiro128p_states(n_elements, seed=42)
 
     @cuda.jit()
     def noise_test_kernel(noise_arr, sig_arr, rng):
         idx = cuda.grid(1)
+        if idx > n_elements:
+            return
         if idx < noise_arr.size:
             get_noise_32(noise_arr, sig_arr, idx, rng)
 

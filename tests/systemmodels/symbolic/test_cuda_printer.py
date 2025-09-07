@@ -262,8 +262,3 @@ def test_piecewise_inside_expression_assignment():
 
     # Expect: _cse10 = E_v*(_cse1 if _cse3 else (0))
     assert _compact(out) == _compact("_cse10 = E_v*(_cse1 if _cse3 else (0))")
-
-def test_functions():
-    """Test that expressions containing SymPy functions are successfully
-    converted to CUDA-compatible functions as given by CUDA_FUNCTIONS"""
-    pass
