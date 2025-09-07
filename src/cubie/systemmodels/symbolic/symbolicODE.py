@@ -1,13 +1,4 @@
 """Symbolic ODE system built from :mod:`sympy` expressions.
-
-This module extends the basic symbolic prototype by adding support for a
-restricted set of mathematical operators, automatic Jacobian generation and a
-Numba CUDA implementation.  The implementation of placeholder math functions
-and Jacobian generation borrows ideas from
-`chaste-codegen <https://github.com/ModellingWebLab/chaste-codegen>`_.
-
-The code copied from *chaste-codegen* is licensed under the MIT licence and has
-been adapted for use in this project.
 """
 
 from typing import Callable, Iterable, Optional, Set, Union
@@ -130,8 +121,6 @@ class SymbolicODE(BaseODE):
                    name=name,
                    fn_hash=int(fn_hash),
                    user_functions = functions,
-                   autojvp = generate_jac,
-                   autovjp = generate_jac,
                    precision=np.float64)
 
 
