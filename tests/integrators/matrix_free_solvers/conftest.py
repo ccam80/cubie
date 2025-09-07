@@ -65,6 +65,8 @@ def system_setup(request, precision):
     else:
         raise ValueError(f"Unknown system: {system}")
 
+
+    #Construct system, generate helper functions
     sym_system = create_ODE_system(dxdt, states=[f"x{i}" for i in range(3)])
     sym_system.build()
     dxdt_func = sym_system.dxdt_function
@@ -85,12 +87,15 @@ def system_setup(request, precision):
         dxdt_func,
     )
 
+    # start system from a non-equilibrium position, generate initial guesses
+    # using Euler
     if system == "stiff":
         h = precision(1e-4)
         base_host = np.ones(3, dtype=precision)
     else:
         h = precision(0.01)
         base_host = np.zeros(3, dtype=precision)
+
     base_state = cuda.to_device(base_host)
     params = np.zeros(1, dtype=precision)
     drivers = np.zeros(1, dtype=precision)
@@ -102,9 +107,7 @@ def system_setup(request, precision):
         dxdt_func(state, params, drivers, observables, deriv)
 
     dxdt_kernel[1, 1](base_host, params, drivers, observables, deriv)
-    state_init_host = base_host + h * deriv * precision(1.01)
-    if system == "stiff":
-        state_init_host += precision(1e-3)
+    state_init_host = base_host + h * deriv * precision(1.05)
 
     state_fp = state_init_host.copy()
     for _ in range(32):

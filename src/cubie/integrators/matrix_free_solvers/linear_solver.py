@@ -16,11 +16,12 @@ This module keeps function bodies small; each operation is factored into a helpe
 
 from typing import Callable, Optional
 
-from numba import cuda
+from numba import cuda, int32
 
 
 def linear_solver_factory(
     operator_apply: Callable,
+    n: int,
     preconditioner: Optional[Callable] = None,
     correction_type: str = "steepest_descent",
     tolerance: float = 1e-6,
@@ -45,9 +46,10 @@ def linear_solver_factory(
         the current guess.
         M, J, h, beta, gamma should all be compiled-in to the operator_apply
         function.
+    n : int
+        length of the 1d residual/rhs vectors.
     preconditioner : callable(state, parameters, drivers, h, residual, z,
-    jvp_scratch),
-    optional, default=None
+    jvp_scratch), optional, default=None
         Preconditioner function that approximately solves M z = residual,
         writing the result into z. The solver provides a scratch vector
         (\"jvp_scratch\") which the preconditioner may use and overwrite.
@@ -78,8 +80,9 @@ def linear_solver_factory(
     SD = 1 if correction_type == "steepest_descent" else 0
     MR = 1 if correction_type == "minimal_residual" else 0
     if correction_type not in ("steepest_descent", "minimal_residual"):
-        raise ValueError("Correction type for krylov solver must be ("
-        "steepest_descent') or 'minimal_residual'.")
+        raise ValueError(
+            "Correction type must be 'steepest_descent' or 'minimal_residual'."
+        )
     PC = 1 if preconditioner is not None else 0
 
     @cuda.jit(device=True)
@@ -113,6 +116,11 @@ def linear_solver_factory(
             Working array of size rhs.shape[0]. Holds operator_apply results;
             also passed as the scratch buffer to the preconditioner.
 
+        Returns
+        -------
+        int
+            0 on success; 3 if max linear iterations exceeded.
+
         Notes
         -----
         - Preconditioning, steepest descent vs minimal residual, and operator
@@ -124,8 +132,6 @@ def linear_solver_factory(
 
 
         """
-        n = rhs.shape[0]
-
         # Initial residual: r = rhs - F x
         operator_apply(state, parameters, drivers, h, x, temp)
         tol_squared = tolerance*tolerance
@@ -137,7 +143,7 @@ def linear_solver_factory(
             rhs[i] = r
             acc += r * r
         if acc <= tol_squared:
-            return True
+            return int32(0)
 
         for _ in range(max_iters):
             if PC:
@@ -171,8 +177,8 @@ def linear_solver_factory(
                 ri = rhs[i]
                 acc += ri * ri
             if acc <= tol_squared:
-                return True
+                return int32(0)
 
-        return False
+        return int32(3)
 
     return linear_solver

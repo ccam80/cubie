@@ -5,6 +5,7 @@ from numba import cuda
 from cubie.integrators.matrix_free_solvers.linear_solver import (
     linear_solver_factory,
 )
+from cubie.integrators.matrix_free_solvers import SolverRetCodes
 
 
 @pytest.fixture(scope="function")
@@ -53,6 +54,7 @@ def solver_device(request, placeholder_operator):
 
     return linear_solver_factory(
         placeholder_operator,
+        3,
         correction_type=request.param,
         tolerance=1e-12,
         max_iters=32,
@@ -82,7 +84,7 @@ def test_linear_solver_placeholder(solver_device, solver_kernel, precision):
     temp = cuda.device_array(3, precision)
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp, flag)
-    assert flag.copy_to_host()[0] == 1
+    assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
     assert np.allclose(x_dev.copy_to_host(), expected, atol=1e-5)
 
 
@@ -106,6 +108,7 @@ def test_linear_solver_symbolic(
     )
     solver = linear_solver_factory(
         operator,
+        n,
         preconditioner=precond,
         correction_type=correction_type,
         tolerance=1e-8,
@@ -120,5 +123,36 @@ def test_linear_solver_symbolic(
     temp = cuda.device_array(n, precision)
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp, flag)
-    assert flag.copy_to_host()[0] == 1
+    assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
     assert np.allclose(x_dev.copy_to_host(), expected, atol=1e-4)
+
+
+def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
+    """Linear solver returns MAX_LINEAR_ITERATIONS_EXCEEDED when operator is zero."""
+
+    @cuda.jit(device=True)
+    def zero_operator(state, parameters, drivers, h, vec, out):
+        # F z = 0 for all z -> no progress in line search
+        for i in range(out.shape[0]):
+            out[i] = precision(0.0)
+
+    n = 3
+    solver = linear_solver_factory(
+        zero_operator,
+        n,
+        correction_type="minimal_residual",
+        tolerance=1e-20,
+        max_iters=16,
+    )
+
+    h = precision(0.01)
+    kernel = solver_kernel(solver, n, h)
+    state = cuda.to_device(np.zeros(n, dtype=precision))
+    rhs_dev = cuda.to_device(np.ones(n, dtype=precision))
+    x_dev = cuda.to_device(np.zeros(n, dtype=precision))
+    residual = cuda.device_array(n, precision)
+    z_vec = cuda.device_array(n, precision)
+    temp = cuda.device_array(n, precision)
+    flag = cuda.to_device(np.array([0], dtype=np.int32))
+    kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp, flag)
+    assert flag.copy_to_host()[0] == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
