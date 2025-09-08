@@ -412,17 +412,38 @@ class BaseODE(CUDAFactory):
     def neumann_preconditioner_function(self):
         """Return the compiled Neumann preconditioner device function."""
         return self.get_solver_helper("neumann")
-    def get_solver_helper(self, func_name: str):
+
+    def get_solver_helper(self,
+                          func_name: str,
+                          beta: float = 1.0,
+                          gamma: float=1.0,
+                          mass: float=1.0,
+                          preconditioner_order: int=0):
         """Retrieve a cached solver helper function.
 
         Parameters
         ----------
         func_name : str
             Identifier for the helper function.
+        beta : float, optional
+            Shift parameter for the linear operator. Defaults to 1.0
+        gamma : float, optional
+            Weight of the Jacobian term in the linear operator. Defaults
+            to 1.0
+        preconditioner_order : int, optional
+            Polynomial order of the preconditioner. Defaults to 1. Unused in
+            generating the linear operator
+        mass : np.ndarray or sp.Matrix, optional
+            Mass matrix for the linear operator. Defaults to Identity
 
         Returns
         -------
         Callable
             The cached device function corresponding to ``func_name``.
+
+        Notes
+        -----
+        Returns 'NotImplementedError' if the ODESystem is not symbolic for any
+        functions that require codegen.
         """
         return self.get_cached_output(func_name)

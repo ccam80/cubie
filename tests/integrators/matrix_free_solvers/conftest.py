@@ -79,7 +79,7 @@ def system_setup(request, precision):
     )
     code = generate_residual_end_state_code(sym_system.equations, sym_system.indices)
     res_factory = sym_system.gen_file.import_function(
-        "residual_end_state_factory", code
+        "end_residual", code
     )
     residual_func = res_factory(
         sym_system.constants.values_dict,
@@ -214,5 +214,7 @@ def solver_kernel(precision):
             flag[0] = solver(
                 state, parameters, drivers, h, rhs, x, z_vec, temp
             )
+
+        return kernel
 
     return factory

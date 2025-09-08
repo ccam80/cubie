@@ -85,7 +85,7 @@ def newton_krylov_solver_factory(
         preconditioned_vec: device array
             Workspace for preconditioned vector in linear solver.
         work_vec: device array
-            Workspace for residual evaluation.
+            Additional workspace for linear solver.
 
         Returns
         -------
@@ -97,13 +97,10 @@ def newton_krylov_solver_factory(
         - The linear solver is expected to solve J*delta = rhs where rhs
           is provided in-place in the residual array, and delta is used
           as an initial guess and returns the solution in-place.
-        - The residual function is expected to compute F(state) in-place
-            in the residual array.
-        - The state is updated in-place and reverted if no acceptable
+        - The state is updated in-place and reverted if no acceptable step found.
         """
         # Build initial rhs = -F(state) and norm in one pass
-        residual_function(state, parameters, drivers, h, a_ij, base_state,
-                          work_vec, residual)
+        residual_function(state, parameters, drivers, h, a_ij, base_state, residual)
         norm2_prev = 0.0
         for i in range(n):
             ri = residual[i]
@@ -141,8 +138,7 @@ def newton_krylov_solver_factory(
                 # Residual function calculates guess - F(guess) - for example,
                 # in a single backward Euler step, this is guess - step
                 # start state - h*f(guess);
-                residual_function(state, parameters, drivers, h, a_ij,
-                                  base_state, work_vec, residual)
+                residual_function(state, parameters, drivers, h, a_ij, base_state, residual)
                 norm2_new = 0.0
                 for i in range(n):
                     ri = residual[i]

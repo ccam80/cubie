@@ -16,7 +16,7 @@ def placeholder_system(precision):
     """Provide residual and operator for a scalar ODE step."""
 
     @cuda.jit(device=True)
-    def residual(state, parameters, drivers, h, a_ij, base_state, work, out):
+    def residual(state, parameters, drivers, h, a_ij, base_state, out):
         out[0] = state[0] - base_state[0] - h * state[0]
 
     @cuda.jit(device=True)
@@ -136,7 +136,7 @@ def test_newton_krylov_failure(precision):
     """Solver returns NO_SUITABLE_STEP_FOUND when residual cannot be reduced."""
 
     @cuda.jit(device=True)
-    def residual(state, parameters, drivers, h, a_ij, base_state, work, out):
+    def residual(state, parameters, drivers, h, a_ij, base_state, out):
         out[0] = precision(1.0)
 
     @cuda.jit(device=True)
@@ -211,7 +211,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     """Newton-Krylov returns MAX_LINEAR_ITERATIONS_EXCEEDED when inner solver fails."""
 
     @cuda.jit(device=True)
-    def residual(state, parameters, drivers, h, a_ij, base_state, work, out):
+    def residual(state, parameters, drivers, h, a_ij, base_state, out):
         # Simple residual: nonzero so that a linear solve is attempted
         out[0] = precision(1.0)
 

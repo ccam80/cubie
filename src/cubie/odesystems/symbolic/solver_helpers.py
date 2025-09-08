@@ -363,7 +363,7 @@ def _build_residual_lines(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
             else:
                 # End-state mode: M @ (u - base)
                 mv += entry * (u[j] - base[j])
-
+        
         # Get the dx symbol for this output
         dx_sym = sp.Symbol(f"dx_{i}")
         residual_expr = beta_sym * mv - gamma_sym * h_sym * dx_sym
