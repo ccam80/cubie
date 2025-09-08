@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.0](https://github.com/ccam80/cubie/compare/v0.0.3...v0.1.0) (2025-09-08)
+
+
+### Features
+
+* matrix free solvers added ([1dffd94](https://github.com/ccam80/cubie/commit/1dffd94ae965a72c3f42ea2be09761cedcd10582))
+
+
+### Bug Fixes
+
+* Array "chunking" logic now respects "unchunkable" arrays in allocation ([53141df](https://github.com/ccam80/cubie/commit/53141dfa72a7568813f85c86ef5d9b6f682db856))
+* pypi version tag trigger now using correct syntax ([3b3caa1](https://github.com/ccam80/cubie/commit/3b3caa1d1e434edc61dc86174d211ac83444383f))
+
 ## [0.0.3](https://github.com/ccam80/cubie/compare/v0.0.2...v0.0.3) (2025-09-04)
 
 
