@@ -364,7 +364,7 @@ class Solver:
         )
         all_unrecognized -= self.kernel.update(updates_dict, silent=True)
 
-        if "profileCUDA" in updates_dict:
+        if "profileCUDA" in updates_dict: # pragma: no cover
             if updates_dict["profileCUDA"]:
                 self.enable_profiling()
             else:

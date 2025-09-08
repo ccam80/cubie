@@ -377,7 +377,7 @@ class BatchSolverKernel(CUDAFactory):
         if (
             os.environ.get("NUMBA_ENABLE_CUDASIM") != "1"
             and self.compile_settings.profileCUDA
-        ):
+        ): # pragma: no cover
             cuda.profile_start()
 
         for i in range(chunks):
@@ -410,7 +410,7 @@ class BatchSolverKernel(CUDAFactory):
         if (
             os.environ.get("NUMBA_ENABLE_CUDASIM") != "1"
             and self.compile_settings.profileCUDA
-        ):
+        ): # pragma: no cover
             cuda.profile_stop()
 
     @property

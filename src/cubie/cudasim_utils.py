@@ -4,7 +4,7 @@ This module provides lightweight stand-ins for CUDA memory managers and
 streams so that code depending on Numba's CUDA API can run on systems
 without a CUDA driver.
 """
-
+# no cover: start
 from contextlib import contextmanager
 from ctypes import c_void_p
 import os
@@ -101,3 +101,5 @@ def from_dtype(dtype: np.dtype):
         return numba.from_dtype(dtype)
     else:
         return dtype
+
+# no cover: end

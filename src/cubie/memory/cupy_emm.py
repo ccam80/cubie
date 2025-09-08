@@ -14,6 +14,7 @@ from os import environ
 from numba import cuda
 import ctypes
 
+# no cover: start
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     from cubie.cudasim_utils import FakeGetIpcHandleMixin as GetIpcHandleMixin
     from cubie.cudasim_utils import (
@@ -21,6 +22,7 @@ if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
     )
     from cubie.cudasim_utils import FakeMemoryPointer as MemoryPointer
     from cubie.cudasim_utils import FakeMemoryInfo as MemoryInfo
+# no cover: end
 else:
     from numba.cuda import (
         GetIpcHandleMixin,
@@ -28,10 +30,6 @@ else:
         MemoryPointer,
         MemoryInfo,
     )
-try:
-    import cupy as cp
-except ImportError:
-    cp = None
 
 
 logger = logging.getLogger(__name__)
@@ -94,7 +92,7 @@ class current_cupy_stream:
     def __init__(self, nb_stream):
         try:
             import cupy as cp
-        except ImportError:
+        except ImportError: # pragma: no cover
             raise ImportError(
                 "To use Cupy memory managers, you must install cupy: pip "
                 "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
@@ -116,6 +114,13 @@ class current_cupy_stream:
         self
             Returns self for use in with statement.
         """
+        try:
+            import cupy as cp
+        except ImportError: # pragma: no cover
+            raise ImportError(
+                "To use Cupy memory managers, you must install cupy: pip "
+                "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
+            )
         if self._mgr_is_cupy:
             ptr = _numba_stream_ptr(self.nb_stream)
             if ptr:
@@ -204,6 +209,13 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
         MemoryPointer
             Numba memory pointer wrapping the CuPy allocation.
         """
+        try:
+            import cupy as cp
+        except ImportError: # pragma: no cover
+            raise ImportError(
+                "To use Cupy memory managers, you must install cupy: pip "
+                "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
+            )
         # Allocate from the CuPy pool and wrap the result in a MemoryPointer as
         # required by Numba.
         cp_mp = self._mp.malloc(nbytes)
@@ -233,6 +245,13 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
         callable
             Finalizer function that removes the allocation reference.
         """
+        try:
+            import cupy as cp
+        except ImportError: # pragma: no cover
+            raise ImportError(
+                "To use Cupy memory managers, you must install cupy: pip "
+                "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
+            )
         allocations = self._allocations
         ptr = cp_mp.ptr
 
@@ -336,6 +355,13 @@ class CuPyAsyncNumbaManager(CuPyNumbaManager):
 
     def initialize(self):
         """Initialize the async memory pool."""
+        try:
+            import cupy as cp
+        except ImportError: # pragma: no cover
+            raise ImportError(
+                "To use Cupy memory managers, you must install cupy: pip "
+                "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
+            )
         super().initialize()
         self._mp = cp.cuda.MemoryAsyncPool()
 
@@ -378,6 +404,13 @@ class CuPySyncNumbaManager(CuPyNumbaManager):
 
     def initialize(self):
         """Initialize the sync memory pool."""
+        try:
+            import cupy as cp
+        except ImportError: # pragma: no cover
+            raise ImportError(
+                "To use Cupy memory managers, you must install cupy: pip "
+                "install cupy-cuda12x (assuming CUDA toolkit 12.x installed)]"
+            )
         super().initialize()
         # Get the default memory pool for this context.
         self._mp = cp.get_default_memory_pool()
