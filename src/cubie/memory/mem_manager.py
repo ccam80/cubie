@@ -1049,10 +1049,8 @@ class MemoryManager:
         NotImplementedError
             If memory_type is "managed" (not yet supported).
         """
-        cupy_ = self._allocator == CuPyAsyncNumbaManager
-        with (
-            current_cupy_stream(stream) if cupy_ else contextlib.nullcontext()
-        ):
+        cp_ = self._allocator == CuPyAsyncNumbaManager
+        with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
             if memory_type == "device":
                 return cuda.device_array(shape, dtype, strides=strides)
             elif memory_type == "mapped":
@@ -1115,12 +1113,15 @@ class MemoryManager:
         -----
         The axis must match a label in the stride ordering. Chunking is
         done conservatively with ceiling division to ensure no data is lost.
+
+        Unchunkable requests (request.unchunkable == True) are left at full size.
         """
         chunked_requests = deepcopy(requests)
         for key, request in chunked_requests.items():
-            # Divide all "numruns" indices by chunks - numchunks is already
-            # conservative (ceiling) rounded, so we take the ceiling of this
-            # division to ensure we don't end up with one chunk too many.
+            # Skip chunking for explicitly unchunkable requests
+            if getattr(request, "unchunkable", False):
+                continue
+            # Divide all indices along selected axis by chunks
             run_index = request.stride_order.index(axis)
             newshape = tuple(
                 int(np.ceil(value / numchunks)) if i == run_index else value
@@ -1219,6 +1220,7 @@ class MemoryManager:
                     chunk_axis=chunk_axis,
                 )
         else:
+            numchunks = 1  # safe default
             if limit_type == "group":
                 available_memory = self.get_available_group(stream_group)
                 request_size = sum(
@@ -1273,12 +1275,8 @@ class MemoryManager:
             Destination device arrays to copy to.
         """
         stream = self.get_stream(instance)
-        is_cupy = self._allocator == CuPyAsyncNumbaManager
-        with (
-            current_cupy_stream(stream)
-            if is_cupy
-            else contextlib.nullcontext()
-        ):
+        cp_ = self._allocator == CuPyAsyncNumbaManager
+        with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
             for i, from_array in enumerate(from_arrays):
                 cuda.to_device(from_array, stream=stream, to=to_arrays[i])
 
@@ -1298,12 +1296,8 @@ class MemoryManager:
             Destination arrays to copy to.
         """
         stream = self.get_stream(instance)
-        is_cupy = self._allocator == CuPyAsyncNumbaManager
-        with (
-            current_cupy_stream(stream)
-            if is_cupy
-            else contextlib.nullcontext()
-        ):
+        cp_ = self._allocator == CuPyAsyncNumbaManager
+        with current_cupy_stream(stream) if cp_ else contextlib.nullcontext():
             for i, from_array in enumerate(from_arrays):
                 from_array.copy_to_host(to_arrays[i], stream=stream)
 

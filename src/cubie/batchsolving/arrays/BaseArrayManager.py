@@ -15,7 +15,7 @@ import attrs
 import attrs.validators as val
 import numpy as np
 from numba.core.types import NoneType
-from numpy import float32, ceil
+from numpy import float32
 from numpy.typing import NDArray
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import MemoryManager
@@ -512,8 +512,12 @@ class BaseArrayManager(ABC):
                         if axis in size_map
                     ]
 
-                # Chunk if needed and arrays are device arrays
-                if location == "device" and self._chunks > 0:
+                # Chunk if needed and arrays are device arrays, unless unchunkable
+                if (
+                    location == "device"
+                    and self._chunks > 0
+                    and array_name not in container._unchunkable
+                ):
                     if chunk_axis_name in container._stride_order:
                         chunk_axis_index = container._stride_order.index(
                             chunk_axis_name
@@ -668,20 +672,27 @@ class BaseArrayManager(ABC):
             )
 
     def allocate(self):
-        """Queue allocation requests for arrays that need reallocation."""
+        """Queue allocation requests for arrays that need reallocation.
+
+        Builds ArrayRequest objects for all arrays marked for reallocation.
+        Passes an 'unchunkable' hint for arrays listed in the host container's
+        _unchunkable tuple so the memory manager can avoid chunking them.
+        """
         requests = {}
-
-        for array_label in set(self._needs_reallocation):
+        for array_label in list(set(self._needs_reallocation)):
             host_array = getattr(self.host, array_label, None)
-            if host_array is not None:
-                request = ArrayRequest(
-                    shape=host_array.shape,
-                    dtype=self._precision,
-                    memory=self.device.memory_type,
-                    stride_order=self.device.stride_order,
-                )
-                requests[array_label] = request
-
+            if host_array is None:
+                continue
+            request = ArrayRequest(
+                shape=host_array.shape,
+                dtype=self._precision,
+                memory=self.device.memory_type,
+                stride_order=self.device.stride_order,
+                unchunkable=(
+                    array_label in getattr(self.host, "_unchunkable", tuple())
+                ),
+            )
+            requests[array_label] = request
         if requests:
             self.request_allocation(requests)
 

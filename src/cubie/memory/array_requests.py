@@ -36,6 +36,8 @@ class ArrayRequest:
     stride_order : tuple of str or None, default None
         The order of strides for the array dimensions. If None, will be set
         automatically based on shape length.
+    unchunkable : bool, default False
+        If True, this array must not be chunked by the memory manager.
 
     Attributes
     ----------
@@ -47,6 +49,8 @@ class ArrayRequest:
         Memory location type.
     stride_order : tuple of str or None
         The order of strides for the array dimensions.
+    unchunkable : bool
+        Whether this array should be excluded from chunking.
 
     Properties
     ----------
@@ -78,6 +82,7 @@ class ArrayRequest:
     stride_order: Optional[tuple[str, ...]] = attrs.field(
         default=None, validator=val.optional(val.instance_of(tuple))
     )
+    unchunkable: bool = attrs.field(default=False, validator=val.instance_of(bool))
 
     def __attrs_post_init__(self):
         """Set cubie-native stride order if not set already."""
