@@ -10,7 +10,7 @@ and provides the interface that specific algorithms must implement.
 from numba import cuda, int32, from_dtype
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie.integrators.algorithms.IntegratorLoopSettings import (
+from cubie.integrators.loops.IntegratorLoopSettings import (
     IntegratorLoopSettings,
 )
 from cubie._utils import in_attr

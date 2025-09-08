@@ -2,20 +2,25 @@
 Base class for integration algorithm Loops.
 
 This module provides the BaseIntegratorLoop class, which serves as
-the base class for all ODE integration loops. The loop device function
-handles memory division/initialisation, time-stepping logic, and output. A
-Loop device function calls an algorithm's "step" function repeatedly."""
+the base class for all ODE integration loops. This class provides default
+update behaviour and properties for a unified interface and inherits build
+and cache logic from CUDAFactory.
+
+Integration loops handle the "outer" logic of an ODE integration, organising
+steps and saving output, and call an algorithm-specific step function to do the
+mathy end of the integration.
+"""
 
 from numba import cuda, int32, from_dtype
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie.integrators.algorithms.IntegratorLoopSettings import (
+from cubie.integrators.loops.IntegratorLoopSettings import (
     IntegratorLoopSettings,
 )
 from cubie._utils import in_attr
 
 
-class GenericIntegratorAlgorithm(CUDAFactory):
+class BaseIntegratorLoop(CUDAFactory):
     """
     Base class for the stepping loop for ODE solving algorithms.
 

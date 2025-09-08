@@ -100,6 +100,7 @@ def newton_krylov_solver_factory(
         - The state is updated in-place and reverted if no acceptable step found.
         """
         # Build initial rhs = -F(state) and norm in one pass
+        #TODO: consider adaptive tol for linsolve: min(0.1, sqrt(||F||) * ||F||
         residual_function(state, parameters, drivers, h, a_ij, base_state, residual)
         norm2_prev = 0.0
         for i in range(n):
