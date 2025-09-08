@@ -5,7 +5,7 @@ import pytest
 import sympy as sp
 
 from cubie.odesystems.symbolic import print_cuda_multiple
-from cubie.odesystems.symbolic.operator_apply import generate_operator_apply_code
+from cubie.odesystems.symbolic.solver_helpers import generate_operator_apply_code
 
 from cubie.odesystems.symbolic.indexedbasemaps import (
     IndexedBases,

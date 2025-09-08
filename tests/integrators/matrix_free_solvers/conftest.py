@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from numba import cuda, from_dtype
 
-from cubie.odesystems.symbolic.operator_apply import (
+from cubie.odesystems.symbolic.solver_helpers import (
     generate_residual_end_state_code,
     generate_neumann_preconditioner_code,
 )
@@ -70,21 +70,20 @@ def system_setup(request, precision):
     sym_system = create_ODE_system(dxdt, states=[f"x{i}" for i in range(3)])
     sym_system.build()
     dxdt_func = sym_system.dxdt_function
-    operator = sym_system.get_solver_helper("operator")
+    operator = sym_system.get_solver_helper("linear_operator")
     neumann_code = generate_neumann_preconditioner_code(
         sym_system.equations, sym_system.indices
     )
     neumann_factory = sym_system.gen_file.import_function(
         "neumann_preconditioner_factory", neumann_code
     )
-    code = generate_residual_end_state_code(sym_system.indices)
+    code = generate_residual_end_state_code(sym_system.equations, sym_system.indices)
     res_factory = sym_system.gen_file.import_function(
         "residual_end_state_factory", code
     )
     residual_func = res_factory(
         sym_system.constants.values_dict,
         from_dtype(sym_system.precision),
-        dxdt_func,
     )
 
     # start system from a non-equilibrium position, generate initial guesses
@@ -215,7 +214,5 @@ def solver_kernel(precision):
             flag[0] = solver(
                 state, parameters, drivers, h, rhs, x, z_vec, temp
             )
-
-        return kernel
 
     return factory

@@ -8,9 +8,11 @@ import sympy as sp
 from numba import from_dtype
 from cubie.odesystems.symbolic.dxdt import generate_dxdt_fac_code
 from cubie.odesystems.symbolic.odefile import ODEFile
-from cubie.odesystems.symbolic.operator_apply import (
+from cubie.odesystems.symbolic.solver_helpers import (
     generate_neumann_preconditioner_code,
     generate_operator_apply_code,
+    generate_residual_end_state_code,
+    generate_stage_residual_code,
 )
 from cubie.odesystems.symbolic.parser import IndexedBases, parse_input
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
@@ -176,14 +178,38 @@ class SymbolicODE(BaseODE):
                                  silent=silent)
         return recognized
 
-    def get_solver_helper(self, func_name: str):
+    def get_solver_helper(self,
+                          func_type: str,
+                          beta: float = 1.0,
+                          gamma: float = 1.0,
+                          preconditioner_order: int = 1,
+                          mass: Optional[Union[np.ndarray, sp.Matrix]] = None):
         """Return a generated solver helper device function.
+
+        Solvers use a linear operator, preconditioner, and residual function.
+        The operator which they apply is parameterised to be general to a
+        variety of numerical integration algorithms. The operator is of the
+        form (beta*M + a_ij*h*gamma*J)(v). M, beta and gamma are
+        configurable in the factory; a_ij and h are set at runtime.
+        Preconditioners and residual functions use a subset of these
+        parameters.
 
         Parameters
         ----------
-        func_name : str
+        func_type : str
             Identifier for the requested helper. Accepted keys are
-            ``"operator"`` and ``"neumann"``.
+            ``"linear_operator"``, ``"neumann_preconditioner"``,
+            ``"end_residual"``, and ``"stage_residual"``.
+        beta : float, optional
+            Shift parameter for the linear operator. Defaults to 1.0
+        gamma : float, optional
+            Weight of the Jacobian term in the linear operator. Defaults
+            to 1.0
+        preconditioner_order : int, optional
+            Polynomial order of the preconditioner. Defaults to 1. Unused in
+            generating the linear operator
+        mass : np.ndarray or sp.Matrix, optional
+            Mass matrix for the linear operator. Defaults to Identity
 
         Returns
         -------
@@ -195,49 +221,53 @@ class SymbolicODE(BaseODE):
         KeyError
             If ``func_name`` is not recognised.
         """
-        name_map = {
-            "operator": "linear_operator",
-            "neumann": "neumann_preconditioner",
-        }
-        if func_name not in name_map:
-            raise KeyError(
-                f"Solver helper '{func_name}' is not available."
-            )
-        attr_name = name_map[func_name]
         try:
-            return self.get_cached_output(attr_name)
+            return self.get_cached_output(func_type)
         except NotImplementedError:
             pass
 
         numba_precision = from_dtype(self.precision)
         constants = self.constants.values_dict
 
-        if attr_name == "linear_operator":
-            n = len(self.indices.states.index_map)
+        if func_type == "linear_operator":
             code = generate_operator_apply_code(
                 self.equations,
                 self.indices,
-                M=sp.eye(n),
-                func_name="linear_operator_factory",
+                M=mass,
+                func_name=func_type,
             )
-            factory = self.gen_file.import_function(
-                "linear_operator_factory", code
-            )
-            func = factory(constants, numba_precision)
-        elif attr_name == "neumann_preconditioner":
+        elif func_type == "neumann_preconditioner":
             code = generate_neumann_preconditioner_code(
                 self.equations,
                 self.indices,
-                "neumann_preconditioner_factory",
+                func_type,
             )
-            factory = self.gen_file.import_function(
-                "neumann_preconditioner_factory", code
+        elif func_type == "end_residual":
+            code = generate_residual_end_state_code(
+                self.equations,
+                self.indices,
+                M=mass,
+                func_name=func_type,
             )
-            func = factory(constants, numba_precision)
+        elif func_type == "stage_residual":
+            code = generate_stage_residual_code(
+                self.equations,
+                self.indices,
+                M=mass,
+                func_name="stage_residual",
+            )
         else:
-            raise KeyError(
-                f"Solver helper '{func_name}' is not available."
+            raise NotImplementedError(
+                    f"Solver helper '{func_type}' is not implemented."
             )
 
-        setattr(self._cache, attr_name, func)
+        factory = self.gen_file.import_function(func_type, code)
+        func = factory(
+                constants=constants,
+                precision=numba_precision,
+                beta = beta,
+                gamma=gamma,
+                order=preconditioner_order
+        )
+        setattr(self._cache, func_type, func)
         return func

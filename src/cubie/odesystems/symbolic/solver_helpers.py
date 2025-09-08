@@ -8,6 +8,7 @@ device routine to avoid extra passes or buffers.
 from typing import Iterable, Tuple, Dict
 import sympy as sp
 
+from cubie.odesystems.symbolic import cse_and_stack, topological_sort
 from cubie.odesystems.symbolic.parser import IndexedBases
 from cubie.odesystems.symbolic.numba_cuda_printer import print_cuda_multiple
 from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
@@ -15,11 +16,13 @@ from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
 OPERATOR_APPLY_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED LINEAR OPERATOR FACTORY\n"
-    "def {func_name}(constants, precision, beta=1.0, gamma=1.0):\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
     '    """Auto-generated linear operator.\n'
     "    Computes out = beta * (M @ v) - gamma * h * (J @ v)\n"
     "    Returns device function:\n"
     "      operator_apply(state, parameters, drivers, h, v, out)\n"
+    "    argument 'order' is ignored, included for compatibility with \n"
+    "    preconditioner API. \n"
     '    """\n'
     "{const_lines}"
     "    @cuda.jit((precision[:],\n"
@@ -147,7 +150,7 @@ NEUMANN_TEMPLATE = (
     "# AUTO-GENERATED NEUMANN PRECONDITIONER FACTORY\n"
     "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
     '    """Auto-generated Neumann preconditioner.\n'
-    "    Approximates (beta*M - gamma*h*J)^[-1] via a truncated\n"
+    "    Approximates (beta*I - gamma*h*J)^[-1] via a truncated\n"
     "    Neumann series. Returns device function:\n"
     "      preconditioner(state, parameters, drivers, h, v, out, jvp)\n"
     "    where `jvp` is a caller-provided scratch buffer for J*v.\n"
@@ -244,10 +247,18 @@ def generate_neumann_preconditioner_code(
 RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision, dxdt,  beta=1.0, gamma=1.0):\n"
-    '    """Auto-generated residual. Mode fixed at codegen time.\n'
-    "    - Stage mode: eval at base_state + a_ij*u; residual uses M@u\n"
-    "    - End-state mode: eval at u; residual uses M@(u - base_state)\n"
+    "def {func_name}(constants, precision,  beta=1.0, gamma=1.0, order=None):\n"
+    '    """Auto-generated residual function for Newton-Krylov ODE integration.\n'
+    "    \n"
+    "    Computes residual = beta * M @ v - gamma * h * (J @ eval_point)\n"
+    "    where eval_point depends on the residual mode:\n"
+    "    - Stage mode: eval_point = base_state + a_ij * u, residual uses M @ u\n"
+    "    - End-state mode: eval_point = u, residual uses M @ (u - base_state)\n"
+    "    \n"
+    "    Uses dx_ numbered symbols for derivatives and aux_ symbols for observables,\n"
+    "    following the same pattern as JVP generation.\n"
+    "    \n"
+    "    Order is ignored, included for compatibility with preconditioner API.\n"
     '    """\n'
     "{const_lines}"
     "    @cuda.jit((precision[:],\n"
@@ -256,26 +267,30 @@ RESIDUAL_TEMPLATE = (
     "               precision,\n"
     "               precision,\n"  
     "               precision[:],\n"
-    "               precision[:],\n"
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def residual(u, parameters, drivers, h, a_ij, base_state, work, out):\n"
-    "{eval_lines}\n"
-    "\n"
-    "        dxdt(work, parameters, drivers, work, out)\n"
-    "\n"
+    "    def residual(u, parameters, drivers, h, a_ij, base_state, out):\n"
     "{res_lines}\n"
     "    return residual\n"
 )
 
 
-def _build_residual_mode_lines(index_map: IndexedBases, M: sp.Matrix, is_stage: bool) -> Tuple[str, str]:
-    """Return eval and residual lines for the chosen residual mode.
+def _build_residual_lines(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+                          index_map: IndexedBases,
+                          M: sp.Matrix,
+                          is_stage: bool,
+                          cse: bool = True) -> str:
+    """Return residual lines for the chosen residual mode.
 
-    - eval_lines: assignments to `work` for dxdt evaluation point
-    - res_lines: final residual updates into `out`
+    Converts dx variables to dx_ numbered symbols and observable symbols to aux_ symbols,
+    similar to JVP generation pattern.
     """
+    if isinstance(equations, dict):
+        eq_list = list(equations.items())
+    else:
+        eq_list = list(equations)
+
     n = len(index_map.states.index_map)
 
     beta_sym = sp.Symbol("beta")
@@ -284,35 +299,58 @@ def _build_residual_mode_lines(index_map: IndexedBases, M: sp.Matrix, is_stage: 
     aij_sym = sp.Symbol("a_ij")
     u = sp.IndexedBase("u", shape=(n,))
     base = sp.IndexedBase("base_state", shape=(n,))
-    work = sp.IndexedBase("work", shape=(n,))
     out = sp.IndexedBase("out", shape=(n,))
 
-    symbol_map = dict(index_map.all_arrayrefs)
-    symbol_map.update(
-        {
-            "beta": beta_sym,
-            "gamma": gamma_sym,
-            "h": h_sym,
-            "a_ij": aij_sym,
-            "u": u,
-            "base_state": base,
-            "work": work,
-            "out": out,
-        }
-    )
+    # Create symbol substitutions like in JVP generation
+    # Convert dx variables to dx_ numbered symbols
+    dx_subs = {}
+    for i, (dx_sym, _) in enumerate(index_map.dxdt.index_map.items()):
+        dx_subs[dx_sym] = sp.Symbol(f"dx_{i}")
 
-    # Eval point
-    eval_exprs = []
-    for i in range(n):
+    # Convert observable symbols to aux_ symbols
+    obs_subs = {}
+    if index_map.observable_symbols:
+        obs_subs = dict(zip(index_map.observable_symbols,
+                           sp.numbered_symbols("aux_", start=1)))
+
+    # Apply substitutions to equations
+    all_subs = {**dx_subs, **obs_subs}
+    substituted_equations = [(lhs.subs(all_subs), rhs.subs(all_subs))
+                            for lhs, rhs in eq_list]
+
+    # Create evaluation point substitutions for state variables
+    state_subs = {}
+    state_symbols = list(index_map.states.index_map.keys())
+    for i, state_sym in enumerate(state_symbols):
         if is_stage:
-            eval_exprs.append((work[i], base[i] + aij_sym * u[i]))
+            # Stage mode: evaluation point is base + a_ij * u
+            eval_point = base[i] + aij_sym * u[i]
         else:
-            eval_exprs.append((work[i], u[i]))
-    eval_lines_list = print_cuda_multiple(eval_exprs, symbol_map=symbol_map) or ["pass"]
-    eval_lines = "\n".join("        " + ln for ln in eval_lines_list)
+            # End-state mode: evaluation point is u
+            eval_point = u[i]
+        state_subs[state_sym] = eval_point
 
-    # Residual
-    res_exprs = []
+    # Apply state substitutions to the RHS of equations
+    eval_equations = []
+    for lhs, rhs in substituted_equations:
+        eval_rhs = rhs.subs(state_subs)
+        eval_equations.append((lhs, eval_rhs))
+
+    symbol_map = dict(index_map.all_arrayrefs)
+    symbol_map.update({
+        "beta": beta_sym,
+        "gamma": gamma_sym,
+        "h": h_sym,
+        "a_ij": aij_sym,
+        "u": u,
+        "base_state": base,
+        "out": out,
+    })
+
+    # Build complete expression list
+    eval_exprs = eval_equations
+
+    # Build residual expressions
     for i in range(n):
         mv = sp.S.Zero
         for j in range(n):
@@ -320,29 +358,74 @@ def _build_residual_mode_lines(index_map: IndexedBases, M: sp.Matrix, is_stage: 
             if entry == 0:
                 continue
             if is_stage:
+                # Stage mode: M @ u
                 mv += entry * u[j]
             else:
+                # End-state mode: M @ (u - base)
                 mv += entry * (u[j] - base[j])
-        res_exprs.append((out[i], beta_sym * mv - gamma_sym * h_sym * out[i]))
-    res_lines_list = print_cuda_multiple(res_exprs, symbol_map=symbol_map) or ["pass"]
-    res_lines = "\n".join("        " + ln for ln in res_lines_list)
 
-    return eval_lines, res_lines
+        # Get the dx symbol for this output
+        dx_sym = sp.Symbol(f"dx_{i}")
+        residual_expr = beta_sym * mv - gamma_sym * h_sym * dx_sym
+        eval_exprs.append((out[i], residual_expr))
 
+    if cse:
+        eval_exprs = cse_and_stack(eval_exprs)
+    else:
+        eval_exprs = topological_sort(eval_exprs)
 
-def generate_residual_end_state_code(
-    index_map: IndexedBases,
-    M=None,
-    func_name: str = "residual_end_state_factory",
-) -> str:
-    """Emit code for the end-state residual factory (compile-time mode)."""
+    lines = print_cuda_multiple(eval_exprs, symbol_map=symbol_map)
+    if not lines:
+        return "        pass"
+    return "\n".join("        " + ln for ln in lines)
+
+def generate_residual_code(
+        equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+        index_map: IndexedBases,
+        M=None,
+        is_stage: bool = True,
+        func_name: str = "residual_factory",
+        cse: bool = True,
+    ) -> str:
+    """Emit code for the residual factory.
+
+    Generates CUDA device code for computing residuals in Newton-Krylov ODE integration.
+    The residual is computed as: beta * M @ v - gamma * h * (J @ eval_point)
+
+    Parameters
+    ----------
+    equations : Iterable[Tuple[sp.Symbol, sp.Expr]]
+        The differential equations defining the system.
+    index_map : IndexedBases
+        Mapping of symbolic arrays to CUDA references.
+    M : array-like, optional
+        Mass matrix. If None, uses identity matrix.
+    is_stage : bool, optional
+        If True, generates stage residual (eval_point = base + a_ij * u).
+        If False, generates end-state residual (eval_point = u).
+    func_name : str, optional
+        Name of the generated factory function.
+    cse : bool, optional
+        Apply common subexpression elimination.
+
+    Returns
+    -------
+    str
+        Generated CUDA device code for the residual factory.
+    """
     if M is None:
         n = len(index_map.states.index_map)
         M_mat = sp.eye(n)
     else:
         M_mat = sp.Matrix(M)
-    eval_lines, res_lines = _build_residual_mode_lines(index_map, M_mat, is_stage=False)
-    
+
+    res_lines = _build_residual_lines(
+        equations=equations,
+        index_map=index_map,
+        M=M_mat,
+        is_stage=is_stage,
+        cse=cse,
+    )
     const_lines = [
         f"    {name} = precision(constants['{name}'])"
         for name in index_map.constants.symbol_map
@@ -350,37 +433,42 @@ def generate_residual_end_state_code(
     const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
 
     return RESIDUAL_TEMPLATE.format(
+            func_name=func_name,
+            const_lines=const_block,
+            res_lines=res_lines,
+    )
+
+def generate_residual_end_state_code(
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    M=None,
+    func_name: str = "end_residual",
+    cse: bool = True,
+) -> str:
+    """Emit code for the end-state residual factory."""
+    return generate_residual_code(
+        equations=equations,
+        index_map=index_map,
+        M=M,
+        is_stage=False,
         func_name=func_name,
-        const_lines=const_block,
-        eval_lines=eval_lines,
-        res_lines=res_lines,
+        cse=cse,
     )
 
 
 def generate_stage_residual_code(
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     index_map: IndexedBases,
     M=None,
-    func_name: str = "stage_residual_factory",
+    func_name: str = "stage_residual",
+    cse: bool = True,
 ) -> str:
-    """Emit code for the stage residual factory (compile-time mode)."""
-    if M is None:
-        n = len(index_map.states.index_map)
-        M_mat = sp.eye(n)
-    else:
-        M_mat = sp.Matrix(M)
-    eval_lines, res_lines = _build_residual_mode_lines(index_map, M_mat, is_stage=True)
-    const_lines = [
-        f"    {name} = precision(constants['{name}'])"
-        for name in index_map.constants.symbol_map
-    ]
-    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
-
-    mode_lines = "    a_ij = precision(a_ij)\n"
-    return RESIDUAL_TEMPLATE.format(
-        func_name=func_name,
-        extra_args="a_ij, ",
-        const_lines=const_block,
-        mode_lines=mode_lines,
-        eval_lines=eval_lines,
-        res_lines=res_lines,
+    """Emit code for the stage residual factory."""
+    return generate_residual_code(
+            equations=equations,
+            index_map=index_map,
+            M=M,
+            is_stage=True,
+            func_name=func_name,
+            cse=cse,
     )
