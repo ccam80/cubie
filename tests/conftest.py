@@ -19,7 +19,7 @@ def codegen_dir():
     """
     import tempfile
     import shutil
-    from cubie.systemmodels.symbolic import odefile
+    from cubie.odesystems.symbolic import odefile
 
     gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
     mp = MonkeyPatch()
@@ -54,7 +54,7 @@ def precision(precision_override):
 
 @pytest.fixture(scope="function")
 def threecm_model(precision):
-    from cubie.systemmodels.systems.threeCM import ThreeChamberModel
+    from cubie.odesystems.systems.threeCM import ThreeChamberModel
 
     threeCM = ThreeChamberModel(precision=precision)
     threeCM.build()
@@ -63,7 +63,7 @@ def threecm_model(precision):
 
 @pytest.fixture(scope="function")
 def decays_123_model(precision):
-    from cubie.systemmodels.systems.decays import Decays
+    from cubie.odesystems.systems.decays import Decays
 
     decays3 = Decays(
         coefficients=[precision(1.0), precision(2.0), precision(3.0)],
@@ -75,7 +75,7 @@ def decays_123_model(precision):
 
 @pytest.fixture(scope="function")
 def decays_1_100_model(precision):
-    from cubie.systemmodels.systems.decays import Decays
+    from cubie.odesystems.systems.decays import Decays
 
     decays100 = Decays(
         coefficients=np.arange(1, 101, dtype=precision), precision=precision

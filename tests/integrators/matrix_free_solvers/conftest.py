@@ -2,11 +2,11 @@ import numpy as np
 import pytest
 from numba import cuda, from_dtype
 
-from cubie.systemmodels.symbolic.operator_apply import (
+from cubie.odesystems.symbolic.operator_apply import (
     generate_residual_end_state_code,
     generate_neumann_preconditioner_code,
 )
-from cubie.systemmodels.symbolic.symbolicODE import create_ODE_system
+from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
 
 @pytest.fixture(scope="function")

@@ -7,6 +7,6 @@ API reference
 
    cubie.integrators
    cubie.batchsolving
-   cubie.systemmodels
+   cubie.odesystems
    cubie.outputhandling
    cubie.memory

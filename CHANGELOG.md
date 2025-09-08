@@ -36,7 +36,7 @@
 * output_functions section docstrings brought into numpy format ([4e7b2c0](https://github.com/ccam80/cubie/commit/4e7b2c06d1ec8b0ee873d97e0e30e0f4b42a849c))
 * pypi version badge added ([8b22790](https://github.com/ccam80/cubie/commit/8b22790c912b50f0681b7fb6d7eda925e87be64b))
 * readme now has code coverage badge ([8e6e8cf](https://github.com/ccam80/cubie/commit/8e6e8cf415b86017137cd00421e14de58168e019))
-* systemmodels section docstrings brought into numpy format ([9df6978](https://github.com/ccam80/cubie/commit/9df69786697ccf35f29f528a828a057a67d302ab))
+* odesystems section docstrings brought into numpy format ([9df6978](https://github.com/ccam80/cubie/commit/9df69786697ccf35f29f528a828a057a67d302ab))
 
 
 ### Miscellaneous Chores

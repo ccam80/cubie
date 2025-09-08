@@ -20,8 +20,8 @@ from typing import Dict, List, Optional, Union
 
 import numpy as np
 
-from cubie.systemmodels.systems.baseODE import BaseODE
-from cubie.systemmodels.SystemValues import SystemValues
+from cubie.odesystems.baseODE import BaseODE
+from cubie.odesystems.SystemValues import SystemValues
 
 
 class SystemInterface:

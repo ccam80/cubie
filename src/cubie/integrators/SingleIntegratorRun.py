@@ -11,14 +11,13 @@ are properly communicated.
 from typing import Optional
 
 from numpy.typing import ArrayLike
-from numpy import float64
 
 from cubie._utils import in_attr
 from cubie.integrators.algorithms import ImplementedAlgorithms
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.outputhandling.output_sizes import LoopBufferSizes
-from cubie.systemmodels.systems.ODEData import SystemSizes
+from cubie.odesystems.ODEData import SystemSizes
 
 
 class SingleIntegratorRun:

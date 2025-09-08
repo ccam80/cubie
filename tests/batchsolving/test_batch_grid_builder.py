@@ -5,7 +5,7 @@ from numpy.testing import assert_array_equal
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving import BatchGridBuilder as BGB
 import itertools
-from cubie.systemmodels.systems.decays import Decays
+from cubie.odesystems.systems.decays import Decays
 
 
 @pytest.fixture(scope="function")

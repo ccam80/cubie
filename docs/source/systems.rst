@@ -3,7 +3,7 @@ Creating a "System" of Differential Equations
 
 The first step in solving a system of differential equations is to create a
 system of differential equations. Cubie understands ODEs in the form of a
-:class:`GenericODE<cubie.systemmodels.systems.BaseODE>` object, which
+:class:`GenericODE<cubie.odesystems.systems.BaseODE>` object, which
 holds the \(\frac{dx}{dt}\) equations and descriptions and default
 values for all of the variables that those equations depend on.
 

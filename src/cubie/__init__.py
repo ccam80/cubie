@@ -8,8 +8,8 @@ from cubie.batchsolving import *        # noqa
 from cubie.integrators import *         # noqa
 from cubie.outputhandling import *      # noqa
 from cubie.memory import *              # noqa
-import cubie.systemmodels as systems    # noqa
-from cubie.systemmodels import *        # noqa
+import cubie.odesystems as systems    # noqa
+from cubie.odesystems import *        # noqa
 from cubie._utils import *              # noqa
 
 __all__ = [

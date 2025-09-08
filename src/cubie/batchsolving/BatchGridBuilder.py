@@ -46,7 +46,7 @@ Examples
 --------
 >>> import numpy as np
 >>> from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
->>> from cubie.systemmodels.systems.decays import Decays
+>>> from cubie.odesystems.systems.decays import Decays
 >>> system = Decays(coefficients=[1.0, 2.0])
 >>> grid_builder = BatchGridBuilder.from_system(system)
 >>> params = {"p0": [0.1, 0.2], "p1": [10, 20]}
@@ -163,8 +163,8 @@ import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
 from cubie.batchsolving.SystemInterface import SystemInterface
-from cubie.systemmodels.systems.baseODE import BaseODE
-from cubie.systemmodels.SystemValues import SystemValues
+from cubie.odesystems.baseODE import BaseODE
+from cubie.odesystems.SystemValues import SystemValues
 
 
 def unique_cartesian_product(arrays: List[np.ndarray]):
