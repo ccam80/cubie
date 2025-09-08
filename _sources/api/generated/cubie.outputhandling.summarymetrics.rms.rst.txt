@@ -1,0 +1,12 @@
+cubie.outputhandling.summarymetrics.rms
+=======================================
+
+.. automodule:: cubie.outputhandling.summarymetrics.rms
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      RMS
+   

@@ -1,0 +1,15 @@
+cubie.batchsolving.arrays
+=========================
+
+.. automodule:: cubie.batchsolving.arrays
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   BaseArrayManager
+   BatchInputArrays
+   BatchOutputArrays

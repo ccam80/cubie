@@ -1,0 +1,18 @@
+cubie.batchsolving.solver
+=========================
+
+.. automodule:: cubie.batchsolving.solver
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      solve_ivp
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      Solver
+   

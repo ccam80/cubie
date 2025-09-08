@@ -1,0 +1,695 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.SystemValues &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.SystemValues</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.odesystems.SystemValues</h1><div class="highlight"><pre>
+<span></span><span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Sized</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sympy</span><span class="w"> </span><span class="kn">import</span> <span class="n">Symbol</span>
+
+<div class="viewcode-block" id="SystemValues">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">SystemValues</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A container for numerical values used to specify ODE systems.</span>
+
+<span class="sd">    A container for numerical values such as initial state values, parameters,</span>
+<span class="sd">    and observables (auxiliary variables). This object creates a corresponding</span>
+<span class="sd">    array to feed to CUDA functions for compiling, and a dictionary of indices</span>
+<span class="sd">    to look up that array.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    values_array : np.ndarray</span>
+<span class="sd">        Array containing the numerical values.</span>
+<span class="sd">    indices_dict : dict</span>
+<span class="sd">        Dictionary mapping parameter names to array indices.</span>
+<span class="sd">    keys_by_index : dict</span>
+<span class="sd">        Dictionary mapping array indices to parameter names.</span>
+<span class="sd">    values_dict : dict</span>
+<span class="sd">        Dictionary containing parameter name-value pairs.</span>
+<span class="sd">    precision : np.dtype</span>
+<span class="sd">        Data type for the values array.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    If given a list of strings, it will create a dictionary with those strings</span>
+<span class="sd">    as keys and 0.0 as the default value.</span>
+
+<span class="sd">    You can index into this object like a dictionary or an array, i.e.</span>
+<span class="sd">    values[&#39;key&#39;] or values[index or slice].</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">values_array</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
+    <span class="n">indices_dict</span><span class="p">:</span> <span class="nb">dict</span>
+    <span class="n">keys_by_index</span><span class="p">:</span> <span class="nb">dict</span>
+    <span class="n">values_dict</span><span class="p">:</span> <span class="nb">dict</span>
+    <span class="n">precision</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span>
+
+<div class="viewcode-block" id="SystemValues.__init__">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">values_dict</span><span class="p">,</span>
+        <span class="n">precision</span><span class="p">,</span>
+        <span class="n">defaults</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Initialize the system parameters.</span>
+
+<span class="sd">        Initialize the system parameters with default values, user-specified</span>
+<span class="sd">        values from a dictionary, then any keyword arguments. Sets up an array</span>
+<span class="sd">        of values and a dictionary mapping parameter names to indices.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        values_dict : dict or list of str</span>
+<span class="sd">            Full dictionary of parameter values, or dictionary of a subset</span>
+<span class="sd">            of parameter values for use with a second dictionary of default</span>
+<span class="sd">            values. This argument can also be a list of strings, in which case</span>
+<span class="sd">            it will create a dictionary with those strings as keys.</span>
+<span class="sd">        precision : numpy.dtype</span>
+<span class="sd">            Data type for the values array (e.g., np.float32, np.float64).</span>
+<span class="sd">        defaults : dict, optional</span>
+<span class="sd">            Dictionary of default parameter values, if you&#39;re only updating</span>
+<span class="sd">            a subset.</span>
+<span class="sd">        **kwargs : dict</span>
+<span class="sd">            Additional parameter values that override both defaults and</span>
+<span class="sd">            values_dict.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        If the same value occurs in the dict and keyword args, the kwargs one</span>
+<span class="sd">        will win.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span><span class="n">precision</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">integer</span><span class="p">)</span> <span class="ow">or</span> <span class="n">np</span><span class="o">.</span><span class="n">issubdtype</span><span class="p">(</span>
+            <span class="n">precision</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floating</span>
+        <span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">precision</span> <span class="o">=</span> <span class="n">precision</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;precision must be a numpy dtype, you provided a &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">precision</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">values_array</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indices_dict</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">keys_by_index</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">values_dict</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="n">values_dict</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">values_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">defaults</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">defaults</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">values_dict</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="n">values_dict</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="mf">0.0</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">values_dict</span><span class="p">}</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">defaults</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="n">defaults</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="mf">0.0</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">defaults</span><span class="p">}</span>
+
+        <span class="n">defaults</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_convert_symbol_keys</span><span class="p">(</span><span class="n">defaults</span><span class="p">)</span>
+        <span class="n">values_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_convert_symbol_keys</span><span class="p">(</span><span class="n">values_dict</span><span class="p">)</span>
+
+        <span class="c1"># Set default values, then overwrite with values provided in values</span>
+        <span class="c1"># dict, then any single-parameter keyword arguments.</span>
+        <span class="n">combined_updates</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">defaults</span><span class="p">,</span> <span class="o">**</span><span class="n">values_dict</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">}</span>
+
+        <span class="c1"># Note: If the same value occurs in the dict and</span>
+        <span class="c1"># keyword args, the kwargs one will win.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">values_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">combined_updates</span><span class="p">)</span>
+
+        <span class="c1"># Initialize values_array and indices_dict</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">update_param_array_and_indices</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values_array</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span></div>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="s2">&quot;System Values&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span>
+        <span class="k">if</span> <span class="nb">all</span><span class="p">(</span><span class="n">val</span> <span class="o">==</span> <span class="mf">0.0</span> <span class="k">for</span> <span class="n">val</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">values_dict</span><span class="o">.</span><span class="n">values</span><span class="p">()):</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: variables (</span><span class="si">{</span><span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span><span class="si">}</span><span class="s2">)&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">: (</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">values_dict</span><span class="si">}</span><span class="s2">)&quot;</span>
+
+<div class="viewcode-block" id="SystemValues._convert_symbol_keys">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues._convert_symbol_keys">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_convert_symbol_keys</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_dict</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert symbol keys to strings for an input dictionary&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_dict</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">input_dict</span>
+        <span class="n">converted</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">input_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">Symbol</span><span class="p">):</span>
+                <span class="n">converted</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">key</span><span class="p">)]</span> <span class="o">=</span> <span class="n">value</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="n">converted</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="k">return</span> <span class="n">converted</span></div>
+
+
+<div class="viewcode-block" id="SystemValues.update_param_array_and_indices">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues.update_param_array_and_indices">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_param_array_and_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Extract values and create array and indices mapping.</span>
+
+<span class="sd">        Extract all values in self.values_dict and save to a numpy array with</span>
+<span class="sd">        the specified precision. Also create a dict keyed by the values_dict</span>
+<span class="sd">        key whose value is the index of the parameter in the created array.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        The indices_dict dict will always be in the same order as the</span>
+<span class="sd">        values_array, as long as the keys are extracted in the same order</span>
+<span class="sd">        (insertion order is preserved in Python 3.7+).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">keys</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">values_array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+            <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">values_dict</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">keys</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indices_dict</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">keys</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">keys_by_index</span> <span class="o">=</span> <span class="p">{</span><span class="n">i</span><span class="p">:</span> <span class="n">k</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">keys</span><span class="p">)}</span></div>
+
+
+<div class="viewcode-block" id="SystemValues.get_index_of_key">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues.get_index_of_key">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_index_of_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parameter_key</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Retrieve the index of a given key in the values_array.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        parameter_key : str</span>
+<span class="sd">            The parameter key to look up.</span>
+<span class="sd">        silent : bool, optional</span>
+<span class="sd">            If True, suppresses KeyError if key is not found, by default False.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            The index of the parameter in the values_array.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If parameter_key is not found and silent is False.</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If parameter_key is not a string.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">parameter_key</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">parameter_key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">indices_dict</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">indices_dict</span><span class="p">[</span><span class="n">parameter_key</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">silent</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;&#39;</span><span class="si">{</span><span class="n">parameter_key</span><span class="si">}</span><span class="s2">&#39; not found in this SystemValues&quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot; object. Double check that you&#39;re looking in the&quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot; right place (i.e. states, or parameters, or &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;constants)&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;parameter_key must be a string, &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;you submitted a </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">parameter_key</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SystemValues.get_indices">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues.get_indices">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">keys_or_indices</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert parameter identifiers to array indices.</span>
+
+<span class="sd">        Convert from the many possible forms that a user might specify</span>
+<span class="sd">        parameters (str, int, list of either, array of indices) into an array</span>
+<span class="sd">        of indices that can be passed to the CUDA functions.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        keys_or_indices : str, int, slice, list, or numpy.ndarray</span>
+<span class="sd">            Parameter identifiers that can be:</span>
+<span class="sd">            - Single string parameter name</span>
+<span class="sd">            - Single integer index</span>
+<span class="sd">            - Slice object</span>
+<span class="sd">            - List of string parameter names</span>
+<span class="sd">            - List of integer indices</span>
+<span class="sd">            - Numpy array of indices</span>
+<span class="sd">        silent : bool, optional</span>
+<span class="sd">            Flag determining whether to raise KeyError if a key is not found,</span>
+<span class="sd">            by default False.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        numpy.ndarray</span>
+<span class="sd">            Array of parameter indices as np.int16 values.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If a string key is not found and silent is False.</span>
+<span class="sd">        IndexError</span>
+<span class="sd">            If an index is out of bounds.</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If the input type is not supported or mixed types are provided.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">keys_or_indices</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">keys_or_indices</span><span class="p">):</span>
+                <span class="c1"># A list of strings</span>
+                <span class="n">indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+                    <span class="p">[</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">get_index_of_key</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">silent</span><span class="p">)</span>
+                        <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">keys_or_indices</span>
+                    <span class="p">],</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">keys_or_indices</span><span class="p">):</span>
+                <span class="c1"># A list of ints</span>
+                <span class="n">indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">keys_or_indices</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># List contains mixed types or unsupported types</span>
+                <span class="n">non_str_int_types</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="nb">type</span><span class="p">(</span><span class="n">item</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">keys_or_indices</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">item</span><span class="p">,</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">))</span>
+                <span class="p">]</span>
+                <span class="k">if</span> <span class="n">non_str_int_types</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;When specifying a variable to save or modify, &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;you can provide strings that match the labels,&quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot; or integers that match the indices - you &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;provided a list containing&quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot; </span><span class="si">{</span><span class="n">non_str_int_types</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                        <span class="s2">&quot;When specifying a variable to save or modify, &quot;</span>
+                        <span class="s2">&quot;you can provide a list of strings or a list of &quot;</span>
+                        <span class="s2">&quot;integers, but not a mixed list of both&quot;</span>
+                    <span class="p">)</span>
+
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">keys_or_indices</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="c1"># A single string</span>
+            <span class="n">indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+                <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">get_index_of_key</span><span class="p">(</span><span class="n">keys_or_indices</span><span class="p">)],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">keys_or_indices</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+            <span class="c1"># A single int</span>
+            <span class="n">indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">([</span><span class="n">keys_or_indices</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">keys_or_indices</span><span class="p">,</span> <span class="nb">slice</span><span class="p">):</span>
+            <span class="c1"># A slice object</span>
+            <span class="n">indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values_array</span><span class="p">))[</span>
+                <span class="n">keys_or_indices</span>
+            <span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">keys_or_indices</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+            <span class="n">indices</span> <span class="o">=</span> <span class="n">keys_or_indices</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int16</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;When specifying a variable to save or modify, you can&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot; provide strings that match the labels,&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot; or integers that match the indices - you provided a &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">keys_or_indices</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span>
+            <span class="n">index</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="n">index</span> <span class="o">&gt;=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values_array</span><span class="p">)</span> <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">indices</span>
+        <span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">IndexError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;One or more indices are out of bounds. Valid indices are&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot; from 0 to </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values_array</span><span class="p">)</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="mi">1</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">indices</span></div>
+
+
+<div class="viewcode-block" id="SystemValues.get_values">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues.get_values">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">keys_or_indices</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Retrieve parameter values.</span>
+
+<span class="sd">        Retrieve the value(s) of the parameter(s) from the values_dict.</span>
+<span class="sd">        Accepts the same range of input types as get_indices.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        keys_or_indices : str, int, list, or numpy.ndarray</span>
+<span class="sd">            Parameter identifiers that can be:</span>
+<span class="sd">            - Single string parameter name</span>
+<span class="sd">            - Single integer index</span>
+<span class="sd">            - List of string parameter names</span>
+<span class="sd">            - List of integer indices</span>
+<span class="sd">            - Numpy array of indices</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float or numpy.ndarray</span>
+<span class="sd">            The parameter value(s) requested.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If a string key is not found in the parameters dictionary.</span>
+<span class="sd">        IndexError</span>
+<span class="sd">            If an integer index is out of bounds.</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If the input type is not supported.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_indices</span><span class="p">(</span><span class="n">keys_or_indices</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">values_array</span><span class="p">[</span><span class="n">indices</span><span class="p">[</span><span class="mi">0</span><span class="p">]],</span> <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+            <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">values_array</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">indices</span><span class="p">],</span>
+            <span class="n">dtype</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SystemValues.set_values">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues.set_values">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_values</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">keys</span><span class="p">,</span> <span class="n">values</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Set parameter values.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        keys : str, int, list, or numpy.ndarray</span>
+<span class="sd">            Parameter identifiers.</span>
+<span class="sd">        values : float, list, or numpy.ndarray</span>
+<span class="sd">            Values to set for the specified parameters.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If the number of keys does not match the number of values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_indices</span><span class="p">(</span><span class="n">keys</span><span class="p">)</span>
+
+        <span class="c1"># Checks for mismatches between lengths of indices and values</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">Sized</span><span class="p">):</span>
+                <span class="c1"># Check for one key, multiple values</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="s2">&quot;The number of indices does not match the number &quot;</span>
+                        <span class="s2">&quot;of values provided. &quot;</span>
+                    <span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">updates</span> <span class="o">=</span> <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">keys_by_index</span><span class="p">[</span><span class="n">indices</span><span class="p">[</span><span class="mi">0</span><span class="p">]]:</span> <span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]}</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">updates</span> <span class="o">=</span> <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">keys_by_index</span><span class="p">[</span><span class="n">indices</span><span class="p">[</span><span class="mi">0</span><span class="p">]]:</span> <span class="n">values</span><span class="p">}</span>
+
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="n">Sized</span><span class="p">):</span>
+            <span class="c1"># Check for two keys, one value</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;The number of indices does not match the number of values&quot;</span>
+                <span class="s2">&quot; provided. &quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">values</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;The number of indices does not match the number of values&quot;</span>
+                <span class="s2">&quot; provided. &quot;</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">updates</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">keys_by_index</span><span class="p">[</span><span class="n">index</span><span class="p">]:</span> <span class="n">value</span>
+                <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="n">values</span><span class="p">)</span>
+            <span class="p">}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">update_from_dict</span><span class="p">(</span><span class="n">updates</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SystemValues.update_from_dict">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues.update_from_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_from_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Update dictionary and values_array with new values.</span>
+
+<span class="sd">        Updates both the values_dict and the values_array.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        values_dict : dict</span>
+<span class="sd">            Key-value pairs to update in the values_dict.</span>
+<span class="sd">        silent : bool, optional</span>
+<span class="sd">            If True, suppresses KeyError if a key is not found in the</span>
+<span class="sd">            parameters dictionary, by default False.</span>
+<span class="sd">        **kwargs : dict</span>
+<span class="sd">            Additional key-value pairs to update.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        set of str</span>
+<span class="sd">            A set of keys that were successfully updated.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If the key is not found in the parameters dictionary and</span>
+<span class="sd">            silent is False.</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If any value in the values_dict cannot be cast to the</span>
+<span class="sd">            specified precision.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">values_dict</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">values_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="n">values_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">values_dict</span> <span class="o">==</span> <span class="p">{}:</span>
+            <span class="k">return</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="c1"># Update the dictionary</span>
+        <span class="n">unrecognised</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">k</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">values_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">indices_dict</span>
+        <span class="p">]</span>
+        <span class="n">recognised</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">values_dict</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">indices_dict</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">unrecognised</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">silent</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;Parameter key(s) </span><span class="si">{</span><span class="n">unrecognised</span><span class="si">}</span><span class="s2"> not found in this &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;SystemValues object. Double check that &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;you&#39;re looking in the right place (i.e. states&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;, or parameters, or constants)&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">any</span><span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">can_cast</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">False</span>
+            <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">recognised</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+        <span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;One or more values in the provided dictionary cannot be &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;cast to the specified precision </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="si">}</span><span class="s2">. &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;Please ensure all values are compatible with this &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;precision.&quot;</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Update the dictionary</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">values_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">values_dict</span><span class="p">)</span>
+            <span class="c1"># Update the values_array</span>
+            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">recognised</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">index</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_index_of_key</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="n">silent</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">values_array</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+
+        <span class="k">return</span> <span class="nb">set</span><span class="p">(</span><span class="n">values_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="n">unrecognised</span><span class="p">)</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">names</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get parameter names.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        list of str</span>
+<span class="sd">            List of parameter names.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">values_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+<div class="viewcode-block" id="SystemValues.get_labels">
+<a class="viewcode-back" href="../../../api/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues.SystemValues.get_labels">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get parameter labels corresponding to indices.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        indices : list or numpy.ndarray</span>
+<span class="sd">            Array or list of indices.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        list of str</span>
+<span class="sd">            List of labels corresponding to the provided indices.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If indices is not a list or numpy array.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">indices</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)):</span>
+            <span class="k">return</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">keys_by_index</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">indices</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;indices must be a list or numpy array, you provided a &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">indices</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
+            <span class="p">)</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Allow dictionary-like and array-like access to values.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        key : str, int, or slice</span>
+<span class="sd">            If string, the parameter key to retrieve the value for.</span>
+<span class="sd">            If integer, the index in the values_array to retrieve.</span>
+<span class="sd">            If slice, the slice of the values_array to retrieve.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float or numpy.ndarray</span>
+<span class="sd">            The parameter value requested.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If the string key is not found in the parameters dictionary.</span>
+<span class="sd">        IndexError</span>
+<span class="sd">            If the integer index is out of bounds.</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If the key is not a string, integer, or slice.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_values</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Allow dictionary-like and array-like indexing to set values.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        key : str, int, or slice</span>
+<span class="sd">            If string, the parameter key to update.</span>
+<span class="sd">            If integer, the index in the values_array to update.</span>
+<span class="sd">            If slice, the slice of the values_array to update.</span>
+<span class="sd">        value : float, list, or numpy.ndarray</span>
+<span class="sd">            The new value to set.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If the string key is not found in the parameters dictionary.</span>
+<span class="sd">        IndexError</span>
+<span class="sd">            If the integer index is out of bounds.</span>
+<span class="sd">        TypeError</span>
+<span class="sd">            If the key is not a string, integer, or slice.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Both indexing methods will update both the dictionary and the array.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_values</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

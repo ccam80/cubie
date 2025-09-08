@@ -1,0 +1,17 @@
+﻿cubie.odesystems
+================
+
+.. automodule:: cubie.odesystems
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   ODEData
+   SystemValues
+   baseODE
+   symbolic
+   systems

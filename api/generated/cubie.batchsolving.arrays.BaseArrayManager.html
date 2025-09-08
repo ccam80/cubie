@@ -1,0 +1,549 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.batchsolving.arrays.BaseArrayManager &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.batchsolving.arrays.BatchInputArrays" href="cubie.batchsolving.arrays.BatchInputArrays.html" />
+    <link rel="prev" title="cubie.batchsolving.arrays" href="cubie.batchsolving.arrays.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.html#cubie.batchsolving.Solver"><code class="docutils literal notranslate"><span class="pre">Solver</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.html#cubie.batchsolving.solve_ivp"><code class="docutils literal notranslate"><span class="pre">solve_ivp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.BatchGridBuilder.html">cubie.batchsolving.BatchGridBuilder</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.BatchSolverConfig.html">cubie.batchsolving.BatchSolverConfig</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.BatchSolverKernel.html">cubie.batchsolving.BatchSolverKernel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.SystemInterface.html">cubie.batchsolving.SystemInterface</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="cubie.batchsolving.arrays.html">cubie.batchsolving.arrays</a><ul class="current">
+<li class="toctree-l4 current"><a class="current reference internal" href="#">cubie.batchsolving.arrays.BaseArrayManager</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.batchsolving.arrays.BatchInputArrays.html">cubie.batchsolving.arrays.BatchInputArrays</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.batchsolving.arrays.BatchOutputArrays.html">cubie.batchsolving.arrays.BatchOutputArrays</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.solver.html">cubie.batchsolving.solver</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.solveresult.html">cubie.batchsolving.solveresult</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+          <li class="breadcrumb-item"><a href="cubie.batchsolving.arrays.html">cubie.batchsolving.arrays</a></li>
+      <li class="breadcrumb-item active">cubie.batchsolving.arrays.BaseArrayManager</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.batchsolving.arrays.BaseArrayManager.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.batchsolving.arrays.BaseArrayManager">
+<span id="cubie-batchsolving-arrays-basearraymanager"></span><h1>cubie.batchsolving.arrays.BaseArrayManager<a class="headerlink" href="#module-cubie.batchsolving.arrays.BaseArrayManager" title="Link to this heading"></a></h1>
+<p>Base Array Manager Module.</p>
+<p>This module provides abstract base classes for managing arrays between host and
+device memory in batch operations. It includes container classes for storing
+arrays and manager classes for handling memory allocation, transfer, and
+synchronization.</p>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer" title="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ArrayContainer</span></code></a>([stride_order, memory_type, ...])</p></td>
+<td><p>Base class for storing arrays in CUDA array managers.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager" title="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BaseArrayManager</span></code></a>(precision, sizes, device, ...)</p></td>
+<td><p>Common base class for managing arrays between host and device.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.arrays.BaseArrayManager.</span></span><span class="sig-name descname"><span class="pre">ArrayContainer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">stride_order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'device'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unchunkable</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">NOTHING</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#ArrayContainer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a></p>
+<p>Base class for storing arrays in CUDA array managers.</p>
+<p>Any CUDA array manager should have one subclass of this for both host
+and device arrays.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>_stride_order</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><em>tuple</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>...</em><em>]</em><em>, </em><em>optional</em>) – Order of array dimensions (e.g., (“time”, “run”, “variable”)).</p></li>
+<li><p><strong>_memory_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default=&quot;device&quot;</em>) – Type of memory allocation. Must be one of “device”, “mapped”,
+“pinned”, “managed”, or “host”.</p></li>
+<li><p><strong>_unchunkable</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><em>tuple</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>]</em><em>, </em><em>default=</em><em>(</em><em>)</em>) – Names of arrays that cannot be chunked during memory management.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Underscored attributes are not really private, but we want to be able
+to filter them in methods which use __dict__ to get attributes,
+so we prefix them and add getters/setters.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.attach">
+<span class="sig-name descname"><span class="pre">attach</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">label</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">array</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#ArrayContainer.attach"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.attach" title="Link to this definition"></a></dt>
+<dd><p>Attach an array to this container.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>label</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – The name/label for the array.</p></li>
+<li><p><strong>array</strong> (<em>array_like</em>) – The array to attach.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Warns<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>UserWarning</strong> – If the specified label does not exist as an attribute.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.delete">
+<span class="sig-name descname"><span class="pre">delete</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">label</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#ArrayContainer.delete"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.delete" title="Link to this definition"></a></dt>
+<dd><p>Delete reference to an array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>label</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – The name/label of the array to delete.</p>
+</dd>
+<dt class="field-even">Warns<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>UserWarning</strong> – If the specified label does not exist as an attribute.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.delete_all">
+<span class="sig-name descname"><span class="pre">delete_all</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#ArrayContainer.delete_all"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.delete_all" title="Link to this definition"></a></dt>
+<dd><p>Delete all array references.</p>
+<p class="rubric">Notes</p>
+<p>This method removes all non-private, non-callable attributes,
+effectively clearing all stored arrays.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.memory_type">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">memory_type</span></span><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.memory_type" title="Link to this definition"></a></dt>
+<dd><p>Get the memory type.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The type of memory allocation.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.stride_order">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">stride_order</span></span><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.stride_order" title="Link to this definition"></a></dt>
+<dd><p>Get the stride order.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>The order of array dimensions.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>, …] or None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.arrays.BaseArrayManager.</span></span><span class="sig-name descname"><span class="pre">BaseArrayManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">precision:</span> <span class="pre">type</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float32'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sizes:</span> <span class="pre">~cubie.outputhandling.output_sizes.ArraySizingClass</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">device:</span> <span class="pre">~cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer</span> <span class="pre">=</span> <span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">host:</span> <span class="pre">~cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer</span> <span class="pre">=</span> <span class="pre">NOTHING</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunks:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">chunk_axis:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">'run'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream_group:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">'default'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_proportion:</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">memory_manager:</span> <span class="pre">~cubie.memory.mem_manager.MemoryManager</span> <span class="pre">=</span> <span class="pre">MemoryManager(totalmem=8589934592</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">registry={}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream_groups=StreamGroups(groups={}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">streams={})</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_mode='passive'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_allocator=&lt;class</span> <span class="pre">'cubie.cudasim_utils.FakeNumbaCUDAMemoryManager'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_auto_pool=[]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_manual_pool=[]</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_stride_order=('time'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">'run'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">'variable')</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_queued_allocations={})</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a></p>
+<p>Common base class for managing arrays between host and device.</p>
+<p>This class provides a unified interface for MemoryManager integration,
+allocation/deallocation patterns, stream management, change detection
+and caching, and queued allocation support.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>_precision</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><em>type</em></a><em>, </em><em>default=float32</em>) – Numerical precision type for arrays.</p></li>
+<li><p><strong>_sizes</strong> (<a class="reference internal" href="cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.ArraySizingClass" title="cubie.outputhandling.output_sizes.ArraySizingClass"><em>ArraySizingClass</em></a><em>, </em><em>optional</em>) – Size specifications for arrays managed by this instance.</p></li>
+<li><p><strong>device</strong> (<a class="reference internal" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer" title="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer"><em>ArrayContainer</em></a>) – Container for device-side arrays.</p></li>
+<li><p><strong>host</strong> (<a class="reference internal" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer" title="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer"><em>ArrayContainer</em></a>) – Container for host-side arrays.</p></li>
+<li><p><strong>_chunks</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>default=0</em>) – Number of chunks for memory management.</p></li>
+<li><p><strong>_chunk_axis</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default=&quot;run&quot;</em>) – Axis along which to perform chunking. Must be one of “run”,
+“variable”, or “time”.</p></li>
+<li><p><strong>_stream_group</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default=&quot;default&quot;</em>) – Stream group identifier for CUDA operations.</p></li>
+<li><p><strong>_memory_proportion</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>optional</em>) – Proportion of available memory to use.</p></li>
+<li><p><strong>_needs_reallocation</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>]</em>) – List of array names that need reallocation.</p></li>
+<li><p><strong>_needs_overwrite</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>]</em>) – List of array names that need data overwriting.</p></li>
+<li><p><strong>_memory_manager</strong> (<a class="reference internal" href="cubie.memory.mem_manager.html#cubie.memory.mem_manager.MemoryManager" title="cubie.memory.mem_manager.MemoryManager"><em>MemoryManager</em></a>) – Memory manager instance for handling GPU memory.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This is an abstract base class that provides common functionality for
+managing arrays between host and device memory. Subclasses must implement
+the abstract methods: update, finalise, and initialise.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager._arrays_equal">
+<span class="sig-name descname"><span class="pre">_arrays_equal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arr1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">arr2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager._arrays_equal"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager._arrays_equal" title="Link to this definition"></a></dt>
+<dd><p>Check if two arrays are equal in shape and content.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>arr1</strong> (<em>NDArray</em><em> or </em><em>None</em>) – First array to compare.</p></li>
+<li><p><strong>arr2</strong> (<em>NDArray</em><em> or </em><em>None</em>) – Second array to compare.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if arrays are equal, False otherwise.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager._invalidate_hook">
+<span class="sig-name descname"><span class="pre">_invalidate_hook</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager._invalidate_hook"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager._invalidate_hook" title="Link to this definition"></a></dt>
+<dd><p>Drop all references and assign all arrays for reallocation.</p>
+<p class="rubric">Notes</p>
+<p>This method is called when the memory cache needs to be invalidated.
+It clears all device array references and marks them for reallocation.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager._on_allocation_complete">
+<span class="sig-name descname"><span class="pre">_on_allocation_complete</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">response</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayResponse" title="cubie.memory.array_requests.ArrayResponse"><span class="pre">ArrayResponse</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager._on_allocation_complete"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager._on_allocation_complete" title="Link to this definition"></a></dt>
+<dd><p>Callback for when the allocation response is received.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>response</strong> (<a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayResponse" title="cubie.memory.array_requests.ArrayResponse"><em>ArrayResponse</em></a>) – Response object containing allocated arrays and metadata.</p>
+</dd>
+<dt class="field-even">Warns<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>UserWarning</strong> – If a device array is not found in the allocation response.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>WARNING - HERE BE DRAGONS
+This try/except is to catch case where tests were calling this method
+with an empty _needs_reallocation list. When the same tests were
+run one at a time, the error disappeared. I couldn’t trace it to a
+module-scope fixture or anything obvious. Adding the try/except
+seems to have suppressed even the warning, and the problem has
+stopped.
+If you get this warning, check for the possibility of two
+different classes calling allocate_queue in between “init” and
+“initialise”.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager._update_host_array">
+<span class="sig-name descname"><span class="pre">_update_host_array</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">new_array</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_array</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">label</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">NoneType</span></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager._update_host_array"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager._update_host_array" title="Link to this definition"></a></dt>
+<dd><p>Assign for reallocation or overwriting by shape/value change.</p>
+<p>Check for equality and shape equality, append to reallocation or
+overwrite lists accordingly. Attaches changed array to host array
+container.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.allocate">
+<span class="sig-name descname"><span class="pre">allocate</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.allocate"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.allocate" title="Link to this definition"></a></dt>
+<dd><p>Queue allocation requests for arrays that need reallocation.</p>
+<p>Builds ArrayRequest objects for all arrays marked for reallocation.
+Passes an ‘unchunkable’ hint for arrays listed in the host container’s
+_unchunkable tuple so the memory manager can avoid chunking them.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.attach_external_arrays">
+<span class="sig-name descname"><span class="pre">attach_external_arrays</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">location</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'host'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.attach_external_arrays"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.attach_external_arrays" title="Link to this definition"></a></dt>
+<dd><p>Attach existing arrays to the specified container (host or device).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>arrays</strong> – Dictionary of array_name -&gt; array to attach</p></li>
+<li><p><strong>location</strong> – “host” or “device” - which container to attach to</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if arrays were successfully attached, False if validation failed</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.check_incoming_arrays">
+<span class="sig-name descname"><span class="pre">check_incoming_arrays</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">location</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'host'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.check_incoming_arrays"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.check_incoming_arrays" title="Link to this definition"></a></dt>
+<dd><p>Check dimensions and dtype of provided arrays match expected sizes and precision.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>arrays</strong> – Dictionary of array_name -&gt; array to check</p></li>
+<li><p><strong>location</strong> – “host” or “device” - which container to check against</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if all arrays match expected sizes and precision, False otherwise</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.check_sizes">
+<span class="sig-name descname"><span class="pre">check_sizes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">new_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">location</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'host'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.check_sizes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.check_sizes" title="Link to this definition"></a></dt>
+<dd><p>Check if provided arrays match the system along the “variable” axis.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>new_arrays</strong> – Dictionary of array_name -&gt; array</p></li>
+<li><p><strong>location</strong> – ‘host’ or ‘device’</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>True if all arrays match their expected sizes, False otherwise</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.check_type">
+<span class="sig-name descname"><span class="pre">check_type</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.check_type"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.check_type" title="Link to this definition"></a></dt>
+<dd><p>Check if the precision of arrays matches the system precision.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>arrays</strong> (<em>Dict</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>NDArray</em><em>]</em>) – Dictionary of array_name -&gt; array.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Dictionary mapping array names to boolean values indicating
+whether each array matches the expected precision.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Dict[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.device">
+<span class="sig-name descname"><span class="pre">device</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer" title="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer"><span class="pre">ArrayContainer</span></a></em><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.device" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.finalise">
+<em class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">finalise</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">indices</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.finalise"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.finalise" title="Link to this definition"></a></dt>
+<dd><p>Override with the desired behaviour after a chunk is executed.</p>
+<p>For most output arrays, this is a copy back to the host,
+and potentially a remap if mapped.
+For input arrays, this is a typically no-op.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.from_device">
+<span class="sig-name descname"><span class="pre">from_device</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">from_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">to_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.from_device"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.from_device" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.host">
+<span class="sig-name descname"><span class="pre">host</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer" title="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer"><span class="pre">ArrayContainer</span></a></em><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.host" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.initialise">
+<em class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">initialise</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">indices</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.initialise"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.initialise" title="Link to this definition"></a></dt>
+<dd><p>Override with the desired behaviour before a chunk is executed.</p>
+<p>For most input arrays, this is a copy to device.
+For output arrays, this is typically a no-op.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.initialize_device_zeros">
+<span class="sig-name descname"><span class="pre">initialize_device_zeros</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.initialize_device_zeros"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.initialize_device_zeros" title="Link to this definition"></a></dt>
+<dd><p>Initialize device arrays to zero values.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.register_with_memory_manager">
+<span class="sig-name descname"><span class="pre">register_with_memory_manager</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.register_with_memory_manager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.register_with_memory_manager" title="Link to this definition"></a></dt>
+<dd><p>Register this instance with the MemoryManager.</p>
+<p class="rubric">Notes</p>
+<p>This method sets up the necessary hooks and callbacks for memory
+management integration.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.request_allocation">
+<span class="sig-name descname"><span class="pre">request_allocation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayRequest" title="cubie.memory.array_requests.ArrayRequest"><span class="pre">ArrayRequest</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">force_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.request_allocation"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.request_allocation" title="Link to this definition"></a></dt>
+<dd><p>Send a request for allocation of device arrays.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>request</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><a class="reference internal" href="cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayRequest" title="cubie.memory.array_requests.ArrayRequest"><em>ArrayRequest</em></a><em>]</em>) – Dictionary mapping array names to allocation requests.</p></li>
+<li><p><strong>force_type</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>optional</em>) – Force request type to “single” or “group”. If None, the type
+is determined automatically based on stream group membership.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>If the object is the only instance in its stream group, or is on
+the default group, then the request will be sent as a “single”
+request and be allocated immediately. If the object shares a stream
+group, then the response will be queued, and the allocation will be
+grouped with other requests in the same group, until one of the
+instances calls “process_queue” to process the queue. This behaviour
+can be overridden by setting force_type to “single” or “group”.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.reset">
+<span class="sig-name descname"><span class="pre">reset</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.reset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.reset" title="Link to this definition"></a></dt>
+<dd><p>Clear all cached arrays and reset allocation tracking.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.to_device">
+<span class="sig-name descname"><span class="pre">to_device</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">from_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">to_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.to_device"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.to_device" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.update">
+<em class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.update"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.update" title="Link to this definition"></a></dt>
+<dd><p>Update arrays from external data.</p>
+<p>This method should handle updating the manager’s arrays based on
+provided input data and trigger reallocation/allocation as needed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>*args</strong> – Variable length argument list.</p></li>
+<li><p><strong>**kwargs</strong> – Arbitrary keyword arguments.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This is an abstract method that must be implemented by subclasses
+with the desired behavior for updating arrays from external data.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.update_host_arrays">
+<span class="sig-name descname"><span class="pre">update_host_arrays</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">new_arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.update_host_arrays"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.update_host_arrays" title="Link to this definition"></a></dt>
+<dd><p>Updates host arrays with new data, assigns for realloc or overwrite.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>new_arrays</strong> – Dictionary of array_name -&gt; new_array</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.update_sizes">
+<span class="sig-name descname"><span class="pre">update_sizes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sizes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.ArraySizingClass" title="cubie.outputhandling.output_sizes.ArraySizingClass"><span class="pre">ArraySizingClass</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/arrays/BaseArrayManager.html#BaseArrayManager.update_sizes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.update_sizes" title="Link to this definition"></a></dt>
+<dd><p>Update the expected sizes for arrays in this manager.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>sizes</strong> (<a class="reference internal" href="cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.ArraySizingClass" title="cubie.outputhandling.output_sizes.ArraySizingClass"><em>ArraySizingClass</em></a>) – An ArraySizingClass instance with new sizes.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#TypeError" title="(in Python v3.13)"><strong>TypeError</strong></a> – If the new sizes object is not the same size as the existing one.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.batchsolving.arrays.html" class="btn btn-neutral float-left" title="cubie.batchsolving.arrays" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.batchsolving.arrays.BatchInputArrays.html" class="btn btn-neutral float-right" title="cubie.batchsolving.arrays.BatchInputArrays" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

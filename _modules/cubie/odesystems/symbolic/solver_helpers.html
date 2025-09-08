@@ -1,0 +1,608 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic.solver_helpers &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic.solver_helpers</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.odesystems.symbolic.solver_helpers</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Code generation for the linear operator ``β·M·v − γ·h·J·v``.</span>
+
+<span class="sd">The mass matrix ``M`` is provided at code-generation time either as a NumPy</span>
+<span class="sd">array or a SymPy matrix. Its entries are embedded directly into the generated</span>
+<span class="sd">device routine to avoid extra passes or buffers.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Dict</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sympy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sp</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.symbolic</span><span class="w"> </span><span class="kn">import</span> <span class="n">cse_and_stack</span><span class="p">,</span> <span class="n">topological_sort</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.symbolic.parser</span><span class="w"> </span><span class="kn">import</span> <span class="n">IndexedBases</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.symbolic.numba_cuda_printer</span><span class="w"> </span><span class="kn">import</span> <span class="n">print_cuda_multiple</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.symbolic.jacobian</span><span class="w"> </span><span class="kn">import</span> <span class="n">generate_analytical_jvp</span>
+
+<span class="n">OPERATOR_APPLY_TEMPLATE</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;# AUTO-GENERATED LINEAR OPERATOR FACTORY</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;def </span><span class="si">{func_name}</span><span class="s2">(constants, precision, beta=1.0, gamma=1.0, order=None):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s1">&#39;    &quot;&quot;&quot;Auto-generated linear operator.</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="s2">&quot;    Computes out = beta * (M @ v) - gamma * h * (J @ v)</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    Returns device function:</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;      operator_apply(state, parameters, drivers, h, v, out)</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    argument &#39;order&#39; is ignored, included for compatibility with </span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    preconditioner API. </span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s1">&#39;    &quot;&quot;&quot;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="s2">&quot;</span><span class="si">{const_lines}</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    @cuda.jit((precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision,</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:]),</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;              device=True,</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;              inline=True)</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    def operator_apply(state, parameters, drivers, h, v, out):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;</span><span class="si">{body}</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    return operator_apply</span><span class="se">\n</span><span class="s2">&quot;</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="_split_jvp_expressions">
+<a class="viewcode-back" href="../../../../api/generated/cubie.odesystems.symbolic.solver_helpers.html#cubie.odesystems.symbolic.solver_helpers._split_jvp_expressions">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_split_jvp_expressions</span><span class="p">(</span><span class="n">exprs</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Split topologically-sorted (lhs, rhs) into auxiliaries and jvp terms.&quot;&quot;&quot;</span>
+    <span class="n">aux</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">jvp_terms</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span> <span class="ow">in</span> <span class="n">exprs</span><span class="p">:</span>
+        <span class="n">lhs_str</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">lhs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">lhs_str</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;jvp[&quot;</span><span class="p">):</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">lhs_str</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;[&quot;</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;]&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="n">jvp_terms</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">rhs</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">aux</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">aux</span><span class="p">,</span> <span class="n">jvp_terms</span></div>
+
+
+<div class="viewcode-block" id="_build_body_from_jvp">
+<a class="viewcode-back" href="../../../../api/generated/cubie.odesystems.symbolic.solver_helpers.html#cubie.odesystems.symbolic.solver_helpers._build_body_from_jvp">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_body_from_jvp</span><span class="p">(</span>
+    <span class="n">jvp_exprs</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">index_map</span><span class="p">:</span> <span class="n">IndexedBases</span><span class="p">,</span>
+    <span class="n">M</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return code body computing ``β·M·v − γ·h·Jv``.&quot;&quot;&quot;</span>
+    <span class="n">aux</span><span class="p">,</span> <span class="n">jvp_terms</span> <span class="o">=</span> <span class="n">_split_jvp_expressions</span><span class="p">(</span><span class="n">jvp_exprs</span><span class="p">)</span>
+
+    <span class="n">n_out</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">dxdt</span><span class="o">.</span><span class="n">ref_map</span><span class="p">)</span>
+    <span class="n">n_in</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">index_map</span><span class="p">)</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">IndexedBase</span><span class="p">(</span><span class="s2">&quot;v&quot;</span><span class="p">)</span>
+    <span class="n">beta_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="s2">&quot;beta&quot;</span><span class="p">)</span>
+    <span class="n">gamma_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="s2">&quot;gamma&quot;</span><span class="p">)</span>
+    <span class="n">h_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="s2">&quot;h&quot;</span><span class="p">)</span>
+
+    <span class="n">mass_assigns</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">out_updates</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_out</span><span class="p">):</span>
+        <span class="n">mv</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">S</span><span class="o">.</span><span class="n">Zero</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_in</span><span class="p">):</span>
+            <span class="n">entry</span> <span class="o">=</span> <span class="n">M</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">entry</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;m_</span><span class="si">{</span><span class="n">i</span><span class="si">}{</span><span class="n">j</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">mass_assigns</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">sym</span><span class="p">,</span> <span class="n">entry</span><span class="p">))</span>
+            <span class="n">mv</span> <span class="o">+=</span> <span class="n">sym</span> <span class="o">*</span> <span class="n">v</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+        <span class="n">rhs</span> <span class="o">=</span> <span class="n">beta_sym</span> <span class="o">*</span> <span class="n">mv</span> <span class="o">-</span> <span class="n">gamma_sym</span> <span class="o">*</span> <span class="n">h_sym</span> <span class="o">*</span> <span class="n">jvp_terms</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">out_updates</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;out[</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">]&quot;</span><span class="p">),</span> <span class="n">rhs</span><span class="p">))</span>
+
+    <span class="n">exprs</span> <span class="o">=</span> <span class="n">mass_assigns</span> <span class="o">+</span> <span class="n">aux</span> <span class="o">+</span> <span class="n">out_updates</span>
+    <span class="n">lines</span> <span class="o">=</span> <span class="n">print_cuda_multiple</span><span class="p">(</span><span class="n">exprs</span><span class="p">,</span> <span class="n">symbol_map</span><span class="o">=</span><span class="n">index_map</span><span class="o">.</span><span class="n">all_arrayrefs</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">lines</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;        pass&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">&quot;        &quot;</span> <span class="o">+</span> <span class="n">ln</span> <span class="k">for</span> <span class="n">ln</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="generate_operator_apply_code_from_jvp">
+<a class="viewcode-back" href="../../../../api/generated/cubie.odesystems.symbolic.solver_helpers.html#cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code_from_jvp">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_operator_apply_code_from_jvp</span><span class="p">(</span>
+    <span class="n">jvp_exprs</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">index_map</span><span class="p">:</span> <span class="n">IndexedBases</span><span class="p">,</span>
+    <span class="n">M</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">,</span>
+    <span class="n">func_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;operator_apply_factory&quot;</span><span class="p">,</span>
+    <span class="n">cse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit code for the operator apply factory using precomputed JVP expressions.</span>
+
+<span class="sd">    The emitted factory expects ``constants`` as a mapping from names to values</span>
+<span class="sd">    and embeds each constant as a standalone variable in the generated device</span>
+<span class="sd">    function.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">body</span> <span class="o">=</span> <span class="n">_build_body_from_jvp</span><span class="p">(</span><span class="n">jvp_exprs</span><span class="p">,</span> <span class="n">index_map</span><span class="p">,</span> <span class="n">M</span><span class="p">)</span>
+    <span class="n">const_lines</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> = precision(constants[&#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;])&quot;</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">index_map</span><span class="o">.</span><span class="n">constants</span><span class="o">.</span><span class="n">symbol_map</span>
+    <span class="p">]</span>
+    <span class="n">const_block</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">const_lines</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">const_lines</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">OPERATOR_APPLY_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+        <span class="n">func_name</span><span class="o">=</span><span class="n">func_name</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="n">body</span><span class="p">,</span> <span class="n">const_lines</span><span class="o">=</span><span class="n">const_block</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="generate_operator_apply_code">
+<a class="viewcode-back" href="../../../../api/generated/cubie.odesystems.symbolic.solver_helpers.html#cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_operator_apply_code</span><span class="p">(</span>
+    <span class="n">equations</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">index_map</span><span class="p">:</span> <span class="n">IndexedBases</span><span class="p">,</span>
+    <span class="n">M</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">func_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;operator_apply_factory&quot;</span><span class="p">,</span>
+    <span class="n">cse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;High-level entry: build JVP expressions, then emit operator apply code.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">M</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">index_map</span><span class="p">)</span>
+        <span class="n">M_mat</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">M_mat</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span><span class="n">M</span><span class="p">)</span>
+    <span class="n">jvp_exprs</span> <span class="o">=</span> <span class="n">generate_analytical_jvp</span><span class="p">(</span>
+        <span class="n">equations</span><span class="p">,</span>
+        <span class="n">input_order</span><span class="o">=</span><span class="n">index_map</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">index_map</span><span class="p">,</span>
+        <span class="n">output_order</span><span class="o">=</span><span class="n">index_map</span><span class="o">.</span><span class="n">dxdt</span><span class="o">.</span><span class="n">index_map</span><span class="p">,</span>
+        <span class="n">observables</span><span class="o">=</span><span class="n">index_map</span><span class="o">.</span><span class="n">observable_symbols</span><span class="p">,</span>
+        <span class="n">cse</span><span class="o">=</span><span class="n">cse</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">generate_operator_apply_code_from_jvp</span><span class="p">(</span>
+        <span class="n">jvp_exprs</span><span class="o">=</span><span class="n">jvp_exprs</span><span class="p">,</span>
+        <span class="n">index_map</span><span class="o">=</span><span class="n">index_map</span><span class="p">,</span>
+        <span class="n">M</span><span class="o">=</span><span class="n">M_mat</span><span class="p">,</span>
+        <span class="n">func_name</span><span class="o">=</span><span class="n">func_name</span><span class="p">,</span>
+        <span class="n">cse</span><span class="o">=</span><span class="n">cse</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1"># Neumann preconditioner code generation</span>
+<span class="c1"># ---------------------------------------------------------------------------</span>
+
+<span class="n">NEUMANN_TEMPLATE</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;# AUTO-GENERATED NEUMANN PRECONDITIONER FACTORY</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;def </span><span class="si">{func_name}</span><span class="s2">(constants, precision, beta=1.0, gamma=1.0, order=1):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s1">&#39;    &quot;&quot;&quot;Auto-generated Neumann preconditioner.</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="s2">&quot;    Approximates (beta*I - gamma*h*J)^[-1] via a truncated</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    Neumann series. Returns device function:</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;      preconditioner(state, parameters, drivers, h, v, out, jvp)</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    where `jvp` is a caller-provided scratch buffer for J*v.</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s1">&#39;    &quot;&quot;&quot;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="s2">&quot;    n = </span><span class="si">{n_out}</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    beta_inv = 1.0 / beta</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    h_eff_factor = gamma * beta_inv</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;</span><span class="si">{const_lines}</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    @cuda.jit((precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision,</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:]),</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;              device=True,</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;              inline=True)</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    def preconditioner(state, parameters, drivers, h, v, out, jvp):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;        # Horner form: S[m] = v + T S[m-1], T = (gamma/beta) * h * J</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;        # Accumulator lives in `out`. Uses caller-provided `jvp` for &quot;</span>
+    <span class="s2">&quot;JVP.</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;        for i in range(n):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;            out[i] = v[i]</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;        h_eff = h * h_eff_factor</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;        for _ in range(order):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;</span><span class="si">{jv_body}</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;            for i in range(n):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;                out[i] = v[i] + h_eff * jvp[i]</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;        for i in range(n):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;            out[i] = beta_inv * out[i]</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    return preconditioner</span><span class="se">\n</span><span class="s2">&quot;</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="generate_neumann_preconditioner_code">
+<a class="viewcode-back" href="../../../../api/generated/cubie.odesystems.symbolic.solver_helpers.html#cubie.odesystems.symbolic.solver_helpers.generate_neumann_preconditioner_code">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_neumann_preconditioner_code</span><span class="p">(</span>
+    <span class="n">equations</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">index_map</span><span class="p">:</span> <span class="n">IndexedBases</span><span class="p">,</span>
+    <span class="n">func_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;neumann_preconditioner_factory&quot;</span><span class="p">,</span>
+    <span class="n">cse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;High-level entry for Neumann preconditioner code generation.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    equations : iterable of tuple</span>
+<span class="sd">        Differential equations defining the system.</span>
+<span class="sd">    index_map : IndexedBases</span>
+<span class="sd">        Mapping of symbolic arrays to CUDA references.</span>
+<span class="sd">    func_name : str, optional</span>
+<span class="sd">        Name of the emitted factory, default</span>
+<span class="sd">        ``&quot;neumann_preconditioner_factory&quot;``.</span>
+<span class="sd">    cse : bool, optional</span>
+<span class="sd">        Apply common-subexpression elimination, default ``True``.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    str</span>
+<span class="sd">        Source code for the factory function.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">n_out</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">dxdt</span><span class="o">.</span><span class="n">ref_map</span><span class="p">)</span>
+    <span class="n">const_lines</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> = precision(constants[&#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;])&quot;</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">index_map</span><span class="o">.</span><span class="n">constants</span><span class="o">.</span><span class="n">symbol_map</span>
+    <span class="p">]</span>
+    <span class="n">const_block</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">const_lines</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">const_lines</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="n">jvp_exprs</span> <span class="o">=</span> <span class="n">generate_analytical_jvp</span><span class="p">(</span>
+        <span class="n">equations</span><span class="p">,</span>
+        <span class="n">input_order</span><span class="o">=</span><span class="n">index_map</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">index_map</span><span class="p">,</span>
+        <span class="n">output_order</span><span class="o">=</span><span class="n">index_map</span><span class="o">.</span><span class="n">dxdt</span><span class="o">.</span><span class="n">index_map</span><span class="p">,</span>
+        <span class="n">observables</span><span class="o">=</span><span class="n">index_map</span><span class="o">.</span><span class="n">observable_symbols</span><span class="p">,</span>
+        <span class="n">cse</span><span class="o">=</span><span class="n">cse</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="c1"># Emit using canonical names, then rewrite to drive JVP with `out` and</span>
+    <span class="c1"># write into the caller-provided scratch buffer `jvp`.</span>
+    <span class="n">lines</span> <span class="o">=</span> <span class="n">print_cuda_multiple</span><span class="p">(</span><span class="n">jvp_exprs</span><span class="p">,</span> <span class="n">symbol_map</span><span class="o">=</span><span class="n">index_map</span><span class="o">.</span><span class="n">all_arrayrefs</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">lines</span><span class="p">:</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;pass&quot;</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">ln</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;v[&quot;</span><span class="p">,</span> <span class="s2">&quot;out[&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">&quot;jvp[&quot;</span><span class="p">,</span> <span class="s2">&quot;jvp[&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">ln</span> <span class="ow">in</span> <span class="n">lines</span>
+        <span class="p">]</span>
+    <span class="n">jv_body</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">&quot;            &quot;</span> <span class="o">+</span> <span class="n">ln</span> <span class="k">for</span> <span class="n">ln</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">NEUMANN_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">func_name</span><span class="o">=</span><span class="n">func_name</span><span class="p">,</span> <span class="n">n_out</span><span class="o">=</span><span class="n">n_out</span><span class="p">,</span> <span class="n">jv_body</span><span class="o">=</span><span class="n">jv_body</span><span class="p">,</span>
+            <span class="n">const_lines</span><span class="o">=</span><span class="n">const_block</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="c1"># ---------------------------------------------------------------------------</span>
+<span class="c1"># Residual function code generation (Unified, compile-time mode)</span>
+<span class="c1"># ---------------------------------------------------------------------------</span>
+
+<span class="n">RESIDUAL_TEMPLATE</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;# AUTO-GENERATED RESIDUAL FACTORY</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;def </span><span class="si">{func_name}</span><span class="s2">(constants, precision,  beta=1.0, gamma=1.0, order=None):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s1">&#39;    &quot;&quot;&quot;Auto-generated residual function for Newton-Krylov ODE integration.</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="s2">&quot;    </span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    Computes residual = beta * M @ v - gamma * h * (J @ eval_point)</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    where eval_point depends on the residual mode:</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    - Stage mode: eval_point = base_state + a_ij * u, residual uses M @ u</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    - End-state mode: eval_point = u, residual uses M @ (u - base_state)</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    </span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    Uses dx_ numbered symbols for derivatives and aux_ symbols for observables,</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    following the same pattern as JVP generation.</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    </span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    Order is ignored, included for compatibility with preconditioner API.</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s1">&#39;    &quot;&quot;&quot;</span><span class="se">\n</span><span class="s1">&#39;</span>
+    <span class="s2">&quot;</span><span class="si">{const_lines}</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    @cuda.jit((precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision,</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision,</span><span class="se">\n</span><span class="s2">&quot;</span>  
+    <span class="s2">&quot;               precision[:],</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;               precision[:]),</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;              device=True,</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;              inline=True)</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    def residual(u, parameters, drivers, h, a_ij, base_state, out):</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;</span><span class="si">{res_lines}</span><span class="se">\n</span><span class="s2">&quot;</span>
+    <span class="s2">&quot;    return residual</span><span class="se">\n</span><span class="s2">&quot;</span>
+<span class="p">)</span>
+
+
+<div class="viewcode-block" id="_build_residual_lines">
+<a class="viewcode-back" href="../../../../api/generated/cubie.odesystems.symbolic.solver_helpers.html#cubie.odesystems.symbolic.solver_helpers._build_residual_lines">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_residual_lines</span><span class="p">(</span><span class="n">equations</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+                          <span class="n">index_map</span><span class="p">:</span> <span class="n">IndexedBases</span><span class="p">,</span>
+                          <span class="n">M</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">,</span>
+                          <span class="n">is_stage</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+                          <span class="n">cse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return residual lines for the chosen residual mode.</span>
+
+<span class="sd">    Converts dx variables to dx_ numbered symbols and observable symbols to aux_ symbols,</span>
+<span class="sd">    similar to JVP generation pattern.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">equations</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">eq_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">equations</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">eq_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">equations</span><span class="p">)</span>
+
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">index_map</span><span class="p">)</span>
+
+    <span class="n">beta_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="s2">&quot;beta&quot;</span><span class="p">)</span>
+    <span class="n">gamma_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="s2">&quot;gamma&quot;</span><span class="p">)</span>
+    <span class="n">h_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="s2">&quot;h&quot;</span><span class="p">)</span>
+    <span class="n">aij_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="s2">&quot;a_ij&quot;</span><span class="p">)</span>
+    <span class="n">u</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">IndexedBase</span><span class="p">(</span><span class="s2">&quot;u&quot;</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n</span><span class="p">,))</span>
+    <span class="n">base</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">IndexedBase</span><span class="p">(</span><span class="s2">&quot;base_state&quot;</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n</span><span class="p">,))</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">IndexedBase</span><span class="p">(</span><span class="s2">&quot;out&quot;</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n</span><span class="p">,))</span>
+
+    <span class="c1"># Create symbol substitutions like in JVP generation</span>
+    <span class="c1"># Convert dx variables to dx_ numbered symbols</span>
+    <span class="n">dx_subs</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">dx_sym</span><span class="p">,</span> <span class="n">_</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">dxdt</span><span class="o">.</span><span class="n">index_map</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+        <span class="n">dx_subs</span><span class="p">[</span><span class="n">dx_sym</span><span class="p">]</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;dx_</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="c1"># Convert observable symbols to aux_ symbols</span>
+    <span class="n">obs_subs</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="n">index_map</span><span class="o">.</span><span class="n">observable_symbols</span><span class="p">:</span>
+        <span class="n">obs_subs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">observable_symbols</span><span class="p">,</span>
+                           <span class="n">sp</span><span class="o">.</span><span class="n">numbered_symbols</span><span class="p">(</span><span class="s2">&quot;aux_&quot;</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="mi">1</span><span class="p">)))</span>
+
+    <span class="c1"># Apply substitutions to equations</span>
+    <span class="n">all_subs</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">dx_subs</span><span class="p">,</span> <span class="o">**</span><span class="n">obs_subs</span><span class="p">}</span>
+    <span class="n">substituted_equations</span> <span class="o">=</span> <span class="p">[(</span><span class="n">lhs</span><span class="o">.</span><span class="n">subs</span><span class="p">(</span><span class="n">all_subs</span><span class="p">),</span> <span class="n">rhs</span><span class="o">.</span><span class="n">subs</span><span class="p">(</span><span class="n">all_subs</span><span class="p">))</span>
+                            <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span> <span class="ow">in</span> <span class="n">eq_list</span><span class="p">]</span>
+
+    <span class="c1"># Create evaluation point substitutions for state variables</span>
+    <span class="n">state_subs</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">state_symbols</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">index_map</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">state_sym</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">state_symbols</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">is_stage</span><span class="p">:</span>
+            <span class="c1"># Stage mode: evaluation point is base + a_ij * u</span>
+            <span class="n">eval_point</span> <span class="o">=</span> <span class="n">base</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">aij_sym</span> <span class="o">*</span> <span class="n">u</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># End-state mode: evaluation point is u</span>
+            <span class="n">eval_point</span> <span class="o">=</span> <span class="n">u</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">state_subs</span><span class="p">[</span><span class="n">state_sym</span><span class="p">]</span> <span class="o">=</span> <span class="n">eval_point</span>
+
+    <span class="c1"># Apply state substitutions to the RHS of equations</span>
+    <span class="n">eval_equations</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span> <span class="ow">in</span> <span class="n">substituted_equations</span><span class="p">:</span>
+        <span class="n">eval_rhs</span> <span class="o">=</span> <span class="n">rhs</span><span class="o">.</span><span class="n">subs</span><span class="p">(</span><span class="n">state_subs</span><span class="p">)</span>
+        <span class="n">eval_equations</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">lhs</span><span class="p">,</span> <span class="n">eval_rhs</span><span class="p">))</span>
+
+    <span class="n">symbol_map</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">all_arrayrefs</span><span class="p">)</span>
+    <span class="n">symbol_map</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+        <span class="s2">&quot;beta&quot;</span><span class="p">:</span> <span class="n">beta_sym</span><span class="p">,</span>
+        <span class="s2">&quot;gamma&quot;</span><span class="p">:</span> <span class="n">gamma_sym</span><span class="p">,</span>
+        <span class="s2">&quot;h&quot;</span><span class="p">:</span> <span class="n">h_sym</span><span class="p">,</span>
+        <span class="s2">&quot;a_ij&quot;</span><span class="p">:</span> <span class="n">aij_sym</span><span class="p">,</span>
+        <span class="s2">&quot;u&quot;</span><span class="p">:</span> <span class="n">u</span><span class="p">,</span>
+        <span class="s2">&quot;base_state&quot;</span><span class="p">:</span> <span class="n">base</span><span class="p">,</span>
+        <span class="s2">&quot;out&quot;</span><span class="p">:</span> <span class="n">out</span><span class="p">,</span>
+    <span class="p">})</span>
+
+    <span class="c1"># Build complete expression list</span>
+    <span class="n">eval_exprs</span> <span class="o">=</span> <span class="n">eval_equations</span>
+
+    <span class="c1"># Build residual expressions</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+        <span class="n">mv</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">S</span><span class="o">.</span><span class="n">Zero</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="n">entry</span> <span class="o">=</span> <span class="n">M</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">entry</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">is_stage</span><span class="p">:</span>
+                <span class="c1"># Stage mode: M @ u</span>
+                <span class="n">mv</span> <span class="o">+=</span> <span class="n">entry</span> <span class="o">*</span> <span class="n">u</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># End-state mode: M @ (u - base)</span>
+                <span class="n">mv</span> <span class="o">+=</span> <span class="n">entry</span> <span class="o">*</span> <span class="p">(</span><span class="n">u</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">-</span> <span class="n">base</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
+        
+        <span class="c1"># Get the dx symbol for this output</span>
+        <span class="n">dx_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;dx_</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="n">residual_expr</span> <span class="o">=</span> <span class="n">beta_sym</span> <span class="o">*</span> <span class="n">mv</span> <span class="o">-</span> <span class="n">gamma_sym</span> <span class="o">*</span> <span class="n">h_sym</span> <span class="o">*</span> <span class="n">dx_sym</span>
+        <span class="n">eval_exprs</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">out</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">residual_expr</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">cse</span><span class="p">:</span>
+        <span class="n">eval_exprs</span> <span class="o">=</span> <span class="n">cse_and_stack</span><span class="p">(</span><span class="n">eval_exprs</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">eval_exprs</span> <span class="o">=</span> <span class="n">topological_sort</span><span class="p">(</span><span class="n">eval_exprs</span><span class="p">)</span>
+
+    <span class="n">lines</span> <span class="o">=</span> <span class="n">print_cuda_multiple</span><span class="p">(</span><span class="n">eval_exprs</span><span class="p">,</span> <span class="n">symbol_map</span><span class="o">=</span><span class="n">symbol_map</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">lines</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;        pass&quot;</span>
+    <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s2">&quot;        &quot;</span> <span class="o">+</span> <span class="n">ln</span> <span class="k">for</span> <span class="n">ln</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="generate_residual_code">
+<a class="viewcode-back" href="../../../../api/generated/cubie.odesystems.symbolic.solver_helpers.html#cubie.odesystems.symbolic.solver_helpers.generate_residual_code">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_residual_code</span><span class="p">(</span>
+        <span class="n">equations</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+        <span class="n">index_map</span><span class="p">:</span> <span class="n">IndexedBases</span><span class="p">,</span>
+        <span class="n">M</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">is_stage</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="n">func_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;residual_factory&quot;</span><span class="p">,</span>
+        <span class="n">cse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit code for the residual factory.</span>
+
+<span class="sd">    Generates CUDA device code for computing residuals in Newton-Krylov ODE integration.</span>
+<span class="sd">    The residual is computed as: beta * M @ v - gamma * h * (J @ eval_point)</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    equations : Iterable[Tuple[sp.Symbol, sp.Expr]]</span>
+<span class="sd">        The differential equations defining the system.</span>
+<span class="sd">    index_map : IndexedBases</span>
+<span class="sd">        Mapping of symbolic arrays to CUDA references.</span>
+<span class="sd">    M : array-like, optional</span>
+<span class="sd">        Mass matrix. If None, uses identity matrix.</span>
+<span class="sd">    is_stage : bool, optional</span>
+<span class="sd">        If True, generates stage residual (eval_point = base + a_ij * u).</span>
+<span class="sd">        If False, generates end-state residual (eval_point = u).</span>
+<span class="sd">    func_name : str, optional</span>
+<span class="sd">        Name of the generated factory function.</span>
+<span class="sd">    cse : bool, optional</span>
+<span class="sd">        Apply common subexpression elimination.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    str</span>
+<span class="sd">        Generated CUDA device code for the residual factory.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">M</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">index_map</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">index_map</span><span class="p">)</span>
+        <span class="n">M_mat</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">eye</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">M_mat</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span><span class="n">M</span><span class="p">)</span>
+
+    <span class="n">res_lines</span> <span class="o">=</span> <span class="n">_build_residual_lines</span><span class="p">(</span>
+        <span class="n">equations</span><span class="o">=</span><span class="n">equations</span><span class="p">,</span>
+        <span class="n">index_map</span><span class="o">=</span><span class="n">index_map</span><span class="p">,</span>
+        <span class="n">M</span><span class="o">=</span><span class="n">M_mat</span><span class="p">,</span>
+        <span class="n">is_stage</span><span class="o">=</span><span class="n">is_stage</span><span class="p">,</span>
+        <span class="n">cse</span><span class="o">=</span><span class="n">cse</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">const_lines</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="sa">f</span><span class="s2">&quot;    </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> = precision(constants[&#39;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">&#39;])&quot;</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">index_map</span><span class="o">.</span><span class="n">constants</span><span class="o">.</span><span class="n">symbol_map</span>
+    <span class="p">]</span>
+    <span class="n">const_block</span> <span class="o">=</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">const_lines</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span> <span class="k">if</span> <span class="n">const_lines</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">RESIDUAL_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">func_name</span><span class="o">=</span><span class="n">func_name</span><span class="p">,</span>
+            <span class="n">const_lines</span><span class="o">=</span><span class="n">const_block</span><span class="p">,</span>
+            <span class="n">res_lines</span><span class="o">=</span><span class="n">res_lines</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="generate_residual_end_state_code">
+<a class="viewcode-back" href="../../../../api/generated/cubie.odesystems.symbolic.solver_helpers.html#cubie.odesystems.symbolic.solver_helpers.generate_residual_end_state_code">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_residual_end_state_code</span><span class="p">(</span>
+    <span class="n">equations</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">index_map</span><span class="p">:</span> <span class="n">IndexedBases</span><span class="p">,</span>
+    <span class="n">M</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">func_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;end_residual&quot;</span><span class="p">,</span>
+    <span class="n">cse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit code for the end-state residual factory.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">generate_residual_code</span><span class="p">(</span>
+        <span class="n">equations</span><span class="o">=</span><span class="n">equations</span><span class="p">,</span>
+        <span class="n">index_map</span><span class="o">=</span><span class="n">index_map</span><span class="p">,</span>
+        <span class="n">M</span><span class="o">=</span><span class="n">M</span><span class="p">,</span>
+        <span class="n">is_stage</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+        <span class="n">func_name</span><span class="o">=</span><span class="n">func_name</span><span class="p">,</span>
+        <span class="n">cse</span><span class="o">=</span><span class="n">cse</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="generate_stage_residual_code">
+<a class="viewcode-back" href="../../../../api/generated/cubie.odesystems.symbolic.solver_helpers.html#cubie.odesystems.symbolic.solver_helpers.generate_stage_residual_code">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_stage_residual_code</span><span class="p">(</span>
+    <span class="n">equations</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">index_map</span><span class="p">:</span> <span class="n">IndexedBases</span><span class="p">,</span>
+    <span class="n">M</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">func_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;stage_residual&quot;</span><span class="p">,</span>
+    <span class="n">cse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Emit code for the stage residual factory.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">generate_residual_code</span><span class="p">(</span>
+            <span class="n">equations</span><span class="o">=</span><span class="n">equations</span><span class="p">,</span>
+            <span class="n">index_map</span><span class="o">=</span><span class="n">index_map</span><span class="p">,</span>
+            <span class="n">M</span><span class="o">=</span><span class="n">M</span><span class="p">,</span>
+            <span class="n">is_stage</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+            <span class="n">func_name</span><span class="o">=</span><span class="n">func_name</span><span class="p">,</span>
+            <span class="n">cse</span><span class="o">=</span><span class="n">cse</span><span class="p">,</span>
+    <span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

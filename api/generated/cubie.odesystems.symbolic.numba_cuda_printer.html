@@ -1,0 +1,278 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic.numba_cuda_printer &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.odesystems.symbolic.odefile" href="cubie.odesystems.symbolic.odefile.html" />
+    <link rel="prev" title="cubie.odesystems.symbolic.jacobian" href="cubie.odesystems.symbolic.jacobian.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.Decays"><code class="docutils literal notranslate"><span class="pre">Decays</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.SymbolicODE"><code class="docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.ThreeChamberModel"><code class="docutils literal notranslate"><span class="pre">ThreeChamberModel</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.create_ODE_system"><code class="docutils literal notranslate"><span class="pre">create_ODE_system()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.ODEData.html">cubie.odesystems.ODEData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.SystemValues.html">cubie.odesystems.SystemValues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.baseODE.html">cubie.odesystems.baseODE</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="cubie.odesystems.symbolic.html">cubie.odesystems.symbolic</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.cellml.html">cubie.odesystems.symbolic.cellml</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.dxdt.html">cubie.odesystems.symbolic.dxdt</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html">cubie.odesystems.symbolic.indexedbasemaps</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.jacobian.html">cubie.odesystems.symbolic.jacobian</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">cubie.odesystems.symbolic.numba_cuda_printer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.odefile.html">cubie.odesystems.symbolic.odefile</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.parser.html">cubie.odesystems.symbolic.parser</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.solver_helpers.html">cubie.odesystems.symbolic.solver_helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.sym_utils.html">cubie.odesystems.symbolic.sym_utils</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.symbolicODE.html">cubie.odesystems.symbolic.symbolicODE</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.systems.html">cubie.odesystems.systems</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.odesystems.html">cubie.odesystems</a></li>
+          <li class="breadcrumb-item"><a href="cubie.odesystems.symbolic.html">cubie.odesystems.symbolic</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic.numba_cuda_printer</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.odesystems.symbolic.numba_cuda_printer.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.odesystems.symbolic.numba_cuda_printer">
+<span id="cubie-odesystems-symbolic-numba-cuda-printer"></span><h1>cubie.odesystems.symbolic.numba_cuda_printer<a class="headerlink" href="#module-cubie.odesystems.symbolic.numba_cuda_printer" title="Link to this heading"></a></h1>
+<p class="rubric">Functions</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.print_cuda" title="cubie.odesystems.symbolic.numba_cuda_printer.print_cuda"><code class="xref py py-obj docutils literal notranslate"><span class="pre">print_cuda</span></code></a>(expr[, symbol_map])</p></td>
+<td><p>Convenience function to print SymPy expressions as CUDA-optimized code.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.print_cuda_multiple" title="cubie.odesystems.symbolic.numba_cuda_printer.print_cuda_multiple"><code class="xref py py-obj docutils literal notranslate"><span class="pre">print_cuda_multiple</span></code></a>(exprs[, symbol_map])</p></td>
+<td><p>Convenience function to print SymPy expressions as CUDA-optimized code.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter" title="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CUDAPrinter</span></code></a>([symbol_map])</p></td>
+<td><p>SymPy printer for CUDA code generation with symbol substitutions and optimizations.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.numba_cuda_printer.</span></span><span class="sig-name descname"><span class="pre">CUDAPrinter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">symbol_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">PythonCodePrinter</span></code></p>
+<p>SymPy printer for CUDA code generation with symbol substitutions and optimizations.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">symbol_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize CUDA printer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>symbol_map</strong> – Dictionary mapping Symbol instances to IndexedBase references</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._ifelse_to_selp">
+<span class="sig-name descname"><span class="pre">_ifelse_to_selp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr_str</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._ifelse_to_selp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._ifelse_to_selp" title="Link to this definition"></a></dt>
+<dd><p>Replace if-else statements with select statements.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Function">
+<span class="sig-name descname"><span class="pre">_print_Function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._print_Function"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Function" title="Link to this definition"></a></dt>
+<dd><p>Print Function, applying CUDA function mapping and user alias mapping.</p>
+<p>Precedence:
+- If this is a known CUDA-mapped SymPy function, use CUDA_FUNCTIONS mapping.
+- Else if this is a user-defined function (underscored in SymPy), map back to original name via aliases.
+- Else print as a plain function call “name(arg1, …)” to avoid strict errors.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Piecewise">
+<span class="sig-name descname"><span class="pre">_print_Piecewise</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Piecewise</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._print_Piecewise"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Piecewise" title="Link to this definition"></a></dt>
+<dd><p>Always render Piecewise as a pure expression (nested ternaries).</p>
+<p>This avoids generating assignments inside conditional expressions when
+<code class="docutils literal notranslate"><span class="pre">assign_to</span></code> is provided to <code class="docutils literal notranslate"><span class="pre">doprint</span></code>. The outer assignment will be
+handled by <code class="docutils literal notranslate"><span class="pre">doprint</span></code> itself (“lhs = &lt;expr&gt;”).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Symbol">
+<span class="sig-name descname"><span class="pre">_print_Symbol</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._print_Symbol"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Symbol" title="Link to this definition"></a></dt>
+<dd><p>Print Symbol, applying symbol-to-IndexedBase mapping if available.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_cube_powers">
+<span class="sig-name descname"><span class="pre">_replace_cube_powers</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr_str</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._replace_cube_powers"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_cube_powers" title="Link to this definition"></a></dt>
+<dd><p>Replace x**3 with x*x*x, handling spaces around the ** operator.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_powers_with_multiplication">
+<span class="sig-name descname"><span class="pre">_replace_powers_with_multiplication</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr_str</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._replace_powers_with_multiplication"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_powers_with_multiplication" title="Link to this definition"></a></dt>
+<dd><p>Replace <a href="#id1"><span class="problematic" id="id2">**</span></a>2 and <a href="#id3"><span class="problematic" id="id4">**</span></a>3 with explicit multiplications for efficiency.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_square_powers">
+<span class="sig-name descname"><span class="pre">_replace_square_powers</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr_str</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._replace_square_powers"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_square_powers" title="Link to this definition"></a></dt>
+<dd><p>Replace x**2 with x*x, handling spaces around the ** operator.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.doprint">
+<span class="sig-name descname"><span class="pre">doprint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter.doprint"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.doprint" title="Link to this definition"></a></dt>
+<dd><p>Main printing method that applies all transformations.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.print_cuda">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.numba_cuda_printer.</span></span><span class="sig-name descname"><span class="pre">print_cuda</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Expr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">symbol_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#print_cuda"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.print_cuda" title="Link to this definition"></a></dt>
+<dd><p>Convenience function to print SymPy expressions as CUDA-optimized code.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>expr</strong> – SymPy expression to print</p></li>
+<li><p><strong>symbol_map</strong> – Dictionary mapping Symbol instances to IndexedBase references</p></li>
+<li><p><strong>**kwargs</strong> – Additional arguments passed to the printer</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>String representation of the expression optimized for CUDA</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.print_cuda_multiple">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.numba_cuda_printer.</span></span><span class="sig-name descname"><span class="pre">print_cuda_multiple</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exprs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">symbol_map</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#print_cuda_multiple"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.print_cuda_multiple" title="Link to this definition"></a></dt>
+<dd><p>Convenience function to print SymPy expressions as CUDA-optimized code.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>exprs</strong> (<em>iterable</em><em> of </em><em>tuples</em><em> of </em><em>(</em><em>sp.Symbol</em><em>, </em><em>sp.Expr</em><em>)</em>) – Iterable of symbol, expression pairs for “symbol = expression”
+assignments</p></li>
+<li><p><strong>symbol_map</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em> of </em><em>sp.Symbol to IndexedBase</em><em> or </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a>) – Dictionary mapping algebraic symbols to their array or variable
+names</p></li>
+<li><p><strong>**kwargs</strong> (<em>Additional arguments passed to the printer</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>String representation of the expression optimized for CUDA</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.odesystems.symbolic.jacobian.html" class="btn btn-neutral float-left" title="cubie.odesystems.symbolic.jacobian" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.odesystems.symbolic.odefile.html" class="btn btn-neutral float-right" title="cubie.odesystems.symbolic.odefile" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

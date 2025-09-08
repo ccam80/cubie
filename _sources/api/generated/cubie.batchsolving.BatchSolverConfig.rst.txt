@@ -1,0 +1,12 @@
+cubie.batchsolving.BatchSolverConfig
+====================================
+
+.. automodule:: cubie.batchsolving.BatchSolverConfig
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      BatchSolverConfig
+   

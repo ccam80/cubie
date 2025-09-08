@@ -1,0 +1,254 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.batchsolving.BatchSolverConfig &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.batchsolving.BatchSolverKernel" href="cubie.batchsolving.BatchSolverKernel.html" />
+    <link rel="prev" title="cubie.batchsolving.BatchGridBuilder" href="cubie.batchsolving.BatchGridBuilder.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.html#cubie.batchsolving.Solver"><code class="docutils literal notranslate"><span class="pre">Solver</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.html#cubie.batchsolving.solve_ivp"><code class="docutils literal notranslate"><span class="pre">solve_ivp()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.BatchGridBuilder.html">cubie.batchsolving.BatchGridBuilder</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">cubie.batchsolving.BatchSolverConfig</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig"><code class="docutils literal notranslate"><span class="pre">BatchSolverConfig</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.BatchSolverKernel.html">cubie.batchsolving.BatchSolverKernel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.SystemInterface.html">cubie.batchsolving.SystemInterface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.arrays.html">cubie.batchsolving.arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.solver.html">cubie.batchsolving.solver</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.solveresult.html">cubie.batchsolving.solveresult</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+      <li class="breadcrumb-item active">cubie.batchsolving.BatchSolverConfig</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.batchsolving.BatchSolverConfig.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.batchsolving.BatchSolverConfig">
+<span id="cubie-batchsolving-batchsolverconfig"></span><h1>cubie.batchsolving.BatchSolverConfig<a class="headerlink" href="#module-cubie.batchsolving.BatchSolverConfig" title="Link to this heading"></a></h1>
+<p>Configuration utilities for the batch solver.</p>
+<p>This module provides <a class="reference internal" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig" title="cubie.batchsolving.BatchSolverConfig.BatchSolverConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">BatchSolverConfig</span></code></a>, a small container that holds
+settings used when compiling and running the CUDA integration kernel.</p>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig" title="cubie.batchsolving.BatchSolverConfig.BatchSolverConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BatchSolverConfig</span></code></a>(precision, algorithm, ...)</p></td>
+<td><p>Settings for configuring a batch solver kernel.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverConfig.BatchSolverConfig">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchSolverConfig.</span></span><span class="sig-name descname"><span class="pre">BatchSolverConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">precision:</span> <span class="pre">type</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float32'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">algorithm:</span> <span class="pre">str</span> <span class="pre">=</span> <span class="pre">'euler'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">duration:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">warmup:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">profileCUDA:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchSolverConfig.html#BatchSolverConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Settings for configuring a batch solver kernel.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.precision">
+<span class="sig-name descname"><span class="pre">precision</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.precision" title="Link to this definition"></a></dt>
+<dd><p>Data type used for computation. Defaults to <code class="docutils literal notranslate"><span class="pre">float32</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)">type</a>, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.algorithm">
+<span class="sig-name descname"><span class="pre">algorithm</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.algorithm" title="Link to this definition"></a></dt>
+<dd><p>Name of the integration algorithm. Defaults to <code class="docutils literal notranslate"><span class="pre">'euler'</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.duration">
+<span class="sig-name descname"><span class="pre">duration</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.duration" title="Link to this definition"></a></dt>
+<dd><p>Total integration duration in seconds. Defaults to <code class="docutils literal notranslate"><span class="pre">1.0</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a>, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.warmup">
+<span class="sig-name descname"><span class="pre">warmup</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.warmup" title="Link to this definition"></a></dt>
+<dd><p>Length of the warm-up period before outputs are stored. Defaults to
+<code class="docutils literal notranslate"><span class="pre">0.0</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a>, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.stream">
+<span class="sig-name descname"><span class="pre">stream</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.stream" title="Link to this definition"></a></dt>
+<dd><p>Identifier for the CUDA stream to execute on. <code class="docutils literal notranslate"><span class="pre">None</span></code> defaults to the
+solver’s stream. Defaults to <code class="docutils literal notranslate"><span class="pre">0</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a>, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.profileCUDA">
+<span class="sig-name descname"><span class="pre">profileCUDA</span></span><a class="headerlink" href="#cubie.batchsolving.BatchSolverConfig.BatchSolverConfig.profileCUDA" title="Link to this definition"></a></dt>
+<dd><p>If <code class="docutils literal notranslate"><span class="pre">True</span></code> CUDA profiling is enabled. Defaults to <code class="docutils literal notranslate"><span class="pre">False</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a>, optional</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id0">
+<span class="sig-name descname"><span class="pre">algorithm</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></em><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id1">
+<span class="sig-name descname"><span class="pre">duration</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#id1" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id2">
+<span class="sig-name descname"><span class="pre">precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#id2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id3">
+<span class="sig-name descname"><span class="pre">profileCUDA</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></em><a class="headerlink" href="#id3" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id4">
+<span class="sig-name descname"><span class="pre">stream</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#id4" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id5">
+<span class="sig-name descname"><span class="pre">warmup</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#id5" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.batchsolving.BatchGridBuilder.html" class="btn btn-neutral float-left" title="cubie.batchsolving.BatchGridBuilder" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.batchsolving.BatchSolverKernel.html" class="btn btn-neutral float-right" title="cubie.batchsolving.BatchSolverKernel" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

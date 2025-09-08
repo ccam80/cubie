@@ -1,0 +1,18 @@
+cubie.outputhandling.output\_sizes
+==================================
+
+.. automodule:: cubie.outputhandling.output_sizes
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      ArraySizingClass
+      BatchInputSizes
+      BatchOutputSizes
+      LoopBufferSizes
+      OutputArrayHeights
+      SingleRunOutputSizes
+      SummariesBufferSizes
+   

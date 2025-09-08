@@ -1,0 +1,12 @@
+cubie.outputhandling.summarymetrics.max
+=======================================
+
+.. automodule:: cubie.outputhandling.summarymetrics.max
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      Max
+   

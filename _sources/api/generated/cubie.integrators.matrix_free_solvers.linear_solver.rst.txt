@@ -1,0 +1,12 @@
+cubie.integrators.matrix\_free\_solvers.linear\_solver
+======================================================
+
+.. automodule:: cubie.integrators.matrix_free_solvers.linear_solver
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      linear_solver_factory
+   

@@ -1,0 +1,751 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.outputhandling.output_sizes &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.outputhandling.output_sizes</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.outputhandling.output_sizes</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Array sizing classes for output buffer and array management.</span>
+
+<span class="sd">This module provides classes for calculating and managing the sizes of various</span>
+<span class="sd">arrays used in CUDA batch solving, including buffers for intermediate</span>
+<span class="sd">calculations and output arrays for results. All classes inherit from</span>
+<span class="sd">ArraySizingClass which provides utilities for memory allocation.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">cubie.batchsolving.BatchSolverKernel</span><span class="w"> </span><span class="kn">import</span> <span class="n">BatchSolverKernel</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">cubie.outputhandling.output_functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">OutputFunctions</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.systems.BaseODE</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseODE</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">ABC</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">attrs</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="kn">import</span> <span class="n">ceil</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.batchsolving._utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">ensure_nonzero_size</span>
+
+
+<div class="viewcode-block" id="ArraySizingClass">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.ArraySizingClass">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ArraySizingClass</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Base class for array sizing with memory allocation utilities.</span>
+
+<span class="sd">    This abstract base class provides common functionality for all array</span>
+<span class="sd">    sizing classes, including a method to ensure minimum array sizes for</span>
+<span class="sd">    memory allocation purposes.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    All derived classes inherit the nonzero property which is useful for</span>
+<span class="sd">    allocating memory where zero-sized arrays would cause issues.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">nonzero</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;ArraySizingClass&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return a copy with all sizes having a minimum of one element.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ArraySizingClass</span>
+<span class="sd">            Copy of the object with all integer and tuple sizes ensured</span>
+<span class="sd">            to be at least 1, useful for memory allocation.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        This method creates a new object instance with modified size values</span>
+<span class="sd">        to prevent zero-sized array allocations which can cause issues in</span>
+<span class="sd">        CUDA memory management.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">new_obj</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">evolve</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">attrs</span><span class="o">.</span><span class="n">fields</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="vm">__class__</span><span class="p">):</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">new_obj</span><span class="p">,</span> <span class="n">field</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="n">new_obj</span><span class="p">,</span> <span class="n">field</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">ensure_nonzero_size</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">new_obj</span></div>
+
+
+
+<div class="viewcode-block" id="SummariesBufferSizes">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.SummariesBufferSizes">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SummariesBufferSizes</span><span class="p">(</span><span class="n">ArraySizingClass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Buffer sizes for summary metric calculations.</span>
+
+<span class="sd">    This class provides a clean interface for accessing summary buffer sizes</span>
+<span class="sd">    with descriptive names rather than accessing them through more complex</span>
+<span class="sd">    object hierarchies.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    state : int, default 1</span>
+<span class="sd">        Buffer size required for state variable summaries.</span>
+<span class="sd">    observables : int, default 1</span>
+<span class="sd">        Buffer size required for observable variable summaries.</span>
+<span class="sd">    per_variable : int, default 1</span>
+<span class="sd">        Buffer size required per individual variable for summaries.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Most commonly used via the from_output_fns class method which extracts</span>
+<span class="sd">    the relevant sizes from an OutputFunctions object.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">state</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">observables</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">per_variable</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+
+<div class="viewcode-block" id="SummariesBufferSizes.from_output_fns">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.SummariesBufferSizes.from_output_fns">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_output_fns</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">output_fns</span><span class="p">:</span> <span class="s2">&quot;OutputFunctions&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;SummariesBufferSizes&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create buffer sizes from an OutputFunctions object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_fns : OutputFunctions</span>
+<span class="sd">            Output functions object containing buffer size information.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SummariesBufferSizes</span>
+<span class="sd">            Buffer sizes extracted from the output functions configuration.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">output_fns</span><span class="o">.</span><span class="n">state_summaries_buffer_height</span><span class="p">,</span>
+            <span class="n">output_fns</span><span class="o">.</span><span class="n">observable_summaries_buffer_height</span><span class="p">,</span>
+            <span class="n">output_fns</span><span class="o">.</span><span class="n">summaries_buffer_height_per_var</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="LoopBufferSizes">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.LoopBufferSizes">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">LoopBufferSizes</span><span class="p">(</span><span class="n">ArraySizingClass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Buffer sizes for integrator inner loop calculations.</span>
+
+<span class="sd">    This class holds the sizes of all buffers used in the main integration</span>
+<span class="sd">    loop, including system state buffers and summary calculation buffers.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    state_summaries : int, default 1</span>
+<span class="sd">        Buffer size for state summary calculations.</span>
+<span class="sd">    observable_summaries : int, default 1</span>
+<span class="sd">        Buffer size for observable summary calculations.</span>
+<span class="sd">    state : int, default 1</span>
+<span class="sd">        Buffer size for current state values.</span>
+<span class="sd">    observables : int, default 1</span>
+<span class="sd">        Buffer size for current observable values.</span>
+<span class="sd">    dxdt : int, default 1</span>
+<span class="sd">        Buffer size for state derivatives.</span>
+<span class="sd">    parameters : int, default 1</span>
+<span class="sd">        Buffer size for system parameters.</span>
+<span class="sd">    drivers : int, default 1</span>
+<span class="sd">        Buffer size for external driving forces.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Combines system-based buffer sizes (state, dxdt, parameters) with</span>
+<span class="sd">    output-derived buffer sizes (summaries) to provide a complete view</span>
+<span class="sd">    of memory requirements for the integration loop.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">state_summaries</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">observable_summaries</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">state</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">observables</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">dxdt</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">parameters</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">drivers</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+
+<div class="viewcode-block" id="LoopBufferSizes.from_system_and_output_fns">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.LoopBufferSizes.from_system_and_output_fns">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_system_and_output_fns</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">system</span><span class="p">:</span> <span class="s2">&quot;BaseODE&quot;</span><span class="p">,</span>
+        <span class="n">output_fns</span><span class="p">:</span> <span class="s2">&quot;OutputFunctions&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;LoopBufferSizes&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create buffer sizes from system and output function objects.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        system : BaseODE</span>
+<span class="sd">            System model containing state and parameter dimensions.</span>
+<span class="sd">        output_fns : OutputFunctions</span>
+<span class="sd">            Output functions containing summary buffer requirements.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        LoopBufferSizes</span>
+<span class="sd">            Combined buffer sizes for the integration loop.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">summary_sizes</span> <span class="o">=</span> <span class="n">SummariesBufferSizes</span><span class="o">.</span><span class="n">from_output_fns</span><span class="p">(</span><span class="n">output_fns</span><span class="p">)</span>
+        <span class="n">system_sizes</span> <span class="o">=</span> <span class="n">system</span><span class="o">.</span><span class="n">sizes</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">summary_sizes</span><span class="o">.</span><span class="n">state</span><span class="p">,</span>
+            <span class="n">summary_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">drivers</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">obj</span></div>
+
+
+<div class="viewcode-block" id="LoopBufferSizes.from_solver">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.LoopBufferSizes.from_solver">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_solver</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">solver_instance</span><span class="p">:</span> <span class="s2">&quot;BatchSolverKernel&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;LoopBufferSizes&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create buffer sizes from a BatchSolverKernel object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        solver_instance : BatchSolverKernel</span>
+<span class="sd">            Solver instance containing system and output configuration.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        LoopBufferSizes</span>
+<span class="sd">            Buffer sizes extracted from the solver configuration.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">system_sizes</span> <span class="o">=</span> <span class="n">solver_instance</span><span class="o">.</span><span class="n">system_sizes</span>
+        <span class="n">summary_sizes</span> <span class="o">=</span> <span class="n">solver_instance</span><span class="o">.</span><span class="n">summaries_buffer_sizes</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">summary_sizes</span><span class="o">.</span><span class="n">state</span><span class="p">,</span>
+            <span class="n">summary_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span>
+            <span class="n">system_sizes</span><span class="o">.</span><span class="n">drivers</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="OutputArrayHeights">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.OutputArrayHeights">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">OutputArrayHeights</span><span class="p">(</span><span class="n">ArraySizingClass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Heights of output arrays for different variable types.</span>
+
+<span class="sd">    This class specifies the height (number of elements) required for</span>
+<span class="sd">    output arrays storing results from batch integrations.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    state : int, default 1</span>
+<span class="sd">        Height of state variable output arrays.</span>
+<span class="sd">    observables : int, default 1</span>
+<span class="sd">        Height of observable variable output arrays.</span>
+<span class="sd">    state_summaries : int, default 1</span>
+<span class="sd">        Height of state summary output arrays.</span>
+<span class="sd">    observable_summaries : int, default 1</span>
+<span class="sd">        Height of observable summary output arrays.</span>
+<span class="sd">    per_variable : int, default 1</span>
+<span class="sd">        Height per variable for summary outputs.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">state</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">observables</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">state_summaries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">observable_summaries</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">per_variable</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="p">)</span>
+
+<div class="viewcode-block" id="OutputArrayHeights.from_output_fns">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.OutputArrayHeights.from_output_fns">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_output_fns</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">output_fns</span><span class="p">:</span> <span class="s2">&quot;OutputFunctions&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;OutputArrayHeights&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create output array heights from an OutputFunctions object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_fns : OutputFunctions</span>
+<span class="sd">            Output functions object containing configuration information.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        OutputArrayHeights</span>
+<span class="sd">            Array heights calculated from the output configuration.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        The state height includes an extra element if time saving is enabled.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="n">output_fns</span><span class="o">.</span><span class="n">n_saved_states</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">*</span> <span class="n">output_fns</span><span class="o">.</span><span class="n">save_time</span>
+        <span class="n">observables</span> <span class="o">=</span> <span class="n">output_fns</span><span class="o">.</span><span class="n">n_saved_observables</span>
+        <span class="n">state_summaries</span> <span class="o">=</span> <span class="n">output_fns</span><span class="o">.</span><span class="n">state_summaries_output_height</span>
+        <span class="n">observable_summaries</span> <span class="o">=</span> <span class="n">output_fns</span><span class="o">.</span><span class="n">observable_summaries_output_height</span>
+        <span class="n">per_variable</span> <span class="o">=</span> <span class="n">output_fns</span><span class="o">.</span><span class="n">summaries_output_height_per_var</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">state</span><span class="p">,</span>
+            <span class="n">observables</span><span class="p">,</span>
+            <span class="n">state_summaries</span><span class="p">,</span>
+            <span class="n">observable_summaries</span><span class="p">,</span>
+            <span class="n">per_variable</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">obj</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="SingleRunOutputSizes">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.SingleRunOutputSizes">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SingleRunOutputSizes</span><span class="p">(</span><span class="n">ArraySizingClass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Output array sizes for a single integration run.</span>
+
+<span class="sd">    This class provides 2D array sizes (time × variable) for output arrays</span>
+<span class="sd">    from a single integration run.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    state : tuple[int, int], default (1, 1)</span>
+<span class="sd">        Shape of state output array as (time_samples, n_variables).</span>
+<span class="sd">    observables : tuple[int, int], default (1, 1)</span>
+<span class="sd">        Shape of observable output array as (time_samples, n_variables).</span>
+<span class="sd">    state_summaries : tuple[int, int], default (1, 1)</span>
+<span class="sd">        Shape of state summary array as (summary_samples, n_summaries).</span>
+<span class="sd">    observable_summaries : tuple[int, int], default (1, 1)</span>
+<span class="sd">        Shape of observable summary array as (summary_samples, n_summaries).</span>
+<span class="sd">    stride_order : tuple[str, ...], default (&quot;time&quot;, &quot;variable&quot;)</span>
+<span class="sd">        Order of dimensions in the arrays.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">state</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">observables</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">state_summaries</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">observable_summaries</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">stride_order</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">deep_iterable</span><span class="p">(</span>
+            <span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">in_</span><span class="p">([</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">])</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+<div class="viewcode-block" id="SingleRunOutputSizes.from_solver">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.SingleRunOutputSizes.from_solver">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_solver</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">solver_instance</span><span class="p">:</span> <span class="s2">&quot;BatchSolverKernel&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;SingleRunOutputSizes&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create output sizes from a BatchSolverKernel object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        solver_instance : BatchSolverKernel</span>
+<span class="sd">            Solver instance containing timing and output configuration.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SingleRunOutputSizes</span>
+<span class="sd">            Output array sizes for a single run.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">heights</span> <span class="o">=</span> <span class="n">solver_instance</span><span class="o">.</span><span class="n">output_array_heights</span>
+        <span class="n">output_samples</span> <span class="o">=</span> <span class="n">solver_instance</span><span class="o">.</span><span class="n">output_length</span>
+        <span class="n">summarise_samples</span> <span class="o">=</span> <span class="n">solver_instance</span><span class="o">.</span><span class="n">summaries_length</span>
+
+        <span class="n">state</span> <span class="o">=</span> <span class="p">(</span><span class="n">output_samples</span><span class="p">,</span> <span class="n">heights</span><span class="o">.</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">observables</span> <span class="o">=</span> <span class="p">(</span><span class="n">output_samples</span><span class="p">,</span> <span class="n">heights</span><span class="o">.</span><span class="n">observables</span><span class="p">)</span>
+        <span class="n">state_summaries</span> <span class="o">=</span> <span class="p">(</span><span class="n">summarise_samples</span><span class="p">,</span> <span class="n">heights</span><span class="o">.</span><span class="n">state_summaries</span><span class="p">)</span>
+        <span class="n">observable_summaries</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">summarise_samples</span><span class="p">,</span>
+            <span class="n">heights</span><span class="o">.</span><span class="n">observable_summaries</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">state</span><span class="p">,</span>
+            <span class="n">observables</span><span class="p">,</span>
+            <span class="n">state_summaries</span><span class="p">,</span>
+            <span class="n">observable_summaries</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">obj</span></div>
+
+
+<div class="viewcode-block" id="SingleRunOutputSizes.from_output_fns_and_run_settings">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.SingleRunOutputSizes.from_output_fns_and_run_settings">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_output_fns_and_run_settings</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">output_fns</span><span class="p">,</span> <span class="n">run_settings</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create output sizes from output functions and run settings.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        output_fns : OutputFunctions</span>
+<span class="sd">            Output functions containing variable configuration.</span>
+<span class="sd">        run_settings : IntegratorRunSettings</span>
+<span class="sd">            Run settings containing timing information.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SingleRunOutputSizes</span>
+<span class="sd">            Output array sizes for a single run.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        This method is primarily used for testing. In normal operation,</span>
+<span class="sd">        the from_solver method is preferred.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">heights</span> <span class="o">=</span> <span class="n">OutputArrayHeights</span><span class="o">.</span><span class="n">from_output_fns</span><span class="p">(</span><span class="n">output_fns</span><span class="p">)</span>
+        <span class="n">output_samples</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span>
+            <span class="n">ceil</span><span class="p">(</span><span class="n">run_settings</span><span class="o">.</span><span class="n">duration</span> <span class="o">/</span> <span class="n">run_settings</span><span class="o">.</span><span class="n">dt_save</span><span class="p">)</span>
+        <span class="p">)</span>
+        <span class="n">summarise_samples</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span>
+            <span class="n">ceil</span><span class="p">(</span><span class="n">run_settings</span><span class="o">.</span><span class="n">duration</span> <span class="o">/</span> <span class="n">run_settings</span><span class="o">.</span><span class="n">dt_summarise</span><span class="p">)</span>
+        <span class="p">)</span>
+
+        <span class="n">state</span> <span class="o">=</span> <span class="p">(</span><span class="n">output_samples</span><span class="p">,</span> <span class="n">heights</span><span class="o">.</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">observables</span> <span class="o">=</span> <span class="p">(</span><span class="n">output_samples</span><span class="p">,</span> <span class="n">heights</span><span class="o">.</span><span class="n">observables</span><span class="p">)</span>
+        <span class="n">state_summaries</span> <span class="o">=</span> <span class="p">(</span><span class="n">summarise_samples</span><span class="p">,</span> <span class="n">heights</span><span class="o">.</span><span class="n">state_summaries</span><span class="p">)</span>
+        <span class="n">observable_summaries</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">summarise_samples</span><span class="p">,</span>
+            <span class="n">heights</span><span class="o">.</span><span class="n">observable_summaries</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">state</span><span class="p">,</span>
+            <span class="n">observables</span><span class="p">,</span>
+            <span class="n">state_summaries</span><span class="p">,</span>
+            <span class="n">observable_summaries</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">obj</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="BatchInputSizes">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.BatchInputSizes">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">BatchInputSizes</span><span class="p">(</span><span class="n">ArraySizingClass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Input array sizes for batch integration runs.</span>
+
+<span class="sd">    This class specifies the sizes of input arrays needed for batch</span>
+<span class="sd">    processing, including initial conditions, parameters, and forcing terms.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    initial_values : tuple[int, int], default (1, 1)</span>
+<span class="sd">        Shape of initial values array as (n_runs, n_states).</span>
+<span class="sd">    parameters : tuple[int, int], default (1, 1)</span>
+<span class="sd">        Shape of parameters array as (n_runs, n_parameters).</span>
+<span class="sd">    forcing_vectors : tuple[int, int or None], default (1, None)</span>
+<span class="sd">        Shape of forcing vectors array as (n_drivers, time_steps).</span>
+<span class="sd">    stride_order : tuple[str, ...], default (&quot;run&quot;, &quot;variable&quot;)</span>
+<span class="sd">        Order of dimensions in the input arrays.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">initial_values</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">parameters</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">forcing_vectors</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+
+    <span class="n">stride_order</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">deep_iterable</span><span class="p">(</span>
+            <span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">in_</span><span class="p">([</span><span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">])</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+<div class="viewcode-block" id="BatchInputSizes.from_solver">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.BatchInputSizes.from_solver">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_solver</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">solver_instance</span><span class="p">:</span> <span class="s2">&quot;BatchSolverKernel&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;BatchInputSizes&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create input array sizes from a BatchSolverKernel object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        solver_instance : BatchSolverKernel</span>
+<span class="sd">            Solver instance containing batch and system configuration.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        BatchInputSizes</span>
+<span class="sd">            Input array sizes for the batch run.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">loopBufferSizes</span> <span class="o">=</span> <span class="n">LoopBufferSizes</span><span class="o">.</span><span class="n">from_solver</span><span class="p">(</span><span class="n">solver_instance</span><span class="p">)</span>
+        <span class="n">num_runs</span> <span class="o">=</span> <span class="n">solver_instance</span><span class="o">.</span><span class="n">num_runs</span>
+        <span class="n">initial_values</span> <span class="o">=</span> <span class="p">(</span><span class="n">num_runs</span><span class="p">,</span> <span class="n">loopBufferSizes</span><span class="o">.</span><span class="n">state</span><span class="p">)</span>
+        <span class="n">parameters</span> <span class="o">=</span> <span class="p">(</span><span class="n">num_runs</span><span class="p">,</span> <span class="n">loopBufferSizes</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span>
+        <span class="n">forcing_vectors</span> <span class="o">=</span> <span class="p">(</span><span class="n">loopBufferSizes</span><span class="o">.</span><span class="n">drivers</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span><span class="n">initial_values</span><span class="p">,</span> <span class="n">parameters</span><span class="p">,</span> <span class="n">forcing_vectors</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">obj</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="BatchOutputSizes">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.BatchOutputSizes">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">BatchOutputSizes</span><span class="p">(</span><span class="n">ArraySizingClass</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Output array sizes for batch integration runs.</span>
+
+<span class="sd">    This class provides 3D array sizes (time × run × variable) for output</span>
+<span class="sd">    arrays from batch integration runs.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    state : tuple[int, int, int], default (1, 1, 1)</span>
+<span class="sd">        Shape of state output array as (time_samples, n_runs,</span>
+<span class="sd">         n_variables).</span>
+<span class="sd">    observables : tuple[int, int, int], default (1, 1, 1)</span>
+<span class="sd">        Shape of observable output array as (time_samples, n_runs,</span>
+<span class="sd">        n_variables).</span>
+<span class="sd">    state_summaries : tuple[int, int, int], default (1, 1, 1)</span>
+<span class="sd">        Shape of state summary array as (summary_samples, n_runs,</span>
+<span class="sd">        n_summaries).</span>
+<span class="sd">    observable_summaries : tuple[int, int, int], default (1, 1, 1)</span>
+<span class="sd">        Shape of observable summary array as (summary_samples, n_runs,</span>
+<span class="sd">        n_summaries).</span>
+<span class="sd">    stride_order : tuple[str, ...], default (&quot;time&quot;, &quot;run&quot;, &quot;variable&quot;)</span>
+<span class="sd">        Order of dimensions in the output arrays.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">state</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">observables</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">state_summaries</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">observable_summaries</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">Tuple</span><span class="p">)</span>
+    <span class="p">)</span>
+    <span class="n">stride_order</span><span class="p">:</span> <span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">deep_iterable</span><span class="p">(</span>
+            <span class="n">attrs</span><span class="o">.</span><span class="n">validators</span><span class="o">.</span><span class="n">in_</span><span class="p">([</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">])</span>
+        <span class="p">),</span>
+    <span class="p">)</span>
+
+<div class="viewcode-block" id="BatchOutputSizes.from_solver">
+<a class="viewcode-back" href="../../../api/generated/cubie.outputhandling.output_sizes.html#cubie.outputhandling.output_sizes.BatchOutputSizes.from_solver">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_solver</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span> <span class="n">solver_instance</span><span class="p">:</span> <span class="s2">&quot;BatchSolverKernel&quot;</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;BatchOutputSizes&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create batch output sizes from a BatchSolverKernel object.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        solver_instance : BatchSolverKernel</span>
+<span class="sd">            Solver instance containing batch and output configuration.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        BatchOutputSizes</span>
+<span class="sd">            Output array sizes for the batch run.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Constructs 3D array sizes by combining single run sizes with</span>
+<span class="sd">        the number of runs in the batch.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">single_run_sizes</span> <span class="o">=</span> <span class="n">SingleRunOutputSizes</span><span class="o">.</span><span class="n">from_solver</span><span class="p">(</span><span class="n">solver_instance</span><span class="p">)</span>
+        <span class="n">num_runs</span> <span class="o">=</span> <span class="n">solver_instance</span><span class="o">.</span><span class="n">num_runs</span>
+        <span class="n">state</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">single_run_sizes</span><span class="o">.</span><span class="n">state</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="n">num_runs</span><span class="p">,</span>
+            <span class="n">single_run_sizes</span><span class="o">.</span><span class="n">state</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">observables</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">single_run_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="n">num_runs</span><span class="p">,</span>
+            <span class="n">single_run_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">state_summaries</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">single_run_sizes</span><span class="o">.</span><span class="n">state_summaries</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="n">num_runs</span><span class="p">,</span>
+            <span class="n">single_run_sizes</span><span class="o">.</span><span class="n">state_summaries</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">observable_summaries</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">single_run_sizes</span><span class="o">.</span><span class="n">observable_summaries</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="n">num_runs</span><span class="p">,</span>
+            <span class="n">single_run_sizes</span><span class="o">.</span><span class="n">observable_summaries</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">state</span><span class="p">,</span>
+            <span class="n">observables</span><span class="p">,</span>
+            <span class="n">state_summaries</span><span class="p">,</span>
+            <span class="n">observable_summaries</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">obj</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,13 @@
+cubie.outputhandling.save\_summaries
+====================================
+
+.. automodule:: cubie.outputhandling.save_summaries
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      chain_metrics
+      save_summary_factory
+   

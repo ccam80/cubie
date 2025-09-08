@@ -1,0 +1,711 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.SingleIntegratorRun &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.integrators.SingleIntegratorRun</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.integrators.SingleIntegratorRun</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Single integrator run coordination for CUDA-based ODE solving.</span>
+
+<span class="sd">This module provides the SingleIntegratorRun class which coordinates the</span>
+<span class="sd">low-level CUDA machinery to create device functions for running individual</span>
+<span class="sd">ODE integration runs. It handles dependency injection to integrator loop</span>
+<span class="sd">algorithms and manages light-weight caching to ensure changes in subfunctions</span>
+<span class="sd">are properly communicated.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayLike</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie._utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">in_attr</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.algorithms</span><span class="w"> </span><span class="kn">import</span> <span class="n">ImplementedAlgorithms</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.IntegratorRunSettings</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntegratorRunSettings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.outputhandling.output_functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">OutputFunctions</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.outputhandling.output_sizes</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoopBufferSizes</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.ODEData</span><span class="w"> </span><span class="kn">import</span> <span class="n">SystemSizes</span>
+
+
+<div class="viewcode-block" id="SingleIntegratorRun">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRun.html#cubie.integrators.SingleIntegratorRun.SingleIntegratorRun">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">SingleIntegratorRun</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Coordinates low-level CUDA machinery for single ODE integration runs.</span>
+
+<span class="sd">    This class presents the interface to lower-level CUDA code and performs</span>
+<span class="sd">    dependency injection to integrator loop algorithms. It contains light-weight</span>
+<span class="sd">    cache management to ensure that changes in one subfunction are communicated</span>
+<span class="sd">    to others, but does not inherit from CUDAFactory as it performs a different</span>
+<span class="sd">    role than other factory classes.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    system : BaseODE object</span>
+<span class="sd">        The ODE system to integrate.</span>
+<span class="sd">    algorithm : str, default=&#39;euler&#39;</span>
+<span class="sd">        Name of the integration algorithm to use.</span>
+<span class="sd">    dt_min : float, default=0.01</span>
+<span class="sd">        Minimum time step size.</span>
+<span class="sd">    dt_max : float, default=0.1</span>
+<span class="sd">        Maximum time step size.</span>
+<span class="sd">    dt_save : float, default=0.1</span>
+<span class="sd">        Time interval between saved outputs.</span>
+<span class="sd">    dt_summarise : float, default=1.0</span>
+<span class="sd">        Time interval between summary calculations.</span>
+<span class="sd">    atol : float, default=1e-6</span>
+<span class="sd">        Absolute tolerance for integration.</span>
+<span class="sd">    rtol : float, default=1e-6</span>
+<span class="sd">        Relative tolerance for integration.</span>
+<span class="sd">    saved_state_indices : ArrayLike, optional</span>
+<span class="sd">        Indices of states to save during integration.</span>
+<span class="sd">    saved_observable_indices : ArrayLike, optional</span>
+<span class="sd">        Indices of observables to save during integration.</span>
+<span class="sd">    summarised_state_indices : ArrayLike, optional</span>
+<span class="sd">        Indices of states to summarise during integration.</span>
+<span class="sd">    summarised_observable_indices : ArrayLike, optional</span>
+<span class="sd">        Indices of observables to summarise during integration.</span>
+<span class="sd">    output_types : list of str or tuple of str, optional</span>
+<span class="sd">        Types of outputs to generate.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    This class handles modifications that invalidate the currently compiled</span>
+<span class="sd">    loop, including:</span>
+
+<span class="sd">    - Changes to system constants (compiled-in parameters)</span>
+<span class="sd">    - Changes to loop outputs (adding/removing output types, summary types)</span>
+<span class="sd">    - Changes to algorithm parameters (step size, tolerances, algorithm type)</span>
+
+<span class="sd">    The class maintains a list of currently implemented algorithms accessible</span>
+<span class="sd">    through the ImplementedAlgorithms registry. Additional algorithms can be</span>
+<span class="sd">    added by subclassing GenericIntegratorAlgorithm.</span>
+
+<span class="sd">    This class is not typically exposed to users directly - the user-facing</span>
+<span class="sd">    API is through the Solver class which handles batching and memory management.</span>
+
+<span class="sd">    All device functions maintain a local cache of their output functions</span>
+<span class="sd">    and compile-sensitive attributes, and will invalidate and rebuild if any</span>
+<span class="sd">    of these are updated.</span>
+
+<span class="sd">    See Also</span>
+<span class="sd">    --------</span>
+<span class="sd">    IntegratorRunSettings : Runtime configuration settings</span>
+<span class="sd">    ImplementedAlgorithms : Registry of available integration algorithms</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">system</span><span class="p">,</span>
+        <span class="n">algorithm</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;euler&quot;</span><span class="p">,</span>
+        <span class="n">dt_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">dt_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+        <span class="n">dt_save</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+        <span class="n">dt_summarise</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">atol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+        <span class="n">rtol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+        <span class="n">saved_state_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ArrayLike</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">saved_observable_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ArrayLike</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">summarised_state_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ArrayLike</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">summarised_observable_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ArrayLike</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">output_types</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">):</span>
+        <span class="c1"># Store the system</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_system</span> <span class="o">=</span> <span class="n">system</span>
+        <span class="n">system_sizes</span> <span class="o">=</span> <span class="n">system</span><span class="o">.</span><span class="n">sizes</span>
+
+        <span class="c1"># Initialize output functions with shapes from system</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span> <span class="o">=</span> <span class="n">OutputFunctions</span><span class="p">(</span>
+            <span class="n">max_states</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+            <span class="n">max_observables</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">output_types</span><span class="o">=</span><span class="n">output_types</span><span class="p">,</span>
+            <span class="n">saved_state_indices</span><span class="o">=</span><span class="n">saved_state_indices</span><span class="p">,</span>
+            <span class="n">saved_observable_indices</span><span class="o">=</span><span class="n">saved_observable_indices</span><span class="p">,</span>
+            <span class="n">summarised_state_indices</span><span class="o">=</span><span class="n">summarised_state_indices</span><span class="p">,</span>
+            <span class="n">summarised_observable_indices</span><span class="o">=</span><span class="n">summarised_observable_indices</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">compile_settings</span> <span class="o">=</span> <span class="n">IntegratorRunSettings</span><span class="p">(</span>
+            <span class="n">dt_min</span><span class="o">=</span><span class="n">dt_min</span><span class="p">,</span>
+            <span class="n">dt_max</span><span class="o">=</span><span class="n">dt_max</span><span class="p">,</span>
+            <span class="n">dt_save</span><span class="o">=</span><span class="n">dt_save</span><span class="p">,</span>
+            <span class="n">dt_summarise</span><span class="o">=</span><span class="n">dt_summarise</span><span class="p">,</span>
+            <span class="n">atol</span><span class="o">=</span><span class="n">atol</span><span class="p">,</span>
+            <span class="n">rtol</span><span class="o">=</span><span class="n">rtol</span><span class="p">,</span>
+            <span class="n">output_types</span><span class="o">=</span><span class="n">output_types</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">compile_settings</span>
+
+        <span class="c1"># Instantiate algorithm with info from system and output functions</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">algorithm_key</span> <span class="o">=</span> <span class="n">algorithm</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="n">algorithm</span> <span class="o">=</span> <span class="n">ImplementedAlgorithms</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">algorithm_key</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_integrator_instance</span> <span class="o">=</span> <span class="n">algorithm</span><span class="o">.</span><span class="n">from_single_integrator_run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_compiled_loop</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop_cache_valid</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">loop_buffer_sizes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get buffer sizes required for the integration loop.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        LoopBufferSizes</span>
+<span class="sd">            Buffer size configuration for the integration loop.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">LoopBufferSizes</span><span class="o">.</span><span class="n">from_system_and_output_fns</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span>
+        <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">output_array_heights</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the heights of output arrays.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        OutputArrayHeights</span>
+<span class="sd">            Output array height configuration from the OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">output_array_heights</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">summaries_buffer_sizes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get buffer sizes for summary calculations.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SummaryBufferSizes</span>
+<span class="sd">            Summary buffer size configuration from the OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">summaries_buffer_sizes</span>
+
+<div class="viewcode-block" id="SingleIntegratorRun.update">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRun.html#cubie.integrators.SingleIntegratorRun.SingleIntegratorRun.update">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">updates_dict</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Update parameters across all components.</span>
+
+<span class="sd">        This method sends all parameters to all child components with</span>
+<span class="sd">        silent=True to avoid spurious warnings, then checks if any parameters</span>
+<span class="sd">        were not recognized by any component.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        updates_dict : dict, optional</span>
+<span class="sd">            Dictionary of parameters to update.</span>
+<span class="sd">        silent : bool, default=False</span>
+<span class="sd">            If True, suppress warnings about unrecognized parameters.</span>
+<span class="sd">        **kwargs</span>
+<span class="sd">            Parameter updates to apply as keyword arguments.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        set</span>
+<span class="sd">            Set of parameter names that were recognized and updated.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            If parameters are not recognized by any component and silent=False.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="o">==</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="o">==</span> <span class="p">{}:</span>
+            <span class="k">return</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="n">all_unrecognized</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">recognized</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="c1"># Update anything held in the config object (step sizes, etc)</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">in_attr</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">):</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+                <span class="n">recognized</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="s2">&quot;algorithm&quot;</span> <span class="ow">in</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="c1"># If the algorithm is being updated, we need to reset the</span>
+            <span class="c1"># integrator instance</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">algorithm_key</span> <span class="o">=</span> <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;algorithm&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">algorithm</span> <span class="o">=</span> <span class="n">ImplementedAlgorithms</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">algorithm_key</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_integrator_instance</span> <span class="o">=</span> <span class="n">algorithm</span><span class="o">.</span><span class="n">from_single_integrator_run</span><span class="p">(</span>
+                <span class="bp">self</span>
+            <span class="p">)</span>
+            <span class="n">recognized</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s2">&quot;algorithm&quot;</span><span class="p">)</span>
+
+        <span class="n">recognized</span> <span class="o">|=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">recognized</span> <span class="o">|=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="n">cached_loop_updates</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;dxdt_function&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">dxdt_function</span><span class="p">,</span>
+            <span class="s2">&quot;save_state_func&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">save_state_func</span><span class="p">,</span>
+            <span class="s2">&quot;update_summaries_func&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">update_summaries_func</span><span class="p">,</span>
+            <span class="s2">&quot;save_summaries_func&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">save_summaries_func</span><span class="p">,</span>
+            <span class="s2">&quot;buffer_sizes&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">loop_buffer_sizes</span><span class="p">,</span>
+            <span class="s2">&quot;loop_step_config&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">loop_step_config</span><span class="p">,</span>
+            <span class="s2">&quot;precision&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+            <span class="s2">&quot;compile_flags&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile_flags</span><span class="p">,</span>
+        <span class="p">}</span>
+
+        <span class="n">recognized</span> <span class="o">|=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_integrator_instance</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+            <span class="n">cached_loop_updates</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        <span class="n">all_unrecognized</span> <span class="o">-=</span> <span class="n">recognized</span>
+
+        <span class="k">if</span> <span class="n">all_unrecognized</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">silent</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;The following updates were not recognized by any &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;component:&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot; </span><span class="si">{</span><span class="n">all_unrecognized</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span>
+                <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">validate_settings</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_invalidate_cache</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">recognized</span></div>
+
+
+<div class="viewcode-block" id="SingleIntegratorRun._invalidate_cache">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRun.html#cubie.integrators.SingleIntegratorRun.SingleIntegratorRun._invalidate_cache">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_invalidate_cache</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Invalidate the compiled loop cache.</span>
+
+<span class="sd">        Marks the current compiled loop as invalid, forcing a rebuild</span>
+<span class="sd">        on the next access.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop_cache_valid</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_compiled_loop</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="SingleIntegratorRun.build">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRun.html#cubie.integrators.SingleIntegratorRun.SingleIntegratorRun.build">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Build the complete integrator loop.</span>
+
+<span class="sd">        Compiles the integrator loop device function and updates the cache.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        CUDA device function</span>
+<span class="sd">            The compiled loop device function.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># Update with latest function references</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_compiled_loop</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_integrator_instance</span><span class="o">.</span><span class="n">device_function</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop_cache_valid</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compiled_loop</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">device_function</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the compiled loop function, building if necessary.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        CUDA device function</span>
+<span class="sd">            The compiled CUDA device function for the integration loop.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop_cache_valid</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compiled_loop</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compiled_loop</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">cache_valid</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check if the compiled loop is current.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        bool</span>
+<span class="sd">            True if the cached loop is valid, False otherwise.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop_cache_valid</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">shared_memory_elements</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the number of shared memory elements required for integration.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of elements of shared memory required for a single</span>
+<span class="sd">            integrator run.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_valid</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+        <span class="n">loop_memory</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_integrator_instance</span><span class="o">.</span><span class="n">shared_memory_required</span>
+        <span class="n">summary_buffers</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">total_summary_buffer_size</span>
+        <span class="n">total_elements</span> <span class="o">=</span> <span class="n">loop_memory</span> <span class="o">+</span> <span class="n">summary_buffers</span>
+
+        <span class="k">return</span> <span class="n">total_elements</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">shared_memory_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the number of bytes of dynamic shared memory required.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of bytes of dynamic shared memory required for a single</span>
+<span class="sd">            integrator run.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">cache_valid</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">build</span><span class="p">()</span>
+        <span class="n">datasize</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span><span class="o">.</span><span class="n">nbytes</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">shared_memory_elements</span> <span class="o">*</span> <span class="n">datasize</span>
+
+    <span class="c1"># Reach through this interface class to get lower level features:</span>
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">precision</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the numerical precision type from the system.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        type</span>
+<span class="sd">            Numerical precision type (e.g., float32, float64) from the</span>
+<span class="sd">            child BaseODE object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">precision</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">threads_per_loop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the number of threads required by the loop algorithm.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            Number of threads per loop from the child GenericIntegratorAlgorithm</span>
+<span class="sd">            object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_integrator_instance</span><span class="o">.</span><span class="n">threads_per_loop</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dxdt_function</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the derivative function from the system.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        callable</span>
+<span class="sd">            The dxdt function from the child BaseODE object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">dxdt_function</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">save_state_func</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the state saving function.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        callable</span>
+<span class="sd">            State saving function from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">save_state_func</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update_summaries_func</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the summary update function.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        callable</span>
+<span class="sd">            Summary update function from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">update_summaries_func</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">save_summaries_func</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the summary saving function.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        callable</span>
+<span class="sd">            Summary saving function from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">save_summary_metrics_func</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">loop_step_config</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the loop step configuration.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        LoopStepConfig</span>
+<span class="sd">            Step configuration object for the integration loop.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">loop_step_config</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">fixed_step_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the fixed step size for integration.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            Fixed step size from the child GenericIntegratorAlgorithm object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_integrator_instance</span><span class="o">.</span><span class="n">fixed_step_size</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dt_save</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the time step size for saving states and observables.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            Time interval between saved outputs.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">dt_save</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">dt_summarise</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the time step size for summarising states and observables.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        float</span>
+<span class="sd">            Time interval between summary calculations.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">dt_summarise</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">system_sizes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SystemSizes</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the system size information.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SystemSizes</span>
+<span class="sd">            Size information from the child BaseODE object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">sizes</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">compile_flags</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the compilation flags for output functions.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        object</span>
+<span class="sd">            Compilation flags from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">compile_flags</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">output_types</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the configured output types.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        list</span>
+<span class="sd">            List of output types from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">output_types</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">summary_legend_per_variable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the summary legend for each variable.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        object</span>
+<span class="sd">            Summary legend mapping from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">summary_legend_per_variable</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">saved_state_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get indices of states to save.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ArrayLike</span>
+<span class="sd">            Indices of states to save from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">saved_state_indices</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">saved_observable_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get indices of observables to save.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ArrayLike</span>
+<span class="sd">            Indices of observables to save from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">saved_observable_indices</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">summarised_state_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get indices of states to summarise.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ArrayLike</span>
+<span class="sd">            Indices of states to summarise from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">summarised_state_indices</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">summarised_observable_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get indices of observables to summarise.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ArrayLike</span>
+<span class="sd">            Indices of observables to summarise from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">summarised_observable_indices</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">save_time</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get whether time values should be saved.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        bool</span>
+<span class="sd">            True if time should be saved, from the child OutputFunctions object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">save_time</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">system</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the ODE system object.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        object</span>
+<span class="sd">            The child BaseODE system object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

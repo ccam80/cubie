@@ -1,0 +1,183 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.odesystems.symbolic.cellml" href="cubie.odesystems.symbolic.cellml.html" />
+    <link rel="prev" title="cubie.odesystems.baseODE" href="cubie.odesystems.baseODE.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.Decays"><code class="docutils literal notranslate"><span class="pre">Decays</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.SymbolicODE"><code class="docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.ThreeChamberModel"><code class="docutils literal notranslate"><span class="pre">ThreeChamberModel</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.create_ODE_system"><code class="docutils literal notranslate"><span class="pre">create_ODE_system()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.ODEData.html">cubie.odesystems.ODEData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.SystemValues.html">cubie.odesystems.SystemValues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.baseODE.html">cubie.odesystems.baseODE</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">cubie.odesystems.symbolic</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.cellml.html">cubie.odesystems.symbolic.cellml</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.dxdt.html">cubie.odesystems.symbolic.dxdt</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html">cubie.odesystems.symbolic.indexedbasemaps</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.jacobian.html">cubie.odesystems.symbolic.jacobian</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.numba_cuda_printer.html">cubie.odesystems.symbolic.numba_cuda_printer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.odefile.html">cubie.odesystems.symbolic.odefile</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.parser.html">cubie.odesystems.symbolic.parser</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.solver_helpers.html">cubie.odesystems.symbolic.solver_helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.sym_utils.html">cubie.odesystems.symbolic.sym_utils</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.symbolicODE.html">cubie.odesystems.symbolic.symbolicODE</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.systems.html">cubie.odesystems.systems</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.odesystems.html">cubie.odesystems</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.odesystems.symbolic.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.odesystems.symbolic">
+<span id="cubie-odesystems-symbolic"></span><h1>cubie.odesystems.symbolic<a class="headerlink" href="#module-cubie.odesystems.symbolic" title="Link to this heading"></a></h1>
+<p>Symbolic system building utilities.</p>
+<p class="rubric">Modules</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.cellml.html#module-cubie.odesystems.symbolic.cellml" title="cubie.odesystems.symbolic.cellml"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cellml</span></code></a></p></td>
+<td><p>Minimal CellML parsing helpers using <code class="docutils literal notranslate"><span class="pre">cellmlmanip</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.dxdt.html#module-cubie.odesystems.symbolic.dxdt" title="cubie.odesystems.symbolic.dxdt"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dxdt</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html#module-cubie.odesystems.symbolic.indexedbasemaps" title="cubie.odesystems.symbolic.indexedbasemaps"><code class="xref py py-obj docutils literal notranslate"><span class="pre">indexedbasemaps</span></code></a></p></td>
+<td><p>Indexed base mapping classes for symbolic ODE definitions.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.jacobian.html#module-cubie.odesystems.symbolic.jacobian" title="cubie.odesystems.symbolic.jacobian"><code class="xref py py-obj docutils literal notranslate"><span class="pre">jacobian</span></code></a></p></td>
+<td><p>Utilities for symbolic Jacobian computation.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.numba_cuda_printer.html#module-cubie.odesystems.symbolic.numba_cuda_printer" title="cubie.odesystems.symbolic.numba_cuda_printer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numba_cuda_printer</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.odefile.html#module-cubie.odesystems.symbolic.odefile" title="cubie.odesystems.symbolic.odefile"><code class="xref py py-obj docutils literal notranslate"><span class="pre">odefile</span></code></a></p></td>
+<td><p>Utilities for generating Python functions from SymPy code.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.parser.html#module-cubie.odesystems.symbolic.parser" title="cubie.odesystems.symbolic.parser"><code class="xref py py-obj docutils literal notranslate"><span class="pre">parser</span></code></a></p></td>
+<td><p>Parsing helpers for symbolic ODE definitions.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.solver_helpers.html#module-cubie.odesystems.symbolic.solver_helpers" title="cubie.odesystems.symbolic.solver_helpers"><code class="xref py py-obj docutils literal notranslate"><span class="pre">solver_helpers</span></code></a></p></td>
+<td><p>Code generation for the linear operator <code class="docutils literal notranslate"><span class="pre">β·M·v</span> <span class="pre">−</span> <span class="pre">γ·h·J·v</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.sym_utils.html#module-cubie.odesystems.symbolic.sym_utils" title="cubie.odesystems.symbolic.sym_utils"><code class="xref py py-obj docutils literal notranslate"><span class="pre">sym_utils</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="cubie.odesystems.symbolic.symbolicODE.html#module-cubie.odesystems.symbolic.symbolicODE" title="cubie.odesystems.symbolic.symbolicODE"><code class="xref py py-obj docutils literal notranslate"><span class="pre">symbolicODE</span></code></a></p></td>
+<td><p>Symbolic ODE system built from <code class="xref py py-mod docutils literal notranslate"><span class="pre">sympy</span></code> expressions.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.odesystems.baseODE.html" class="btn btn-neutral float-left" title="cubie.odesystems.baseODE" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.odesystems.symbolic.cellml.html" class="btn btn-neutral float-right" title="cubie.odesystems.symbolic.cellml" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

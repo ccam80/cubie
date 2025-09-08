@@ -1,0 +1,13 @@
+cubie.odesystems.ODEData
+========================
+
+.. automodule:: cubie.odesystems.ODEData
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      ODEData
+      SystemSizes
+   

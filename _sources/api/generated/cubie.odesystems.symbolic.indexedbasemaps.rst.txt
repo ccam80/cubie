@@ -1,0 +1,13 @@
+cubie.odesystems.symbolic.indexedbasemaps
+=========================================
+
+.. automodule:: cubie.odesystems.symbolic.indexedbasemaps
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      IndexedBaseMap
+      IndexedBases
+   

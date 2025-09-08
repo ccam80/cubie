@@ -1,0 +1,19 @@
+﻿cubie.batchsolving
+==================
+
+.. automodule:: cubie.batchsolving
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   BatchGridBuilder
+   BatchSolverConfig
+   BatchSolverKernel
+   SystemInterface
+   arrays
+   solver
+   solveresult

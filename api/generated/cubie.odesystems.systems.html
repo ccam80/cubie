@@ -1,0 +1,348 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.systems &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.odesystems.systems.decays" href="cubie.odesystems.systems.decays.html" />
+    <link rel="prev" title="cubie.odesystems.symbolic.symbolicODE" href="cubie.odesystems.symbolic.symbolicODE.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.Decays"><code class="docutils literal notranslate"><span class="pre">Decays</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.SymbolicODE"><code class="docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.ThreeChamberModel"><code class="docutils literal notranslate"><span class="pre">ThreeChamberModel</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.create_ODE_system"><code class="docutils literal notranslate"><span class="pre">create_ODE_system()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.ODEData.html">cubie.odesystems.ODEData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.SystemValues.html">cubie.odesystems.SystemValues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.baseODE.html">cubie.odesystems.baseODE</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.symbolic.html">cubie.odesystems.symbolic</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">cubie.odesystems.systems</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.odesystems.systems.Decays"><code class="docutils literal notranslate"><span class="pre">Decays</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.odesystems.systems.ThreeChamberModel"><code class="docutils literal notranslate"><span class="pre">ThreeChamberModel</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.systems.decays.html">cubie.odesystems.systems.decays</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.systems.threeCM.html">cubie.odesystems.systems.threeCM</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.odesystems.html">cubie.odesystems</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.systems</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.odesystems.systems.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.odesystems.systems">
+<span id="cubie-odesystems-systems"></span><h1>cubie.odesystems.systems<a class="headerlink" href="#module-cubie.odesystems.systems" title="Link to this heading"></a></h1>
+<p>ODE system implementations with CUDA support.</p>
+<p>This module contains specific implementations of ordinary differential equation
+systems that can be compiled and executed on CUDA devices.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.odesystems.systems.Decays">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.odesystems.systems.</span></span><span class="sig-name descname"><span class="pre">Decays</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">precision=&lt;class</span> <span class="pre">'numpy.float64'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/systems/decays.html#Decays"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.systems.Decays" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="cubie.odesystems.baseODE.html#cubie.odesystems.baseODE.BaseODE" title="cubie.odesystems.baseODE.BaseODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseODE</span></code></a></p>
+<p>Exponential decay system for testing purposes.</p>
+<p>A system where each state variable decays exponentially at a rate
+proportional to its position. Observables are the same as state variables
+* parameters (coefficients) + index.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>precision</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><em>numpy.dtype</em></a><em>, </em><em>optional</em>) – Data type for calculations, by default np.float64.</p></li>
+<li><p><strong>**kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a>) – Must contain ‘coefficients’ key with list of decay coefficients.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>If coefficients = [c1, c2, c3], then the system will have three state
+variables x0, x1, x2, and:</p>
+<p>dx[0] = -x[0]/1,
+dx[1] = x[1]/2,
+dx[2] = x[2]/3</p>
+<p>obs[0] = dx[0]*c1 + 1 + step_count,
+obs[1] = dx[1]*c2 + 2 + step_count,
+obs[2] = dx[2]*c3 + 3 + step_count.</p>
+<p>Really just exists for testing.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.systems.Decays.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">precision=&lt;class</span> <span class="pre">'numpy.float64'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">**kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/systems/decays.html#Decays.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.systems.Decays.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize the decay system.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>precision</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><em>numpy.dtype</em></a><em>, </em><em>optional</em>) – Data type for calculations, by default np.float64.</p></li>
+<li><p><strong>**kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a>) – Must contain ‘coefficients’ key with list of decay coefficients.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.systems.Decays.build">
+<span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/systems/decays.html#Decays.build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.systems.Decays.build" title="Link to this definition"></a></dt>
+<dd><p>Build the CUDA device function for the decay system.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Compiled CUDA device function implementing the decay dynamics.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>function</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.systems.Decays.correct_answer_python">
+<span class="sig-name descname"><span class="pre">correct_answer_python</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">states</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">drivers</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/systems/decays.html#Decays.correct_answer_python"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.systems.Decays.correct_answer_python" title="Link to this definition"></a></dt>
+<dd><p>Python testing function.</p>
+<p>Do it in python and compare results with CUDA implementation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>states</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><em>numpy.ndarray</em></a>) – Current state values.</p></li>
+<li><p><strong>parameters</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><em>numpy.ndarray</em></a>) – Parameter values.</p></li>
+<li><p><strong>drivers</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><em>numpy.ndarray</em></a>) – Driver values.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A tuple containing (dxdt, observables) arrays.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a> of <a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)">numpy.ndarray</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.odesystems.systems.ThreeChamberModel">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.odesystems.systems.</span></span><span class="sig-name descname"><span class="pre">ThreeChamberModel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">initial_values=None,</span> <span class="pre">parameters=None,</span> <span class="pre">constants=None,</span> <span class="pre">observables=None,</span> <span class="pre">precision=&lt;class</span> <span class="pre">'numpy.float64'&gt;,</span> <span class="pre">default_initial_values={'V_a':</span> <span class="pre">1.0,</span> <span class="pre">'V_h':</span> <span class="pre">1.0,</span> <span class="pre">'V_v':</span> <span class="pre">1.0},</span> <span class="pre">default_parameters={'E_a':</span> <span class="pre">0.0133,</span> <span class="pre">'E_h':</span> <span class="pre">0.52,</span> <span class="pre">'E_v':</span> <span class="pre">0.0624,</span> <span class="pre">'R_c':</span> <span class="pre">0.008771929824561403,</span> <span class="pre">'R_i':</span> <span class="pre">0.012,</span> <span class="pre">'R_o':</span> <span class="pre">1.0,</span> <span class="pre">'V_s3':</span> <span class="pre">2.0},</span> <span class="pre">default_constants={},</span> <span class="pre">default_observable_names=['P_a',</span> <span class="pre">'P_v',</span> <span class="pre">'P_h',</span> <span class="pre">'Q_i',</span> <span class="pre">'Q_o',</span> <span class="pre">'Q_c'],</span> <span class="pre">num_drivers=1,</span> <span class="pre">**kwargs</span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/systems/threeCM.html#ThreeChamberModel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.systems.ThreeChamberModel" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="cubie.odesystems.baseODE.html#cubie.odesystems.baseODE.BaseODE" title="cubie.odesystems.baseODE.BaseODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseODE</span></code></a></p>
+<p>Three chamber cardiovascular model.</p>
+<p>A cardiovascular model with three chambers (heart, arteries, veins) as
+described in Antoine Pironet’s thesis[1]_.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>initial_values</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Initial values for state variables (V_h, V_a, V_v).</p></li>
+<li><p><strong>parameters</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Parameter values for the system (E_h, E_a, E_v, R_i, R_o, R_c, V_s3).</p></li>
+<li><p><strong>constants</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Constants that are not expected to change between simulations.</p></li>
+<li><p><strong>observables</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Observable values to track (P_a, P_v, P_h, Q_i, Q_o, Q_c).</p></li>
+<li><p><strong>precision</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><em>numpy.dtype</em></a><em>, </em><em>optional</em>) – Precision to use for calculations, by default np.float64.</p></li>
+<li><p><strong>default_initial_values</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default initial values if not provided in initial_values.</p></li>
+<li><p><strong>default_parameters</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default parameter values if not provided in parameters.</p></li>
+<li><p><strong>default_constants</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default constant values if not provided in constants.</p></li>
+<li><p><strong>default_observable_names</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>, </em><em>optional</em>) – Default observable names if not provided in observables.</p></li>
+<li><p><strong>num_drivers</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – Number of driver/forcing functions, by default 1.</p></li>
+<li><p><strong>**kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a>) – Additional arguments.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>State variables:
+- V_h: Volume in heart
+- V_a: Volume in arteries
+- V_v: Volume in veins</p>
+<p>Parameters:
+- E_h: Elastance of Heart (e(t) multiplier)
+- E_a: Elastance of Arteries
+- E_v: Elastance of Ventricles
+- R_i: Resistance of input (mitral) valve
+- R_o: Resistance of output (atrial) valve
+- R_c: Resistance of circulation (arteries -&gt; veins)
+- V_s3: Total stressed blood volume</p>
+<p>Observables:
+- P_a: Pressure in arteries
+- P_v: Pressure in veins
+- P_h: Pressure in heart
+- Q_i: Flow through input valve (Mitral)
+- Q_o: Flow through output valve (Aortic)
+- Q_c: Flow in circulation</p>
+<p class="rubric">References</p>
+<dl class="simple">
+<dt>[1] A. Pironet. “Model-Based Prediction of the Response to Vascular</dt><dd><p>Therapy.” Unpublished doctoral thesis, ULiège - Université de Liège, 2016.</p>
+</dd>
+</dl>
+<p><a class="reference external" href="https://hdl.handle.net/2268/194747">https://hdl.handle.net/2268/194747</a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.systems.ThreeChamberModel.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">initial_values=None,</span> <span class="pre">parameters=None,</span> <span class="pre">constants=None,</span> <span class="pre">observables=None,</span> <span class="pre">precision=&lt;class</span> <span class="pre">'numpy.float64'&gt;,</span> <span class="pre">default_initial_values={'V_a':</span> <span class="pre">1.0,</span> <span class="pre">'V_h':</span> <span class="pre">1.0,</span> <span class="pre">'V_v':</span> <span class="pre">1.0},</span> <span class="pre">default_parameters={'E_a':</span> <span class="pre">0.0133,</span> <span class="pre">'E_h':</span> <span class="pre">0.52,</span> <span class="pre">'E_v':</span> <span class="pre">0.0624,</span> <span class="pre">'R_c':</span> <span class="pre">0.008771929824561403,</span> <span class="pre">'R_i':</span> <span class="pre">0.012,</span> <span class="pre">'R_o':</span> <span class="pre">1.0,</span> <span class="pre">'V_s3':</span> <span class="pre">2.0},</span> <span class="pre">default_constants={},</span> <span class="pre">default_observable_names=['P_a',</span> <span class="pre">'P_v',</span> <span class="pre">'P_h',</span> <span class="pre">'Q_i',</span> <span class="pre">'Q_o',</span> <span class="pre">'Q_c'],</span> <span class="pre">num_drivers=1,</span> <span class="pre">**kwargs</span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/systems/threeCM.html#ThreeChamberModel.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.systems.ThreeChamberModel.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialize the three chamber model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>initial_values</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Initial values for state variables.</p></li>
+<li><p><strong>parameters</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Parameter values for the system.</p></li>
+<li><p><strong>constants</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Constants that are not expected to change between simulations.</p></li>
+<li><p><strong>observables</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Observable values to track.</p></li>
+<li><p><strong>precision</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><em>numpy.dtype</em></a><em>, </em><em>optional</em>) – Precision to use for calculations, by default np.float64.</p></li>
+<li><p><strong>default_initial_values</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default initial values if not provided in initial_values.</p></li>
+<li><p><strong>default_parameters</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default parameter values if not provided in parameters.</p></li>
+<li><p><strong>default_constants</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a><em>, </em><em>optional</em>) – Default constant values if not provided in constants.</p></li>
+<li><p><strong>default_observable_names</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><em>list</em></a><em>, </em><em>optional</em>) – Default observable names if not provided in observables.</p></li>
+<li><p><strong>num_drivers</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>, </em><em>optional</em>) – Number of driver/forcing functions, by default 1.</p></li>
+<li><p><strong>**kwargs</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><em>dict</em></a>) – Additional arguments.</p></li>
+</ul>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>num_drivers probably shouldn’t be an instantiation parameter, but
+rather a property of the system.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.systems.ThreeChamberModel.build">
+<span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/systems/threeCM.html#ThreeChamberModel.build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.systems.ThreeChamberModel.build" title="Link to this definition"></a></dt>
+<dd><p>Build the CUDA device function for the three chamber model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Compiled CUDA device function implementing the three chamber
+cardiovascular dynamics.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>function</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.systems.ThreeChamberModel.correct_answer_python">
+<span class="sig-name descname"><span class="pre">correct_answer_python</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">states</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">drivers</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/systems/threeCM.html#ThreeChamberModel.correct_answer_python"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.systems.ThreeChamberModel.correct_answer_python" title="Link to this definition"></a></dt>
+<dd><p>Python version of the three chamber model for testing.</p>
+<p>More-direct port of Nic Davey’s MATLAB implementation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>states</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><em>numpy.ndarray</em></a>) – Current state values [V_h, V_a, V_v].</p></li>
+<li><p><strong>parameters</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><em>numpy.ndarray</em></a>) – Parameter values [E_h, E_a, E_v, R_i, R_o, R_c, V_s3].</p></li>
+<li><p><strong>drivers</strong> (<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><em>numpy.ndarray</em></a>) – Driver/forcing values [e(t)].</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A tuple containing (dxdt, observables) arrays.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a> of <a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)">numpy.ndarray</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<p class="rubric">Modules</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="cubie.odesystems.systems.decays.html#module-cubie.odesystems.systems.decays" title="cubie.odesystems.systems.decays"><code class="xref py py-obj docutils literal notranslate"><span class="pre">decays</span></code></a></p></td>
+<td><p>Exponential decay ODE system for testing.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="cubie.odesystems.systems.threeCM.html#module-cubie.odesystems.systems.threeCM" title="cubie.odesystems.systems.threeCM"><code class="xref py py-obj docutils literal notranslate"><span class="pre">threeCM</span></code></a></p></td>
+<td><p>Three chamber cardiovascular model.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.odesystems.symbolic.symbolicODE.html" class="btn btn-neutral float-left" title="cubie.odesystems.symbolic.symbolicODE" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.odesystems.systems.decays.html" class="btn btn-neutral float-right" title="cubie.odesystems.systems.decays" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,19 @@
+﻿cubie.outputhandling
+====================
+
+.. automodule:: cubie.outputhandling
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   output_config
+   output_functions
+   output_sizes
+   save_state
+   save_summaries
+   summarymetrics
+   update_summaries

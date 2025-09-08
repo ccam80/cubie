@@ -1,0 +1,13 @@
+cubie.odesystems.symbolic.dxdt
+==============================
+
+.. automodule:: cubie.odesystems.symbolic.dxdt
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      generate_dxdt_fac_code
+      generate_dxdt_lines
+   

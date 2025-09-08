@@ -1,0 +1,14 @@
+cubie.odesystems.systems
+========================
+
+.. automodule:: cubie.odesystems.systems
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   decays
+   threeCM

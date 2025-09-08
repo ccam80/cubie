@@ -1,0 +1,682 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.batchsolving.solveresult &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.batchsolving.solveresult</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.batchsolving.solveresult</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Structures used for returning results from the batch solver.</span>
+
+<span class="sd">The :class:`SolveSpec` class stores the configuration of a solver run while</span>
+<span class="sd">the :class:`SolveResult` class aggregates output arrays and related metadata.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Union</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Any</span>
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">cubie.batchsolving.solver</span><span class="w"> </span><span class="kn">import</span> <span class="n">Solver</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">cubie.batchsolving.BatchSolverKernel</span><span class="w"> </span><span class="kn">import</span> <span class="n">BatchSolverKernel</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">attrs</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">attrs.validators</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">val</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">NDArray</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.batchsolving.arrays.BatchOutputArrays</span><span class="w"> </span><span class="kn">import</span> <span class="n">ActiveOutputs</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.batchsolving</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayTypes</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie._utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">slice_variable_dimension</span>
+
+
+<div class="viewcode-block" id="SolveSpec">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solveresult.html#cubie.batchsolving.solveresult.SolveSpec">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SolveSpec</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Container describing a solver run.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    dt_min, dt_max : float</span>
+<span class="sd">        Minimum and maximum time step sizes.</span>
+<span class="sd">    dt_save : float</span>
+<span class="sd">        Interval at which state values are stored.</span>
+<span class="sd">    dt_summarise : float</span>
+<span class="sd">        Interval for computing summary outputs.</span>
+<span class="sd">    atol, rtol : float</span>
+<span class="sd">        Absolute and relative error tolerances.</span>
+<span class="sd">    duration, warmup : float</span>
+<span class="sd">        Total integration time and initial warm-up period.</span>
+<span class="sd">    algorithm : str</span>
+<span class="sd">        Name of the integration algorithm.</span>
+<span class="sd">    saved_states, saved_observables : list of str or None</span>
+<span class="sd">        Labels of variables saved verbatim.</span>
+<span class="sd">    summarised_states, summarised_observables : list of str or None</span>
+<span class="sd">        Labels of variables for which summaries were computed.</span>
+<span class="sd">    output_types : list of str or None</span>
+<span class="sd">        Types of output arrays generated during the run.</span>
+<span class="sd">    precision : type</span>
+<span class="sd">        Floating point precision used.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">dt_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
+    <span class="n">dt_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
+    <span class="n">dt_save</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
+    <span class="n">dt_summarise</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
+    <span class="n">atol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
+    <span class="n">rtol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
+    <span class="n">duration</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
+    <span class="n">warmup</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">float</span><span class="p">))</span>
+    <span class="n">algorithm</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">str</span><span class="p">))</span>
+    <span class="n">saved_states</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">()</span>
+    <span class="n">saved_observables</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">()</span>
+    <span class="n">summarised_states</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">()</span>
+    <span class="n">summarised_observables</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">()</span>
+    <span class="n">output_types</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">()</span>
+    <span class="n">precision</span><span class="p">:</span> <span class="nb">type</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">type</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="SolveResult">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solveresult.html#cubie.batchsolving.solveresult.SolveResult">[docs]</a>
+<span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SolveResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Aggregates output arrays and related metadata for a solver run.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    time_domain_array : Optional[NDArray]</span>
+<span class="sd">        NumPy array containing time-domain results.</span>
+<span class="sd">    summaries_array : Optional[NDArray]</span>
+<span class="sd">        NumPy array containing summary results.</span>
+<span class="sd">    time : Optional[NDArray]</span>
+<span class="sd">        NumPy array containing time values.</span>
+<span class="sd">    time_domain_legend : Optional[dict[int, str]]</span>
+<span class="sd">        Legend mapping time-domain indices to labels.</span>
+<span class="sd">    summaries_legend : Optional[dict[int, str]]</span>
+<span class="sd">        Legend mapping summary indices to labels.</span>
+<span class="sd">    solve_settings : Optional[SolveSpec]</span>
+<span class="sd">        Solver run configuration.</span>
+<span class="sd">    _singlevar_summary_legend : Optional[dict[int, str]]</span>
+<span class="sd">        Legend mapping summary offset indices to labels.</span>
+<span class="sd">    _active_outputs : Optional[ActiveOutputs]</span>
+<span class="sd">        Active outputs flags.</span>
+<span class="sd">    _stride_order : tuple[str, ...]</span>
+<span class="sd">        Tuple specifying the order of variables in the host arrays..</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">time_domain_array</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">NDArray</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">Factory</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([])),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)),</span>
+        <span class="n">eq</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">cmp_using</span><span class="p">(</span><span class="n">eq</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">summaries_array</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">NDArray</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">Factory</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([])),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)),</span>
+        <span class="n">eq</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">cmp_using</span><span class="p">(</span><span class="n">eq</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">time</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">NDArray</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">Factory</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([])),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)),</span>
+    <span class="p">)</span>
+    <span class="n">time_domain_legend</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">Factory</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">)),</span>
+    <span class="p">)</span>
+    <span class="n">summaries_legend</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">Factory</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">)),</span>
+    <span class="p">)</span>
+    <span class="n">solve_settings</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">SolveSpec</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="n">SolveSpec</span><span class="p">))</span>
+    <span class="p">)</span>
+    <span class="n">_singlevar_summary_legend</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">Factory</span><span class="p">(</span><span class="nb">dict</span><span class="p">),</span>
+        <span class="n">validator</span><span class="o">=</span><span class="n">val</span><span class="o">.</span><span class="n">optional</span><span class="p">(</span><span class="n">val</span><span class="o">.</span><span class="n">instance_of</span><span class="p">(</span><span class="nb">dict</span><span class="p">)),</span>
+    <span class="p">)</span>
+    <span class="n">_active_outputs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ActiveOutputs</span><span class="p">]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="n">attrs</span><span class="o">.</span><span class="n">Factory</span><span class="p">(</span><span class="k">lambda</span><span class="p">:</span> <span class="n">ActiveOutputs</span><span class="p">())</span>
+    <span class="p">)</span>
+    <span class="n">_stride_order</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="n">attrs</span><span class="o">.</span><span class="n">field</span><span class="p">(</span>
+        <span class="n">default</span><span class="o">=</span><span class="p">(</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">)</span>
+    <span class="p">)</span>
+
+<div class="viewcode-block" id="SolveResult.from_solver">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solveresult.html#cubie.batchsolving.solveresult.SolveResult.from_solver">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_solver</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">solver</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="s2">&quot;Solver&quot;</span><span class="p">,</span> <span class="s2">&quot;BatchSolverKernel&quot;</span><span class="p">],</span>
+        <span class="n">results_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;full&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Union</span><span class="p">[</span><span class="s2">&quot;SolveResult&quot;</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Create a :class:`SolveResult` from a solver instance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        solver : Solver or BatchSolverKernel</span>
+<span class="sd">            Object providing access to output arrays and metadata.</span>
+<span class="sd">        results_type : {&#39;full&#39;, &#39;numpy&#39;, &#39;numpy_per_summary&#39;, &#39;pandas&#39;}, optional</span>
+<span class="sd">            Format of the returned results. Default ``&#39;full&#39;``.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        SolveResult or dict</span>
+<span class="sd">            ``SolveResult`` when ``results_type`` is ``&#39;full&#39;``; otherwise a</span>
+<span class="sd">            dictionary containing the requested representation of the data.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">active_outputs</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">active_output_arrays</span>
+        <span class="n">state_active</span> <span class="o">=</span> <span class="n">active_outputs</span><span class="o">.</span><span class="n">state</span>
+        <span class="n">observables_active</span> <span class="o">=</span> <span class="n">active_outputs</span><span class="o">.</span><span class="n">observables</span>
+        <span class="n">state_summaries_active</span> <span class="o">=</span> <span class="n">active_outputs</span><span class="o">.</span><span class="n">state_summaries</span>
+        <span class="n">observable_summaries_active</span> <span class="o">=</span> <span class="n">active_outputs</span><span class="o">.</span><span class="n">observable_summaries</span>
+        <span class="n">solve_settings</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">solve_info</span>
+
+        <span class="n">time</span><span class="p">,</span> <span class="n">state_less_time</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">cleave_time</span><span class="p">(</span>
+            <span class="n">solver</span><span class="o">.</span><span class="n">state</span><span class="p">,</span>
+            <span class="n">time_saved</span><span class="o">=</span><span class="n">solver</span><span class="o">.</span><span class="n">save_time</span><span class="p">,</span>
+            <span class="n">stride_order</span><span class="o">=</span><span class="n">solver</span><span class="o">.</span><span class="n">output_stride_order</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">time_domain_array</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">combine_time_domain_arrays</span><span class="p">(</span>
+            <span class="n">state_less_time</span><span class="p">,</span>
+            <span class="n">solver</span><span class="o">.</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">state_active</span><span class="p">,</span>
+            <span class="n">observables_active</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">summaries_array</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">combine_summaries_array</span><span class="p">(</span>
+            <span class="n">solver</span><span class="o">.</span><span class="n">state_summaries</span><span class="p">,</span>
+            <span class="n">solver</span><span class="o">.</span><span class="n">observable_summaries</span><span class="p">,</span>
+            <span class="n">state_summaries_active</span><span class="p">,</span>
+            <span class="n">observable_summaries_active</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="n">time_domain_legend</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">time_domain_legend_from_solver</span><span class="p">(</span><span class="n">solver</span><span class="p">)</span>
+
+        <span class="n">summaries_legend</span> <span class="o">=</span> <span class="bp">cls</span><span class="o">.</span><span class="n">summary_legend_from_solver</span><span class="p">(</span><span class="n">solver</span><span class="p">)</span>
+        <span class="n">singlevar_summary_legend</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">summary_legend_per_variable</span>
+
+        <span class="n">user_arrays</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">time_domain_array</span><span class="o">=</span><span class="n">time_domain_array</span><span class="p">,</span>
+            <span class="n">summaries_array</span><span class="o">=</span><span class="n">summaries_array</span><span class="p">,</span>
+            <span class="n">time</span><span class="o">=</span><span class="n">time</span><span class="p">,</span>
+            <span class="n">time_domain_legend</span><span class="o">=</span><span class="n">time_domain_legend</span><span class="p">,</span>
+            <span class="n">summaries_legend</span><span class="o">=</span><span class="n">summaries_legend</span><span class="p">,</span>
+            <span class="n">active_outputs</span><span class="o">=</span><span class="n">active_outputs</span><span class="p">,</span>
+            <span class="n">solve_settings</span><span class="o">=</span><span class="n">solve_settings</span><span class="p">,</span>
+            <span class="n">stride_order</span><span class="o">=</span><span class="n">solver</span><span class="o">.</span><span class="n">output_stride_order</span><span class="p">,</span>
+            <span class="n">singlevar_summary_legend</span><span class="o">=</span><span class="n">singlevar_summary_legend</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">results_type</span> <span class="o">==</span> <span class="s2">&quot;full&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">user_arrays</span>
+        <span class="k">elif</span> <span class="n">results_type</span> <span class="o">==</span> <span class="s2">&quot;numpy&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">user_arrays</span><span class="o">.</span><span class="n">as_numpy</span>
+        <span class="k">elif</span> <span class="n">results_type</span> <span class="o">==</span> <span class="s2">&quot;numpy_per_summary&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">user_arrays</span><span class="o">.</span><span class="n">as_numpy_per_summary</span>
+        <span class="k">elif</span> <span class="n">results_type</span> <span class="o">==</span> <span class="s2">&quot;pandas&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">user_arrays</span><span class="o">.</span><span class="n">as_pandas</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">user_arrays</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">as_pandas</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Convert the results to Pandas DataFrames.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict[str, DataFrame]</span>
+<span class="sd">            Dictionary with keys &#39;time_domain&#39; and &#39;summaries&#39; containing the</span>
+<span class="sd">            corresponding DataFrames.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ImportError</span>
+<span class="sd">            If the pandas package is not available.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+        <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span>
+                <span class="s2">&quot;Pandas is required to convert SolveResult to DataFrames. &quot;</span>
+                <span class="s2">&quot;Pandas is an optional dependency- it&#39;s only used here &quot;</span>
+                <span class="s2">&quot;to make analysis of data easier. Install Pandas to &quot;</span>
+                <span class="s2">&quot;use this feature.&quot;</span>
+            <span class="p">)</span>
+
+        <span class="n">run_index</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stride_order</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;run&quot;</span><span class="p">)</span>
+        <span class="n">ndim</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_stride_order</span><span class="p">)</span>
+        <span class="n">time_dfs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">summaries_dfs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">any_summaries</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">active_outputs</span><span class="o">.</span><span class="n">state_summaries</span>
+            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">active_outputs</span><span class="o">.</span><span class="n">observable_summaries</span>
+        <span class="p">)</span>
+
+        <span class="n">n_runs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_domain_array</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="n">run_index</span><span class="p">]</span> <span class="k">if</span> <span class="n">ndim</span> <span class="o">==</span> <span class="mi">3</span> <span class="k">else</span> <span class="mi">1</span>
+        <span class="n">time_headings</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">time_domain_legend</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+        <span class="n">summary_headings</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">summaries_legend</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+
+        <span class="k">for</span> <span class="n">run</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_runs</span><span class="p">):</span>
+            <span class="n">run_slice</span> <span class="o">=</span> <span class="n">slice_variable_dimension</span><span class="p">(</span>
+                <span class="nb">slice</span><span class="p">(</span><span class="n">run</span><span class="p">,</span> <span class="n">run</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="n">run_index</span><span class="p">,</span> <span class="n">ndim</span>
+            <span class="p">)</span>
+
+            <span class="n">singlerun_array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">time_domain_array</span><span class="p">[</span><span class="n">run_slice</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="n">run_index</span>
+            <span class="p">)</span>
+            <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">singlerun_array</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">time_headings</span><span class="p">)</span>
+
+            <span class="c1"># Use time as index if extant</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">ndim</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="n">time_for_run</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">time</span><span class="p">[:,</span> <span class="n">run</span><span class="p">]</span>
+                        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">run</span>
+                        <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">time</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span>
+                    <span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">time_for_run</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time</span>
+                <span class="n">df</span><span class="o">.</span><span class="n">index</span> <span class="o">=</span> <span class="n">time_for_run</span>
+
+            <span class="c1"># Create MultiIndex columns with run number as first level</span>
+            <span class="n">df</span><span class="o">.</span><span class="n">columns</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">MultiIndex</span><span class="o">.</span><span class="n">from_product</span><span class="p">(</span>
+                <span class="p">[[</span><span class="sa">f</span><span class="s2">&quot;run_</span><span class="si">{</span><span class="n">run</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
+            <span class="p">)</span>
+            <span class="n">time_dfs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">df</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">any_summaries</span><span class="p">:</span>
+                <span class="n">singlerun_array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">summaries_array</span><span class="p">[</span><span class="n">run_slice</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="n">run_index</span>
+                <span class="p">)</span>
+                <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">singlerun_array</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="n">summary_headings</span><span class="p">)</span>
+                <span class="n">summaries_dfs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">df</span><span class="p">)</span>
+                <span class="n">df</span><span class="o">.</span><span class="n">columns</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">MultiIndex</span><span class="o">.</span><span class="n">from_product</span><span class="p">(</span>
+                    <span class="p">[[</span><span class="sa">f</span><span class="s2">&quot;run_</span><span class="si">{</span><span class="n">run</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">],</span> <span class="n">df</span><span class="o">.</span><span class="n">columns</span><span class="p">]</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">summaries_dfs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">)</span>
+
+        <span class="n">time_domain_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">time_dfs</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">summaries_df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">(</span><span class="n">summaries_dfs</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">{</span><span class="s2">&quot;time_domain&quot;</span><span class="p">:</span> <span class="n">time_domain_df</span><span class="p">,</span> <span class="s2">&quot;summaries&quot;</span><span class="p">:</span> <span class="n">summaries_df</span><span class="p">}</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">as_numpy</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">NDArray</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the results as copies of NumPy arrays.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict[str, Optional[NDArray]]</span>
+<span class="sd">            Dictionary containing copies of time, time_domain_array, summaries_array,</span>
+<span class="sd">            time_domain_legend, and summaries_legend.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="s2">&quot;time&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;time_domain_array&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_domain_array</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span>
+            <span class="s2">&quot;summaries_array&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">summaries_array</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span>
+            <span class="s2">&quot;time_domain_legend&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_domain_legend</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span>
+            <span class="s2">&quot;summaries_legend&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">summaries_legend</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span>
+        <span class="p">}</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">as_numpy_per_summary</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Optional</span><span class="p">[</span><span class="n">NDArray</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return the results as separate NumPy arrays per summary type.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict[str, Optional[NDArray]]</span>
+<span class="sd">            Dictionary containing time, time_domain_array, time_domain_legend,</span>
+<span class="sd">            and individual summary arrays.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">arrays</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s2">&quot;time&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="s2">&quot;time_domain_array&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_domain_array</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span>
+            <span class="s2">&quot;time_domain_legend&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_domain_legend</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span>
+        <span class="p">}</span>
+        <span class="n">arrays</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">per_summary_arrays</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">arrays</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">per_summary_arrays</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">NDArray</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Split summaries_array into separate arrays keyed by summary type.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict[str, NDArray]</span>
+<span class="sd">            Dictionary where each key is a summary type and the value is the</span>
+<span class="sd">            corresponding NumPy array. The dictionary also includes a key</span>
+<span class="sd">            &#39;summary_legend&#39; mapping to the variable legend.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_active_outputs</span><span class="o">.</span><span class="n">state_summaries</span> <span class="ow">is</span> <span class="kc">False</span>
+            <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_active_outputs</span><span class="o">.</span><span class="n">observable_summaries</span> <span class="ow">is</span> <span class="kc">False</span>
+        <span class="p">):</span>
+            <span class="k">return</span> <span class="p">{}</span>
+
+        <span class="n">variable_index</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stride_order</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;variable&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Split summaries_array by type</span>
+        <span class="n">variable_legend</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">time_domain_legend</span>
+        <span class="n">singlevar_legend</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_singlevar_summary_legend</span>
+        <span class="n">indices_per_var</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">([</span><span class="n">k</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">singlevar_legend</span><span class="o">.</span><span class="n">keys</span><span class="p">()])</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="n">per_summary_arrays</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">offset</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">singlevar_legend</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">summ_slice</span> <span class="o">=</span> <span class="nb">slice</span><span class="p">(</span><span class="n">offset</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">indices_per_var</span><span class="p">)</span>
+            <span class="n">summ_slice</span> <span class="o">=</span> <span class="n">slice_variable_dimension</span><span class="p">(</span>
+                <span class="n">summ_slice</span><span class="p">,</span> <span class="n">variable_index</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_stride_order</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">per_summary_arrays</span><span class="p">[</span><span class="n">label</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">summaries_array</span><span class="p">[</span><span class="n">summ_slice</span><span class="p">]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">per_summary_arrays</span><span class="p">[</span><span class="s2">&quot;summary_legend&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">variable_legend</span>
+
+        <span class="k">return</span> <span class="n">per_summary_arrays</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">active_outputs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get flags indicating which device arrays are active.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        ActiveOutputs</span>
+<span class="sd">            Object storing active output flags.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_active_outputs</span>
+
+<div class="viewcode-block" id="SolveResult.cleave_time">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solveresult.html#cubie.batchsolving.solveresult.SolveResult.cleave_time">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">cleave_time</span><span class="p">(</span>
+        <span class="n">state</span><span class="p">:</span> <span class="n">ArrayTypes</span><span class="p">,</span>
+        <span class="n">time_saved</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">stride_order</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Optional</span><span class="p">[</span><span class="n">NDArray</span><span class="p">],</span> <span class="n">NDArray</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Remove time from the state array if saved.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        state : ArrayTypes</span>
+<span class="sd">            The state array to cleave.</span>
+<span class="sd">        time_saved : bool, optional</span>
+<span class="sd">            Flag indicating if time is saved in the state array.</span>
+<span class="sd">        stride_order : Optional[list[str]], optional</span>
+<span class="sd">            The order of dimensions in the array. Defaults to</span>
+<span class="sd">            [&#39;time&#39;, &#39;run&#39;, &#39;variable&#39;] if None.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[Optional[NDArray], NDArray]</span>
+<span class="sd">            Tuple containing the time array (or None) and the state array with</span>
+<span class="sd">            time removed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">stride_order</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">stride_order</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="s2">&quot;run&quot;</span><span class="p">,</span> <span class="s2">&quot;variable&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">time_saved</span><span class="p">:</span>
+            <span class="n">var_index</span> <span class="o">=</span> <span class="n">stride_order</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s2">&quot;variable&quot;</span><span class="p">)</span>
+            <span class="n">ndim</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">state</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+            <span class="n">time_slice</span> <span class="o">=</span> <span class="n">slice_variable_dimension</span><span class="p">(</span>
+                <span class="nb">slice</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="n">var_index</span><span class="p">,</span> <span class="n">ndim</span>
+            <span class="p">)</span>
+            <span class="n">state_slice</span> <span class="o">=</span> <span class="n">slice_variable_dimension</span><span class="p">(</span>
+                <span class="nb">slice</span><span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">var_index</span><span class="p">,</span> <span class="n">ndim</span>
+            <span class="p">)</span>
+
+            <span class="n">time</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">squeeze</span><span class="p">(</span><span class="n">state</span><span class="p">[</span><span class="n">time_slice</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="n">var_index</span><span class="p">)</span>
+            <span class="n">state_less_time</span> <span class="o">=</span> <span class="n">state</span><span class="p">[</span><span class="n">state_slice</span><span class="p">]</span>
+            <span class="k">return</span> <span class="n">time</span><span class="p">,</span> <span class="n">state_less_time</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="n">state</span></div>
+
+
+<div class="viewcode-block" id="SolveResult.combine_time_domain_arrays">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solveresult.html#cubie.batchsolving.solveresult.SolveResult.combine_time_domain_arrays">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">combine_time_domain_arrays</span><span class="p">(</span>
+        <span class="n">state</span><span class="p">,</span> <span class="n">observables</span><span class="p">,</span> <span class="n">state_active</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">observables_active</span><span class="o">=</span><span class="kc">True</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NDArray</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Combine state and observable arrays into a single time-domain array.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        state : NDArray</span>
+<span class="sd">            Array of state values.</span>
+<span class="sd">        observables : NDArray</span>
+<span class="sd">            Array of observables.</span>
+<span class="sd">        state_active : bool, optional</span>
+<span class="sd">            Flag indicating if state is active.</span>
+<span class="sd">        observables_active : bool, optional</span>
+<span class="sd">            Flag indicating if observables are active.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        NDArray</span>
+<span class="sd">            Combined array along the last axis or a copy of the active array.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">state_active</span> <span class="ow">and</span> <span class="n">observables_active</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">((</span><span class="n">state</span><span class="p">,</span> <span class="n">observables</span><span class="p">),</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">state_active</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">state</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">observables_active</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">observables</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([])</span></div>
+
+
+<div class="viewcode-block" id="SolveResult.combine_summaries_array">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solveresult.html#cubie.batchsolving.solveresult.SolveResult.combine_summaries_array">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">combine_summaries_array</span><span class="p">(</span>
+        <span class="n">state_summaries</span><span class="p">,</span>
+        <span class="n">observable_summaries</span><span class="p">,</span>
+        <span class="n">summarise_states</span><span class="p">,</span>
+        <span class="n">summarise_observables</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Combine state and observable summary arrays into a single array.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        state_summaries : NDArray</span>
+<span class="sd">            Array containing state summaries.</span>
+<span class="sd">        observable_summaries : NDArray</span>
+<span class="sd">            Array containing observable summaries.</span>
+<span class="sd">        summarise_states : bool</span>
+<span class="sd">            Flag indicating if state summaries are active.</span>
+<span class="sd">        summarise_observables : bool</span>
+<span class="sd">            Flag indicating if observable summaries are active.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray</span>
+<span class="sd">            Combined summary array.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">summarise_states</span> <span class="ow">and</span> <span class="n">summarise_observables</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">state_summaries</span><span class="p">,</span> <span class="n">observable_summaries</span><span class="p">),</span> <span class="n">axis</span><span class="o">=-</span><span class="mi">1</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">summarise_states</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">state_summaries</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">summarise_observables</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">observable_summaries</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([])</span></div>
+
+
+<div class="viewcode-block" id="SolveResult.summary_legend_from_solver">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solveresult.html#cubie.batchsolving.solveresult.SolveResult.summary_legend_from_solver">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">summary_legend_from_solver</span><span class="p">(</span><span class="n">solver</span><span class="p">:</span> <span class="s2">&quot;Solver&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate a summary legend from the solver instance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        solver : Solver</span>
+<span class="sd">            Solver instance providing saved states, observables, and summary legends.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict[int, str]</span>
+<span class="sd">            Dictionary mapping summary array indices to labels.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">singlevar_legend</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">summary_legend_per_variable</span>
+        <span class="n">state_labels</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">saved_states</span>
+        <span class="n">obs_labels</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">saved_observables</span>
+        <span class="n">summaries_legend</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="c1"># state summaries_array</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">state_labels</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">j</span><span class="p">,</span> <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">singlevar_legend</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+                <span class="n">index</span> <span class="o">=</span> <span class="n">i</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">singlevar_legend</span><span class="p">)</span> <span class="o">+</span> <span class="n">j</span>
+                <span class="n">summaries_legend</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">val</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="c1"># observable summaries_array</span>
+        <span class="n">len_state_legend</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">state_labels</span><span class="p">)</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">singlevar_legend</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">obs_labels</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">j</span><span class="p">,</span> <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">singlevar_legend</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+                <span class="n">index</span> <span class="o">=</span> <span class="n">len_state_legend</span> <span class="o">+</span> <span class="n">i</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">singlevar_legend</span><span class="p">)</span> <span class="o">+</span> <span class="n">j</span>
+                <span class="n">summaries_legend</span><span class="p">[</span><span class="n">index</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2"> </span><span class="si">{</span><span class="n">val</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="k">return</span> <span class="n">summaries_legend</span></div>
+
+
+<div class="viewcode-block" id="SolveResult.time_domain_legend_from_solver">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.solveresult.html#cubie.batchsolving.solveresult.SolveResult.time_domain_legend_from_solver">[docs]</a>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">time_domain_legend_from_solver</span><span class="p">(</span><span class="n">solver</span><span class="p">:</span> <span class="s2">&quot;Solver&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Generate a time domain legend from the solver instance.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        solver : Solver</span>
+<span class="sd">            Solver instance providing saved states and observables.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict[int, str]</span>
+<span class="sd">            Dictionary mapping time domain indices to labels.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">time_domain_legend</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">state_labels</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">saved_states</span>
+        <span class="n">obs_labels</span> <span class="o">=</span> <span class="n">solver</span><span class="o">.</span><span class="n">saved_observables</span>
+        <span class="n">offset</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">state_labels</span><span class="p">):</span>
+            <span class="n">time_domain_legend</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">label</span><span class="si">}</span><span class="s2">&quot;</span>
+            <span class="n">offset</span> <span class="o">=</span> <span class="n">i</span>
+
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">label</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">obs_labels</span><span class="p">):</span>
+            <span class="n">offset</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">time_domain_legend</span><span class="p">[</span><span class="n">offset</span> <span class="o">+</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">label</span>
+        <span class="k">return</span> <span class="n">time_domain_legend</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
