@@ -403,16 +403,6 @@ class BaseODE(CUDAFactory):
         """
         return self.get_cached_output("dxdt")
 
-    @property
-    def operator_function(self):
-        """Return the compiled linear-operator device function."""
-        return self.get_solver_helper("operator")
-
-    @property
-    def neumann_preconditioner_function(self):
-        """Return the compiled Neumann preconditioner device function."""
-        return self.get_solver_helper("neumann")
-
     def get_solver_helper(self,
                           func_name: str,
                           beta: float = 1.0,

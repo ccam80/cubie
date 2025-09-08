@@ -23,7 +23,7 @@ def linear_solver_factory(
     operator_apply: Callable,
     n: int,
     preconditioner: Optional[Callable] = None,
-    correction_type: str = "steepest_descent",
+    correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
 ) -> Callable:
