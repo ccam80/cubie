@@ -209,6 +209,7 @@ class TestEuler(LoopAlgorithmTester):
             sizes.state
             + sizes.dxdt
             + sizes.observables
+            + sizes.parameters
             + sizes.drivers
             + sizes.state_summaries
             + sizes.observable_summaries

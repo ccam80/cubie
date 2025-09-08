@@ -146,7 +146,8 @@ class Euler(GenericIntegratorAlgorithm):
         # Generate indices into shared memory as compile-time constants
         dxdt_start_index = state_buffer_size
         observables_start_index = dxdt_start_index + dxdt_buffer_size
-        drivers_start_index = observables_start_index + observables_buffer_size
+        parameters_start_index = observables_start_index + observables_buffer_size
+        drivers_start_index = parameters_start_index + parameter_buffer_size
         state_summaries_start_index = drivers_start_index + drivers_buffer_size
         observable_summaries_start_index = (
             state_summaries_start_index + state_summary_buffer_size
@@ -230,6 +231,9 @@ class Euler(GenericIntegratorAlgorithm):
             observables_buffer = shared_memory[
                 observables_start_index:drivers_start_index
             ]
+            parameters_buffer = shared_memory[
+                parameters_start_index:drivers_start_index
+            ]
             drivers = shared_memory[
                 drivers_start_index:state_summaries_start_index
             ]
@@ -249,13 +253,8 @@ class Euler(GenericIntegratorAlgorithm):
             for i in range(state_buffer_size):
                 state_buffer[i] = inits[i]
 
-            l_parameters = cuda.local.array(
-                (parameter_buffer_size),
-                dtype=numba_precision,
-            )
-
             for i in range(parameters_actual):
-                l_parameters[i] = parameters[i]
+                parameters_buffer[i] = parameters[i]
 
             # Loop through output samples, one iteration per output sample
             for i in range(warmup_samples + output_length):
@@ -269,7 +268,7 @@ class Euler(GenericIntegratorAlgorithm):
                     # Calculate derivative at sample
                     dxdt_function(
                         state_buffer,
-                        parameters,
+                        parameters_buffer,
                         drivers,
                         observables_buffer,
                         dxdt,
@@ -336,6 +335,7 @@ class Euler(GenericIntegratorAlgorithm):
             sizes.state
             + sizes.dxdt
             + sizes.observables
+            + sizes.parameters
             + sizes.drivers
             + sizes.state_summaries
             + sizes.observable_summaries
