@@ -85,6 +85,7 @@ def linear_solver_factory(
         )
     PC = 1 if preconditioner is not None else 0
 
+    # no cover: start
     @cuda.jit(device=True)
     def linear_solver(
         state, parameters, drivers, h,            # Operator context
@@ -180,5 +181,5 @@ def linear_solver_factory(
                 return int32(0)
 
         return int32(3)
-
+    # no cover: end
     return linear_solver

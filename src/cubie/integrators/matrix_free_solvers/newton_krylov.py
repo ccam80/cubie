@@ -47,6 +47,7 @@ def newton_krylov_solver_factory(
     """
     tol_squared = tolerance*tolerance
 
+    #no cover: start
     @cuda.jit(device=True)
     def newton_krylov_solver(
         state,
@@ -164,5 +165,5 @@ def newton_krylov_solver_factory(
             # Accepted but not converged; fall through with prepared rhs
         return int32(2)  # Newton iterations exhausted
 
-
+    # no cover: end
     return newton_krylov_solver
