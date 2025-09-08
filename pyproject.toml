@@ -28,7 +28,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/ccam80/cubie.git"
-Issues = "https://github.com/https://github.com/ccam80/cubie/issues"
+Issues = "https://github.com/ccam80/cubie/issues"
 
 [project.optional-dependencies]
 dev = [

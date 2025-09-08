@@ -1,10 +1,35 @@
 import numpy as np
 import pytest
+from pathlib import Path
+from pytest import MonkeyPatch
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_functions import OutputFunctions
+
+
+@pytest.fixture(scope="function", autouse=True)
+def codegen_dir():
+    """Redirect code generation to a temporary directory for the whole session.
+
+    Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
+    removed automatically between parameterized test cases. Remove the
+    directory at session teardown.
+    """
+    import tempfile
+    import shutil
+    from cubie.systemmodels.symbolic import odefile
+
+    gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
+    mp = MonkeyPatch()
+    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
+    try:
+        yield gen_dir
+    finally:
+        # restore original attribute and remove temporary dir
+        mp.undo()
+        shutil.rmtree(gen_dir, ignore_errors=True)
 
 
 @pytest.fixture(scope="function")

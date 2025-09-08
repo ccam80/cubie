@@ -1,7 +1,3 @@
-import shutil
-import tempfile
-from pathlib import Path
-
 import pytest
 import sympy as sp
 
@@ -127,14 +123,6 @@ def indexed_bases():
         observables=observables,
         drivers=drivers,
     )
-
-
-@pytest.fixture
-def temp_dir():
-    """Temporary directory for file operations."""
-    temp_dir = tempfile.mkdtemp()
-    yield Path(temp_dir)
-    shutil.rmtree(temp_dir)
 
 
 @pytest.fixture

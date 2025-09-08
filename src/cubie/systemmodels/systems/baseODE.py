@@ -9,13 +9,18 @@ from cubie.CUDAFactory import CUDAFactory
 from cubie.systemmodels.systems.ODEData import ODEData
 
 
-@attrs.define()
+@attrs.define
 class ODECache:
-    """Cache for compiled CUDA device functions.
-    If jvp or vjp are not implemented, set them to -1."""
+    """Cache for compiled CUDA device and support functions.
+
+    Attributes default to ``-1`` when the corresponding function is not built.
+    """
+
     dxdt: Optional[Callable] = attrs.field()
-    jvp: Optional[Union[Callable, int]] = attrs.field(default=-1)
-    vjp: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    linear_operator: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    neumann_preconditioner: Optional[Union[Callable, int]] = attrs.field(
+        default=-1
+    )
 
 
 class BaseODE(CUDAFactory):
@@ -25,6 +30,13 @@ class BaseODE(CUDAFactory):
     shared machinery used to interface with CUDA can be reused. When subclassing,
     you should overload the build() and correct_answer_python() methods to provide
     the specific ODE system you want to simulate.
+
+    Notes
+    -----
+    Only functions cached during :meth:`build` (typically ``dxdt``) are
+    available on this base class. Solver helper functions such as the linear
+    operator or preconditioner are generated only by subclasses like
+    :class:`SymbolicODE`.
 
     Parameters
     ----------
@@ -146,19 +158,15 @@ class BaseODE(CUDAFactory):
         Returns
         -------
         ODECache
-            ODECache containing built dxdt, jvp, and vjp functions. If you
-            haven't implemented the jcp and vjp functions, fill them with
-            "-1" integers to signal to the system that they are not
-            implemented.
+            Cache containing the built ``dxdt`` function. Subclasses may add
+            further solver helpers to this cache as needed.
 
         Notes
         -----
         Bring constants into local (outer) scope before you define the dxdt
         function, as the CUDA device function can't handle a reference to self.
         """
-        # return ODECache(dxdt=dxdt,
-        #                 jvp=-1,
-        #                 vjp=-1, )
+        # return ODECache(dxdt=dxdt)
 
     def correct_answer_python(
         self, states, parameters, drivers
@@ -396,11 +404,25 @@ class BaseODE(CUDAFactory):
         return self.get_cached_output("dxdt")
 
     @property
-    def jvp_function(self):
-        """ Returns the compiled jvp device function."""
-        return self.get_cached_output("jvp")
+    def operator_function(self):
+        """Return the compiled linear-operator device function."""
+        return self.get_solver_helper("operator")
 
     @property
-    def vjp_function(self):
-        """ Returns the compiled vjp device function."""
-        return self.get_cached_output("vjp")
+    def neumann_preconditioner_function(self):
+        """Return the compiled Neumann preconditioner device function."""
+        return self.get_solver_helper("neumann")
+    def get_solver_helper(self, func_name: str):
+        """Retrieve a cached solver helper function.
+
+        Parameters
+        ----------
+        func_name : str
+            Identifier for the helper function.
+
+        Returns
+        -------
+        Callable
+            The cached device function corresponding to ``func_name``.
+        """
+        return self.get_cached_output(func_name)

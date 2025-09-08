@@ -8,53 +8,45 @@ from typing import Dict, Iterable, Tuple, Union
 import sympy as sp
 from sympy import IndexedBase
 
-from cubie.systemmodels.symbolic.numba_cuda_printer import print_cuda_multiple
-from cubie.systemmodels.symbolic.parser import IndexedBases
 from cubie.systemmodels.symbolic.sym_utils import (
     cse_and_stack,
     topological_sort,
 )
 
-JVP_TEMPLATE = (
-    "\n"
-    "# AUTO-GENERATED JACOBIAN-VECTOR PRODUCT FACTORY\n"
-    "def {func_name}(constants, precision):\n"
-    '    """Auto-generated Jacobian factory."""\n'
-    "    @cuda.jit((precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:]),\n"
-    "              device=True,\n"
-    "             inline=True)\n"
-    "    def jvp(state, parameters, drivers, v, jvp):\n"
-    "    {body}\n"
-    "    \n"
-    "    return jvp\n"
-)
-VJP_TEMPLATE = (
-    "\n"
-    "# AUTO-GENERATED VECTOR-JACOBIAN PRODUCT FACTORY\n"
-    "def {func_name}(constants, precision):\n"
-    '    """Auto-generated Jacobian factory."""\n'
-    "    @cuda.jit((precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:],\n"
-    "               precision[:]),\n"
-    "              device=True,\n"
-    "             inline=True)\n"
-    "    def vjp(state, parameters, drivers, v, vjp):\n"
-    "    {body}\n"
-    "    \n"
-    "    return vjp\n"
-)
-# Simple cache for Jacobian matrices
-_jacobian_cache = {}
+_cache: dict = {}
+
+def get_cache_counts() -> Dict[str, int]:
+    """Return counts of cached items by kind (jac, jvp).
+
+    Used in testing."""
+    counts: Dict[str, int] = {"jac": 0, "jvp": 0}
+    for value in _cache.values():
+        # New scheme: value is a dict possibly containing both kinds
+        if isinstance(value, dict):
+            if "jac" in value:
+                counts["jac"] += 1
+            if "jvp" in value:
+                counts["jvp"] += 1
+        else:
+            # Backward compatibility: count best-effort by type/shape
+            try:
+                if isinstance(value, sp.Matrix):
+                    counts["jac"] += 1
+                elif isinstance(value, list):
+                    counts["jvp"] += 1
+            except Exception:
+                pass
+    return counts
 
 
-def _get_cache_key(equations, input_order, output_order):
-    """Generate a cache key for the Jacobian computation."""
+def get_cache_key(equations,
+                  input_order: Dict[sp.Symbol, int],
+                  output_order: Dict[sp.Symbol, int],
+                  cse: bool):
+    """Generate the cache key from equations, orders and cse flag.
+
+    This single key is shared across all built artifacts (e.g. jac, jvp).
+    """
     # Convert equations to a hashable form
     if isinstance(equations, dict):
         eq_tuple = tuple(equations.items())
@@ -64,12 +56,12 @@ def _get_cache_key(equations, input_order, output_order):
     input_tuple = tuple(input_order.items())
     output_tuple = tuple(output_order.items())
 
-    return (eq_tuple, input_tuple, output_tuple)
+    return (eq_tuple, input_tuple, output_tuple, bool(cse))
 
 
-def clear_jacobian_cache():
-    """Clear the Jacobian cache."""
-    _jacobian_cache.clear()
+def clear_cache():
+    """Clear the unified symbolic cache (kept for API compatibility)."""
+    _cache.clear()
 
 
 def generate_jacobian(equations: Union[
@@ -78,6 +70,7 @@ def generate_jacobian(equations: Union[
                       input_order: Dict[sp.Symbol, int],
                       output_order: Dict[sp.Symbol, int],
                       use_cache: bool = True,
+                      cache_cse: bool = True,
                       ):
     """Return the symbolic Jacobian matrix for the given equations.
 
@@ -96,12 +89,18 @@ def generate_jacobian(equations: Union[
     -------
     sp.Matrix: The symbolic Jacobian matrix.
     """
-    # Check cache first
+    if isinstance(equations, dict):
+        eq_list = list(equations.items())
+    else:
+        eq_list = list(equations)
+
+    # Check cache first (Jacobian is independent of cse but we normalize to True for keying)
     cache_key = None
     if use_cache:
-        cache_key = _get_cache_key(equations, input_order, output_order)
-        if cache_key in _jacobian_cache:
-            return _jacobian_cache[cache_key]
+        cache_key = get_cache_key(eq_list, input_order, output_order, cse=cache_cse)
+        cached_entry = _cache.get(cache_key)
+        if isinstance(cached_entry, dict) and "jac" in cached_entry:
+            return cached_entry["jac"]
 
     input_symbols = set(input_order.keys())
     sorted_inputs = sorted(input_symbols,
@@ -109,7 +108,7 @@ def generate_jacobian(equations: Union[
     output_symbols = set(output_order.keys())
     num_in = len(input_symbols)
 
-    equations = topological_sort(equations)
+    equations = topological_sort(eq_list)
     auxiliary_equations = [(lhs, eq) for lhs, eq in equations if lhs not in
                            output_symbols]
     aux_symbols = {lhs for lhs, _ in auxiliary_equations}
@@ -153,17 +152,23 @@ def generate_jacobian(equations: Union[
 
     # Cache the result before returning
     if use_cache and cache_key is not None:
-        _jacobian_cache[cache_key] = J
+        entry = _cache.get(cache_key)
+        if isinstance(entry, dict):
+            entry["jac"] = J
+        else:
+            _cache[cache_key] = {"jac": J}
 
     return J
 
 
-def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
-    """Remove assignments that are not required to compute final jvp/vjp outputs.
+def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol,
+sp.Expr]],
+                              outputsym_str: str = "jvp"):
+    """Remove assignments not required to compute final JVP outputs.
 
     The function assumes that the list is topologically sorted and that output
-    assignments have LHS symbols whose names start with either "jvp[" or "vjp[".
-    It preserves the relative order of kept assignments.
+    assignments have LHS symbols whose names start with ``"jvp["``. It preserves
+    the relative order of kept assignments.
 
     Parameters
     ----------
@@ -183,8 +188,8 @@ def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
     all_lhs = set(lhs_symbols)
 
     # Detect outputs by name convention
-    output_syms = {lhs for lhs in lhs_symbols if
-                   (str(lhs).startswith("jvp[") or str(lhs).startswith("vjp["))}
+    output_syms = {lhs for lhs in lhs_symbols
+                   if str(lhs).startswith(f"{outputsym_str}[")}
 
     # If we can't detect outputs, do nothing
     if not output_syms:
@@ -198,66 +203,72 @@ def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol, sp.Expr]]):
             kept.append((lhs, rhs))
             # Only follow dependencies that are assigned to
             deps = rhs.free_symbols & all_lhs
-            used.update(deps)
+            deps_syms = {s for s in deps if isinstance(s, sp.Symbol)}
+            used.update(deps_syms)
     kept.reverse()
     return kept
 
 
-def generate_jac_product(equations: Union[
+def generate_analytical_jvp(equations: Union[
                               Iterable[Tuple[sp.Symbol, sp.Expr]],
                               Dict[sp.Symbol, sp.Expr]],
                          input_order: Dict[sp.Symbol, int],
                          output_order: Dict[sp.Symbol, int],
                          observables: Iterable[sp.Symbol] = None,
-                         direction='jvp',
                          cse=True,
-                         use_cache: bool = True
                               ):
-    """Returns symbolic expressions for vector-jacobian or jacobian-vector
-    product, depending on the direction argument.."""
+    """Return symbolic expressions for the Jacobian-vector product."""
+
+    if isinstance(equations, dict):
+        eq_list = list(equations.items())
+    else: # convert a generator if present
+        eq_list = list(equations)
+
+    # Cache key before any mutation of inputs
+    cache_key = get_cache_key(eq_list, input_order, output_order, cse=cse)
+    cached_entry = _cache.get(cache_key)
+    if isinstance(cached_entry, dict) and "jvp" in cached_entry:
+        return cached_entry["jvp"]
+
     n_inputs = len(input_order)
     n_outputs = len(output_order)
+
     # Swap out observables for auxiliary variables
     if observables is not None:
         obs_subs = dict(zip(observables,sp.numbered_symbols("aux_", start=1)))
     else:
         obs_subs = {}
+
     equations = [(lhs.subs(obs_subs), rhs.subs(obs_subs)) for lhs, rhs in
-                  equations]
-    jac = generate_jacobian(equations, input_order, output_order, use_cache=use_cache)
+                  eq_list]
+    jac = generate_jacobian(equations, input_order, output_order, use_cache=True, cache_cse=cse)
 
     prod_exprs = []
+    j_symbols: Dict[Tuple[int, int], sp.Symbol] = {}
 
-    # Flatten Jacobian
+    # Flatten Jacobian, dropping zero-valued entries
     for i in range(n_outputs):
         for j in range(n_inputs):
-            prod_exprs.append((sp.Symbol(f"j_{i}{j}"), jac[i, j]))
+            expr = jac[i, j]
+            if expr == 0:
+                continue
+            sym = sp.Symbol(f"j_{i}{j}")
+            prod_exprs.append((sym, expr))
+            j_symbols[(i, j)] = sym
 
-    # Sum over inputs for jvp, and outputs for vjp
-    if direction == "jvp":
-        # Sort outputs by their order for JVP
-        sorted_outputs = sorted(
-            output_order.keys(), key=lambda sym: output_order[sym]
-        )
-        v = IndexedBase("v", shape=(n_inputs,))
-        for out_sym in sorted_outputs:
-            sum_ = sp.S.Zero
-            for j in range(n_inputs):
-                sum_ += sp.Symbol(f"j_{output_order[out_sym]}{j}") * v[j]
-            prod_exprs.append(
-                (sp.Symbol(f"jvp[{output_order[out_sym]}]"), sum_)
-            )
-    else:
-        # Sort inputs by their order for VJP
-        sorted_inputs = sorted(
-            input_order.keys(), key=lambda sym: input_order[sym]
-        )
-        v = IndexedBase("v", shape=(n_outputs,))
-        for in_sym in sorted_inputs:
-            sum_ = sp.S.Zero
-            for j in range(n_outputs):
-                sum_ += sp.Symbol(f"j_{j}{input_order[in_sym]}") * v[j]
-            prod_exprs.append((sp.Symbol(f"vjp[{input_order[in_sym]}]"), sum_))
+    # Sort outputs by their order for JVP
+    sorted_outputs = sorted(
+        output_order.keys(), key=lambda sym: output_order[sym]
+    )
+    v = IndexedBase("v", shape=(n_inputs,))
+    for out_sym in sorted_outputs:
+        sum_ = sp.S.Zero
+        i = output_order[out_sym]
+        for j in range(n_inputs):
+            sym = j_symbols.get((i, j))
+            if sym is not None:
+                sum_ += sym * v[j]
+        prod_exprs.append((sp.Symbol(f"jvp[{i}]"), sum_))
 
     # Remove output equations - they're not required
     exprs = [expr for expr in equations if expr[0] not in output_order]
@@ -268,88 +279,14 @@ def generate_jac_product(equations: Union[
     else:
         all_exprs = topological_sort(all_exprs)
 
-    # Final sweep to drop any intermediates not contributing to jvp/vjp
+    # Final sweep to drop any intermediates not contributing to the JVP
     all_exprs = _prune_unused_assignments(all_exprs)
 
+    # Store in cache and return
+    entry = _cache.get(cache_key)
+    if isinstance(entry, dict):
+        entry["jvp"] = all_exprs
+    else:
+        _cache[cache_key] = {"jvp": all_exprs}
     return all_exprs
 
-
-def generate_analytical_jvp(equations: Union[
-                                  Iterable[Tuple[sp.Symbol, sp.Expr]],
-                                  Dict[sp.Symbol, sp.Expr]],
-                              input_order: Dict[sp.Symbol, int],
-                              output_order: Dict[sp.Symbol, int],
-                              observables: Iterable[sp.Symbol] = None,
-                              cse=True,
-                              use_cache: bool = True
-                              ):
-    """Returns the symbolic expressions required to calculate
-    the Jacobian-vector
-    product."""
-    return generate_jac_product(equations=equations,
-                                input_order=input_order,
-                                output_order=output_order,
-                                observables=observables,
-                                direction='jvp',
-                                cse=cse,
-                                use_cache=use_cache)
-
-
-def generate_analytical_vjp(equations: Union[
-                                  Iterable[Tuple[sp.Symbol, sp.Expr]],
-                                  Dict[sp.Symbol, sp.Expr]],
-                              input_order: Dict[sp.Symbol, int],
-                              output_order: Dict[sp.Symbol, int],
-                              observables: Iterable[sp.Symbol] = None,
-                              cse=True,
-                              use_cache: bool = True
-                              ):
-    """Returns the symbolic expressions required to calculate
-    the vector-Jacobian product."""
-    return generate_jac_product(equations=equations,
-                                input_order=input_order,
-                                output_order=output_order,
-                                observables=observables,
-                                direction='vjp',
-                                cse=cse,
-                                use_cache=use_cache)
-
-
-def generate_jvp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-                      index_map: IndexedBases,
-                      func_name: str="jvp_factory",
-                      cse=True):
-    expressions = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
-    jvp_lines = print_cuda_multiple(expressions,
-                                    symbol_map=index_map.all_arrayrefs)
-    if not jvp_lines:
-        jvp_lines = ["pass"]
-    code = JVP_TEMPLATE.format(func_name=func_name,
-                               body="    " + "\n        ".join(jvp_lines))
-    return code
-
-
-def generate_vjp_code(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-                      index_map: IndexedBases,
-                      func_name: str="vjp_factory",
-                      cse=True):
-    expressions = generate_analytical_vjp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
-    vjp_lines = print_cuda_multiple(expressions,
-                                    symbol_map=index_map.all_arrayrefs)
-    if not vjp_lines:
-        vjp_lines = ["pass"]
-    code = VJP_TEMPLATE.format(func_name=func_name,
-                               body="    " + "\n        ".join(vjp_lines))
-    return code

@@ -4,7 +4,9 @@ import warnings
 import pytest
 import sympy as sp
 
-from cubie.systemmodels.symbolic import print_cuda_multiple, generate_jvp_code
+from cubie.systemmodels.symbolic import print_cuda_multiple
+from cubie.systemmodels.symbolic.operator_apply import generate_operator_apply_code
+
 from cubie.systemmodels.symbolic.indexedbasemaps import (
     IndexedBases,
 )
@@ -612,7 +614,7 @@ class TestFunctions:
         # Base code should reference the function name
         lines = print_cuda_multiple(eq_map, symbols)
         assert any("myfunc(x, y)" in ln for ln in lines)
-        # JVP code should contain calls to the provided derivative name
-        jvp_code = generate_jvp_code(eq_map, index_map)
-        assert "myfunc_grad(" in jvp_code
-        print(jvp_code)
+        # Operator-apply code should contain calls to the provided derivative name
+        code = generate_operator_apply_code(equations=eq_map, index_map=index_map)
+        assert "myfunc_grad(" in code
+        print(code)

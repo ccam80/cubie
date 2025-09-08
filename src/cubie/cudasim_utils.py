@@ -7,6 +7,10 @@ without a CUDA driver.
 
 from contextlib import contextmanager
 from ctypes import c_void_p
+import os
+
+import numba
+import numpy as np
 
 
 class FakeBaseCUDAMemoryManager:
@@ -90,3 +94,10 @@ class FakeMemoryInfo:
 def fake_set_manager(manager):
     """Stub for setting a memory manager."""
     pass
+
+
+def from_dtype(dtype: np.dtype):
+    if os.environ.get("NUMBA_ENABLE_CUDASIM") != "1":
+        return numba.from_dtype(dtype)
+    else:
+        return dtype

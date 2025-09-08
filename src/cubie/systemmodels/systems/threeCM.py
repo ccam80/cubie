@@ -190,7 +190,7 @@ class ThreeChamberModel(BaseODE):
             parameters,
             driver,
             observables,
-            dxdt,
+            out,
         ):  # pragma: no cover
             """Three chamber model dynamics implementation.
 
@@ -266,9 +266,9 @@ class ThreeChamberModel(BaseODE):
             observables[4] = Q_o
             observables[5] = Q_c
 
-            dxdt[0] = dV_h
-            dxdt[1] = dV_a
-            dxdt[2] = dV_v
+            out[0] = dV_h
+            out[1] = dV_a
+            out[2] = dV_v
 
         return ODECache(dxdt=three_chamber_model_dv)
         # no cover: stop
