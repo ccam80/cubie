@@ -16,8 +16,8 @@ This module keeps function bodies small; each operation is factored into a helpe
 
 from typing import Callable, Optional
 
-from numba import cuda, int32
-
+from numba import cuda, int32, from_dtype
+import numpy as np
 
 def linear_solver_factory(
     operator_apply: Callable,
@@ -26,6 +26,7 @@ def linear_solver_factory(
     correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
+    precision: np.dtype = np.float64,
 ) -> Callable:
     """Create a CUDA device function implementing preconditioned SD/MR.
 
@@ -67,6 +68,9 @@ def linear_solver_factory(
         Target residual 2-norm for convergence.
     max_iters : int
         Maximum iteration count.
+    precision: np.float64 or np.float32, optional
+        Gloating-point data type to use. Default is np.float32
+
 
     Returns
     -------
@@ -84,6 +88,10 @@ def linear_solver_factory(
             "Correction type must be 'steepest_descent' or 'minimal_residual'."
         )
     PC = 1 if preconditioner is not None else 0
+
+    precision = from_dtype(precision)
+    typed_zero = precision(0.0)
+    tol_squared = tolerance*tolerance
 
     # no cover: start
     @cuda.jit(device=True)
@@ -135,29 +143,26 @@ def linear_solver_factory(
         """
         # Initial residual: r = rhs - F x
         operator_apply(state, parameters, drivers, h, x, temp)
-        tol_squared = tolerance*tolerance
-
-        acc = 0.0
+        acc = typed_zero
         for i in range(n):
             # z := M^{-1} r (or copy)
             r = rhs[i] - temp[i]
             rhs[i] = r
             acc += r * r
-        if acc <= tol_squared:
-            return int32(0)
+
+        converged = acc <= tol_squared
 
         for _ in range(max_iters):
             if PC:
-                preconditioner(state, parameters, drivers, h, rhs,
-                               z, temp)
+                preconditioner(state, parameters, drivers, h, rhs, z, temp)
             else:
                 for i in range(n):
                     z[i] = rhs[i]
 
             # v = F z and line-search dot products
             operator_apply(state, parameters, drivers, h, z, temp)
-            num = 0.0
-            den = 0.0
+            num = typed_zero
+            den = typed_zero
             if SD:
                 for i in range(n):
                     zi = z[i]
@@ -166,18 +171,25 @@ def linear_solver_factory(
             elif MR:
                 for i in range(n):
                     ti = temp[i]
-                    num += ti * rhs[i]      # (Fz·r)
+                    num += ti * rhs[i]  # (Fz·r)
                     den += ti * ti               # (Fz·Fz)
 
-            alpha = cuda.selp(den != 0.0, num / den, 0.0)
-            # Check convergence (norm of updated residual)
-            acc = 0.0
+            alpha = cuda.selp(den != typed_zero, num / den, typed_zero)
+            # Converged branches don't keep adjusting
+            alpha_eff = cuda.selp(converged, 0.0, alpha)
+
+            # Step and check convergence
+            acc = typed_zero
             for i in range(n):
-                x[i] += alpha * z[i]
-                rhs[i] -= alpha * temp[i]
+                x[i] += alpha_eff * z[i]
+                rhs[i] -= alpha_eff * temp[i]
                 ri = rhs[i]
                 acc += ri * ri
-            if acc <= tol_squared:
+            converged = converged or (acc <= tol_squared)
+
+            #return once all threads in warp have converged
+            mask = cuda.activemask()
+            if cuda.all_sync(mask, converged):
                 return int32(0)
 
         return int32(3)

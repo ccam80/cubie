@@ -1,7 +1,8 @@
 """Device function factory for Newton-Krylov solvers."""
 from typing import Callable
 
-from numba import cuda, int32
+from numba import cuda, int32, from_dtype
+from numpy import float32 as np_float32
 
 def newton_krylov_solver_factory(
     residual_function: Callable,
@@ -11,6 +12,7 @@ def newton_krylov_solver_factory(
     max_iters: int,
     damping: float = 0.5,
     max_backtracks: int = 8,
+    precision = np_float32,
 ) -> Callable:
     """Create a Newton-Krylov solver device function.
 
@@ -30,6 +32,8 @@ def newton_krylov_solver_factory(
         Step shrink factor used during backtracking, default ``0.5``.
     max_backtracks : int, optional
         Maximum number of damping attempts.
+    precision : np.float32 or np.float64, optional
+        Floating-point data type to use. Default is np.float32.
 
     Returns
     -------
@@ -44,10 +48,14 @@ def newton_krylov_solver_factory(
       2: max Newton iterations exceeded
       3: inner linear solver did not converge (propagated)
     """
-    tol_squared = tolerance*tolerance
-
+    tol_squared = precision(tolerance*tolerance)
+    precision = from_dtype(precision)
+    typed_zero = precision(0.0)
+    typed_one = precision(1.0)
+    typed_damping = precision(damping)
+    status_start = int32(-1)
     #no cover: start
-    @cuda.jit(device=True)
+    @cuda.jit(device=True, inline=True)
     def newton_krylov_solver(
         state,
         parameters,
@@ -99,67 +107,106 @@ def newton_krylov_solver_factory(
         - The state is updated in-place and reverted if no acceptable step found.
         """
         # Build initial rhs = -F(state) and norm in one pass
-        #TODO: consider adaptive tol for linsolve: min(0.1, sqrt(||F||) * ||F||
-        residual_function(state, parameters, drivers, h, a_ij, base_state, residual)
-        norm2_prev = 0.0
+
+        residual_function(state,
+                          parameters,
+                          drivers,
+                          h,
+                          a_ij,
+                          base_state,
+                          residual)
+        norm2_prev = typed_zero
         for i in range(n):
             ri = residual[i]
             residual[i] = -ri
-            delta[i] = 0.0
+            delta[i] = typed_zero
             norm2_prev += ri * ri
+
+        # Sticky per-lane status: -1 active, 0 success, 1 no step, 2 max iters,
+        # 3 inner fail
+        status = status_start
         if norm2_prev <= tol_squared:
-            return int32(0)
+            status = int32(0)
 
         for _ in range(max_iters):
-            # Solve J * delta = rhs  (rhs currently holds -F(state))
-            lin_return = linear_solver(
-                state, parameters, drivers, h,
-                residual,          # in: rhs, out: linear residual
-                delta,             # in: initial guess out: Newton direction
-                preconditioned_vec,
-                work_vec,
-            )
-            if lin_return != int32(0): #is there a way to avoid this branch?
-                return lin_return # 3: max linear iters
+            # Warp-coherent exit if all lanes done
+            mask = cuda.activemask()
+            if cuda.all_sync(mask, status >= 0):
+                break
+
+            # Unavoidable branch - solver modifies residual, delta in-place,
+            # which we don't want for already-converged guesses.
+            if status < 0:
+                # Solve J * delta = rhs  (rhs currently holds -F(state))
+                lin_return = linear_solver(
+                    state, parameters, drivers, h,
+                    residual,          # in: rhs, out: linear residual
+                    delta,             # in: initial guess out: Newton direction
+                    preconditioned_vec,
+                    work_vec,
+                )
+                if lin_return != int32(0):
+                    status = int32(lin_return)
 
             # Backtrack loop - if the full step doesn't reduce the residual,
             # try smaller steps until we either reduce the residual or run out
             # of attempts
-            scale = 1.0
-            s_applied = 0.0
+            scale = typed_one
+            s_applied = typed_zero
+            found_step = False
 
             for _bt in range(max_backtracks + 1):
                 # Add difference in step size since last attempt
-                coeff = scale - s_applied
-                for i in range(n):
-                    state[i] += coeff * delta[i]
-                s_applied = scale
+                if status < 0:
 
-                # Residual function calculates guess - F(guess) - for example,
-                # in a single backward Euler step, this is guess - step
-                # start state - h*f(guess);
-                residual_function(state, parameters, drivers, h, a_ij, base_state, residual)
-                norm2_new = 0.0
-                for i in range(n):
-                    ri = residual[i]
-                    norm2_new += ri * ri
-
-                if norm2_new <= tol_squared:
-                    return int32(0)
-                if norm2_new < norm2_prev:
-                    # Accept: prepare rhs = -F(state) in-place for next Newton iteration
-                    norm2_prev = norm2_new
+                    coeff = scale - s_applied
                     for i in range(n):
-                        residual[i] = -residual[i]
+                        state[i] += coeff * delta[i]
+                    s_applied = scale
+
+                    # Evaluate residual at tentative state
+                    residual_function(state,
+                                      parameters,
+                                      drivers,
+                                      h,
+                                      a_ij,
+                                      base_state,
+                                      residual)
+
+                    norm2_new = typed_zero
+                    for i in range(n):
+                        ri = residual[i]
+                        norm2_new += ri * ri
+
+                    if norm2_new <= tol_squared:
+                        status = int32(0)
+
+                    accept =  (status < 0) and (norm2_new < norm2_prev)
+                    found_step = found_step or accept
+
+                    # Prepare rhs and norm for next iterate ONLY if accepted
+                    for i in range(n):
+                        residual[i] = cuda.selp(accept,
+                                                -residual[i],
+                                                residual[i])
+                    norm2_prev = cuda.selp(accept, norm2_new, norm2_prev)
+
+                # Warp-coherent break when all lanes have accepted
+                if cuda.all_sync(mask, (found_step or status >= 0)):
                     break
-                scale *= damping
-            else:
-                # No acceptable step: revert net update once and fail
+
+                # Not accepted yet; try again with a smaller scale.
+                scale *= typed_damping
+
+            # Backtrack exhausted without a step → revert and mark status=1
+            if (status < 0) and (not found_step):
                 for i in range(n):
                     state[i] -= s_applied * delta[i]
-                return int32(1)
-            # Accepted but not converged; fall through with prepared rhs
-        return int32(2)  # Newton iterations exhausted
+                status = int32(1)
+        if status < 0:
+            # Lanes still active after max_iters
+            status = int32(2)
 
+        return status
     # no cover: end
     return newton_krylov_solver
