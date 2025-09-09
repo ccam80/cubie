@@ -417,7 +417,7 @@ class BatchSolverKernel(CUDAFactory):
     def shared_memory_needs_padding(self):
         """True if we need to pad shared memory to avoid bank conflicts"""
         if self.precision == np.float64:
-            return True
+            return False
         elif self.shared_memory_elements_per_run % 2 == 0:
             return True
         else:
