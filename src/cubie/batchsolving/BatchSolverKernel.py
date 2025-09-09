@@ -29,6 +29,7 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
     ActiveOutputs,
 )
 from cubie.batchsolving.BatchSolverConfig import BatchSolverConfig
+from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling.output_sizes import (
     BatchOutputSizes,
     SingleRunOutputSizes,
@@ -106,7 +107,7 @@ class BatchSolverKernel(CUDAFactory):
 
     def __init__(
         self,
-        system,
+        system: BaseODE,
         algorithm: str = "euler",
         duration: float = 1.0,
         warmup: float = 0.0,
@@ -121,13 +122,13 @@ class BatchSolverKernel(CUDAFactory):
         summarised_state_indices: Optional[ArrayLike] = None,
         summarised_observable_indices: Optional[ArrayLike] = None,
         output_types: list[str] = None,
-        precision: type = np.float64,
         profileCUDA: bool = False,
         memory_manager=default_memmgr,
         stream_group="solver",
         mem_proportion=None,
     ):
         super().__init__()
+        precision = system.precision
         self.chunks = None
         self.chunk_axis = "run"
         self.num_runs = 1
@@ -415,7 +416,25 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def shared_memory_needs_padding(self):
-        """True if we need to pad shared memory to avoid bank conflicts"""
+        """True if a 4-byte pad would reduce bank conflicts.
+
+        Shared memory load instructions for ``float64`` require eight-byte
+        alignment. Skewing run slices by four bytes would misalign every
+        alternate run and trigger a runtime ``misaligned address`` fault
+        [CUDAProgrammingGuide]_.  Consequently we only apply padding when
+        using single precision where a four-byte skew preserves alignment and
+        improves bank utilisation.
+
+        Returns
+        -------
+        bool
+            ``True`` when a four-byte pad will reduce bank conflicts.
+
+        References
+        ----------
+        .. [CUDAProgrammingGuide] NVIDIA Corporation, *CUDA C Programming
+           Guide*, "Shared Memory", 2024.
+        """
         if self.precision == np.float64:
             return False
         elif self.shared_memory_elements_per_run % 2 == 0:
@@ -457,8 +476,6 @@ class BatchSolverKernel(CUDAFactory):
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        # Shared memory strides are set to minimise bank conflicts - each run
-        # must span an odd number of 32b words.
         shared_elements_per_run = self.shared_memory_elements_per_run
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0

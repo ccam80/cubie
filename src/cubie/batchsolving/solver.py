@@ -15,6 +15,7 @@ from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory import default_memmgr
+from cubie.odesystems.baseODE import BaseODE
 
 if TYPE_CHECKING:
     pass
@@ -139,7 +140,7 @@ class Solver:
 
     def __init__(
         self,
-        system,
+        system: BaseODE,
         algorithm: str = "euler",
         duration: float = 1.0,
         warmup: float = 0.0,
@@ -161,7 +162,7 @@ class Solver:
         **kwargs,
     ):
         super().__init__()
-        self.precision = system.precision
+        precision = system.precision
         interface = SystemInterface.from_system(system)
         self.system_interface = interface
 
@@ -195,7 +196,7 @@ class Solver:
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
-            precision=self.precision,
+            precision=precision,
             profileCUDA=profileCUDA,
             memory_manager=memory_manager,
             stream_group=stream_group,
