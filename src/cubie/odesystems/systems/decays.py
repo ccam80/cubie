@@ -82,8 +82,7 @@ class Decays(BaseODE):
             Compiled CUDA device function implementing the decay dynamics.
         """
         # Hoist fixed parameters to global namespace
-        global global_constants
-        global_constants = self.compile_settings.constants.values_array
+        constants = self.compile_settings.constants.values_array
         n_terms = self.sizes.states
         numba_precision = from_dtype(self.precision)
 
@@ -128,7 +127,7 @@ class Decays(BaseODE):
             for i in range(n_terms):
                 dxdt[i] = -state[i] / (i + 1)
                 observables[i] = (
-                    dxdt[i] * parameters[i] + global_constants[i] + driver[0]
+                    dxdt[i] * parameters[i] + constants[i] + driver[0]
                 )
         return ODECache(dxdt=dxdtfunc)
 
@@ -154,13 +153,13 @@ class Decays(BaseODE):
         indices = np.arange(len(states))
         observables = np.zeros(self.sizes.observables)
         dxdt = -states / (indices + 1)
-
+        constants = self.constants.values_array
         for i in range(self.sizes.observables):
             observables[i] = (
                 dxdt[i % self.sizes.states]
                 * parameters[i % self.sizes.parameters]
                 + drivers[0]
-                + global_constants[i]
+                + constants[i]
             )
 
         return dxdt, observables

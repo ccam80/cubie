@@ -166,8 +166,7 @@ class ThreeChamberModel(BaseODE):
             cardiovascular dynamics.
         """
         # Hoist fixed parameters to global namespace
-        global global_constants
-        global_constants = self.compile_settings.constants.values_array.astype(
+        constants = self.compile_settings.constants.values_array.astype(
             self.precision
         )
 
