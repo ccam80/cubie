@@ -154,7 +154,6 @@ class Solver:
         summarised_states: Optional[List[Union[str, int]]] = None,
         summarised_observables: Optional[List[Union[str, int]]] = None,
         output_types: list[str] = None,
-        precision: type = np.float64,
         profileCUDA: bool = False,
         memory_manager=default_memmgr,
         stream_group="solver",
@@ -162,6 +161,7 @@ class Solver:
         **kwargs,
     ):
         super().__init__()
+        self.precision = system.precision
         interface = SystemInterface.from_system(system)
         self.system_interface = interface
 
@@ -195,7 +195,7 @@ class Solver:
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
-            precision=precision,
+            precision=self.precision,
             profileCUDA=profileCUDA,
             memory_manager=memory_manager,
             stream_group=stream_group,

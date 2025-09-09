@@ -7,14 +7,9 @@ function references. It uses validation and adapter patterns to ensure
 configuration consistency.
 """
 
-from typing import Callable, Optional
 
 from attrs import define, field, validators
-from numpy import float32, float16, float64
 
-from cubie.outputhandling.output_config import OutputCompileFlags
-from cubie.outputhandling.output_sizes import LoopBufferSizes
-from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
 
 
 @define
@@ -61,55 +56,10 @@ class IntegratorLoopSettings:
     """
 
     # Core system properties
-    loop_step_config: LoopStepConfig = field(
-        validator=validators.instance_of(LoopStepConfig)
+    _dt_min: float = field(
+            validator=validators.instance_of(float)
     )
-    buffer_sizes: LoopBufferSizes = field(
-        validator=validators.instance_of(LoopBufferSizes)
-    )
-    precision: type = field(
-        default=float32,
-        validator=validators.and_(
-            validators.instance_of(type),
-            validators.in_(
-                [float32, float64, float16],
-            ),
-        ),
-    )
-    compile_flags: OutputCompileFlags = field(
-        default=OutputCompileFlags(),
-        validator=validators.instance_of(
-            OutputCompileFlags,
-        ),
-    )
-    dxdt_function: Optional[Callable] = field(default=None)
-    save_state_func: Optional[Callable] = field(default=None)
-    update_summaries_func: Optional[Callable] = field(default=None)
-    save_summaries_func: Optional[Callable] = field(default=None)
 
-    @property
-    def fixed_steps(self):
-        """
-        Get the fixed steps configuration.
-
-        Returns
-        -------
-        tuple
-            Tuple of (save_every_samples, summarise_every_samples, step_size).
-        """
-        return self.loop_step_config.fixed_steps
-
-    @property
-    def fixed_step_size(self) -> float:
-        """
-        Get the step size used in the loop.
-
-        Returns
-        -------
-        float
-            The fixed step size for integration.
-        """
-        return self.loop_step_config.fixed_steps[-1]
 
     @property
     def dt_min(self) -> float:
@@ -121,7 +71,7 @@ class IntegratorLoopSettings:
         float
             Minimum time step size from the loop step configuration.
         """
-        return self.loop_step_config.dt_min
+        return self._dt_min
 
     @property
     def dt_max(self) -> float:

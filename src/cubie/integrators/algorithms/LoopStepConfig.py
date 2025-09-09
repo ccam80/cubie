@@ -57,35 +57,3 @@ class LoopStepConfig:
     )
     atol: float = field(default=1e-6, validator=validators.instance_of(float))
     rtol: float = field(default=1e-6, validator=validators.instance_of(float))
-
-    @property
-    def fixed_steps(self):
-        """
-        Convert time-based requests to integer numbers of steps for fixed-step loops.
-
-        This helper function converts time-based timing requests to integer
-        numbers of steps at the minimum step size (dt_min). It performs
-        sanity checks and may adjust values for fixed-step algorithm compatibility.
-
-        Returns
-        -------
-        tuple
-            A tuple containing:
-            - save_every_samples (int): Number of internal loop steps between saves
-            - summarise_every_samples (int): Number of output samples between summary calculations
-            - step_size (float): Internal time step size used in the loop (dt_min by default)
-
-        Notes
-        -----
-        For fixed-step algorithms, dt_min is used as the internal step size.
-        The number of steps between saves and summaries are computed as integer
-        divisions, which may result in slight adjustments to the requested timing.
-        """
-        step_size = self.dt_min
-        dt_save = self.dt_save
-        dt_summarise = self.dt_summarise
-
-        n_steps_save = int(dt_save / step_size)
-        n_steps_summarise = int(dt_summarise / dt_save)
-
-        return n_steps_save, n_steps_summarise, step_size

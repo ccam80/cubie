@@ -31,24 +31,14 @@ class StepConfig:
         validator=attrs.validators.instance_of(LoopBufferSizes)
     )
 
-    style: str = attrs.field(
-            default='explicit',
-            validator=attrs.validators.in_(['explicit', 'implicit']))
+
     precision = attrs.field(default=np.float32)
     threads_per_step: int = attrs.field(default=1)
 
-    _beta: float = attrs.field(default=1.0)
-    _gamma: float = attrs.field(default=1.0)
-    _M: Union[np.ndarray, sp.Matrix] = attrs.field(default=sp.eye(1))
-    preconditioner_order: int = attrs.field(default=1)
-    linsolve_tolerance: float = attrs.field(default=1e-6)
-    max_linear_iters: int = attrs.field(default=100)
-    linear_correction_type: str = attrs.field(default="minimal_residual")
 
-    nonlinear_tolerance: float = attrs.field(default=1e-6)
-    max_newton_iters: int = attrs.field(default=100)
-    newton_damping: float = attrs.field(default=0.5)
-    newton_max_backtracks: int = attrs.field(default=10)
+    @property
+    def is_implicit(self):
+        return True
 
     @property
     def beta(self):

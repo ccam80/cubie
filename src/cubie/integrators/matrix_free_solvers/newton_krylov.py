@@ -3,7 +3,6 @@ from typing import Callable
 
 from numba import cuda, int32
 
-
 def newton_krylov_solver_factory(
     residual_function: Callable,
     linear_solver: Callable,

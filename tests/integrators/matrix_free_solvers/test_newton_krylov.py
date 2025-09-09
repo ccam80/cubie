@@ -126,14 +126,14 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order):
     retcode = out_flag.copy_to_host()
     #Nonlinear system needs preconditioning.
     if system_setup["id"] == 'nonlinear' and precond_order == 0:
-        assert retcode == SolverRetCodes.NO_SUITABLE_STEP_FOUND
+        assert retcode == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
     else:
         assert retcode == SolverRetCodes.SUCCESS
         assert np.allclose(x.copy_to_host(), expected, atol=1e-4)
 
 
 def test_newton_krylov_failure(precision):
-    """Solver returns NO_SUITABLE_STEP_FOUND when residual cannot be reduced."""
+    """Solver returns NEWTON_BACKTRACKING_NO_SUITABLE_STEP when residual cannot be reduced."""
 
     @cuda.jit(device=True)
     def residual(state, parameters, drivers, h, a_ij, base_state, out):
@@ -170,7 +170,7 @@ def test_newton_krylov_failure(precision):
 
     out_flag = cuda.to_device(np.array([1], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
-    assert out_flag.copy_to_host()[0] == SolverRetCodes.NO_SUITABLE_STEP_FOUND
+    assert out_flag.copy_to_host()[0] == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
 
 
 def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):

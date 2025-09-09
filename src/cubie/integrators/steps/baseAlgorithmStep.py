@@ -10,7 +10,8 @@ from typing import Callable
 from cubie.CUDAFactory import CUDAFactory
 import attrs
 
-from cubie.integrators.steps.StepConfig import StepConfig
+from cubie._utils import in_attr
+from cubie.integrators.steps.BaseStepConfig import BaseStepConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling import LoopBufferSizes
 
@@ -36,7 +37,7 @@ class BaseAlgorithmStep(CUDAFactory):
                  buffer_sizes: LoopBufferSizes,
                  system: BaseODE,
                  compile_flags=None):
-        config = StepConfig(buffer_sizes = buffer_sizes)
+        config = BaseStepConfig(buffer_sizes = buffer_sizes)
         self.system = system
         self.setup_compile_settings(config)
 
@@ -74,3 +75,46 @@ class BaseAlgorithmStep(CUDAFactory):
         return type is an integer code indicating success or failure
         according to SolverRetCodes"""
         #return step_function
+
+    def update(self, updates_dict=None, silent=False, **kwargs):
+        """
+        Pass updates to compile settings through the CUDAFactory interface.
+
+        This method will invalidate the cache if an update is successful.
+        Use silent=True when doing bulk updates with other component parameters
+        to suppress warnings about unrecognized keys.
+
+        Parameters
+        ----------
+        updates_dict : dict, optional
+            Dictionary of parameters to update.
+        silent : bool, default=False
+            If True, suppress warnings about unrecognized parameters.
+        **kwargs
+            Parameter updates to apply as keyword arguments.
+
+        Returns
+        -------
+        set
+            Set of parameter names that were recognized and updated.
+        """
+        if updates_dict is None:
+            updates_dict = {}
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return set()
+
+        recognised = self.update_compile_settings(updates_dict, silent=True)
+        for key, value in updates_dict.items():
+            if in_attr(key, self.compile_settings.loop_step_config):
+                setattr(self.compile_settings, key, value)
+                recognised.add(key)
+
+        unrecognised = set(updates_dict.keys()) - recognised
+        if not silent and unrecognised:
+            raise KeyError(
+                f"Unrecognized parameters in update: {unrecognised}. "
+                "These parameters were not updated.",
+            )
+        return recognised

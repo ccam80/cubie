@@ -28,6 +28,7 @@ def create_ODE_system(
     drivers: Optional[Iterable[str]] = None,
     user_functions: Optional[dict[str, Callable]] = None,
     name: Optional[str] = None,
+    precision: np.dtype = np.float32,
     strict: bool = False,
 ):
     """Create an ODE system from SymPy expressions."""
@@ -39,7 +40,8 @@ def create_ODE_system(
                                  drivers=drivers,
                                  user_functions=user_functions,
                                  name=name,
-                                 strict=strict,)
+                                 precision=precision,
+                                 strict=strict)
     return SymbODE
 
 class SymbolicODE(BaseODE):
@@ -103,7 +105,7 @@ class SymbolicODE(BaseODE):
               drivers: Optional[Iterable[str]] = None,
               user_functions: Optional[Optional[dict[str, Callable]]] = None,
               name: Optional[str] = None,
-              generate_jac = True,
+              precision: np.dtype = np.float32,
               strict=False):
 
         sys_components = parse_input(
@@ -123,7 +125,7 @@ class SymbolicODE(BaseODE):
                    name=name,
                    fn_hash=int(fn_hash),
                    user_functions = functions,
-                   precision=np.float64)
+                   precision=precision)
 
 
     def build(self):
