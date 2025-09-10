@@ -242,7 +242,7 @@ def save_summary_factory(
         output_observable_summaries_window : array-like
             Output array window for observable summary results.
         summarise_every : int
-            Number of steps between summary calculations.
+            Number of algorithms_ between summary calculations.
 
         Notes
         -----

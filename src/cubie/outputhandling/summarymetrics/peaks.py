@@ -154,7 +154,7 @@ class Peaks(SummaryMetric):
             output_array : array-like
                 Output array for saving peak time indices.
             summarise_every : int
-                Number of steps between saves (unused for peak detection).
+                Number of algorithms_ between saves (unused for peak detection).
             customisable_variable : int
                 Maximum number of peaks to detect (n_peaks parameter).
 

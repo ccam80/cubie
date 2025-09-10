@@ -1,6 +1,6 @@
 from numba import cuda
 
-from cubie.integrators.steps.baseAlgorithmStep import BaseAlgorithmStep
+from cubie.integrators.algorithms_.base_algorithm_step import BaseAlgorithmStep
 
 
 class ODEExplicitStep(BaseAlgorithmStep):

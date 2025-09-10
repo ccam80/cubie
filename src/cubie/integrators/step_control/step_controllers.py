@@ -1,16 +1,6 @@
 from numba import cuda, int32, int8, from_dtype
 from cubie._utils import clamp_factory
 
-def l2_squared_norm_factory(precision, n):
-    precision = from_dtype(precision)
-
-    @cuda.jit(device=True, inline=True)
-    def norm_l2_squared(i, in1, in2):
-        acc = precision(0.0)
-        for j in range(n):
-            val = in1[i, j] - in2[i, j]
-            acc += val * val
-        return acc
 
 def PI_factory(tol2, kp, ki, dt_min, dt_max, precision, norm_func):
     precision = from_dtype(precision)

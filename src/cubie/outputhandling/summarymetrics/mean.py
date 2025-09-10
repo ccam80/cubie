@@ -132,7 +132,7 @@ class Mean(SummaryMetric):
             output_array : array-like
                 Output array location for saving the mean value.
             summarise_every : int
-                Number of steps between saves, used as divisor for mean
+                Number of algorithms_ between saves, used as divisor for mean
                 calculation.
             customisable_variable : int
                 Extra parameter for metric-specific calculations (unused for
@@ -141,7 +141,7 @@ class Mean(SummaryMetric):
             Notes
             -----
             Calculates the mean by dividing the running sum by the number of
-            integration steps (summarise_every) and saves to output_array[0].
+            integration algorithms_ (summarise_every) and saves to output_array[0].
             Resets buffer[0] to 0.0 for the next summary period  Requires 1
             output memory slot per variable.
             """

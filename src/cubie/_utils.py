@@ -344,3 +344,10 @@ def is_devfunc(func: Callable):
         if func.targetoptions.get('device', False):
             is_device = True
     return is_device
+
+def is_device_validator(instance, attribute, value):
+    """Validate that a value is a Numba CUDA device function."""
+    if not is_devfunc(value):
+        raise TypeError(f"{attribute} must be a Numba CUDA device function,"
+        f"got {type(value)}.")
+

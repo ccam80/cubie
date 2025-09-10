@@ -2,7 +2,7 @@
 CUDA device function factory for updating summary metrics during integration.
 
 This module implements a recursive function chaining approach for CUDA device
-functions that update summary metrics during integration steps. It uses the
+functions that update summary metrics during integration algorithms_. It uses the
 same chaining strategy as save_summaries.py but for accumulating data rather
 than extracting final results.
 

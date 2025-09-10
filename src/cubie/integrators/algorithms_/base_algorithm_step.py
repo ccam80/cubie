@@ -11,7 +11,7 @@ from cubie.CUDAFactory import CUDAFactory
 import attrs
 
 from cubie._utils import in_attr
-from cubie.integrators.steps.BaseStepConfig import BaseStepConfig
+from cubie.integrators.algorithms_.base_step_config import BaseStepConfig
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling import LoopBufferSizes
 
@@ -28,9 +28,9 @@ class BaseAlgorithmStep(CUDAFactory):
     This class provides default update behaviour and properties for a
     unified interface and inherits build and cache logic from CUDAFactory.
 
-    Algorithm steps handle the "inner" logic of an ODE integration,
+    Algorithm algorithms_ handle the "inner" logic of an ODE integration,
     estimating state at some future time given current state and parameters.
-    All steps should return an integer code indicating success or failure.
+    All algorithms_ should return an integer code indicating success or failure.
     """
 
     def __init__(self,

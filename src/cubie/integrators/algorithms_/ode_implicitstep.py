@@ -2,7 +2,7 @@ from numba import cuda
 
 from cubie.integrators.matrix_free_solvers import (linear_solver_factory,
     newton_krylov_solver_factory)
-from cubie.integrators.steps.baseAlgorithmStep import BaseAlgorithmStep
+from cubie.integrators.algorithms_.base_algorithm_step import BaseAlgorithmStep
 
 
 class ODEImplicitStep(BaseAlgorithmStep):

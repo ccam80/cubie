@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 
-from cubie.integrators.loops.fixedloopconfig import (
+from cubie.integrators.step_control.fixed_step_config import (
     IntegratorLoopSettings,
 )
 from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig

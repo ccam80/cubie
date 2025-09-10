@@ -4,7 +4,7 @@ import attrs
 import numpy as np
 import sympy as sp
 
-from cubie.integrators.steps.BaseStepConfig import BaseStepConfig
+from cubie.integrators.algorithms_.base_step_config import BaseStepConfig
 from cubie.outputhandling import LoopBufferSizes
 
 

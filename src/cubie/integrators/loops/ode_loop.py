@@ -7,7 +7,7 @@ update behaviour and properties for a unified interface and inherits build
 and cache logic from CUDAFactory.
 
 Integration loops handle the "outer" logic of an ODE integration, organising
-steps and saving output, and call an algorithm-specific step function to do the
+algorithms_ and saving output, and call an algorithm-specific step function to do the
 mathy end of the integration.
 """
 from typing import Optional, Callable
@@ -103,7 +103,6 @@ class IVPLoop(CUDAFactory):
         summarise_obs_bool = flags.summarise_observables
         summarise_state_bool = flags.summarise_state
         summarise = summarise_obs_bool or summarise_state_bool
-        fixed_mode = config.is_fixed_step
 
         shared_indices = config.shared_memory_indices
         state_shared_ind = shared_indices.state
@@ -122,9 +121,13 @@ class IVPLoop(CUDAFactory):
         n_states = config.buffer_sizes.state
         n_parameters = config.buffer_sizes.nonzero.parameters
 
-        dt0_default = config.dt0
         dt_save = config.dt_save
+
+        # Baked into step controller
+        dt0_default = config.dt0
         dt_min = config.dt_min
+        fixed_mode = config.is_fixed_step
+
 
 
         @cuda.jit(device=True, inline=True)
@@ -143,7 +146,7 @@ class IVPLoop(CUDAFactory):
             t0 = precision(0.0),
             dt0 = dt0_default,
         ):
-            # Cap max iterations - all internal steps plus a bonus end/start
+            # Cap max iterations - all internal algorithms_ plus a bonus end/start
             max_steps =  (int32(
                           ceil(duration / max(dt_min, precision(1e-16))))
                           + int32(2))
