@@ -1,9 +1,9 @@
 from numba import cuda, from_dtype, int32
 
-from cubie.integrators.loops.BaseIntegratorLoop import BaseIntegratorLoop
+from cubie.integrators.loops.ivp_loop import IVPLoop
 
 
-class ODEFixedStepLoop(BaseIntegratorLoop):
+class ODEFixedStepLoop(IVPLoop):
     def __init__(self):
         pass
 

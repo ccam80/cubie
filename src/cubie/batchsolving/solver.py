@@ -196,7 +196,6 @@ class Solver:
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
-            precision=precision,
             profileCUDA=profileCUDA,
             memory_manager=memory_manager,
             stream_group=stream_group,

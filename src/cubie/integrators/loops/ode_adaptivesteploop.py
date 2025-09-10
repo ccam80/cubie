@@ -1,9 +1,9 @@
 from numba import cuda
 
-from cubie.integrators.loops.BaseIntegratorLoop import BaseIntegratorLoop
+from cubie.integrators.loops.ivp_loop import IVPLoop
 
 
-class ODEAdaptiveStepLoop(BaseIntegratorLoop):
+class ODEAdaptiveStepLoop(IVPLoop):
 
     def __init__(self):
         pass

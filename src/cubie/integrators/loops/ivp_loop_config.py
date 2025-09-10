@@ -31,6 +31,11 @@ class LoopIndices:
             default=None,
             validator=valid_opt_slice
     )
+    # Alias this to state indices for shared mem in fixed-step mode
+    proposed_state: Optional[slice] = field(
+            default=None,
+            validator=valid_opt_slice
+    )
     observables: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
@@ -55,6 +60,10 @@ class LoopIndices:
             default=None,
             validator=valid_opt_slice
     )
+    end: Optional[slice] = field(
+            default=None,
+            validator=valid_opt_slice
+    )
 
     def from_dict(self, indices_dict):
         for key, value in indices_dict.items():
@@ -64,7 +73,7 @@ class LoopIndices:
                 setattr(self, key, slice(*value))
 
 @define
-class BaseLoopSettings:
+class IVPLoopConfig:
     """
     Compile-critical settings for an integrator loop.
 

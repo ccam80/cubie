@@ -194,76 +194,18 @@ def timing(_func=None, *, nruns=1):
     return decorator if _func is None else decorator(_func)
 
 
-@cuda.jit(
-    float64(
-        float64,
-        float64,
-    ),
-    device=True,
-    inline=True,
-)
-def clamp_64(
-    value,
-    clip_value,
-):
-    """Clamp a 64-bit float to ``[-clip_value, clip_value]``.
-
-    Parameters
-    ----------
-    value : float64
-        Value to clamp.
-    clip_value : float64
-        Maximum absolute value allowed.
-
-    Returns
-    -------
-    float64
-        Clamped value.
-    """
-    # no cover: start
-    if value <= clip_value and value >= -clip_value:
-        return value
-    elif value > clip_value:
-        return clip_value
-    else:
-        return -clip_value
-    # no cover: end
 
 
-@cuda.jit(
-    float32(
-        float32,
-        float32,
-    ),
-    device=True,
-    inline=True,
-)
-def clamp_32(
-    value,
-    clip_value,
-):
-    """Clamp a 32-bit float to ``[-clip_value, clip_value]``.
-
-    Parameters
-    ----------
-    value : float32
-        Value to clamp.
-    clip_value : float32
-        Maximum absolute value allowed.
-
-    Returns
-    -------
-    float32
-        Clamped value.
-    """
-    # no cover: start
-    if value <= clip_value and value >= -clip_value:
-        return value
-    elif value > clip_value:
-        return clip_value
-    else:
-        return -clip_value
-    # no cover: end
+def clamp_factory(precision):
+    precision = from_dtype(precision)
+    @cuda.jit(precision(precision, precision, precision),
+               device=True,
+               inline=True)
+    def clamp(v, hi, lo):
+        v1 = cuda.selp(v > hi, hi, v)
+        v2 = cuda.selp(v1 < lo, lo, v1)
+        return v2
+    return clamp
 
 
 @cuda.jit(
