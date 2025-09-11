@@ -11,13 +11,18 @@ algorithms_ and saving output, and call an algorithm-specific step function to d
 mathy end of the integration.
 """
 from typing import Optional, Callable
+from warnings import warn
 
 from numba import cuda, from_dtype, int32
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie._utils import in_attr
+from cubie.integrators.algorithms_.base_algorithm_step import BaseAlgorithmStep
+from cubie.integrators.loops.ode_loop_config import LoopIndices, ODELoopConfig
+from cubie.integrators.step_control.base_step_controller import \
+    BaseStepController
 from cubie.outputhandling import OutputCompileFlags, LoopBufferSizes
 from math import ceil
+
 
 class IVPLoop(CUDAFactory):
     """
@@ -59,26 +64,90 @@ class IVPLoop(CUDAFactory):
     def __init__(
         self,
         precision: type,
+        dt_save: float,
+        dt_summarise: float,
+        step_controller: BaseStepController,
+        step_object: BaseAlgorithmStep,
         buffer_sizes: LoopBufferSizes,
         compile_flags: OutputCompileFlags,
         save_state_func: Callable,
         update_summaries_func: Callable,
         save_summaries_func: Callable,
-        step_controller_fn: Callable,
-        step_fn: Callable,
     ):
         super().__init__()
-        self.precision = precision
-        # consider breaking into compile_settings, as these are
-        # compile-critical
-        self.buffer_sizes = buffer_sizes
-        self.compile_flags = compile_flags
-        self.save_state_func = save_state_func
-        self.update_summaries_func = update_summaries_func
-        self.save_summaries_func = save_summaries_func
-        self.step_controller_fn = step_controller_fn
-        self.step_fn = step_fn
-        self.loop_fn = None
+        is_adaptive = step_controller.is_adaptive
+        new_timing = self.validate_timing(step_controller.dt_min,
+                                          step_controller.dt_max,
+                                          dt_save,
+                                          dt_summarise,
+                                          is_adaptive=is_adaptive
+                                          )
+        dt_min, dt_max, dt_save, dt_summarise = new_timing
+        step_controller.update(_dt_min=dt_min, _dt_max=dt_max)
+        step_controller_fn = step_controller.device_function
+        step_fn = step_object.device_function
+
+        self.step_controller = step_controller
+        self.algorithm = step_object
+
+        shared_buffer_indices = LoopIndices.from_buffer_sizes(buffer_sizes)
+
+        config = ODELoopConfig(buffer_indices=shared_buffer_indices,
+                               save_state_func=save_state_func,
+                               update_summaries_func=update_summaries_func,
+                               save_summaries_func=save_summaries_func,
+                               step_controller_fn=step_controller_fn,
+                               step_fn=step_fn,
+                               precision=precision,
+                               compile_flags=compile_flags,
+                               dt_save=dt_save,
+                               dt_summarise=dt_summarise,
+                               )
+        self.setup_compile_settings(config)
+
+    @property
+    def is_adaptive(self):
+        """Returns whether the loop is adaptive-step"""
+        return self.step_controller.is_adaptive
+
+    @property
+    def precision(self):
+        return self.compile_settings.precision
+
+    def validate_timing(self,
+                        dt_min: float,
+                        dt_max: float,
+                        dt_save: float,
+                        dt_summarise: float,
+                        is_adaptive: bool):
+        """Check that user-provided step, save, and summary timings are valid.
+
+        Returns modified dt_min, dt_save and dt_summarise if required to
+        enforce consistency.
+        """
+        if dt_save < dt_min:
+            dt_min = dt_save / 10.0
+            warn(f"dt_save ({dt_save}s) must be >= dt_min ({dt_min}s). "
+                 f"Setting dt_min to dt_save / 10 by default.")
+        if dt_summarise < (2 * dt_save):
+            dt_summarise = max(2 * dt_save)
+            warn(f"dt_summarise ({dt_summarise}s) must be at least 2*dt_save "
+                 f"to be meaningful, setting dt_summarise to ({2 * dt_save}s)",
+            )
+        if dt_summarise % dt_save > 0.01:
+            dt_summarise = ceil(dt_summarise / dt_save) * dt_save
+            warn(f"dt_summarise ({dt_summarise}s) is not an integer multiple of "
+                 f"dt_save ({dt_save}s). Cubie estimates summaries every n "
+                 f"saves, so dt_summarise has been rounded down to the "
+                 f"nearest integer multiple of dt_save.")
+        if is_adaptive:
+            if dt_max > dt_save:
+                dt_max = dt_save
+                warn(f"dt_max ({dt_max}s) > dt_save ({dt_save}s). "
+                     f"The loop will never be able to step that far before "
+                     f"stopping to save, so dt_max has been set to dt_save.")
+
+        return dt_min, dt_max, dt_save, dt_summarise
 
     def build(self):
         """
@@ -114,7 +183,6 @@ class IVPLoop(CUDAFactory):
         drivers_shared_ind = shared_indices.drivers
 
         saves_per_summary = config.saves_per_summary
-        total_saved_samples = config.total_saved_samples
 
         precision = from_dtype(self.precision)
 
@@ -123,10 +191,10 @@ class IVPLoop(CUDAFactory):
 
         dt_save = config.dt_save
 
-        # Baked into step controller
-        dt0_default = config.dt0
-        dt_min = config.dt_min
-        fixed_mode = config.is_fixed_step
+
+        dt0_default = self.dt0
+        dt_min = self.dt_min
+        fixed_mode = not self.is_adaptive
 
 
 
@@ -242,6 +310,7 @@ class IVPLoop(CUDAFactory):
                             observables_output[save_idx * save_obs_bool, :],
                             t)
                         save_idx += 1
+
                         if summarise:
                             update_summaries(
                                 state_buffer,
@@ -249,19 +318,48 @@ class IVPLoop(CUDAFactory):
                                 state_summary_buffer,
                                 observable_summary_buffer,
                                 saves_per_summary)
+
                             if (save_idx + 1) % saves_per_summary == 0:
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,
-                                    state_summaries_output,
-                                    observable_summaries_output,
-                                    total_saved_samples)
+                                    state_summaries_output[
+                                        summary_idx * summarise_state_bool, :
+                                    ],
+                                    observable_summaries_output[
+                                        summary_idx * summarise_obs_bool, :
+                                    ],
+                                    saves_per_summary)
                                 summary_idx += 1
             #Max iterations exhausted
             status = int32(10)
             return status
 
         return loop_fn
+
+    @property
+    def dt0(self):
+        return self.step_controller.dt0
+
+    @property
+    def dt_min(self):
+        return self.step_controller.dt_min
+
+    @property
+    def dt_max(self):
+        return self.step_controller.dt_max
+
+    @property
+    def dt_save(self):
+        return self.compile_settings.dt_save
+
+    @property
+    def dt_summarise(self):
+        return self.compile_settings.dt_summarise
+
+    @property
+    def buffer_indices(self):
+        return self.compile_settings.buffer_indices
 
     @property
     def shared_memory_elements(self):
@@ -273,6 +371,10 @@ class IVPLoop(CUDAFactory):
         int
             Number of threads required per integration loop.
         """
+        algo = self.algorithm.shared_memory_elements
+        controller = self.step_controller.shared_memory_elements
+        own = self.buffer_
+
 
     def update(self,
                updates_dict : Optional[dict] = None,
@@ -306,16 +408,16 @@ class IVPLoop(CUDAFactory):
         if updates_dict == {}:
             return set()
 
-        recognised = self.update_compile_settings(updates_dict, silent=True)
-        for key, value in updates_dict.items():
-            if in_attr(key, self.compile_settings.loop_step_config):
-                setattr(self.compile_settings, key, value)
-                recognised.add(key)
-            if hasattr(self, key):
-                # Update output and step functions
-                setattr(self, key, value)
-                recognised.add(key)
-                self._invalidate_cache()
+        recognised = set()
+        recognised |= self.step_controller.update(updates_dict, silent=True)
+        recognised |= self.algorithm.update(updates_dict, silent=True)
+
+        # Get fresh device functions
+        updates_dict.update(
+                {'step_controller_fn': self.step_controller.device_function,
+                 'step_fn': self.algorithm.device_function}
+        )
+        recognised |= self.update_compile_settings(updates_dict, silent=True)
 
         unrecognised = set(updates_dict.keys()) - recognised
         if not silent and unrecognised:
@@ -325,32 +427,14 @@ class IVPLoop(CUDAFactory):
             )
         return recognised
 
-    @classmethod
-    def from_single_integrator_run(cls, run_object):
-        """
-        Create an instance of the integrator algorithm from a SingleIntegratorRun object.
-
-        Parameters
-        ----------
-        run_object : SingleIntegratorRun
-            The SingleIntegratorRun object containing configuration parameters.
-
-        Returns
-        -------
-        IVPLoop
-            New instance of the integrator algorithm configured with parameters
-            from the run object.
-        """
-        raise NotImplementedError
-
     @property
     def shared_memory_indices(self):
         return self.compile_settings.shared_memory_indices
 
-    @property
-    def constant_memory_indices(self):
-        return self.compile_settings.constant_memory_indices
-
-    @property
-    def local_memory_indices(self):
-        return self.compile_settings.local_memory_indices
+    # @property
+    # def constant_memory_indices(self):
+    #     return self.compile_settings.constant_memory_indices
+    #
+    # @property
+    # def local_memory_indices(self):
+    #     return self.compile_settings.local_memory_indices

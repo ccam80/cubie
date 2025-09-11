@@ -6,10 +6,9 @@ settings for integrator loops, including timing parameters, buffer sizes, and
 function references. It uses validation and adapter patterns to ensure
 configuration consistency.
 """
-
+from typing import Optional
 
 from attrs import define, field, validators
-from numpy import float32, float16, float64
 
 from cubie.integrators.step_control.base_step_controller_config import \
     BaseStepControllerConfig
@@ -30,7 +29,8 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     _dt_min: float = field(
             validator=validators.instance_of(float)
     )
-    dt_max: float = field(
+    _dt_max: Optional[float] = field(
+            default=None,
             validator=validators.instance_of(float)
     )
     atol: float = field(
@@ -39,17 +39,17 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     )
     rtol: float = field(
             default=1e-6,
-    )
-    precision: type = field(
-            default=float32,
-            validator=validators.in_([float32, float64, float16]),
+            validator=validators.instance_of(float)
     )
 
+    def __attrs_post_init__(self):
+        if self._dt_max is None:
+            _dt_max = self.dt_min * 100
 
     @property
     def dt_min(self) -> float:
         """
-        Get the minimum time step size.
+        Returns the minimum time step size.
 
         Returns
         -------
@@ -57,6 +57,11 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
             Minimum time step size from the loop step configuration.
         """
         return self._dt_min
+
+    @property
+    def dt_max(self) -> float:
+        """Returns the maximum time step size."""
+        return self._dt_max
 
     @property
     def dt0(self) -> float:

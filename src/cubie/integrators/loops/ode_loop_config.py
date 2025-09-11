@@ -61,6 +61,10 @@ class LoopIndices:
             default=None,
             validator=valid_opt_slice
     )
+    local_end: Optional[int] = field(
+            default=None,
+            validator=validators.optional(valid_int)
+    )
     scratch: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
@@ -76,13 +80,51 @@ class LoopIndices:
                 setattr(self, key, value)
             else:
                 setattr(self, key, slice(*value))
-        stops = [value.stop for value in self.__dict__.values()
-                 if value is not None]
-        self.end = slice(max(stops))
+
+        self.local_end = self.scratch.stop
+
+    @classmethod
+    def from_buffer_sizes(cls,
+                          sizes: LoopBufferSizes,
+                          step_type: str="adaptive"
+                          ):
+        state_start_idx = 0
+        #Alias state proposal to state for always-accepted fixed steps
+        if step_type == "adaptive":
+            state_end_idx = state_start_idx + sizes.state
+            state_proposal_start_idx = state_end_idx
+        else:
+            state_end_idx = state_start_idx + sizes.state
+            state_proposal_start_idx = state_start_idx
+
+        dxdt_start_index = state_proposal_start_idx + sizes.state
+        observables_start_index = dxdt_start_index + sizes.dxdt
+        parameters_start_index = observables_start_index + sizes.observables
+        drivers_start_index = parameters_start_index + sizes.parameters
+        state_summaries_start_index = drivers_start_index + sizes.drivers
+        obs_summaries_start_index = (state_summaries_start_index
+                                     + sizes.state_summaries)
+        end_index = obs_summaries_start_index + sizes.observable_summaries
+
+        return cls(
+            state=slice(state_start_idx, state_end_idx),
+            proposed_state=slice(state_proposal_start_idx, dxdt_start_index),
+            dxdt=slice(dxdt_start_index, observables_start_index),
+            observables=slice(observables_start_index, parameters_start_index),
+            parameters=slice(parameters_start_index, drivers_start_index),
+            drivers=slice(drivers_start_index, state_summaries_start_index),
+            state_summaries=slice(state_summaries_start_index,
+                                  obs_summaries_start_index),
+            observable_summaries=slice(obs_summaries_start_index, end_index),
+            end=end_index,
+            scratch=slice(end_index, None),
+            all=slice(None),
+        )
+
 
 
 @define
-class IVPLoopConfig:
+class ODELoopConfig:
     """
     Compile-critical settings for an integrator loop.
 
@@ -93,10 +135,9 @@ class IVPLoopConfig:
     update_from methods which extract relevant settings from other objects.
 
     """
-    buffer_sizes: LoopBufferSizes = field(
-        validator=validators.instance_of(LoopBufferSizes)
+    buffer_indices: LoopIndices = field(
+        validator=validators.instance_of(LoopIndices)
     )
-
     save_state_func: Callable = field(validator=is_device_validator)
     update_summaries_func: Callable = field(validator=is_device_validator)
     save_summaries_func: Callable = field(validator=is_device_validator)
@@ -111,37 +152,22 @@ class IVPLoopConfig:
         default=OutputCompileFlags(),
         validator=validators.instance_of(OutputCompileFlags),
     )
-    shared_memory_indices: LoopIndices = field(
-        factory=LoopIndices, validator=validators.instance_of(LoopIndices)
-    )
     # constant_memory_indices: LoopIndices = field(
     #     factory=LoopIndices, validator=validators.instance_of(LoopIndices)
     # )
     # local_memory_indices: LoopIndices = field(
     #     factory=LoopIndices, validator=validators.instance_of(LoopIndices)
     # )
-    dt0: float = field(default=1e-3, validator=valid_float)
     dt_save: float = field(default=0.1, validator=valid_float)
     dt_summarise: float = field(default=1.0, validator=valid_float)
-    duration: float = field(default=1.0, validator=valid_float)
-    settling_time: float = field(default=0.0, validator=valid_float)
-    total_saved_samples: int = field(default=0, validator=valid_int)
-    # saves_per_summary: int = field(default=1, validator=valid_int)
 
-    @property
-    def output_length(self) -> int:
-        """Return the length of the output array."""
-        return ceil(self.duration / self.dt_save)
 
     @property
     def saves_per_summary(self) -> int:
         """Return the number of saves between summary outputs."""
         return int(self.dt_summarise // self.dt_save)
 
-    def _validate_timing(self, dt_min, dt_max) -> bool:
-        """TODO: Add timing validation."""
-        # TODO: implement validation logic
-        True
+
 
     @classmethod
     def from_single_integrator_run(cls, run_object):
@@ -154,7 +180,7 @@ class IVPLoopConfig:
 
         Returns
         -------
-        IVPLoopConfig
+        ODELoopConfig
             Configuration populated with values from ``run_object``.
         """
         return cls(

@@ -22,24 +22,21 @@ class FixedStepControlConfig(BaseStepControllerConfig):
     """
 
     """
-    _step_size = field(default=1e-3, validator=valid_float)
+    dt = field(default=1e-3, validator=valid_float)
 
     @property
     def dt_min(self) -> float:
-        """
-        Get the minimum time step size.
+        """Returns the minimum time step size."""
+        return self.dt
 
-        Returns
-        -------
-        float
-            Minimum time step size from the loop step configuration.
-        """
-        return self._step_size
-
+    @property
+    def dt_max(self) -> float:
+        """Returns the maximum step size."""
+        return self.dt
     @property
     def dt0(self) -> float:
         """Returns initial step size at start of loop."""
-        return self._step_size
+        return self.dt
 
     @property
     def is_adaptive(self) -> bool:
@@ -47,76 +44,7 @@ class FixedStepControlConfig(BaseStepControllerConfig):
         return False
 
 
-    def steps_from_time(self, dt: float, dt_save: float, dt_summarise: float):
-        """
-        Convert time-based requests to integer numbers of algorithms_ for fixed-step loops.
 
-        This helper function converts time-based timing requests to integer
-        numbers of algorithms_ at the minimum step size (dt_min). It performs
-        sanity checks and may adjust values for fixed-step algorithm compatibility.
-
-        Parameters
-        ----------
-        dt
-            step size for simulation in seconds
-        dt_save:
-            time between output samples
-        dt_summarise:
-            time between evaluations of summary metrics
-
-        Notes
-        -----
-        For fixed-step algorithms
-        The number of algorithms_ between saves and summaries are computed as integer
-        divisions, which may result in slight adjustments to the requested timing.
-        """
-        self.step_size = dt
-        self.steps_per_save = int(dt_save / dt)
-        self.saves_per_summary = int(dt_summarise / dt_save)
-
-    # def _validate_timing(self):
-    #     """
-    #     Check for impossible or inconsistent timing settings.
-    #
-    #     Validates timing relationships such as ensuring dt_max >= dt_min,
-    #     dt_save >= dt_min, and dt_summarise >= dt_save. Raises errors for
-    #     impossibilities and warnings if parameters are ignored.
-    #
-    #     Raises
-    #     ------
-    #     ValueError
-    #         If timing parameters have impossible relationships (e.g., dt_max < dt_min).
-    #
-    #     Warns
-    #     -----
-    #     UserWarning
-    #         If dt_max > dt_save, making dt_max redundant.
-    #     """
-    #
-    #     dt_min = self.dt_min
-    #     dt_max = self.dt_max
-    #     dt_save = self.dt_save
-    #     dt_summarise = self.dt_summarise
-    #
-    #     if self.dt_max < self.dt_min:
-    #         raise ValueError(
-    #             f"dt_max ({dt_max}s) must be >= dt_min ({dt_min}s).",
-    #         )
-    #     if dt_save < dt_min:
-    #         raise ValueError(
-    #             f"dt_save ({dt_save}s) must be >= dt_min ({dt_min}s). ",
-    #         )
-    #     if dt_summarise < dt_save:
-    #         raise ValueError(
-    #             f"dt_summarise ({dt_summarise}s) must be >= to dt_save ({dt_save}s)",
-    #         )
-    #
-    #     if dt_max > dt_save:
-    #         warn(f"dt_max ({dt_max}s) > dt_save ({dt_save}s). The loop will never be able to step"
-    #             f"that far before stopping to save, so dt_max is redundant.",
-    #             UserWarning,
-    #         )
-    #
     # def _discretize_steps(self):
     #     """
     #     Discretize the step sizes for saving and summarising.
