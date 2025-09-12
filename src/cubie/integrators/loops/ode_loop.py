@@ -13,9 +13,11 @@ mathy end of the integration.
 from typing import Optional, Callable
 from warnings import warn
 
+import numpy as np
 from numba import cuda, from_dtype, int32
 
 from cubie.CUDAFactory import CUDAFactory
+from cubie._utils import from_dtype as simsafe_dtype
 from cubie.integrators.algorithms_.base_algorithm_step import BaseAlgorithmStep
 from cubie.integrators.loops.ode_loop_config import LoopIndices, ODELoopConfig
 from cubie.integrators.step_control.base_step_controller import \
@@ -175,16 +177,19 @@ class IVPLoop(CUDAFactory):
 
         shared_indices = config.shared_memory_indices
         state_shared_ind = shared_indices.state
+        dxdt_shared_ind = shared_indices.dxdt
         obs_shared_ind = shared_indices.observables
         state_prop_shared_ind = shared_indices.state_proposal
         state_summ_shared_ind = shared_indices.state_summaries
         params_shared_ind = shared_indices.parameters
         obs_summ_shared_ind = shared_indices.observable_summaries
         drivers_shared_ind = shared_indices.drivers
+        remaining_scratch_ind = shared_indices.scratch
 
         saves_per_summary = config.saves_per_summary
 
         precision = from_dtype(self.precision)
+        simsafe_int32 = simsafe_dtype(np.int32)
 
         n_states = config.buffer_sizes.state
         n_parameters = config.buffer_sizes.nonzero.parameters
@@ -223,11 +228,13 @@ class IVPLoop(CUDAFactory):
 
             state_buffer = shared_scratch[state_shared_ind]
             state_proposal_buffer = shared_scratch[state_prop_shared_ind]
+            dxdt_buffer = shared_scratch[dxdt_shared_ind]
             observables_buffer = shared_scratch[obs_shared_ind]
             parameters_buffer = shared_scratch[params_shared_ind]
             drivers_buffer = shared_scratch[drivers_shared_ind]
             state_summary_buffer = shared_scratch[state_summ_shared_ind]
             observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
+            remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
 
             for k in range(n_states):
                 state_buffer[k] = initial_states[k]
@@ -237,12 +244,20 @@ class IVPLoop(CUDAFactory):
 
             # Loop state
             t = t0
-            dt = dt0
             next_save = precision(settling_time)
-            error_integral = precision(0.0)
             status = int32(0)
             save_idx = int32(0)
             summary_idx = int32(0)
+
+            # create step control arguments as local arrays to write in-place
+            # in step_controller function. Keep them separate due to
+            # differing types and alignment challenges. Watch for spill.
+            dt = local_scratch[0:1]
+            error_integral = local_scratch[1:2]
+            accept_step = local_scratch[2:3].view(simsafe_int32)
+            dt[0] = dt0
+            error_integral[0] = precision(0.0)
+            accept_step[0] = int32(0)
 
             # Get active threads to allow a warp-coherent exit without
             # waiting on inactive threads
@@ -266,25 +281,27 @@ class IVPLoop(CUDAFactory):
                     # Do a step with clamped step size
                     status |= step_fn(state_buffer,
                                       state_proposal_buffer,
+                                      dxdt_buffer,
                                       parameters_buffer,
                                       drivers_buffer,
                                       observables_buffer,
-                                      shared_scratch, #dxdt, stage_buffers, etc
-                                      local_scratch,
+                                      remaining_shared_scratch, #dxdt, etc
+                                      local_scratch[3:], # remaining scratch
                                       dt_eff)
 
                     # Adjust dt if step rejected - auto-accepts if fixed-step
                     if fixed_mode:
-                        accept, dt, error_integral, retcode = step_controller(
-                            dt,
+                        accept = True
+                    else:
+                        retcode = step_controller(
+                            dt, 
                             state_buffer,
                             state_proposal_buffer,
-                            error_integral
+                            accept_step,  # int32 array for accept result
+                            error_integral  # same array for error_integral input/output (in-place)
                         )
+                        accept = accept_step[0] != int32(0)  # Convert int32 to boolean
                         status |= retcode
-                    else:
-                        accept = True
-                        dt = dt
 
                     t_proposal = t + dt_eff
                     t = cuda.selp(accept, t_proposal, t)

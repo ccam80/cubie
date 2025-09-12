@@ -19,10 +19,43 @@ valid_int = validators.instance_of(int)
 
 @define
 class FixedStepControlConfig(BaseStepControllerConfig):
-    """
+    """ Configuration for fixed-step integrator loops.
+
+    There's not much to it.
+
+    Parameters
+    ----------
+    precision:
+        numpy datatype to work in: select from (float32, float64, float16)
+    dt:
+        fixed step size
+
+    Attributes
+    ----------
+    precision:
+        numpy datatype to work in: select from (float32, float64, float16)
+    dt:
+        fixed step size
+
+    Methods
+    -------
+    dt_min: self.precision
+        alias for dt
+    dt_max: self.precision
+        alias for dt
+    dt0: self.precision
+        alias for dt
+    is_adaptive: bool
+        False
 
     """
-    dt = field(default=1e-3, validator=valid_float)
+    dt: float = field(default=1e-3, validator=valid_float)
+
+    def __attrs_post_init__(self):
+        self._validate_config()
+
+    def _validate_config(self):
+        return True
 
     @property
     def dt_min(self) -> float:

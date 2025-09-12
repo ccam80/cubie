@@ -6,14 +6,12 @@ settings for integrator loops, including timing parameters, buffer sizes, and
 function references. It uses validation and adapter patterns to ensure
 configuration consistency.
 """
-from math import ceil
 from typing import Optional, Callable
 
 from attrs import define, field, validators
 from numpy import float32, float16, float64
 
 from cubie import is_device_validator
-from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.outputhandling.output_sizes import LoopBufferSizes
 
@@ -116,7 +114,7 @@ class LoopIndices:
             state_summaries=slice(state_summaries_start_index,
                                   obs_summaries_start_index),
             observable_summaries=slice(obs_summaries_start_index, end_index),
-            end=end_index,
+            local_end=end_index,
             scratch=slice(end_index, None),
             all=slice(None),
         )

@@ -1,8 +1,7 @@
 from abc import abstractmethod
-from typing import Callable
+from typing import Callable, Optional
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie.integrators.step_control.base_step_controller_config import BaseStepControllerConfig
 class BaseStepController(CUDAFactory):
     def __init__(self):
         super().__init__()
@@ -12,7 +11,23 @@ class BaseStepController(CUDAFactory):
         """Build the step control function.
 
         Device function signature should be:
-        TODO"""
+        status = control_fn(dt, state, state_tmp, accept, error_integral)
+        Where:
+
+            -dt is a size-1 device array of type 'precision' containing the
+            last dt value. This will be updated in-place with the new dt value.
+            - state is a device array of shape (n_states) containing the
+            previous state.
+            - state_tmp is a device array of shape (n_states) containing the
+            current state guess
+            - accept_array is a size-1 device array of type 'int32' which
+            will be set to 1 in-place if the step is accepted, 0 otherwise.
+            - error_integral is a size-1 device array of type 'precision'
+            updated in-place with a running integral for the control input.
+
+        The device function should calculate the error norm between state
+        and state_tmp and use that to accept/reject the step and update dt.
+        """
         raise NotImplementedError
 
     @property

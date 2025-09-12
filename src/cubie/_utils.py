@@ -16,7 +16,7 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
-from attrs import fields, has
+from attrs import fields, has, validators
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
@@ -351,3 +351,23 @@ def is_device_validator(instance, attribute, value):
         raise TypeError(f"{attribute} must be a Numba CUDA device function,"
         f"got {type(value)}.")
 
+def inrangetype_validator(dtype, min_, max_):
+    return validators.and_(
+        validators.instance_of(float),
+        validators.ge(min_),
+        validators.le(max_)
+)
+
+
+def letype_validator(dtype, max_):
+    return validators.and_(
+        validators.instance_of(float),
+        validators.le(max_)
+    )
+
+
+def getype_validator(dtype, min_):
+    return validators.and_(
+        validators.instance_of(float),
+        validators.ge(min_)
+    )

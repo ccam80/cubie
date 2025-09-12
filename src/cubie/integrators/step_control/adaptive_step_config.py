@@ -7,9 +7,13 @@ function references. It uses validation and adapter patterns to ensure
 configuration consistency.
 """
 from typing import Optional
+from warnings import warn
 
-from attrs import define, field, validators
+import numpy as np
+from attr import validators
+from attrs import define, field
 
+from cubie._utils import inrangetype_validator, getype_validator
 from cubie.integrators.step_control.base_step_controller_config import \
     BaseStepControllerConfig
 
@@ -24,28 +28,58 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     defines the interface with the integrator loop; This class provides
     default logic for API properties.
 
-     """
-
+    Any parameters required for subclassed controllers should live in here
+    if they are used as compile-time constants - this will trigger the
+    device function to recompile when they change.
+    """
     _dt_min: float = field(
-            validator=validators.instance_of(float)
+            default=1e-6,
+            validator=getype_validator(float, 0)
     )
     _dt_max: Optional[float] = field(
             default=None,
-            validator=validators.instance_of(float)
+            validator=getype_validator(float, 0)
     )
-    atol: float = field(
+    atol: np.ndarray = field(
             default=1e-6,
-            validator=validators.instance_of(float)
+            validator=validators.deep_iterable(
+                    iterable_validator=validators.instance_of(np.ndarray),
+                    member_validator=getype_validator(float, 0))
     )
-    rtol: float = field(
+    rtol: np.ndarray = field(
             default=1e-6,
-            validator=validators.instance_of(float)
+            validator=validators.deep_iterable(
+                    iterable_validator=validators.instance_of(np.ndarray),
+                    member_validator=getype_validator(float, 0))
+    )
+    algorithm_order: int = field(
+            default=1,
+            validator=getype_validator(int, 1)
+    )
+    min_gain: float = field(
+            default=0.3,
+            validator=inrangetype_validator(float, 0, 1)
+    )
+    max_gain: float = field(
+            default=2.0,
+            validator=getype_validator(float, 1)
+    )
+    safety: float = field(
+            default=0.9,
+            validator=inrangetype_validator(float, 0, 1)
     )
 
     def __attrs_post_init__(self):
-        if self._dt_max is None:
-            _dt_max = self.dt_min * 100
+        self._validate_config()
 
+    def _validate_config(self):
+        if self._dt_max is None:
+            self._dt_max = self.dt_min * 100
+        if self.dt_max < self.dt_min:
+            warn("dt_max ({self.dt_max}) < dt_min ({self.dt_min}). Setting "
+                 "dt_max = dt_min * 100")
+            self._dt_max = self.dt_min * 100
+        
     @property
     def dt_min(self) -> float:
         """
@@ -73,28 +107,3 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
         """Returns whether the step controller is adaptive."""
         return True
 
-
-    @classmethod
-    def from_integrator_run(cls, run_object):
-        """
-        Create an IntegratorLoopSettings instance from a SingleIntegratorRun object.
-
-        Parameters
-        ----------
-        run_object : SingleIntegratorRun
-            The SingleIntegratorRun object containing configuration parameters.
-
-        Returns
-        -------
-        IntegratorLoopSettings
-            New instance configured with parameters from the run object.
-        """
-        return cls(
-            loop_step_config=run_object.loop_step_config,
-            buffer_sizes=run_object.loop_buffer_sizes,
-            precision=run_object.precision,
-            dxdt_function=run_object.dxdt_function,
-            save_state_func=run_object.save_state_func,
-            update_summaries_func=run_object.update_summaries_func,
-            save_summaries_func=run_object.save_summaries_func,
-        )
