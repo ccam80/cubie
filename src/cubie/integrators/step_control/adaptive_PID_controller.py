@@ -35,7 +35,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         n: int = 1,
         kp: float = 0.7,
         ki: float = 0.4,
-        kd: float = 0.0,
+        kd: float = 0.2,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
         norm: str = "hairer",
@@ -117,10 +117,10 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             gain_new = safety * ((nrm2 ** expo1) *
                                  (err_prev ** expo2) *
                                  (err_prev2 ** expo3))
-            gain = clamp(gain_new, min_gain, max_gain)
+            gain = clamp(gain_new, max_gain, min_gain)
 
             dt_new_raw = dt[0] * gain
-            dt[0] = clamp(dt_new_raw, dt_min, dt_max)
+            dt[0] = clamp(dt_new_raw, dt_max, dt_min)
             local_temp[1] = err_prev
             local_temp[0] = nrm2
 

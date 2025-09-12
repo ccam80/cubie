@@ -35,7 +35,7 @@ def PI_factory(tol2, kp, ki, dt_min, dt_max, precision, norm_func):
 
         # Update step from the current dt
         dt_new_raw = dt[0] * (precision(1.0) + gain)
-        dt[0] = clamp(dt_new_raw, dt_min, dt_max)
+        dt[0] = clamp(dt_new_raw, dt_max, dt_min)
 
         accept = ctrl_err >= precision(0.0)
 

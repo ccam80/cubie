@@ -109,7 +109,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             """Proportional–integral accept/step-size controller."""
             err_prev = local_temp[0]
             for i in range(n):
-                tol = self.atol[i] + self.rtol[i] * max(
+                tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
                 scaled_error[i] = tol / error[i]
@@ -123,10 +123,10 @@ class AdaptivePIController(BaseAdaptiveStepController):
             pgain = nrm2 ** (kp / 2)
             igain = err_prev ** (ki / 2)
             gain_new = safety * pgain * igain
-            gain = clamp(gain_new, min_gain, max_gain)
+            gain = clamp(gain_new, max_gain, min_gain)
 
             dt_new_raw = dt[0] * gain
-            dt[0] = clamp(dt_new_raw, dt_min, dt_max)
+            dt[0] = clamp(dt_new_raw, dt_max, dt_min)
             local_temp[0] = nrm2
 
             ret = int32(0) if dt_new_raw > dt_min else int32(1)

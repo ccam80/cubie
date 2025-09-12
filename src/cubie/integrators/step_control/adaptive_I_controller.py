@@ -95,7 +95,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
         ):
             """Integral accept/step-size controller."""
             for i in range(n):
-                tol = self.atol[i] + self.rtol[i] * max(
+                tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
                 scaled_error[i] = tol / error[i]
@@ -105,11 +105,11 @@ class AdaptiveIController(BaseAdaptiveStepController):
             accept_out[0] = int32(1) if accept else int32(0)
 
             gaintmp = safety * (nrm2 ** order_exponent)
-            gain = clamp(gaintmp, min_gain, max_gain)
+            gain = clamp(gaintmp, max_gain, min_gain)
 
             # Update step from the current dt
             dt_new_raw = dt[0] * gain
-            dt[0] = clamp(dt_new_raw, dt_min, dt_max)
+            dt[0] = clamp(dt_new_raw, dt_max, dt_min)
 
             ret = int32(0) if dt_new_raw > dt_min else int32(1)
             return ret

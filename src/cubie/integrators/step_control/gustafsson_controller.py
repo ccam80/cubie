@@ -91,9 +91,9 @@ class GustafssonController(BaseAdaptiveStepController):
             else:
                 gain = gain_basic
 
-            gain = clamp(gain, min_gain, max_gain)
+            gain = clamp(gain, max_gain, min_gain)
             dt_new_raw = dt[0] * gain
-            dt[0] = clamp(dt_new_raw, dt_min, dt_max)
+            dt[0] = clamp(dt_new_raw, dt_max, dt_min)
 
             ret = int32(0) if dt_new_raw > dt_min else int32(1)
             return ret
