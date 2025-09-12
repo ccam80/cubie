@@ -6,7 +6,7 @@ import numpy as np
 from numba import cuda, int32
 from numpy._typing import ArrayLike
 
-from cubie.integrators.step_control.base_adaptive_controller import (
+from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
 
