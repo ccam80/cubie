@@ -7,15 +7,12 @@ function references. It uses validation and adapter patterns to ensure
 configuration consistency.
 """
 
-from attrs import define, field, validators
+from attrs import define, field
 
-from cubie.integrators.step_control.base_step_controller_config import \
+from cubie._utils import getype_validator
+from cubie.integrators.step_control.base_step_controller import (
     BaseStepControllerConfig
-
-valid_float = validators.instance_of(float)
-valid_int = validators.instance_of(int)
-
-
+)
 
 @define
 class FixedStepControlConfig(BaseStepControllerConfig):
@@ -49,7 +46,7 @@ class FixedStepControlConfig(BaseStepControllerConfig):
         False
 
     """
-    dt: float = field(default=1e-3, validator=valid_float)
+    dt: float = field(default=1e-3, validator=getype_validator(float, 0))
 
     def __attrs_post_init__(self):
         self._validate_config()
@@ -75,6 +72,10 @@ class FixedStepControlConfig(BaseStepControllerConfig):
     def is_adaptive(self) -> bool:
         """Returns whether the step controller is adaptive."""
         return False
+
+
+# Backwards compatibility alias
+IntegratorLoopSettings = FixedStepControlConfig
 
 
 

@@ -341,33 +341,56 @@ def is_devfunc(func: Callable):
     """
     is_device = False
     if hasattr(func, 'targetoptions'):
-        if func.targetoptions.get('device', False):
+        if func.targetoptions.get("device", False):
             is_device = True
     return is_device
+
 
 def is_device_validator(instance, attribute, value):
     """Validate that a value is a Numba CUDA device function."""
     if not is_devfunc(value):
-        raise TypeError(f"{attribute} must be a Numba CUDA device function,"
-        f"got {type(value)}.")
+        raise TypeError(
+            f"{attribute} must be a Numba CUDA device function,"
+            f"got {type(value)}."
+        )
+
+def float_array_validator(instance, attribute, value):
+    """Validate that a value is a Numba CUDA device function."""
+    if isinstance(value, np.ndarray) and value.dtype.kind == 'f':
+        pass
+    else:
+        raise TypeError(f"{attribute} must be a numpy array of floats,"
+                        f"got {type(value)}.")
 
 def inrangetype_validator(dtype, min_, max_):
     return validators.and_(
-        validators.instance_of(float),
+        validators.instance_of(dtype),
         validators.ge(min_),
         validators.le(max_)
 )
 
+def lttype_validator(dtype, max_):
+    return validators.and_(
+        validators.instance_of(dtype),
+        validators.lt(max_)
+    )
+
+
+def gttype_validator(dtype, min_):
+    return validators.and_(
+        validators.instance_of(dtype),
+        validators.gt(min_)
+    )
 
 def letype_validator(dtype, max_):
     return validators.and_(
-        validators.instance_of(float),
+        validators.instance_of(dtype),
         validators.le(max_)
     )
 
 
 def getype_validator(dtype, min_):
     return validators.and_(
-        validators.instance_of(float),
+        validators.instance_of(dtype),
         validators.ge(min_)
     )
