@@ -30,7 +30,7 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
 
 
 class AdaptivePIController(BaseAdaptiveStepController):
-
+    """Proportional–integral step-size controller."""
 
     def __init__(
         self,
@@ -83,21 +83,25 @@ class AdaptivePIController(BaseAdaptiveStepController):
 
     @property
     def local_memory_required(self) -> int:
+        """Amount of local memory required by the controller."""
         return 1
 
-    def build_controller(self,
-                         precision: type,
-                         clamp: Callable,
-                         norm_func: Callable,
-                         min_gain: float,
-                         max_gain: float,
-                         dt_min: float,
-                         dt_max: float,
-                         n: int,
-                         atol: np.ndarray,
-                         rtol: np.ndarray,
-                         order: np.ndarray,
-                         safety: float):
+    def build_controller(
+        self,
+        precision: type,
+        clamp: Callable,
+        norm_func: Callable,
+        min_gain: float,
+        max_gain: float,
+        dt_min: float,
+        dt_max: float,
+        n: int,
+        atol: np.ndarray,
+        rtol: np.ndarray,
+        order: np.ndarray,
+        safety: float,
+    ) -> Callable:
+        """Create the device function for the PI controller."""
         kp = self.kp / (order + 1)
         ki = self.ki / (order + 1)
 

@@ -1,5 +1,7 @@
 from abc import abstractmethod
-from typing import Optional, Callable
+"""Common logic for adaptive step-size controllers."""
+
+from typing import Callable, Optional, Union
 from warnings import warn
 
 import numpy as np
@@ -16,17 +18,10 @@ from cubie.integrators.step_control.base_step_controller import (
 
 @define
 class AdaptiveStepControlConfig(BaseStepControllerConfig):
-    """
-    Configuration parameters for a general adaptive step controller.
+    """Configuration for adaptive step controllers.
 
-    This class can be used as-is for simple adaptive step controllers,
-    or subclassed for more complex controllers. BaseStepControllerConfig
-    defines the interface with the integrator loop; This class provides
-    default logic for API properties.
-
-    Any parameters required for subclassed controllers should live in here
-    if they are used as compile-time constants - this will trigger the
-    device function to recompile when they change.
+    Parameters influencing compilation should live here so that device
+    functions are rebuilt when they change.
     """
 
     _dt_min: float = field(default=1e-6, validator=getype_validator(float, 0))
@@ -50,29 +45,23 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
         default=0.9, validator=inrangetype_validator(float, 0, 1)
     )
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
+        """Validate configuration after initialisation."""
         self._validate_config()
 
-    def _validate_config(self):
+    def _validate_config(self) -> None:
         if self._dt_max is None:
             self._dt_max = self.dt_min * 100
         if self.dt_max < self.dt_min:
             warn(
                 "dt_max ({self.dt_max}) < dt_min ({self.dt_min}). Setting "
-                "dt_max = dt_min * 100"
+                "dt_max = dt_min * 100",
             )
             self._dt_max = self.dt_min * 100
 
     @property
     def dt_min(self) -> float:
-        """
-        Returns the minimum time step size.
-
-        Returns
-        -------
-        float
-            Minimum time step size from the loop step configuration.
-        """
+        """Return the minimum time step size."""
         return self._dt_min
 
     @property
@@ -92,12 +81,25 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
 
 
 class BaseAdaptiveStepController(BaseStepController):
+    """Base class for adaptive step-size controllers."""
+
     def __init__(
         self,
         config: AdaptiveStepControlConfig,
         norm_type: str,
         norm_kwargs: Optional[dict] = None,
-    ):
+    ) -> None:
+        """Initialise the adaptive controller.
+
+        Parameters
+        ----------
+        config
+            Configuration for the controller.
+        norm_type
+            Name of the error norm to use.
+        norm_kwargs
+            Additional keyword arguments for the norm factory.
+        """
         super().__init__()
         self.setup_compile_settings(config)
 
@@ -105,17 +107,35 @@ class BaseAdaptiveStepController(BaseStepController):
         if norm_kwargs is None:
             norm_kwargs = {}
         try:
-            self.norm_func = norm_factory(config.precision,
-                                          config.n,
-                                          **norm_kwargs)
+            self.norm_func = norm_factory(
+                config.precision, config.n, **norm_kwargs
+            )
         except TypeError as exc:  # pragma: no cover - defensive
             raise AttributeError(
                 "Invalid parameters for chosen norm: "
                 f"{norm_kwargs}. Check the norm function for expected "
-                "parameters."
+                "parameters.",
             ) from exc
 
-    def sanitise_tol_array(self, tol, n, precision):
+    def sanitise_tol_array(
+        self, tol: Optional[Union[float, np.ndarray]], n: int, precision: type
+    ) -> np.ndarray:
+        """Return tolerance array with correct shape and dtype.
+
+        Parameters
+        ----------
+        tol
+            Absolute or relative tolerance specification.
+        n
+            Number of state variables.
+        precision
+            Desired floating point precision.
+
+        Returns
+        -------
+        numpy.ndarray
+            Tolerance array of length ``n`` and dtype ``precision``.
+        """
         if isinstance(tol, float):
             tol = np.asarray([tol] * n, dtype=precision)
         else:
@@ -124,36 +144,40 @@ class BaseAdaptiveStepController(BaseStepController):
                 raise ValueError("atol must have shape (n,).")
         return tol
 
-    def build(self):
+    def build(self) -> Callable:
+        """Construct the device function implementing the controller."""
         return self.build_controller(
-                precision=self.precision,
-                clamp=clamp_factory(self.precision),
-                norm_func=self.norm_func,
-                min_gain=self.min_gain,
-                max_gain=self.max_gain,
-                dt_min=self.dt_min,
-                dt_max=self.dt_max,
-                n=self.compile_settings.n,
-                atol=self.atol,
-                rtol=self.rtol,
-                order=self.compile_settings.algorithm_order,
-                safety=self.compile_settings.safety,
+            precision=self.precision,
+            clamp=clamp_factory(self.precision),
+            norm_func=self.norm_func,
+            min_gain=self.min_gain,
+            max_gain=self.max_gain,
+            dt_min=self.dt_min,
+            dt_max=self.dt_max,
+            n=self.compile_settings.n,
+            atol=self.atol,
+            rtol=self.rtol,
+            order=self.compile_settings.algorithm_order,
+            safety=self.compile_settings.safety,
         )
 
     @abstractmethod
-    def build_controller(self,
-                         precision: type,
-                         clamp: Callable,
-                         norm_func: Callable,
-                         min_gain: float,
-                         max_gain: float,
-                         dt_min: float,
-                         dt_max: float,
-                         n: int,
-                         atol: np.ndarray,
-                         rtol: np.ndarray,
-                         order: np.ndarray,
-                         safety: float):
+    def build_controller(
+        self,
+        precision: type,
+        clamp: Callable,
+        norm_func: Callable,
+        min_gain: float,
+        max_gain: float,
+        dt_min: float,
+        dt_max: float,
+        n: int,
+        atol: np.ndarray,
+        rtol: np.ndarray,
+        order: np.ndarray,
+        safety: float,
+    ) -> Callable:
+        """Create the device function for the specific controller."""
         raise NotImplementedError
 
     @property
@@ -178,16 +202,17 @@ class BaseAdaptiveStepController(BaseStepController):
 
     @property
     def atol(self) -> np.ndarray:
-        """ Returns absolute tolerance."""
+        """Return absolute tolerance."""
         return self.compile_settings.atol
 
     @property
     def rtol(self) -> np.ndarray:
-        """ Returns relative tolerance."""
+        """Return relative tolerance."""
         return self.compile_settings.rtol
 
     @property
     @abstractmethod
     def local_memory_required(self) -> int:
+        """Return number of floats required for controller local memory."""
         return NotImplementedError
 

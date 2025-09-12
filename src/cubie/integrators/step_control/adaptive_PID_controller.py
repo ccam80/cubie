@@ -41,6 +41,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         norm: str = "hairer",
         norm_kwargs: Optional[dict] = None,
     ) -> None:
+        """Initialise a proportional–integral–derivative controller."""
 
         atol = self.sanitise_tol_array(atol, n, precision)
         rtol = self.sanitise_tol_array(rtol, n, precision)
@@ -64,33 +65,40 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
     @property
     def kp(self) -> float:
+        """Proportional gain."""
         return self.compile_settings.kp
 
     @property
     def ki(self) -> float:
+        """Integral gain."""
         return self.compile_settings.ki
 
     @property
     def kd(self) -> float:
+        """Derivative gain."""
         return self.compile_settings.kd
 
     @property
     def local_memory_required(self) -> int:
+        """Amount of local memory required by the controller."""
         return 2
 
-    def build_controller(self,
-                         precision: type,
-                         clamp: Callable,
-                         norm_func: Callable,
-                         min_gain: float,
-                         max_gain: float,
-                         dt_min: float,
-                         dt_max: float,
-                         n: int,
-                         atol: np.ndarray,
-                         rtol: np.ndarray,
-                         order: np.ndarray,
-                         safety: float):
+    def build_controller(
+        self,
+        precision: type,
+        clamp: Callable,
+        norm_func: Callable,
+        min_gain: float,
+        max_gain: float,
+        dt_min: float,
+        dt_max: float,
+        n: int,
+        atol: np.ndarray,
+        rtol: np.ndarray,
+        order: np.ndarray,
+        safety: float,
+    ) -> Callable:
+        """Create the device function for the PID controller."""
 
         kp = self.kp
         ki = self.ki

@@ -28,6 +28,8 @@ class GustafssonController(BaseAdaptiveStepController):
         norm: str = "hairer",
         norm_kwargs: Optional[dict] = None,
     ) -> None:
+        """Initialise a Gustafsson predictive controller."""
+
         atol = self.sanitise_tol_array(atol, n, precision)
         rtol = self.sanitise_tol_array(rtol, n, precision)
 
@@ -47,6 +49,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
     @property
     def local_memory_required(self) -> int:
+        """Amount of local memory required by the controller."""
         return 2  # previous dt and error
 
     def build_controller(
@@ -63,7 +66,8 @@ class GustafssonController(BaseAdaptiveStepController):
         rtol: np.ndarray,
         order: np.ndarray,
         safety: float,
-    ):
+    ) -> Callable:
+        """Create the device function for the Gustafsson controller."""
         expo = precision(1.0 / (2 * (order + 1)))
 
         @cuda.jit(device=True, inline=True, fastmath=True)

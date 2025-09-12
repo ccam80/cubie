@@ -12,6 +12,7 @@ from cubie.integrators.step_control.adaptive_step_controller import (
 import numpy as np
 
 class AdaptiveIController(BaseAdaptiveStepController):
+    """Integral step-size controller using only previous error."""
 
     def __init__(
         self,
@@ -71,21 +72,25 @@ class AdaptiveIController(BaseAdaptiveStepController):
 
     @property
     def local_memory_required(self) -> int:
+        """Amount of local memory required by the controller."""
         return 0
 
-    def build_controller(self,
-                         precision: type,
-                         clamp: Callable,
-                         norm_func: Callable,
-                         min_gain: float,
-                         max_gain: float,
-                         dt_min: float,
-                         dt_max: float,
-                         n: int,
-                         atol: np.ndarray,
-                         rtol: np.ndarray,
-                         order: np.ndarray,
-                         safety: float):
+    def build_controller(
+        self,
+        precision: type,
+        clamp: Callable,
+        norm_func: Callable,
+        min_gain: float,
+        max_gain: float,
+        dt_min: float,
+        dt_max: float,
+        n: int,
+        atol: np.ndarray,
+        rtol: np.ndarray,
+        order: np.ndarray,
+        safety: float,
+    ) -> Callable:
+        """Create the device function for the integral controller."""
         order_exponent = precision(1.0 / (2 * (1 + order)))
 
         # step sizes and norms can be approximate - fastmath is fine

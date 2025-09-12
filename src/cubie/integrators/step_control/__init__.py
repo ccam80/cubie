@@ -4,6 +4,7 @@ from .adaptive_I_controller import AdaptiveIController
 from .adaptive_PI_controller import AdaptivePIController
 from .adaptive_PID_controller import AdaptivePIDController
 from .gustafsson_controller import GustafssonController
+from .base_step_controller import BaseStepController
 
 __all__ = [
     "AdaptiveIController",
@@ -14,7 +15,7 @@ __all__ = [
 ]
 
 
-def get_controller(kind: str, **kwargs):
+def get_controller(kind: str, **kwargs) -> BaseStepController:
     """Return a controller instance based on ``kind``.
 
     Parameters
@@ -24,6 +25,11 @@ def get_controller(kind: str, **kwargs):
         ``"gustafsson"``).
     **kwargs
         Arguments passed to the controller constructor.
+
+    Returns
+    -------
+    BaseStepController
+        Instance of the requested controller.
     """
     kind = kind.lower()
     if kind == "i":

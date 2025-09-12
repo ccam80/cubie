@@ -1,4 +1,11 @@
-from abc import abstractmethod, ABC
+"""Base classes for step-size controllers.
+
+This module defines abstract interfaces used by the various step-size
+controllers. Concrete implementations inherit from these classes to provide
+specific control strategies.
+"""
+
+from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
 from numpy import float32, float16, float64
@@ -9,18 +16,24 @@ from cubie._utils import getype_validator
 
 @define
 class BaseStepControllerConfig(ABC):
+    """Configuration interface for step-size controllers.
+
+    Attributes
+    ----------
+    precision
+        Numerical precision for controller calculations.
+    n
+        Number of state variables the controller operates on.
+    """
+
     precision: type = field(
-            default=float32,
-            validator=validators.in_([float16, float32, float64])
+        default=float32, validator=validators.in_([float16, float32, float64])
     )
-    n: int = field(
-           default=1,
-           validator=getype_validator(int, 0)
-    )
+    n: int = field(default=1, validator=getype_validator(int, 0))
 
     @abstractmethod
-    def _validate_config(self):
-        """Check for internal consistency, eg dt_min < dt_max"""
+    def _validate_config(self) -> None:
+        """Check for internal consistency of configuration."""
 
     @property
     @abstractmethod
@@ -30,7 +43,7 @@ class BaseStepControllerConfig(ABC):
 
     @property
     @abstractmethod
-    def dt_max(self)-> float:
+    def dt_max(self) -> float:
         """Returns best-case maximum step for calculating max iterations"""
         raise NotImplementedError
 
@@ -43,35 +56,29 @@ class BaseStepControllerConfig(ABC):
     @property
     @abstractmethod
     def is_adaptive(self) -> bool:
-        """Returns whether the step controller is adaptive."""
+        """Return whether the step controller is adaptive."""
         raise NotImplementedError
 
 
 class BaseStepController(CUDAFactory):
-    def __init__(self):
+    """Abstract base class for step-size controllers."""
+
+    def __init__(self) -> None:
+        """Initialise the step controller."""
         super().__init__()
 
     @abstractmethod
-    def build(self)-> Callable:
-        """Build the step control function.
+    def build(self) -> Callable:
+        """Build the step control device function.
 
-        Device function signature should be:
-        status = control_fn(dt, state, state_tmp, accept, error_integral)
-        Where:
+        The returned device function has signature
 
-            -dt is a size-1 device array of type 'precision' containing the
-            last dt value. This will be updated in-place with the new dt value.
-            - state is a device array of shape (n_states) containing the
-            previous state.
-            - state_tmp is a device array of shape (n_states) containing the
-            current state guess
-            - accept_array is a size-1 device array of type 'int32' which
-            will be set to 1 in-place if the step is accepted, 0 otherwise.
-            - error_integral is a size-1 device array of type 'precision'
-            updated in-place with a running integral for the control input.
+        ``status = control_fn(dt, state, state_tmp, accept, error_integral)``.
 
-        The device function should calculate the error norm between state
-        and state_tmp and use that to accept/reject the step and update dt.
+        Returns
+        -------
+        Callable
+            Compiled device function implementing the controller.
         """
         raise NotImplementedError
 

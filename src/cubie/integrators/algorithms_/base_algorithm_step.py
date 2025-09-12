@@ -7,13 +7,39 @@ returning an integer code that indicates the success or failure of the step."""
 from abc import abstractmethod
 from typing import Callable
 
-from cubie.CUDAFactory import CUDAFactory
 import attrs
+import numpy as np
 
+from cubie.CUDAFactory import CUDAFactory
 from cubie._utils import in_attr
-from cubie.integrators.algorithms_.base_step_config import BaseStepConfig
-from cubie.odesystems.baseODE import BaseODE
+
+
 from cubie.outputhandling import LoopBufferSizes
+
+@attrs.define
+class BaseStepConfig:
+    """Configuration settings for a single integration step.
+
+    Explicit algorithms do not access the full range of fields.
+    """
+    precision = attrs.field(default=np.float32)
+    buffer_sizes: LoopBufferSizes = attrs.field(
+        factory=LoopBufferSizes,
+        validator=attrs.validators.instance_of(LoopBufferSizes)
+    )
+    threads_per_step: int = attrs.field(default=1)
+
+    @property
+    @abstractmethod
+    def is_implicit(self):
+        raise NotImplementedError("is_implicit not implemented")
+
+    @property
+    def n(self) -> int:
+        """Number of stages."""
+        return self.buffer_sizes.state
+
+    threads_per_step: int = attrs.field(default=1)
 
 
 @attrs.define
@@ -34,47 +60,19 @@ class BaseAlgorithmStep(CUDAFactory):
     """
 
     def __init__(self,
-                 buffer_sizes: LoopBufferSizes,
-                 system: BaseODE,
-                 compile_flags=None):
-        config = BaseStepConfig(buffer_sizes = buffer_sizes)
-        self.system = system
+                 config: BaseStepConfig):
+        super().__init__()
         self.setup_compile_settings(config)
 
     @abstractmethod
-    def build(self) -> StepCache:
-        if self.compile_settings.style == 'implicit':
-            nonlinear_solver = self.build_implicit_helpers()
-        else:
-            nonlinear_solver = None
-        step_func = self.build_step(nonlinear_solver)
-
-        return StepCache(nonlinear_solver=nonlinear_solver,
-                         step=step_func)
-
-    def build_implicit_helpers(self):
-        """Construct the matrix-free solver for implicit methods.
-
-        Constructs a chain of device functions that pieces together the
-        matrix-free solvers for implicit methods.
-
-        Returns
-        -------
-        callable
-            Device function that performs the matrix-free solve operation.
-        """
-        return NotImplementedError("This method isn't provided for explicit "
-                                   "methods")
-
-    @abstractmethod
-    def build_step(self, nonlinear_solver_fn):
+    def build_step(self):
         """Construct the step function as a cuda Device function.
 
         The function must have the signature:
         step(states, params, drivers, t, dt, temp_mem) -> int32, where the
         return type is an integer code indicating success or failure
         according to SolverRetCodes"""
-        #return step_function
+        #return ODECache
 
     def update(self, updates_dict=None, silent=False, **kwargs):
         """

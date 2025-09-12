@@ -1,11 +1,6 @@
-"""
-Integrator configuration management with validation and adapter patterns.
+"""Fixed step-size controller implementations."""
 
-This module provides the IntegratorLoopSettings class for managing compile-critical
-settings for integrator loops, including timing parameters, buffer sizes, and
-function references. It uses validation and adapter patterns to ensure
-configuration consistency.
-"""
+from typing import Callable
 
 from attrs import define, field
 from numba import cuda, int32
@@ -16,42 +11,22 @@ from cubie.integrators.step_control.base_step_controller import (
 
 @define
 class FixedStepControlConfig(BaseStepControllerConfig):
-    """ Configuration for fixed-step integrator loops.
-
-    There's not much to it.
+    """Configuration for fixed-step integrator loops.
 
     Parameters
     ----------
-    precision:
-        numpy datatype to work in: select from (float32, float64, float16)
-    dt:
-        fixed step size
-
-    Attributes
-    ----------
-    precision:
-        numpy datatype to work in: select from (float32, float64, float16)
-    dt:
-        fixed step size
-
-    Methods
-    -------
-    dt_min: self.precision
-        alias for dt
-    dt_max: self.precision
-        alias for dt
-    dt0: self.precision
-        alias for dt
-    is_adaptive: bool
-        False
-
+    precision : type
+        Floating point precision.
+    dt : float
+        Fixed step size.
     """
     dt: float = field(default=1e-3, validator=getype_validator(float, 0))
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
+        """Validate configuration after initialisation."""
         self._validate_config()
 
-    def _validate_config(self):
+    def _validate_config(self) -> None:
         return True
 
     @property
@@ -75,17 +50,17 @@ class FixedStepControlConfig(BaseStepControllerConfig):
 
 
 class FixedStepController(BaseStepController):
-    """Placeholder controller for a fixed step loop - does nothing but
-    returns the right properties to satisfy the interface """
-    def __init__(self,
-                 precision: type,
-                 dt: float):
+    """Controller that enforces a constant time step."""
+
+    def __init__(self, precision: type, dt: float) -> None:
+        """Initialise the fixed step controller."""
         self.dt = dt
         super().__init__()
         config = FixedStepControlConfig(precision=precision, n=1, dt=dt)
         self.setup_compile_settings(config)
 
-    def build(self):
+    def build(self) -> Callable:
+        """Return a device function that always accepts with fixed step."""
         cuda.jit(device=True, inline=True, fastmath=True)
         def controller_fixed_step(
             dt, state, state_prev, error, accept_out, scaled_error, local_temp
@@ -95,4 +70,5 @@ class FixedStepController(BaseStepController):
 
     @property
     def local_memory_required(self) -> int:
+        """Amount of local memory required by the controller."""
         return 0
