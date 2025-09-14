@@ -4,34 +4,39 @@ This module provides the BaseAlgorithmStep class, which serves as the base
 class for all inner "step" loops for numerical integration algorithms. It
 includes the interface for implementing the inner loop logic only,
 returning an integer code that indicates the success or failure of the step."""
-from abc import abstractmethod
-from typing import Callable
+
+from abc import abstractmethod, ABC
+from typing import Callable, Optional
 
 import attrs
 import numpy as np
+from attrs import validators
 
+from cubie._utils import is_device_validator
 from cubie.CUDAFactory import CUDAFactory
-from cubie._utils import in_attr
-
 
 from cubie.outputhandling import LoopBufferSizes
 
 @attrs.define
-class BaseStepConfig:
+class BaseStepConfig(ABC):
     """Configuration settings for a single integration step.
-
-    Explicit algorithms do not access the full range of fields.
     """
-    precision = attrs.field(default=np.float32)
+    precision: type = attrs.field(
+        default=np.float32,
+        validator=attrs.validators.in_([np.float16, np.float32, np.float64])
+    )
     buffer_sizes: LoopBufferSizes = attrs.field(
         factory=LoopBufferSizes,
         validator=attrs.validators.instance_of(LoopBufferSizes)
     )
-    threads_per_step: int = attrs.field(default=1)
+    dxdt_fn: Optional[Callable] = attrs.field(
+        default=None,
+        validator=validators.optional(is_device_validator)
+    )
 
     @property
     @abstractmethod
-    def is_implicit(self):
+    def is_implicit(self) -> bool:
         raise NotImplementedError("is_implicit not implemented")
 
     @property
@@ -39,13 +44,13 @@ class BaseStepConfig:
         """Number of stages."""
         return self.buffer_sizes.state
 
-    threads_per_step: int = attrs.field(default=1)
-
-
 @attrs.define
 class StepCache:
-    step: Callable = attrs.field()
-    nonlinear_solver: Callable = attrs.field()
+    step: Callable = attrs.field(validator=is_device_validator)
+    nonlinear_solver: Optional[Callable] = attrs.field(
+           default=None,
+           validator=validators.optional(is_device_validator),
+    )
 
 class BaseAlgorithmStep(CUDAFactory):
     """
@@ -64,15 +69,17 @@ class BaseAlgorithmStep(CUDAFactory):
         super().__init__()
         self.setup_compile_settings(config)
 
+    @property
     @abstractmethod
-    def build_step(self):
-        """Construct the step function as a cuda Device function.
+    def shared_memory_required(self) -> int:
+        """Number of precision elements of shared memory needed."""
+        raise NotImplementedError
 
-        The function must have the signature:
-        step(states, params, drivers, t, dt, temp_mem) -> int32, where the
-        return type is an integer code indicating success or failure
-        according to SolverRetCodes"""
-        #return ODECache
+    @property
+    @abstractmethod
+    def local_memory_required(self) -> int:
+        """Number of precision elements of local memory needed."""
+        raise NotImplementedError
 
     def update(self, updates_dict=None, silent=False, **kwargs):
         """
@@ -104,15 +111,34 @@ class BaseAlgorithmStep(CUDAFactory):
             return set()
 
         recognised = self.update_compile_settings(updates_dict, silent=True)
-        for key, value in updates_dict.items():
-            if in_attr(key, self.compile_settings.loop_step_config):
-                setattr(self.compile_settings, key, value)
-                recognised.add(key)
-
         unrecognised = set(updates_dict.keys()) - recognised
+
         if not silent and unrecognised:
             raise KeyError(
                 f"Unrecognized parameters in update: {unrecognised}. "
                 "These parameters were not updated.",
             )
         return recognised
+
+    @property
+    @abstractmethod
+    def threads_per_step(self) -> int:
+        raise NotImplementedError("threads_per_step not implemented")
+
+    @property
+    @abstractmethod
+    def is_multistage(self) -> bool:
+        raise NotImplementedError("is_multistage not implemented")
+
+    @property
+    @abstractmethod
+    def is_adaptive(self) -> bool:
+        raise NotImplementedError("is_adaptive not implemented")
+
+    @property
+    def local_scratch_required(self) -> int:  # pragma: no cover - simple
+        return 4 * self.compile_settings.n
+
+    @property
+    def persistent_local_required(self) -> int:
+        return 0
