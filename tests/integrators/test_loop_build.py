@@ -112,7 +112,7 @@ def test_loop_builds(buffer_sizes: LoopBufferSizes,
     explicit_cfg = ExplicitStepConfig(
         precision=np.float32,
         buffer_sizes=buffer_sizes,
-        dxdt_fn=_dxdt,
+        dxdt_function=_dxdt,
         fixed_step_size=0.01,
     )
     explicit_step = ExplicitEulerStep(explicit_cfg)

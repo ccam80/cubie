@@ -364,33 +364,45 @@ def float_array_validator(instance, attribute, value):
 
 def inrangetype_validator(dtype, min_, max_):
     return validators.and_(
-        validators.instance_of(dtype),
+        validators.instance_of(_expand_dtype(dtype)),
         validators.ge(min_),
         validators.le(max_)
 )
 
+# Helper: expand Python dtype to accept corresponding NumPy scalar hierarchy
+# e.g. float -> (float, np.floating), int -> (int, np.integer)
+# Unknown types are returned unchanged.
+
+def _expand_dtype(dtype):
+    if dtype is float:
+        return (float, np.floating)
+    if dtype is int:
+        return (int, np.integer)
+    return dtype
+
 def lttype_validator(dtype, max_):
     return validators.and_(
-        validators.instance_of(dtype),
+        validators.instance_of(_expand_dtype(dtype)),
         validators.lt(max_)
     )
 
 
 def gttype_validator(dtype, min_):
+    # Accept both built-in and NumPy scalar types
     return validators.and_(
-        validators.instance_of(dtype),
+        validators.instance_of(_expand_dtype(dtype)),
         validators.gt(min_)
     )
 
 def letype_validator(dtype, max_):
     return validators.and_(
-        validators.instance_of(dtype),
+        validators.instance_of(_expand_dtype(dtype)),
         validators.le(max_)
     )
 
 
 def getype_validator(dtype, min_):
     return validators.and_(
-        validators.instance_of(dtype),
+        validators.instance_of(_expand_dtype(dtype)),
         validators.ge(min_)
     )

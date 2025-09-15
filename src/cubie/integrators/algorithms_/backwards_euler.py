@@ -16,12 +16,17 @@ class BackwardsEulerStep(ODEImplicitStep):
     def __init__(self,
                  precision,
                  n,
+                 dxdt_function,
+                 get_solver_helper_fn,
+                 atol,
+                 rtol,
+                 norm_type="hairer",
                  preconditioner_order = 1,
                  linsolve_tolerance = 1e-6,
                  max_linear_iters = 100,
                  linear_correction_type = "minimal_residual",
                  nonlinear_tolerance = 1e-6,
-                 max_newton_iters = 100,
+                 max_newton_iters = 1000,
                  newton_damping = 0.5,
                  newton_max_backtracks = 10):
 
@@ -29,17 +34,24 @@ class BackwardsEulerStep(ODEImplicitStep):
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
         config = ImplicitStepConfig(
-                beta=beta,
-                gamma=gamma,
-                M=M,
-                preconditioner_order=preconditioner_order,
-                linsolve_tolerance=linsolve_tolerance,
-                max_linear_iters=max_linear_iters,
-                linear_correction_type=linear_correction_type,
-                nonlinear_tolerance=nonlinear_tolerance,
-                max_newton_iters=max_newton_iters,
-                newton_damping=newton_damping,
-                newton_max_backtracks=newton_max_backtracks)
+            get_solver_helper_fn=get_solver_helper_fn,
+            atol=atol,
+            rtol=rtol,
+            beta=beta,
+            gamma=gamma,
+            M=M,
+            n=n,
+            norm_type="hairer",
+            preconditioner_order=preconditioner_order,
+            linsolve_tolerance=linsolve_tolerance,
+            max_linear_iters=max_linear_iters,
+            linear_correction_type=linear_correction_type,
+            nonlinear_tolerance=nonlinear_tolerance,
+            max_newton_iters=max_newton_iters,
+            newton_damping=newton_damping,
+            newton_max_backtracks=newton_max_backtracks,
+            dxdt_function=dxdt_function,
+        )
         super().__init__(config)
 
     def build_step(self,

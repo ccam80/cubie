@@ -12,10 +12,10 @@ import attrs
 import numpy as np
 from attrs import validators
 
+from cubie import getype_validator
 from cubie._utils import is_device_validator
 from cubie.CUDAFactory import CUDAFactory
 
-from cubie.outputhandling import LoopBufferSizes
 
 @attrs.define
 class BaseStepConfig(ABC):
@@ -25,24 +25,15 @@ class BaseStepConfig(ABC):
         default=np.float32,
         validator=attrs.validators.in_([np.float16, np.float32, np.float64])
     )
-    buffer_sizes: LoopBufferSizes = attrs.field(
-        factory=LoopBufferSizes,
-        validator=attrs.validators.instance_of(LoopBufferSizes)
+    n: int = attrs.field(
+        default=1,
+        validator=getype_validator(int, 1)
     )
-    dxdt_fn: Optional[Callable] = attrs.field(
+    dxdt_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator)
     )
 
-    @property
-    @abstractmethod
-    def is_implicit(self) -> bool:
-        raise NotImplementedError("is_implicit not implemented")
-
-    @property
-    def n(self) -> int:
-        """Number of stages."""
-        return self.buffer_sizes.state
 
 @attrs.define
 class StepCache:
@@ -68,18 +59,6 @@ class BaseAlgorithmStep(CUDAFactory):
                  config: BaseStepConfig):
         super().__init__()
         self.setup_compile_settings(config)
-
-    @property
-    @abstractmethod
-    def shared_memory_required(self) -> int:
-        """Number of precision elements of shared memory needed."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def local_memory_required(self) -> int:
-        """Number of precision elements of local memory needed."""
-        raise NotImplementedError
 
     def update(self, updates_dict=None, silent=False, **kwargs):
         """
@@ -123,22 +102,56 @@ class BaseAlgorithmStep(CUDAFactory):
     @property
     @abstractmethod
     def threads_per_step(self) -> int:
-        raise NotImplementedError("threads_per_step not implemented")
+        raise NotImplementedError
 
     @property
     @abstractmethod
     def is_multistage(self) -> bool:
-        raise NotImplementedError("is_multistage not implemented")
+        raise NotImplementedError
 
     @property
     @abstractmethod
     def is_adaptive(self) -> bool:
-        raise NotImplementedError("is_adaptive not implemented")
+        raise NotImplementedError
 
     @property
-    def local_scratch_required(self) -> int:  # pragma: no cover - simple
-        return 4 * self.compile_settings.n
+    @abstractmethod
+    def shared_memory_required(self) -> int:
+        """Number of precision elements of shared memory needed."""
+        raise NotImplementedError
 
     @property
+    @abstractmethod
+    def local_scratch_required(self) -> int:
+        """How many elements of temporary local memory are required."""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
     def persistent_local_required(self) -> int:
-        return 0
+        """Number of local elements that must persist between calls"""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def is_implicit(self) -> bool:
+        raise NotImplementedError
+
+    @property
+    def step_function(self) -> Callable:
+        """Get the step function.""
+
+        This function performs a single integration step, returning an
+        integer code indicating success or failure.
+
+        Returns
+        -------
+        Callable
+            Device function that performs a single integration step.
+        """
+        return self.get_cached_output("step")
+
+    @property
+    def nonlinear_solver_function(self) -> Callable:
+        """Get the nonlinear solver function."""
+        return self.get_cached_output("nonlinear_solver")

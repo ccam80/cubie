@@ -21,6 +21,8 @@ class ODECache:
     neumann_preconditioner: Optional[Union[Callable, int]] = attrs.field(
         default=-1
     )
+    end_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    stage_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
 
 
 class BaseODE(CUDAFactory):

@@ -5,11 +5,25 @@ from typing import Callable
 from numba import cuda, int32
 
 from cubie.integrators.algorithms_.base_algorithm_step import StepCache
-from cubie.integrators.algorithms_.ode_explicitstep import ODEExplicitStep
-
+from cubie.integrators.algorithms_.ode_explicitstep import ODEExplicitStep, \
+    ExplicitStepConfig
 
 class ExplicitEulerStep(ODEExplicitStep):
     """Simple forward Euler integration step."""
+
+    def __init__(self,
+                 dxdt_function: Callable,
+                 precision: type,
+                 n: int,
+                 step_size: float,
+                 ):
+        config = ExplicitStepConfig(fixed_step_size=step_size,
+                                    precision=precision,
+                                    dxdt_function=dxdt_function,
+                                    n=n)
+
+        super().__init__(config)
+
 
     def build_step(
         self,
@@ -77,7 +91,11 @@ class ExplicitEulerStep(ODEExplicitStep):
         return 0
 
     @property
-    def local_memory_required(self) -> int:  # pragma: no cover - simple
+    def local_scratch_required(self) -> int:  # pragma: no cover - simple
+        return 0
+
+    @property
+    def persistent_local_required(self) -> int:
         return 0
 
     @property
@@ -94,3 +112,4 @@ class ExplicitEulerStep(ODEExplicitStep):
     def is_adaptive(self) -> bool:
         """Whether algorithm adjusts step size adaptively."""
         return False
+
