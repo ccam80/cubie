@@ -133,6 +133,9 @@ class ODELoopConfig:
     update_from methods which extract relevant settings from other objects.
 
     """
+    buffer_sizes: LoopBufferSizes = field(
+        validator=validators.instance_of(LoopBufferSizes)
+    )
     buffer_indices: LoopIndices = field(
         validator=validators.instance_of(LoopIndices)
     )
@@ -167,32 +170,32 @@ class ODELoopConfig:
 
 
 
-    @classmethod
-    def from_single_integrator_run(cls, run_object):
-        """Create configuration from a :class:`SingleIntegratorRun`.
-
-        Parameters
-        ----------
-        run_object : SingleIntegratorRun
-            Integration run supplying configuration values.
-
-        Returns
-        -------
-        ODELoopConfig
-            Configuration populated with values from ``run_object``.
-        """
-        return cls(
-            loop_step_config=run_object.loop_step_config,
-            buffer_sizes=run_object.loop_buffer_sizes,
-            precision=run_object.precision,
-            compile_flags=run_object.compile_flags,
-            save_state_func=run_object.save_state_func,
-            update_summaries_func=run_object.update_summaries_func,
-            save_summaries_func=run_object.save_summaries_func,
-            step_controller_fn=None,  # TODO: supply controller function
-            step_fn=run_object._integrator_instance.device_function,
-            is_fixed_step=False,  # TODO: set based on algorithm
-            dt0=run_object.fixed_step_size,  # TODO: confirm dt0 source
-            saves_per_summary=1,  # TODO: derive from loop_step_config
-            total_saved_samples=0,  # TODO: derive from output sizes
-        )
+    # @classmethod
+    # def from_single_integrator_run(cls, run_object):
+    #     """Create configuration from a :class:`SingleIntegratorRun`.
+    #
+    #     Parameters
+    #     ----------
+    #     run_object : SingleIntegratorRun
+    #         Integration run supplying configuration values.
+    #
+    #     Returns
+    #     -------
+    #     ODELoopConfig
+    #         Configuration populated with values from ``run_object``.
+    #     """
+    #     return cls(
+    #         loop_step_config=run_object.loop_step_config,
+    #         buffer_sizes=run_object.loop_buffer_sizes,
+    #         precision=run_object.precision,
+    #         compile_flags=run_object.compile_flags,
+    #         save_state_func=run_object.save_state_func,
+    #         update_summaries_func=run_object.update_summaries_func,
+    #         save_summaries_func=run_object.save_summaries_func,
+    #         step_controller_fn=None,  # TODO: supply controller function
+    #         step_fn=run_object._integrator_instance.device_function,
+    #         is_fixed_step=False,  # TODO: set based on algorithm
+    #         dt0=run_object.fixed_step_size,  # TODO: confirm dt0 source
+    #         saves_per_summary=1,  # TODO: derive from loop_step_config
+    #         total_saved_samples=0,  # TODO: derive from output sizes
+    #     )

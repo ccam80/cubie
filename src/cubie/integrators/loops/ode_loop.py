@@ -11,7 +11,6 @@ algorithms_ and saving output, and call an algorithm-specific step function to d
 mathy end of the integration.
 """
 from typing import Optional, Callable
-from warnings import warn
 
 import numpy as np
 from numba import cuda, from_dtype, int32
@@ -77,24 +76,18 @@ class IVPLoop(CUDAFactory):
         save_summaries_func: Callable,
     ):
         super().__init__()
-        is_adaptive = step_controller.is_adaptive
-        new_timing = self.validate_timing(step_controller.dt_min,
-                                          step_controller.dt_max,
-                                          dt_save,
-                                          dt_summarise,
-                                          is_adaptive=is_adaptive
-                                          )
-        dt_min, dt_max, dt_save, dt_summarise = new_timing
-        step_controller.update(_dt_min=dt_min, _dt_max=dt_max)
+
+
         step_controller_fn = step_controller.device_function
-        step_fn = step_object.device_function
+        step_fn = step_object.step_function
 
         self.step_controller = step_controller
         self.algorithm = step_object
 
         shared_buffer_indices = LoopIndices.from_buffer_sizes(buffer_sizes)
 
-        config = ODELoopConfig(buffer_indices=shared_buffer_indices,
+        config = ODELoopConfig(buffer_sizes=buffer_sizes,
+                               buffer_indices=shared_buffer_indices,
                                save_state_func=save_state_func,
                                update_summaries_func=update_summaries_func,
                                save_summaries_func=save_summaries_func,
@@ -115,41 +108,6 @@ class IVPLoop(CUDAFactory):
     @property
     def precision(self):
         return self.compile_settings.precision
-
-    def validate_timing(self,
-                        dt_min: float,
-                        dt_max: float,
-                        dt_save: float,
-                        dt_summarise: float,
-                        is_adaptive: bool):
-        """Check that user-provided step, save, and summary timings are valid.
-
-        Returns modified dt_min, dt_save and dt_summarise if required to
-        enforce consistency.
-        """
-        if dt_save < dt_min:
-            dt_min = dt_save / 10.0
-            warn(f"dt_save ({dt_save}s) must be >= dt_min ({dt_min}s). "
-                 f"Setting dt_min to dt_save / 10 by default.")
-        if dt_summarise < (2 * dt_save):
-            dt_summarise = max(2 * dt_save)
-            warn(f"dt_summarise ({dt_summarise}s) must be at least 2*dt_save "
-                 f"to be meaningful, setting dt_summarise to ({2 * dt_save}s)",
-            )
-        if dt_summarise % dt_save > 0.01:
-            dt_summarise = ceil(dt_summarise / dt_save) * dt_save
-            warn(f"dt_summarise ({dt_summarise}s) is not an integer multiple of "
-                 f"dt_save ({dt_save}s). Cubie estimates summaries every n "
-                 f"saves, so dt_summarise has been rounded down to the "
-                 f"nearest integer multiple of dt_save.")
-        if is_adaptive:
-            if dt_max > dt_save:
-                dt_max = dt_save
-                warn(f"dt_max ({dt_max}s) > dt_save ({dt_save}s). "
-                     f"The loop will never be able to step that far before "
-                     f"stopping to save, so dt_max has been set to dt_save.")
-
-        return dt_min, dt_max, dt_save, dt_summarise
 
     def build(self):
         """
@@ -175,11 +133,11 @@ class IVPLoop(CUDAFactory):
         summarise_state_bool = flags.summarise_state
         summarise = summarise_obs_bool or summarise_state_bool
 
-        shared_indices = config.shared_memory_indices
+        shared_indices = config.buffer_indices
         state_shared_ind = shared_indices.state
         dxdt_shared_ind = shared_indices.dxdt
         obs_shared_ind = shared_indices.observables
-        state_prop_shared_ind = shared_indices.state_proposal
+        state_prop_shared_ind = shared_indices.proposed_state
         state_summ_shared_ind = shared_indices.state_summaries
         params_shared_ind = shared_indices.parameters
         obs_summ_shared_ind = shared_indices.observable_summaries
@@ -193,12 +151,12 @@ class IVPLoop(CUDAFactory):
 
         n_states = config.buffer_sizes.state
         n_parameters = config.buffer_sizes.nonzero.parameters
-
-        dt_save = config.dt_save
-        dt0_default = self.dt0
-        dt_min = self.dt_min
+        n_drivers = config.buffer_sizes.drivers
+        dt_save = precision(config.dt_save)
+        dt0_default = precision(self.dt0)
+        dt_min = precision(self.dt_min)
         fixed_mode = not self.is_adaptive
-        is_implicit = self.algorithm.compile_settings.is_implicit
+        is_implicit = self.algorithm.is_implicit
         controller_scratch = self.step_controller.local_memory_required
         algo_persistent = self.algorithm.persistent_local_required
 
@@ -224,7 +182,7 @@ class IVPLoop(CUDAFactory):
                           ceil(duration / max(dt_min, precision(1e-16))))
                           + int32(2))
 
-            shared_scratch[shared_indices.all] = precision(0.0)
+            shared_scratch[:] = precision(0.0)
 
             state_buffer = shared_scratch[state_shared_ind]
             state_proposal_buffer = shared_scratch[state_prop_shared_ind]
@@ -241,6 +199,8 @@ class IVPLoop(CUDAFactory):
             for k in range(n_parameters):
                 parameters_buffer[k] = parameters[k]
 
+            driver_length = drivers.shape[0]
+
             # Loop state
             t = t0
             next_save = precision(settling_time)
@@ -256,6 +216,7 @@ class IVPLoop(CUDAFactory):
             error_integral = persistent_local[1:2]
             accept_step = persistent_local[2:3].view(simsafe_int32)
             dt[0] = dt0_default
+            dt_scalar = dt[0]
             error_integral[0] = precision(0.0)
             accept_step[0] = int32(0)
 
@@ -287,16 +248,19 @@ class IVPLoop(CUDAFactory):
                 finished = t >= duration
                 if cuda.all_sync(mask, finished):
                     return status
-
+                for k in range(n_drivers):
+                    drivers_buffer[k] = drivers[
+                        save_idx % driver_length, k
+                    ]
                 if not finished:
                     # Schedule
                     if fixed_mode:
                         # Hit boundary when within half a step of the target time
-                        do_save = abs(t - next_save) < (dt * precision(0.5))
-                        dt_eff = dt
+                        do_save = abs(t - next_save) < (dt_scalar * precision(0.5))
+                        dt_eff = dt_scalar
                     else:
-                        do_save = (t + dt) >= next_save
-                        dt_eff = cuda.selp(do_save, next_save - t, dt)
+                        do_save = (t + dt_scalar) >= next_save
+                        dt_eff = cuda.selp(do_save, next_save - t, dt_scalar)
 
                     # Do a step with clamped step size
                     temp_buffer = (
@@ -417,7 +381,8 @@ class IVPLoop(CUDAFactory):
         """
         algo = self.algorithm.shared_memory_elements
         controller = self.step_controller.shared_memory_elements
-        own = self.buffer_
+        own = self.buffer_indices.end
+        return algo + controller + own
 
 
     def update(self,

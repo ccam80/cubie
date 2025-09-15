@@ -61,7 +61,7 @@ class FixedStepController(BaseStepController):
 
     def build(self) -> Callable:
         """Return a device function that always accepts with fixed step."""
-        cuda.jit(device=True, inline=True, fastmath=True)
+        @cuda.jit(device=True, inline=True, fastmath=True)
         def controller_fixed_step(
             dt, state, state_prev, error, accept_out, scaled_error, local_temp
         ):

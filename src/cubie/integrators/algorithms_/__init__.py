@@ -5,6 +5,7 @@ from .ode_explicitstep import ExplicitStepConfig, ODEExplicitStep
 from .ode_implicitstep import ImplicitStepConfig, ODEImplicitStep
 from .explicit_euler import ExplicitEulerStep
 from .backwards_euler import BackwardsEulerStep
+from .crank_nicolson import CrankNicolsonStep
 
 __all__ = [
     "BaseAlgorithmStep",
@@ -15,4 +16,5 @@ __all__ = [
     "ODEImplicitStep",
     "ExplicitEulerStep",
     "BackwardsEulerStep",
+    "CrankNicolsonStep",
 ]
