@@ -27,14 +27,16 @@ class ExplicitStepConfig(BaseStepConfig):
 class ODEExplicitStep(BaseAlgorithmStep):
 
     def build(self) -> StepCache:
+        """Create the cached step function for explicit algorithms."""
+
         config = self.compile_settings
-        dxdt_function = config.dxdt_function
+        dxdt_function = config.dxdt_fn
         numba_precision = from_dtype(config.precision)
         n = config.n
         fixed_step_size = config.fixed_step_size
-        stepcache =  self.build_step(dxdt_function, numba_precision, n)
-
-        return stepcache
+        return self.build_step(
+            dxdt_function, numba_precision, n, fixed_step_size
+        )
 
     @abstractmethod
     def build_step(
@@ -45,3 +47,4 @@ class ODEExplicitStep(BaseAlgorithmStep):
         fixed_step_size: float,
     ) -> StepCache:
         raise NotImplementedError
+

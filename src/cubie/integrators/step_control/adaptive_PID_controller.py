@@ -109,7 +109,13 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
         @cuda.jit(device=True, inline=True, fastmath=True)
         def controller_PID(
-            dt, state, state_prev, error, accept_out, scaled_error, local_temp
+            dt,
+            state,
+            state_prev,
+            error,
+            accept_out,
+            scaled_error,
+            local_temp
         ):
             err_prev = local_temp[0]
             err_prev2 = local_temp[1]

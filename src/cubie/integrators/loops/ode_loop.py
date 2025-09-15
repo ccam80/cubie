@@ -195,11 +195,12 @@ class IVPLoop(CUDAFactory):
         n_parameters = config.buffer_sizes.nonzero.parameters
 
         dt_save = config.dt_save
-
-
         dt0_default = self.dt0
         dt_min = self.dt_min
         fixed_mode = not self.is_adaptive
+        is_implicit = self.algorithm.compile_settings.is_implicit
+        controller_scratch = self.step_controller.local_memory_required
+        algo_persistent = self.algorithm.persistent_local_required
 
 
 
@@ -209,7 +210,7 @@ class IVPLoop(CUDAFactory):
             parameters,
             drivers,
             shared_scratch,
-            local_scratch,
+            persistent_local,
             state_output,
             observables_output,
             state_summaries_output,
@@ -217,7 +218,6 @@ class IVPLoop(CUDAFactory):
             duration,
             settling_time,
             t0 = precision(0.0),
-            dt0 = dt0_default,
         ):
             # Cap max iterations - all internal algorithms_ plus a bonus end/start
             max_steps =  (int32(
@@ -240,7 +240,6 @@ class IVPLoop(CUDAFactory):
                 state_buffer[k] = initial_states[k]
             for k in range(n_parameters):
                 parameters_buffer[k] = parameters[k]
-            driver_length = drivers.shape[0]
 
             # Loop state
             t = t0
@@ -252,13 +251,34 @@ class IVPLoop(CUDAFactory):
             # create step control arguments as local arrays to write in-place
             # in step_controller function. Keep them separate due to
             # differing types and alignment challenges. Watch for spill.
-            dt = local_scratch[0:1]
-            error_integral = local_scratch[1:2]
-            accept_step = local_scratch[2:3].view(simsafe_int32)
-            dt[0] = dt0
+            dt = persistent_local[0:1]
+            error = persistent_local[1:n_states + 1]
+            error_integral = persistent_local[1:2]
+            accept_step = persistent_local[2:3].view(simsafe_int32)
+            dt[0] = dt0_default
             error_integral[0] = precision(0.0)
             accept_step[0] = int32(0)
 
+            controller_temp = persistent_local[
+                n_states + 3 : n_states + 3 + controller_scratch
+            ]
+            algo_local = persistent_local[
+                n_states + 3 + controller_scratch:
+                n_states + 3 + controller_scratch + algo_persistent
+            ]
+
+            scaled_error = persistent_local[n_states + 2:n_states + 3]
+            controller_temp = persistent_local[
+                n_states + 3 : n_states + 3 + controller_scratch
+            ]
+            algo_local = persistent_local[
+                n_states + 3 + controller_scratch:
+                n_states + 3 + controller_scratch + algo_persistent
+            ]
+
+            for i in range(n_states):
+                error[i] = precision(0.0)
+                
             # Get active threads to allow a warp-coherent exit without
             # waiting on inactive threads
             mask = cuda.activemask()
@@ -279,26 +299,33 @@ class IVPLoop(CUDAFactory):
                         dt_eff = cuda.selp(do_save, next_save - t, dt)
 
                     # Do a step with clamped step size
-                    status |= step_fn(state_buffer,
-                                      state_proposal_buffer,
-                                      dxdt_buffer,
-                                      parameters_buffer,
-                                      drivers_buffer,
-                                      observables_buffer,
-                                      remaining_shared_scratch, #dxdt, etc
-                                      local_scratch[3:], # remaining scratch
-                                      dt_eff)
+                    temp_buffer = (
+                        state_proposal_buffer if is_implicit else dxdt_buffer
+                    )
+                    status |= step_fn(
+                        state_buffer,
+                        parameters_buffer,
+                        drivers_buffer,
+                        observables_buffer,
+                        temp_buffer,
+                        error,
+                        dt_eff,
+                        remaining_shared_scratch,
+                        algo_local,
+                    )
 
                     # Adjust dt if step rejected - auto-accepts if fixed-step
                     if fixed_mode:
                         accept = True
                     else:
                         retcode = step_controller(
-                            dt, 
+                            dt,
                             state_buffer,
                             state_proposal_buffer,
-                            accept_step,  # int32 array for accept result
-                            error_integral  # same array for error_integral input/output (in-place)
+                            error,
+                            accept_step,
+                            scaled_error,
+                            controller_temp,
                         )
                         accept = accept_step[0] != int32(0)  # Convert int32 to boolean
                         status |= retcode

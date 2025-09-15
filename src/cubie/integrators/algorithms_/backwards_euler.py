@@ -4,9 +4,8 @@ from numba import cuda
 import numpy as np
 
 from cubie.integrators.algorithms_ import ImplicitStepConfig
-from cubie.integrators.algorithms_.ode_implicitstep import (
-    ODEImplicitStep,
-)
+from cubie.integrators.algorithms_.base_algorithm_step import StepCache
+from cubie.integrators.algorithms_.ode_implicitstep import ODEImplicitStep
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
@@ -48,66 +47,64 @@ class BackwardsEulerStep(ODEImplicitStep):
                    dxdt_fn,
                    numba_precision,
                    n):  # pragma: no cover - complex
-        # Build any implicit helpers before creating the step function
+        """Build the device function for a backward Euler step."""
+
         a_ij = numba_precision(1.0)
 
-        # no cover: start
         @cuda.jit(
             (
-                numba_precision[:],  # state (in/out)
-                numba_precision[:],  # parameters
-                numba_precision[:],  # drivers
-                numba_precision[:],  # observables (unused here)
-                numba_precision[:],  # proposal state (used as current guess)
-                numba_precision[:],  # error
-                numba_precision[:],  # timestep (size 1 array)
-                numba_precision[:],  # shared (unused)
-                numba_precision[:],  # local workspace (size >= 5*n)
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
             ),
             device=True,
             inline=True,
         )
-        def step(state,
-                 parameters,
-                 drivers,
-                 observables,
-                 proposed_state,
-                 error,
-                 dt,
-                 shared, persistent_local):
+        def step(
+            state,
+            parameters,
+            drivers,
+            observables,
+            proposed_state,
+            error,
+            dt,
+            shared,
+            persistent_local,
+        ):
+            dt_scalar = dt[0]
 
-            dt = dt[0]
-
-            # Initial guess is current state
             for i in range(n):
                 proposed_state[i] = state[i]
 
-            # Instantiate 4n local arrays for duration of solve.
             delta = cuda.local.array(n, numba_precision)
             resid = cuda.local.array(n, numba_precision)
             z = cuda.local.array(n, numba_precision)
             temp = cuda.local.array(n, numba_precision)
 
-            # Call damped Newton–Krylov. Returns status code
             status = solver_fn(
-                proposed_state,           # state (in: guess, out: solution)
-                parameters,               # System parameters
-                drivers,                  # Forcing vectors
-                dt,                       # timestep
-                a_ij,                     # stage weight (BE: 1.0)
-                state,                    # base_state (y_n)
-                delta,                    # work: Newton direction
-                resid,                    # work: residual/rhs buffer
-                z,                        # work: preconditioned vector
-                temp,                     # work: extra workspace
+                proposed_state,
+                parameters,
+                drivers,
+                dt_scalar,
+                a_ij,
+                state,
+                delta,
+                resid,
+                z,
+                temp,
             )
 
-            # On success or failure, write latest iterate back to state
             for i in range(n):
                 state[i] = proposed_state[i]
             return status
-        # no cover: end
-        return step
+
+        return StepCache(step=step, nonlinear_solver=solver_fn)
 
     @property
     def is_multistage(self) -> bool:  # pragma: no cover - simple
@@ -130,3 +127,6 @@ class BackwardsEulerStep(ODEImplicitStep):
     def is_adaptive(self) -> bool:
         return False
 
+    @property
+    def threads_per_step(self) -> int:
+        return 1

@@ -69,14 +69,16 @@ class ODEImplicitStep(BaseAlgorithmStep):
         # Build the nonlinear solver chain and pass into concrete step builder
         solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
-        dxdt_fn = config.dxdt_function
+        dxdt_fn = config.dxdt_fn
         numba_precision = from_dtype(config.precision)
         n = config.n
 
-        return self.build_step(solver_fn,
-                               dxdt_fn,
-                               numba_precision,
-                               n)
+        return self.build_step(
+            solver_fn,
+            dxdt_fn,
+            numba_precision,
+            n,
+        )
 
 
     @abstractmethod
