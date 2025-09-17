@@ -168,6 +168,11 @@ class CUDAFactory(ABC):
             if in_attr(key, self._compile_settings):
                 setattr(self._compile_settings, key, value)
                 recognized_params.append(key)
+            # Modify private variabels in config classes - for convenience.
+            elif in_attr(f"_{key}", self._compile_settings):
+                setattr(self._compile_settings, f"_{key}", value)
+                recognized_params.append(key)
+
 
         unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
 

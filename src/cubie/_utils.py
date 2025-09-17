@@ -3,7 +3,7 @@
 This module provides general-purpose helpers for array slicing, dictionary
 updates and CUDA utilities that are shared across the code base.
 """
-
+import os
 from functools import wraps
 from time import time
 from typing import Callable
@@ -340,7 +340,10 @@ def is_devfunc(func: Callable):
         Whether the function is a Numba CUDA device function.
     """
     is_device = False
-    if hasattr(func, 'targetoptions'):
+    if os.environ.get("NUMBA_ENABLE_CUDASIM", False):
+        if hasattr(func, '_device'):
+            return func._device
+    elif hasattr(func, 'targetoptions'):
         if func.targetoptions.get("device", False):
             is_device = True
     return is_device
