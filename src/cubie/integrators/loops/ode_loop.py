@@ -207,7 +207,6 @@ class IVPLoop(CUDAFactory):
             status = int32(0)
             save_idx = int32(0)
             summary_idx = int32(0)
-
             # create step control arguments as local arrays to write in-place
             # in step_controller function. Keep them separate due to
             # differing types and alignment challenges. Watch for spill.
@@ -216,7 +215,7 @@ class IVPLoop(CUDAFactory):
             error_integral = persistent_local[1:2]
             accept_step = persistent_local[2:3].view(simsafe_int32)
             dt[0] = dt0_default
-            dt_scalar = dt[0]
+            dt_eff = dt[0]
             error_integral[0] = precision(0.0)
             accept_step[0] = int32(0)
 
@@ -256,11 +255,12 @@ class IVPLoop(CUDAFactory):
                     # Schedule
                     if fixed_mode:
                         # Hit boundary when within half a step of the target time
-                        do_save = abs(t - next_save) < (dt_scalar * precision(0.5))
-                        dt_eff = dt_scalar
+                        do_save = abs(t - next_save) < (dt[0] * precision(0.5))
+                        dt_eff = dt[0]
                     else:
-                        do_save = (t + dt_scalar) >= next_save
-                        dt_eff = cuda.selp(do_save, next_save - t, dt_scalar)
+                        do_save = (t + dt[0]) >= next_save
+                        dt_eff = cuda.selp(do_save, next_save - t,
+                                              dt[0])
 
                     # Do a step with clamped step size
                     temp_buffer = (
@@ -424,7 +424,7 @@ class IVPLoop(CUDAFactory):
         # Get fresh device functions
         updates_dict.update(
                 {'step_controller_fn': self.step_controller.device_function,
-                 'step_fn': self.algorithm.device_function}
+                 'step_fn': self.algorithm.step_function}
         )
         recognised |= self.update_compile_settings(updates_dict, silent=True)
 

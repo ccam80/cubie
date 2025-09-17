@@ -1,6 +1,9 @@
 from cubie.integrators.algorithms_.backwards_euler import BackwardsEulerStep
 from numba import cuda
 
+from cubie.integrators.algorithms_.base_algorithm_step import StepCache
+
+
 class BackwardsEulerPredictCorrectStep(BackwardsEulerStep):
     """Backwards Euler with a predictor-corrector approach.
 
@@ -25,7 +28,7 @@ class BackwardsEulerPredictCorrectStep(BackwardsEulerStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
-                numba_precision[:],
+                numba_precision,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -39,12 +42,10 @@ class BackwardsEulerPredictCorrectStep(BackwardsEulerStep):
             observables,
             proposed_state,
             error,
-            dt,
+            dt_scalar,
             shared,
             persistent_local,
         ):
-            dt_scalar = dt[0]
-
             # Only difference to backwards euler is here:
             dxdt = dxdt_fn(state, parameters, drivers, observables)
             for i in range(n):

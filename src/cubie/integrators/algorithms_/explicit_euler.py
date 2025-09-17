@@ -61,7 +61,7 @@ class ExplicitEulerStep(ODEExplicitStep):
                 numba_precision[::1],
                 numba_precision[::1],
                 numba_precision[::1],
-                numba_precision[::1],
+                numba_precision,
                 numba_precision[::1],
                 numba_precision[::1],
             ),
@@ -75,7 +75,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             observables,
             dxdt_buffer,
             error,
-            dt,
+            dt_scalar,
             shared,
             persistent_local,
         ):

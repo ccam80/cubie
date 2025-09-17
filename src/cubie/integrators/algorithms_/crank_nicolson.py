@@ -72,7 +72,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
-                numba_precision[:],
+                numba_precision,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -86,12 +86,10 @@ class CrankNicolsonStep(ODEImplicitStep):
             observables,
             proposed_state,
             error,
-            dt,
+            dt_scalar,
             shared,
             persistent_local,
         ):
-            dt_scalar = dt[0]
-
             # Initialize proposed state
             for i in range(n):
                 proposed_state[i] = state[i]

@@ -71,7 +71,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
-                numba_precision[:],
+                numba_precision,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -85,12 +85,10 @@ class BackwardsEulerStep(ODEImplicitStep):
             observables,
             proposed_state,
             error,
-            dt,
+            dt_scalar,
             shared,
             persistent_local,
         ):
-            dt_scalar = dt[0]
-
             for i in range(n):
                 proposed_state[i] = state[i]
 
