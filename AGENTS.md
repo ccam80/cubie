@@ -10,6 +10,9 @@ Type hints are compulsory, in PEP484 format in function definitions, rather than
 To run tests, use "pytest" from the command line. The dev environment is in Windows, so format terminal commands for powershell.
 Create tests using pytests. Always use pytest fixtures, parameterised by settings dictionaries that can be indirectly overriden by "override" fixtures. Observe this pattern in tests/conftest.py.
 Do not use mock or patch in tests.
+A test which fails is a good test. Do not design tests to work around bugs or quirks in the code. Design tests to test 
+that the code works as intended.
+Never shortcut "is_device" or implement patches to get around other cuda-related checks that fail - this defeats the purpose.
 
 ## Environment
 Install from workspace/cubie with pip install -e .[dev]
