@@ -6,7 +6,8 @@ from cubie.batchsolving._utils import ensure_nonzero_size
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from tests._utils import calculate_expected_summaries, cpu_euler_loop
+from tests._utils import calculate_expected_summaries
+from tests.integrators.cpu_reference import run_reference_loop
 
 
 @pytest.fixture(scope="function")
@@ -451,31 +452,56 @@ def expected_batch_answers_euler(
     system, solverkernel, batch_input_arrays, square_drive
 ):
     inits, params = batch_input_arrays
-    driver_vec = square_drive
-    dt = solverkernel.fixed_step_size
-    output_dt = solverkernel.dt_save
-    warmup = solverkernel.warmup
-    duration = solverkernel.duration
-    saved_observable_indices = solverkernel.saved_observable_indices
-    saved_state_indices = solverkernel.saved_state_indices
-    save_time = solverkernel.save_time
+    driver_vec = square_drive.T if square_drive.ndim == 2 else square_drive
+    precision = system.precision
+    driver_matrix = driver_vec.astype(precision)
+    solver_settings = {
+        "dt_min": float(solverkernel.fixed_step_size),
+        "dt_max": float(solverkernel.dt_max),
+        "dt_save": float(solverkernel.dt_save),
+        "dt_summarise": float(solverkernel.dt_summarise),
+        "warmup": float(solverkernel.warmup),
+        "duration": float(solverkernel.duration),
+        "atol": float(solverkernel.atol),
+        "rtol": float(solverkernel.rtol),
+    }
+    loop_settings = {
+        "dt_min": solver_settings["dt_min"],
+        "dt_max": solver_settings["dt_max"],
+        "dt_save": solver_settings["dt_save"],
+        "dt_summarise": solver_settings["dt_summarise"],
+        "atol": solver_settings["atol"],
+        "rtol": solver_settings["rtol"],
+        "saved_state_indices": list(solverkernel.saved_state_indices),
+        "saved_observable_indices": list(
+            solverkernel.saved_observable_indices
+        ),
+        "summarised_state_indices": list(
+            solverkernel.summarised_state_indices
+        ),
+        "summarised_observable_indices": list(
+            solverkernel.summarised_observable_indices
+        ),
+        "output_functions": list(solverkernel.output_types),
+    }
+    controller_settings = {"kind": "fixed", "dt": solver_settings["dt_min"]}
     output_sets = []
     for i in range(inits.shape[0]):
-        output_sets.append(
-            cpu_euler_loop(
-                system,
-                inits[i, :],
-                params[i, :],
-                driver_vec,
-                dt,
-                output_dt,
-                warmup,
-                duration,
-                saved_observable_indices,
-                saved_state_indices,
-                save_time,
-            )
+        run_inputs = {
+            "initial_values": inits[i, :].astype(precision),
+            "parameters": params[i, :].astype(precision),
+            "forcing_vectors": driver_matrix,
+        }
+        result = run_reference_loop(
+            system=system,
+            inputs=run_inputs,
+            solver_settings=solver_settings,
+            loop_compile_settings=loop_settings,
+            output_functions=solverkernel.single_integrator._output_functions,
+            stepper="explicit_euler",
+            step_controller_settings=controller_settings,
         )
+        output_sets.append((result["state"], result["observables"]))
     return output_sets
 
 

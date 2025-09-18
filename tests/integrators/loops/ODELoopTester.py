@@ -28,6 +28,7 @@ from cubie.odesystems.systems.threeCM import (
     default_parameters as threecm_parameters,
 )
 from cubie.outputhandling.output_sizes import LoopBufferSizes, OutputArrayHeights
+from tests.integrators.cpu_reference import run_reference_loop
 
 
 THREECM_EQUATIONS = [
@@ -56,94 +57,41 @@ DECAYS_PARAMETERS = {"p0": 1.0, "p1": 2.0, "p2": 3.0}
 DECAYS_CONSTANTS = {"c0": 0.0, "c1": 1.0, "c2": 2.0}
 DECAYS_OBSERVABLES = ["o0", "o1", "o2"]
 
-
-def cpu_euler_loop(
-    system,
-    inits,
-    params,
-    driver_vec,
-    dt,
-    output_dt,
-    warmup,
-    duration,
-    saved_observable_indices,
-    saved_state_indices,
-    save_time,
-):
-    """A simple CPU implementation of the Euler loop for testing."""
-    t = 0.0
-    save_every = int(round(output_dt / dt))
-    output_length = int(duration / output_dt)
-    warmup_samples = int(warmup / output_dt)
-    n_saved_states = len(saved_state_indices)
-    n_saved_observables = len(saved_observable_indices)
-    total_samples = int((duration + warmup) / output_dt)
-
-    state_output = np.zeros(
-        (output_length, n_saved_states + save_time * 1), dtype=inits.dtype
-    )
-    observables_output = np.zeros(
-        (output_length, n_saved_observables), dtype=inits.dtype
-    )
-    state = inits.copy()
-
-    for i in range(total_samples):
-        for j in range(save_every):
-            drivers = driver_vec[(i * save_every + j) % len(driver_vec), :]
-            t += dt
-            dx, observables = system.correct_answer_python(
-                state, params, drivers
-            )
-            state += dx * dt
-        if i > (warmup_samples - 1):
-            state_output[i - warmup_samples, :n_saved_states] = state[
-                saved_state_indices
-            ]
-            observables_output[i - warmup_samples, :] = observables[
-                saved_observable_indices
-            ]
-            if save_time:
-                state_output[i - warmup_samples, -1] = i - warmup_samples
-
-    return state_output, observables_output
-
 @pytest.fixture(scope="function")
 def expected_answer(
     system,
     loop_compile_settings,
-    run_settings,
     solverkernel,
     inputs,
     precision,
+    output_functions,
 ):
-    inits = inputs["initial_values"]
-    params = inputs["parameters"]
-    driver_vec = inputs["forcing_vectors"]
     dt = loop_compile_settings["dt_min"]
     output_dt = loop_compile_settings["dt_save"]
     warmup = solverkernel.warmup
     duration = solverkernel.duration
-    saved_observable_indices = loop_compile_settings[
-        "saved_observable_indices"
-    ]
-    saved_state_indices = loop_compile_settings["saved_state_indices"]
-    save_time = "time" in loop_compile_settings["output_functions"]
+    solver_settings = {
+        "dt_min": dt,
+        "dt_max": loop_compile_settings["dt_max"],
+        "dt_save": output_dt,
+        "dt_summarise": loop_compile_settings["dt_summarise"],
+        "warmup": warmup,
+        "duration": duration,
+        "atol": loop_compile_settings["atol"],
+        "rtol": loop_compile_settings["rtol"],
+    }
 
-    state_output, observables_output = cpu_euler_loop(
-        system,
-        inits,
-        params,
-        driver_vec,
-        dt,
-        output_dt,
-        warmup,
-        duration,
-        saved_observable_indices,
-        saved_state_indices,
-        save_time,
+    result = run_reference_loop(
+        system=system,
+        inputs=inputs,
+        solver_settings=solver_settings,
+        loop_compile_settings=loop_compile_settings,
+        output_functions=output_functions,
+        stepper="explicit_euler",
+        step_controller_settings={"kind": "fixed", "dt": dt},
     )
 
-    return state_output, observables_output
+    return result["state"], result["observables"]
 
 class ODELoopTester:
     """Base class for testing :class:`IVPLoop` instances."""
@@ -399,7 +347,7 @@ class ODELoopTester:
         samples = max(int(np.ceil(duration / dt_save)), 1)
         width = max(n_drivers, 1)
         drivers = np.zeros((samples, width), dtype=precision)
-        if n_drivers > 0:
+        if n_drivers > 0 and duration > 0.0:
             times = np.linspace(0.0, duration, samples, dtype=float)
             for idx in range(n_drivers):
                 drivers[:, idx] = precision(
@@ -408,72 +356,98 @@ class ODELoopTester:
                 )
         return drivers
 
-    def _linear_coefficients(
+    def _reference_inputs(
         self,
-        parameters: Dict[str, float],
-        constants: Dict[str, float],
-        precision: np.dtype,
-    ) -> tuple[float, float, float, float]:
-        """Extract the linear system coefficients."""
-
-        a = float(precision(parameters["a"]))
-        b = float(precision(parameters["b"]))
-        c0 = float(precision(constants["c0"]))
-        c1 = float(precision(constants["c1"]))
-        return a, b, c0, c1
-
-    def _expected_linear_series(
-        self,
-        method: str,
+        system,
         initial_state: NDArray[np.floating],
-        parameters: Dict[str, float],
-        constants: Dict[str, float],
-        dt: float,
-        steps: int,
-        precision: np.dtype,
-    ) -> NDArray[np.floating]:
-        """Compute expected discrete solutions for the linear system."""
+        solver_config: Dict[str, float],
+    ) -> Dict[str, NDArray[np.floating]]:
+        """Build inputs for the CPU reference helpers."""
 
-        a, b, c0, c1 = self._linear_coefficients(parameters, constants, precision)
-        state = np.array(initial_state, dtype=float)
-        history = np.zeros((steps, state.size), dtype=float)
-        history[0] = state
-        for idx in range(steps-1):
-            if method == "explicit":
-                state[0] += dt * (-a * state[0] + c0)
-                state[1] += dt * (-b * state[1] + c1)
-            elif method == "backward":
-                state[0] = (state[0] + dt * c0) / (1.0 + dt * a)
-                state[1] = (state[1] + dt * c1) / (1.0 + dt * b)
-            elif method == "crank":
-                state[0] = ((1.0 - 0.5 * dt * a) * state[0] + dt * c0) / (
-                    1.0 + 0.5 * dt * a
+        precision = system.precision
+        dt_min = float(solver_config["dt_min"])
+        duration = float(solver_config["duration"])
+        warmup = float(solver_config.get("warmup", 0.0))
+        total_time = max(duration + warmup, dt_min)
+        samples = max(int(np.ceil(total_time / dt_min)), 1)
+        n_drivers = system.num_drivers
+        forcing = np.zeros((n_drivers, samples), dtype=precision)
+        if n_drivers > 0 and total_time > 0.0:
+            times = np.linspace(0.0, total_time, samples, dtype=float)
+            for idx in range(n_drivers):
+                forcing[idx, :] = precision(
+                    0.5
+                    * (
+                        1.0
+                        + np.sin(2 * np.pi * (idx + 1) * times / total_time)
+                    )
                 )
-                state[1] = ((1.0 - 0.5 * dt * b) * state[1] + dt * c1) / (
-                    1.0 + 0.5 * dt * b
-                )
-            else:
-                raise ValueError(f"Unknown integration method '{method}'.")
-            history[idx+1] = state
-        return history.astype(precision)
 
-    def _expected_linear_exact(
+        return {
+            "initial_values": np.array(initial_state, dtype=precision, copy=True),
+            "parameters": np.array(
+                system.parameters.values_array, dtype=precision, copy=True
+            ),
+            "forcing_vectors": forcing,
+        }
+
+    def _reference_controller_settings(
         self,
-        initial_state: NDArray[np.floating],
-        parameters: Dict[str, float],
-        constants: Dict[str, float],
-        times: NDArray[np.floating],
-        precision: np.dtype,
-    ) -> NDArray[np.floating]:
-        """Analytic solution of the linear system at the requested times."""
+        controller_settings: Dict[str, Any],
+        solver_config: Dict[str, float],
+    ) -> Dict[str, float | int | str]:
+        """Translate controller settings for the CPU reference loop."""
 
-        a, b, c0, c1 = self._linear_coefficients(parameters, constants, precision)
-        x0_0, x1_0 = float(initial_state[0]), float(initial_state[1])
-        results = np.zeros((times.size, initial_state.size), dtype=float)
-        for idx, time in enumerate(times):
-            results[idx, 0] = (x0_0 - c0 / a) * np.exp(-a * time) + c0 / a
-            results[idx, 1] = (x1_0 - c1 / b) * np.exp(-b * time) + c1 / b
-        return results.astype(precision)
+        dt_initial = controller_settings.get(
+            "dt",
+            controller_settings.get("dt_min", solver_config["dt_min"]),
+        )
+        dt_max = controller_settings.get("dt_max", solver_config["dt_max"])
+        return {
+            "kind": str(controller_settings.get("kind", "fixed")),
+            "dt": float(dt_initial),
+            "dt_max": float(dt_max),
+            "order": int(controller_settings.get("order", 1)),
+        }
+
+    def _reference_state_output(
+        self,
+        *,
+        system,
+        initial_state: NDArray[np.floating],
+        loop_compile_settings: Dict[str, Any],
+        solver_settings: Dict[str, Any],
+        output_functions,
+        stepper: str,
+        step_controller_settings: Dict[str, Any],
+    ) -> NDArray[np.floating]:
+        """Execute the CPU reference loop and return saved states."""
+
+        solver_config = {
+            "dt_min": float(solver_settings["dt_min"]),
+            "dt_max": float(solver_settings["dt_max"]),
+            "dt_save": float(solver_settings["dt_save"]),
+            "dt_summarise": float(solver_settings["dt_summarise"]),
+            "warmup": float(solver_settings.get("warmup", 0.0)),
+            "duration": float(solver_settings["duration"]),
+            "atol": float(solver_settings["atol"]),
+            "rtol": float(solver_settings["rtol"]),
+        }
+        inputs = self._reference_inputs(system, initial_state, solver_config)
+        controller_config = self._reference_controller_settings(
+            step_controller_settings,
+            solver_config,
+        )
+        result = run_reference_loop(
+            system=system,
+            inputs=inputs,
+            solver_settings=solver_config,
+            loop_compile_settings=loop_compile_settings,
+            output_functions=output_functions,
+            stepper=stepper,
+            step_controller_settings=controller_config,
+        )
+        return result["state"]
 
     def _run_loop(
         self,
@@ -623,7 +597,7 @@ class ODELoopTester:
             output_functions,
             simulation_duration,
         )
-        assert results["status"] == 0, f"Solver status {results["status"]}"
+        assert results["status"] == 0, f"Solver status {results['status']}"
         state = results["state"]
         assert_allclose(state, expected_state, rtol=1e-4, atol=1e-4)
 

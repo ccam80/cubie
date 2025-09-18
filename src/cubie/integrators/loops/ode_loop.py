@@ -184,7 +184,7 @@ class IVPLoop(CUDAFactory):
             # Cap max iterations - all internal algorithms_ plus a bonus end/start
             max_steps =  (int32(
                           ceil(duration / max(dt_min, precision(1e-16))))
-                          + int32(2))
+                          + int32(2)) * 2
 
             shared_scratch[:] = precision(0.0)
 
@@ -261,16 +261,18 @@ class IVPLoop(CUDAFactory):
                 if not finished:
 
                     if fixed_mode:
-                        # Hit boundary when within half a step of the target time
+                        # Save every N steps
                         step_counter += 1
                         do_save = (step_counter % steps_per_save) == 0
                         if do_save:
                             step_counter = int32(0)
                     else:
+                        #If the next step would be at or past the save time,
+                        # save.
                         do_save = (t + dt[0]) >= next_save # Add an equality
-                        # test - no dt_eff == 0.0 please!
                         dt_eff = cuda.selp(do_save, next_save - t, dt[0])
-
+                        status |= cuda.selp(dt_eff <= precision(0.0),
+                                            int32(16), int32(0))
 
                     status |= step_fn(
                         state_buffer,

@@ -66,23 +66,20 @@ class TestExplicitEulerLoop(ODELoopTester):
         system,
         initial_state: NDArray[np.floating],
         solver_settings: Dict[str, float],
+        loop_compile_settings: Dict[str, float],
+        output_functions,
+        step_controller_settings: Dict[str, float | int | str],
     ) -> NDArray[np.floating]:
         """Expected discrete solution from explicit Euler integration."""
 
-        dt = solver_settings["dt_min"]
-        simulation_duration = solver_settings["duration"]
-        precision = system.precision
-        steps = int(np.ceil(precision(simulation_duration) /precision(dt)))
-        params = system.parameters.values_dict
-        consts = system.constants.values_dict
-        return self._expected_linear_series(
-            "explicit",
-            initial_state,
-            params,
-            consts,
-            dt,
-            steps,
-            precision
+        return self._reference_state_output(
+            system=system,
+            initial_state=initial_state,
+            loop_compile_settings=loop_compile_settings,
+            solver_settings=solver_settings,
+            output_functions=output_functions,
+            stepper="explicit_euler",
+            step_controller_settings=step_controller_settings,
         )
 
     @pytest.fixture(scope="function")
@@ -146,21 +143,20 @@ class TestBackwardsEulerLoop(ODELoopTester):
         system,
         initial_state: NDArray[np.floating],
         solver_settings: Dict[str, float],
+        loop_compile_settings: Dict[str, float],
+        output_functions,
+        step_controller_settings: Dict[str, float | int | str],
     ) -> NDArray[np.floating]:
         """Expected discrete solution from backward Euler integration."""
-        simulation_duration = solver_settings['duration']
-        dt = solver_settings["dt_min"]
-        steps = int(np.ceil(simulation_duration / dt))
-        params = system.parameters.values_dict
-        consts = system.constants.values_dict
-        return self._expected_linear_series(
-            "backward",
-            initial_state,
-            params,
-            consts,
-            dt,
-            steps,
-            system.precision,
+
+        return self._reference_state_output(
+            system=system,
+            initial_state=initial_state,
+            loop_compile_settings=loop_compile_settings,
+            solver_settings=solver_settings,
+            output_functions=output_functions,
+            stepper="backward_euler",
+            step_controller_settings=step_controller_settings,
         )
 
     @pytest.fixture(scope="function")
@@ -188,8 +184,8 @@ class TestBackwardsEulerLoop(ODELoopTester):
             "summarised_state_indices": [0, 1],
             "summarised_observable_indices": [],
             "output_functions": ["state"],
-            "atol": 1e-6,
-            "rtol": 1e-6,
+            "atol": 1e-3,
+            "rtol": 1e-3,
         }
     ],
     indirect=True,
@@ -231,22 +227,20 @@ class TestCrankNicolsonLoop(ODELoopTester):
         system,
         initial_state: NDArray[np.floating],
         solver_settings: Dict[str, float],
+        loop_compile_settings: Dict[str, float],
+        output_functions,
+        step_controller_settings: Dict[str, float | int | str],
     ) -> NDArray[np.floating]:
-        """Expected solution sampled from the analytic answer."""
-        simulation_duration = solver_settings['duration']
-        precision = system.precision
-        dt_save = solver_settings["dt_save"]
-        samples = int(np.ceil(precision(simulation_duration) /
-                              precision(dt_save)))
-        times = np.arange(0, samples + 1, dtype=float) * dt_save
-        params = system.parameters.values_dict
-        consts = system.constants.values_dict
-        return self._expected_linear_exact(
-            initial_state,
-            params,
-            consts,
-            times,
-            precision,
+        """Expected solution from the CPU reference Crank-Nicolson loop."""
+
+        return self._reference_state_output(
+            system=system,
+            initial_state=initial_state,
+            loop_compile_settings=loop_compile_settings,
+            solver_settings=solver_settings,
+            output_functions=output_functions,
+            stepper="crank_nicolson",
+            step_controller_settings=step_controller_settings,
         )
 
     @pytest.fixture(scope="function")

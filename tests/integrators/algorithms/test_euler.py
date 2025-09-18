@@ -3,7 +3,7 @@ import pytest
 
 from cubie.integrators.algorithms import Euler
 from cubie.outputhandling.output_sizes import LoopBufferSizes
-from tests._utils import cpu_euler_loop
+from tests.integrators.cpu_reference import run_reference_loop
 from tests.integrators.algorithms.LoopAlgorithmTester import (
     LoopAlgorithmTester,
 )
@@ -37,39 +37,38 @@ class TestEuler(LoopAlgorithmTester):
         self,
         system,
         loop_compile_settings,
-        run_settings,
         solverkernel,
         inputs,
         precision,
+        output_functions,
     ):
-        inits = inputs["initial_values"]
-        params = inputs["parameters"]
-        driver_vec = inputs["forcing_vectors"]
         dt = loop_compile_settings["dt_min"]
         output_dt = loop_compile_settings["dt_save"]
         warmup = solverkernel.warmup
         duration = solverkernel.duration
-        saved_observable_indices = loop_compile_settings[
-            "saved_observable_indices"
-        ]
-        saved_state_indices = loop_compile_settings["saved_state_indices"]
-        save_time = "time" in loop_compile_settings["output_functions"]
 
-        state_output, observables_output = cpu_euler_loop(
-            system,
-            inits,
-            params,
-            driver_vec,
-            dt,
-            output_dt,
-            warmup,
-            duration,
-            saved_observable_indices,
-            saved_state_indices,
-            save_time,
+        solver_settings = {
+            "dt_min": dt,
+            "dt_max": loop_compile_settings["dt_max"],
+            "dt_save": output_dt,
+            "dt_summarise": loop_compile_settings["dt_summarise"],
+            "warmup": warmup,
+            "duration": duration,
+            "atol": loop_compile_settings["atol"],
+            "rtol": loop_compile_settings["rtol"],
+        }
+
+        result = run_reference_loop(
+            system=system,
+            inputs=inputs,
+            solver_settings=solver_settings,
+            loop_compile_settings=loop_compile_settings,
+            output_functions=output_functions,
+            stepper="explicit_euler",
+            step_controller_settings={"kind": "fixed", "dt": dt},
         )
 
-        return state_output, observables_output
+        return result["state"], result["observables"]
 
     @pytest.mark.nocudasim
     @pytest.mark.parametrize(
