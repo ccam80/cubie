@@ -3,7 +3,7 @@ from typing import Callable
 
 import attrs
 
-from cubie import getype_validator, gttype_validator
+from cubie import  gttype_validator
 from cubie.integrators.algorithms_.base_algorithm_step import (
     BaseAlgorithmStep, BaseStepConfig, StepCache)
 

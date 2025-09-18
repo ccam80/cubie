@@ -237,5 +237,5 @@ class BaseAdaptiveStepController(BaseStepController):
     @abstractmethod
     def local_memory_required(self) -> int:
         """Return number of floats required for controller local memory."""
-        return NotImplementedError
+        raise NotImplementedError
 

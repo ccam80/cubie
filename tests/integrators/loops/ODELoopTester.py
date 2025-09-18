@@ -437,7 +437,8 @@ class ODELoopTester:
         a, b, c0, c1 = self._linear_coefficients(parameters, constants, precision)
         state = np.array(initial_state, dtype=float)
         history = np.zeros((steps, state.size), dtype=float)
-        for idx in range(steps):
+        history[0] = state
+        for idx in range(steps-1):
             if method == "explicit":
                 state[0] += dt * (-a * state[0] + c0)
                 state[1] += dt * (-b * state[1] + c1)
@@ -453,7 +454,7 @@ class ODELoopTester:
                 )
             else:
                 raise ValueError(f"Unknown integration method '{method}'.")
-            history[idx] = state
+            history[idx+1] = state
         return history.astype(precision)
 
     def _expected_linear_exact(
@@ -486,7 +487,7 @@ class ODELoopTester:
 
         precision = loop.precision
         dt_save = loop.dt_save
-        saves = int(np.ceil(duration / dt_save))
+        saves = int(np.ceil(precision(duration) / precision(dt_save)))
 
         heights = OutputArrayHeights.from_output_fns(output_functions)
         state_width = max(heights.state, 1)
@@ -531,10 +532,7 @@ class ODELoopTester:
         shared_elements = base_shared + algo_shared + controller_shared
         shared_bytes = np.dtype(precision).itemsize * shared_elements
 
-        algo_n = loop.algorithm.compile_settings.n
-        controller_local = loop.step_controller.local_memory_required
-        algo_local = loop.algorithm.persistent_local_required
-        local_req = max(1, algo_n + 3 + controller_local + algo_local)
+        local_req = max(1, loop.local_memory_elements)
 
         loop_fn = loop.device_function
         numba_precision = from_dtype(precision)
@@ -589,32 +587,12 @@ class ODELoopTester:
         observable_summary_host = d_obs_sum.copy_to_host()
         status_value = int(d_status.copy_to_host()[0])
 
-        state_result = (
-            state_host[:, : heights.state]
-            if heights.state
-            else np.zeros((state_host.shape[0], 0), dtype=precision)
-        )
-        observables_result = (
-            observables_host[:, : heights.observables]
-            if heights.observables
-            else np.zeros((observables_host.shape[0], 0), dtype=precision)
-        )
-        state_summary_result = (
-            state_summary_host[:, : heights.state_summaries]
-            if heights.state_summaries
-            else np.zeros((state_summary_host.shape[0], 0), dtype=precision)
-        )
-        observable_summary_result = (
-            observable_summary_host[:, : heights.observable_summaries]
-            if heights.observable_summaries
-            else np.zeros((observable_summary_host.shape[0], 0), dtype=precision)
-        )
 
         return {
-            "state": state_result,
-            "observables": observables_result,
-            "state_summaries": state_summary_result,
-            "observable_summaries": observable_summary_result,
+            "state": state_host,
+            "observables": observables_host,
+            "state_summaries": state_summary_host,
+            "observable_summaries": observable_summary_host,
             "status": status_value,
         }
 

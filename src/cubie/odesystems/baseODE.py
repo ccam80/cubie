@@ -23,6 +23,7 @@ class ODECache:
     )
     end_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
     stage_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    observables: Optional[Union[Callable, int]] = attrs.field(default=-1)
 
 
 class BaseODE(CUDAFactory):

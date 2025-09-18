@@ -5,6 +5,7 @@ from cubie.odesystems.symbolic.indexedbasemaps import (
     IndexedBaseMap,
     IndexedBases,
 )
+from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 
 @pytest.fixture(scope="function")
@@ -97,6 +98,32 @@ def complex_equations():
         (sp.Symbol("dz", real=True), x + y - z),
     ]
     return equations
+
+
+@pytest.fixture(scope="function")
+def observables_kernel_system(precision):
+    """Return a ``SymbolicODE`` used for observables parity tests."""
+
+    dxdt_lines = [
+        "obs_rate = alpha * x + c0",
+        "obs_total = obs_rate + beta * y + drive",
+        "dx = obs_total - y + alpha * drive",
+        "dy = obs_rate * x + c0",
+    ]
+
+    system = SymbolicODE.create(
+        dxdt=dxdt_lines,
+        states={"x": precision(0.0), "y": precision(0.0)},
+        parameters={"alpha": precision(0.0), "beta": precision(0.0)},
+        constants={"c0": precision(1.1)},
+        drivers={"drive": precision(0.0)},
+        observables=["obs_rate", "obs_total"],
+        precision=precision,
+        strict=True,
+        name="observables_kernel_system",
+    )
+
+    return system
 
 
 @pytest.fixture

@@ -17,7 +17,7 @@ from cubie.integrators.algorithms_.base_algorithm_step import (
 
 @attrs.define
 class ImplicitStepConfig(BaseStepConfig):
-    """Configuration settings for a implicit integration steps."""
+    """Configuration settings for implicit integration steps."""
 
     atol: float = attrs.field(
             default=1e-6,
@@ -37,11 +37,11 @@ class ImplicitStepConfig(BaseStepConfig):
     M: Union[np.ndarray, sp.Matrix] = attrs.field(default=sp.eye(1))
     norm_type: str = attrs.field(default="hairer")
     preconditioner_order: int = attrs.field(default=1)
-    linsolve_tolerance: float = attrs.field(default=1e-1)
+    linsolve_tolerance: float = attrs.field(default=1e-3)
     max_linear_iters: int = attrs.field(default=100)
     linear_correction_type: str = attrs.field(default="minimal_residual")
 
-    nonlinear_tolerance: float = attrs.field(default=1e-1)
+    nonlinear_tolerance: float = attrs.field(default=1e-3)
     max_newton_iters: int = attrs.field(default=100)
     newton_damping: float = attrs.field(default=0.5)
     newton_max_backtracks: int = attrs.field(default=10)
@@ -91,7 +91,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
         beta = config.beta
         gamma = config.gamma
         mass = config.M
-        norm_type="hairer"
         preconditioner_order = config.preconditioner_order
         n = config.n
 

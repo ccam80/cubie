@@ -2,13 +2,15 @@ import sympy as sp
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype
+from numba import cuda
 
 from cubie.odesystems.symbolic.dxdt import (
     DXDT_TEMPLATE,
     generate_dxdt_fac_code,
+    generate_observables_fac_code,
 )
 from cubie.odesystems.symbolic.parser import IndexedBases
+from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 
 class TestDxdtTemplate:
@@ -240,32 +242,172 @@ class TestDxdtIntegration:
         assert "def dxdt_factory" in code
 
 
-def test_recompile_updates_constants(indexed_bases, precision):
-    """Recompiling with a new constants dict updates the device function."""
-    x, c = sp.symbols("x c", real=True)
-    equations = [(sp.Symbol("dx", real=True), c * x)]
-    code = generate_dxdt_fac_code(equations, indexed_bases)
-    namespace = {"cuda": cuda}
-    exec(code, namespace)
-    factory = namespace["dxdt_factory"]
-    numba_precision = from_dtype(precision)
-    func1 = factory({"c": precision(2.0)}, numba_precision)
-    func2 = factory({"c": precision(3.0)}, numba_precision)
+class TestGenerateObservablesFacCode:
+    """Tests for observables-only factory generation."""
 
-    def run_dxdt(dxdt_func):
+    def test_observables_factory_structure(self, indexed_bases):
+        """Generated code should expose the observables factory."""
+
+        x, y = sp.symbols("x y", real=True)
+        a = sp.symbols("a", real=True)
+        equations = [
+            (sp.Symbol("obs1", real=True), x + a),
+            (sp.Symbol("dx", real=True), y + x),
+        ]
+
+        code = generate_observables_fac_code(equations, indexed_bases)
+
+        assert "def observables" in code
+        assert "def get_observables" in code
+        assert "observables[" in code
+        assert "out[" not in code
+
+    def test_observables_factory_includes_cse_dependencies(
+        self, indexed_bases
+    ):
+        """CSE expressions shared with dxdt should still be emitted."""
+
+        x, y = sp.symbols("x y", real=True)
+        repeated = (x + y) ** 2
+        equations = [
+            (sp.Symbol("obs1", real=True), repeated),
+            (sp.Symbol("dx", real=True), repeated + x),
+        ]
+
+        code = generate_observables_fac_code(equations, indexed_bases)
+
+        assert "_cse" in code
+        assert "out[" not in code
+
+
+class TestObservablesDeviceParity:
+    """Ensure observables helpers mirror dx/dt side effects."""
+
+    @pytest.mark.parametrize(
+        "state_values,param_values,driver_value",
+        [
+            ([1.2, -0.4], [0.3, 0.7], 0.25),
+            ([-0.6, 1.5], [0.9, -0.2], -0.4),
+        ],
+    )
+    def test_observables_match_dxdt_kernel(
+        self,
+        observables_kernel_system,
+        state_values,
+        param_values,
+        driver_value,
+        precision,
+    ):
+        """Compare observables computed via dxdt and helper kernels."""
+
+        system = observables_kernel_system
+        cache = system.build()
+        dxdt_dev = cache.dxdt
+        get_observables = system.get_solver_helper("observables")
+
+        state = np.array(state_values, dtype=precision)
+        parameters = np.array(param_values, dtype=precision)
+        drivers = np.array([driver_value], dtype=precision)
+
+        state_kernel = state.copy()
+        parameters_kernel = parameters.copy()
+        drivers_kernel = drivers.copy()
+
+        obs_from_dxdt = np.full(
+            system.num_observables, precision(-1.0), dtype=precision
+        )
+        obs_from_helper = np.full(
+            system.num_observables, precision(-2.0), dtype=precision
+        )
+        out = np.zeros(system.num_states, dtype=precision)
+
+        @cuda.jit
+        def kernel(
+            state_in,
+            params_in,
+            drivers_in,
+            obs_dxdt,
+            obs_helper,
+            out_buf,
+        ):
+            dxdt_dev(state_in, params_in, drivers_in, obs_dxdt, out_buf)
+            get_observables(state_in, params_in, drivers_in, obs_helper)
+
+        kernel[
+            1,
+            1,
+        ](
+            state_kernel,
+            parameters_kernel,
+            drivers_kernel,
+            obs_from_dxdt,
+            obs_from_helper,
+            out,
+        )
+
+        state_idx = system.states.indices_dict
+        param_idx = system.parameters.indices_dict
+        driver_names = system.indices.driver_names
+        drive_idx = driver_names.index("drive")
+        const_value = precision(system.constants.values_dict["c0"])
+
+        x_val = state_kernel[state_idx["x"]]
+        y_val = state_kernel[state_idx["y"]]
+        alpha = parameters_kernel[param_idx["alpha"]]
+        beta = parameters_kernel[param_idx["beta"]]
+        drive_val = drivers_kernel[drive_idx]
+
+        expected_rate = alpha * x_val + const_value
+        expected_total = expected_rate + beta * y_val + drive_val
+        expected = np.array([expected_rate, expected_total], dtype=precision)
+
+        np.testing.assert_allclose(
+            obs_from_dxdt, expected, rtol=1e-6
+        )
+        np.testing.assert_allclose(
+            obs_from_helper, expected, rtol=1e-6
+        )
+        np.testing.assert_allclose(
+            obs_from_dxdt, obs_from_helper, rtol=1e-6
+        )
+
+
+def test_recompile_updates_constants(precision):
+    """Recompiling with new constants updates the device function."""
+
+    system = SymbolicODE.create(
+        dxdt=["dx = c * x"],
+        states={"x": precision(1.0)},
+        parameters={},
+        constants={"c": precision(2.0)},
+        drivers=[],
+        observables=[],
+        precision=precision,
+        strict=True,
+        name="recompile_constants",
+    )
+
+    def run_dxdt(current_system: SymbolicODE) -> float:
+        cache = current_system.build()
+        dxdt_func = cache.dxdt
+
         @cuda.jit
         def kernel(state, parameters, drivers, observables, out):
             dxdt_func(state, parameters, drivers, observables, out)
 
-        state = np.array([precision(1.0), precision(0.0)], dtype=precision)
-        parameters = np.zeros(2, dtype=precision)
-        drivers = np.zeros(1, dtype=precision)
-        observables = np.zeros(1, dtype=precision)
-        out = np.zeros(2, dtype=precision)
+        state = np.array([precision(1.0)], dtype=precision)
+        parameters = np.zeros(current_system.num_parameters, dtype=precision)
+        drivers = np.zeros(current_system.num_drivers, dtype=precision)
+        observables = np.zeros(
+            current_system.num_observables, dtype=precision
+        )
+        out = np.zeros(current_system.num_states, dtype=precision)
         kernel[1, 1](state, parameters, drivers, observables, out)
-        return out[0]
+        return float(out[0])
 
-    res1 = run_dxdt(func1)
-    res2 = run_dxdt(func2)
+    res1 = run_dxdt(system)
+    system.set_constants({"c": precision(3.0)})
+    res2 = run_dxdt(system)
+
     assert res1 == pytest.approx(2.0)
     assert res2 == pytest.approx(3.0)

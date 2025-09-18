@@ -191,6 +191,6 @@ def linear_solver_factory(
             if cuda.all_sync(mask, converged):
                 return int32(0)
 
-        return int32(3)
+        return int32(4)
     # no cover: end
     return linear_solver

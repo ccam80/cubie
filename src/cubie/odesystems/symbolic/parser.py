@@ -153,7 +153,8 @@ def _build_sympy_user_functions(user_functions: Dict[str, callable], rename: Dic
                 deriv_print_name = deriv_callable.__name__
             except Exception:
                 deriv_print_name = None
-        if dev:
+        should_wrap = dev or deriv_callable is not None
+        if should_wrap:
             # Build a dynamic Function subclass with name sym_name and fdiff
             # that generates <deriv_print_name or d_orig>(args..., argindex-1)
             def _make_class(sym_name=sym_name, orig_name=orig_name, deriv_print_name=deriv_print_name):

@@ -66,7 +66,7 @@ class BackwardsEulerPredictCorrectStep(BackwardsEulerStep):
                 work_buffer,
                 resid,
                 z,
-                error, # fixed-step loop doesn't use error
+                error, # fixed-step loop doesn't use error, reuse as scratch
             )
             return status
 

@@ -5,7 +5,10 @@ from typing import Callable, Iterable, Optional, Set, Union
 
 import numpy as np
 import sympy as sp
-from cubie.odesystems.symbolic.dxdt import generate_dxdt_fac_code
+from cubie.odesystems.symbolic.dxdt import (
+    generate_dxdt_fac_code,
+    generate_observables_fac_code,
+)
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.solver_helpers import (
     generate_neumann_preconditioner_code,
@@ -230,6 +233,11 @@ class SymbolicODE(BaseODE):
         numba_precision = self.numba_precision
         constants = self.constants.values_dict
 
+        factory_kwargs = {
+            "constants": constants,
+            "precision": numba_precision,
+        }
+
         if func_type == "linear_operator":
             code = generate_operator_apply_code(
                 self.equations,
@@ -237,11 +245,21 @@ class SymbolicODE(BaseODE):
                 M=mass,
                 func_name=func_type,
             )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
         elif func_type == "neumann_preconditioner":
             code = generate_neumann_preconditioner_code(
                 self.equations,
                 self.indices,
                 func_type,
+            )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
             )
         elif func_type == "end_residual":
             code = generate_residual_end_state_code(
@@ -250,6 +268,11 @@ class SymbolicODE(BaseODE):
                 M=mass,
                 func_name=func_type,
             )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
         elif func_type == "stage_residual":
             code = generate_stage_residual_code(
                 self.equations,
@@ -257,18 +280,23 @@ class SymbolicODE(BaseODE):
                 M=mass,
                 func_name="stage_residual",
             )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
+        elif func_type == "observables":
+            code = generate_observables_fac_code(
+                self.equations,
+                self.indices,
+                func_name=func_type,
+            )
         else:
             raise NotImplementedError(
                     f"Solver helper '{func_type}' is not implemented."
             )
 
         factory = self.gen_file.import_function(func_type, code)
-        func = factory(
-                constants=constants,
-                precision=numba_precision,
-                beta = beta,
-                gamma=gamma,
-                order=preconditioner_order
-        )
+        func = factory(**factory_kwargs)
         setattr(self._cache, func_type, func)
         return func

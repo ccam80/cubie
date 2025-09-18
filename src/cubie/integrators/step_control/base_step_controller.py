@@ -119,6 +119,12 @@ class BaseStepController(CUDAFactory):
         """Returns whether the step controller is adaptive."""
         return self.compile_settings.is_adaptive
 
+    @property
+    @abstractmethod
+    def local_memory_required(self) -> int:
+        """Amount of local memory required by the controller."""
+        return 0
+
     def update(self,
                updates_dict : Optional[dict] = None,
                silent: bool = False,

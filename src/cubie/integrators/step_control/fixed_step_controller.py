@@ -55,7 +55,6 @@ class FixedStepControlConfig(BaseStepControllerConfig):
         """Returns whether the step controller is adaptive."""
         return False
 
-
 class FixedStepController(BaseStepController):
     """Controller that enforces a constant time step."""
 
@@ -70,8 +69,9 @@ class FixedStepController(BaseStepController):
         """Return a device function that always accepts with fixed step."""
         @cuda.jit(device=True, inline=True, fastmath=True)
         def controller_fixed_step(
-            dt, state, state_prev, error, accept_out, scaled_error, local_temp
+            dt, state, state_prev, error, accept_out, local_temp
         ):
+            accept_out[0] = int32(1)
             return int32(0)
         return controller_fixed_step
 

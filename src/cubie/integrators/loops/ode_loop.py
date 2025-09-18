@@ -153,8 +153,9 @@ class IVPLoop(CUDAFactory):
         # Timing values
         saves_per_summary = config.saves_per_summary
         dt_save = precision(config.dt_save)
-        dt0_default = precision(self.dt0)
+        dt0 = precision(self.dt0)
         dt_min = precision(self.dt_min)
+        steps_per_save = int32(ceil(dt_save / dt0))
 
         # Loop sizes
         n_states = config.buffer_sizes.state
@@ -199,6 +200,7 @@ class IVPLoop(CUDAFactory):
 
             for k in range(n_states):
                 state_buffer[k] = initial_states[k]
+                state_output[0,k] = initial_states[k]
             for k in range(n_parameters):
                 parameters_buffer[k] = parameters[k]
 
@@ -206,34 +208,44 @@ class IVPLoop(CUDAFactory):
 
             # Loop state
             t = precision(t0)
-            next_save = precision(settling_time)
+
+            #Start again from settling time if given, otherwise keep init val.
+            if settling_time > precision(0.0):
+                next_save = precision(settling_time)
+                save_idx=int32(0)
+            else:
+                next_save = precision(dt_save)
+                save_idx = int32(1)
+
             status = int32(0)
-            save_idx = int32(0)
             summary_idx = int32(0)
 
-            # create step control arguments as local arrays to write in-place
-            # in step_controller function. Keep them separate due to
-            # differing types and alignment challenges. Watch for spill.
-            dt = persistent_local[0:1]
-            error = persistent_local[1:n_states + 1]
-            error_integral = persistent_local[1:2]
-            accept_step = persistent_local[2:3].view(simsafe_int32)
-            dt[0] = dt0_default
-            error_integral[0] = precision(0.0)
+            #TODO: break these up into slices in the factory
+            local_index = 0
+            dt = persistent_local[local_index:local_index + 1]
+            local_index += 1
+            error_integral = persistent_local[local_index:local_index+1]
+            local_index += 1
+            accept_step = persistent_local[local_index:local_index+1].view(
+                    simsafe_int32)
+            local_index += 1
+            error = persistent_local[local_index:local_index + n_states]
+            #TODO: This error array is right in the hot loop and persistent,
+            # consider making it shared
+            local_index += n_states
+            controller_temp = persistent_local[
+                local_index : local_index + controller_scratch
+            ]
+            local_index += controller_scratch
+            algo_local = persistent_local[
+               local_index:local_index + algo_persistent
+            ]
+            if fixed_mode:
+                step_counter = int32(0)
+            dt[0] = dt0
+            dt_eff = dt[0]
             accept_step[0] = int32(0)
 
-            scaled_error = persistent_local[n_states + 2:n_states + 3]
-            controller_temp = persistent_local[
-                n_states + 3 : n_states + 3 + controller_scratch
-            ]
-            algo_local = persistent_local[
-                n_states + 3 + controller_scratch:
-                n_states + 3 + controller_scratch + algo_persistent
-            ]
-
-            for i in range(n_states):
-                error[i] = precision(0.0)
-    
             mask = cuda.activemask()
 
             for _ in range(max_steps):
@@ -250,20 +262,23 @@ class IVPLoop(CUDAFactory):
 
                     if fixed_mode:
                         # Hit boundary when within half a step of the target time
-                        do_save = abs(t - next_save) < (dt[0] * precision(0.5))
-                        dt_eff = dt[0]
+                        step_counter += 1
+                        do_save = (step_counter % steps_per_save) == 0
+                        if do_save:
+                            step_counter = int32(0)
                     else:
-                        do_save = (t + dt[0]) >= next_save
+                        do_save = (t + dt[0]) >= next_save # Add an equality
+                        # test - no dt_eff == 0.0 please!
                         dt_eff = cuda.selp(do_save, next_save - t, dt[0])
 
 
                     status |= step_fn(
                         state_buffer,
                         state_proposal_buffer,
+                        work_buffer,
                         parameters_buffer,
                         drivers_buffer,
                         observables_buffer,
-                        work_buffer,
                         error,
                         dt_eff,
                         remaining_shared_scratch,
@@ -280,7 +295,6 @@ class IVPLoop(CUDAFactory):
                             state_proposal_buffer,
                             error,
                             accept_step,
-                            scaled_error,
                             controller_temp,
                         )
                         accept = accept_step[0] != int32(0)  # Convert int32 to boolean
@@ -289,11 +303,10 @@ class IVPLoop(CUDAFactory):
                     t_proposal = t + dt_eff
                     t = cuda.selp(accept, t_proposal, t)
 
-                    if not fixed_mode:
-                        for i in range(n_states):
-                            newv = state_proposal_buffer[i]
-                            oldv = state_buffer[i]
-                            state_buffer[i] = cuda.selp(accept, newv, oldv)
+                    for i in range(n_states):
+                        newv = state_proposal_buffer[i]
+                        oldv = state_buffer[i]
+                        state_buffer[i] = cuda.selp(accept, newv, oldv)
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = (accept & do_save)
@@ -334,7 +347,7 @@ class IVPLoop(CUDAFactory):
                                 summary_idx += 1
             if status == int32(0):
                 #Max iterations exhausted without other error
-                status = int32(10)
+                status = int32(8)
             return status
 
         return loop_fn
@@ -378,6 +391,12 @@ class IVPLoop(CUDAFactory):
         own = self.buffer_indices.end
         return algo + controller + own
 
+    @property
+    def local_memory_elements(self):
+        self_elements = self.compile_settings.buffer_sizes.state + 3
+        algo_elements = self.algorithm.persistent_local_required
+        controller_elements = self.step_controller.local_memory_required
+        return self_elements + algo_elements + controller_elements
 
     def update(self,
                updates_dict : Optional[dict] = None,

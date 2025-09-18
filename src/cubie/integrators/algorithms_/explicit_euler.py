@@ -83,7 +83,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         ):
             dxdt_function(state, parameters, drivers, observables, work_buffer)
             for i in range(n):
-                proposed_state[i] += step_size * work_buffer[i]
+                proposed_state[i] = state[i] + step_size * work_buffer[i]
             return int32(0)
 
         return StepCache(step=step, nonlinear_solver=None)

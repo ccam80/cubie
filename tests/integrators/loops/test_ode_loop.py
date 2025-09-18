@@ -24,7 +24,7 @@ from tests.integrators.loops.ODELoopTester import ODELoopTester
         {
             "dt_min": 0.01,
             "dt_max": 0.1,
-            "dt_save": 0.1,
+            "dt_save": 0.01,
             "dt_summarise": 0.5,
             "saved_state_indices": [0, 1],
             "saved_observable_indices": [],
@@ -71,7 +71,8 @@ class TestExplicitEulerLoop(ODELoopTester):
 
         dt = solver_settings["dt_min"]
         simulation_duration = solver_settings["duration"]
-        steps = int(np.ceil(simulation_duration / dt))
+        precision = system.precision
+        steps = int(np.ceil(precision(simulation_duration) /precision(dt)))
         params = system.parameters.values_dict
         consts = system.constants.values_dict
         return self._expected_linear_series(
@@ -81,7 +82,7 @@ class TestExplicitEulerLoop(ODELoopTester):
             consts,
             dt,
             steps,
-            system.precision,
+            precision
         )
 
     @pytest.fixture(scope="function")
@@ -102,7 +103,7 @@ class TestExplicitEulerLoop(ODELoopTester):
         {
             "dt_min": 0.01,
             "dt_max": 0.1,
-            "dt_save": 0.1,
+            "dt_save": 0.01,
             "dt_summarise": 0.5,
             "saved_state_indices": [0, 1],
             "saved_observable_indices": [],
@@ -233,10 +234,11 @@ class TestCrankNicolsonLoop(ODELoopTester):
     ) -> NDArray[np.floating]:
         """Expected solution sampled from the analytic answer."""
         simulation_duration = solver_settings['duration']
-
+        precision = system.precision
         dt_save = solver_settings["dt_save"]
-        samples = int(np.ceil(simulation_duration / dt_save))
-        times = np.arange(1, samples + 1, dtype=float) * dt_save
+        samples = int(np.ceil(precision(simulation_duration) /
+                              precision(dt_save)))
+        times = np.arange(0, samples + 1, dtype=float) * dt_save
         params = system.parameters.values_dict
         consts = system.constants.values_dict
         return self._expected_linear_exact(
@@ -244,7 +246,7 @@ class TestCrankNicolsonLoop(ODELoopTester):
             params,
             consts,
             times,
-            system.precision,
+            precision,
         )
 
     @pytest.fixture(scope="function")
