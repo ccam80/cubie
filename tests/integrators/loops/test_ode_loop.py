@@ -22,7 +22,7 @@ from tests.integrators.loops.ODELoopTester import ODELoopTester
     "loop_compile_settings_overrides",
     [
         {
-            "dt_min": 0.1,
+            "dt_min": 0.01,
             "dt_max": 0.1,
             "dt_save": 0.1,
             "dt_summarise": 0.5,
@@ -100,7 +100,7 @@ class TestExplicitEulerLoop(ODELoopTester):
     "loop_compile_settings_overrides",
     [
         {
-            "dt_min": 0.1,
+            "dt_min": 0.01,
             "dt_max": 0.1,
             "dt_save": 0.1,
             "dt_summarise": 0.5,
@@ -178,7 +178,7 @@ class TestBackwardsEulerLoop(ODELoopTester):
     "loop_compile_settings_overrides",
     [
         {
-            "dt_min": 0.05,
+            "dt_min": 0.001,
             "dt_max": 0.2,
             "dt_save": 0.1,
             "dt_summarise": 0.5,

@@ -55,33 +55,35 @@ class ExplicitEulerStep(ODEExplicitStep):
 
         @cuda.jit(
             (
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
-                numba_precision[::1],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
+                numba_precision[:],
                 numba_precision,
-                numba_precision[::1],
-                numba_precision[::1],
+                numba_precision[:],
+                numba_precision[:],
             ),
             device=True,
             inline=True,
         )
         def step(
             state,
+            proposed_state,
+            work_buffer,
             parameters,
             drivers,
             observables,
-            dxdt_buffer,
             error,
             dt_scalar,
             shared,
             persistent_local,
         ):
-            dxdt_function(state, parameters, drivers, observables, dxdt_buffer)
+            dxdt_function(state, parameters, drivers, observables, work_buffer)
             for i in range(n):
-                state[i] += step_size * dxdt_buffer[i]
+                proposed_state[i] += step_size * work_buffer[i]
             return int32(0)
 
         return StepCache(step=step, nonlinear_solver=None)

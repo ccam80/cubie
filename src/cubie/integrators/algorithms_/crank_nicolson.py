@@ -72,6 +72,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
                 numba_precision,
                 numba_precision[:],
                 numba_precision[:],
@@ -81,10 +82,11 @@ class CrankNicolsonStep(ODEImplicitStep):
         )
         def step(
             state,
+            proposed_state,
+            work_buffer,
             parameters,
             drivers,
             observables,
-            proposed_state,
             error,
             dt_scalar,
             shared,
@@ -95,12 +97,11 @@ class CrankNicolsonStep(ODEImplicitStep):
                 proposed_state[i] = state[i]
 
             # Work arrays (reused for both CN and BE computations)
-            delta = cuda.local.array(n, numba_precision)
             resid = cuda.local.array(n, numba_precision)
             z = cuda.local.array(n, numba_precision)
             temp = cuda.local.array(n, numba_precision)
 
-            # Additional array for error estimation (only need separate state)
+            # Additional array for error estimation
             be_state = cuda.local.array(n, numba_precision)
 
             # Solve Crank-Nicolson step (main solution)
@@ -111,7 +112,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 dt_scalar,
                 a_ij_cn,
                 state,
-                delta,
+                work_buffer,
                 resid,
                 z,
                 temp,
@@ -121,14 +122,14 @@ class CrankNicolsonStep(ODEImplicitStep):
             for i in range(n):
                 be_state[i] = proposed_state[i]  # Use CN solution as initial guess instead of state[i]
 
-            be_status = solver_fn(
+            status |= solver_fn(
                 be_state,
                 parameters,
                 drivers,
                 dt_scalar,
                 a_ij_be,
                 state,
-                delta,
+                work_buffer,
                 resid,
                 z,
                 temp,
@@ -137,12 +138,10 @@ class CrankNicolsonStep(ODEImplicitStep):
             # Compute error as difference between Crank-Nicolson and Backward Euler
             for i in range(n):
                 error[i] = proposed_state[i] - be_state[i]
-                state[i] = proposed_state[i]  # Update state with Crank-Nicolson solution
 
             # Return worst status from either solver
             if status != 0:
                 return status
-            return be_status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)
 

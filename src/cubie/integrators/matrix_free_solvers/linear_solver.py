@@ -145,7 +145,6 @@ def linear_solver_factory(
         operator_apply(state, parameters, drivers, h, x, temp)
         acc = typed_zero
         for i in range(n):
-            # z := M^{-1} r (or copy)
             r = rhs[i] - temp[i]
             rhs[i] = r
             acc += r * r

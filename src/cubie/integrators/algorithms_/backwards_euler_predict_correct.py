@@ -28,6 +28,7 @@ class BackwardsEulerPredictCorrectStep(BackwardsEulerStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
                 numba_precision,
                 numba_precision[:],
                 numba_precision[:],
@@ -37,26 +38,23 @@ class BackwardsEulerPredictCorrectStep(BackwardsEulerStep):
         )
         def step(
             state,
+            proposed_state,
+            work_buffer,
             parameters,
             drivers,
             observables,
-            proposed_state,
             error,
             dt_scalar,
             shared,
             persistent_local,
         ):
             # Only difference to backwards euler is here:
-            dxdt = dxdt_fn(state, parameters, drivers, observables)
+            dxdt_fn(state, parameters, drivers, observables, work_buffer)
             for i in range(n):
-                proposed_state[i] = state[i] + dt_scalar * dxdt[i]
+                proposed_state[i] = state[i] + dt_scalar * work_buffer[i]
 
-            # The rest is unaltered
-
-            delta = cuda.local.array(n, numba_precision)
             resid = cuda.local.array(n, numba_precision)
             z = cuda.local.array(n, numba_precision)
-            temp = cuda.local.array(n, numba_precision)
 
             status = solver_fn(
                 proposed_state,
@@ -65,14 +63,11 @@ class BackwardsEulerPredictCorrectStep(BackwardsEulerStep):
                 dt_scalar,
                 a_ij,
                 state,
-                delta,
+                work_buffer,
                 resid,
                 z,
-                temp,
+                error, # fixed-step loop doesn't use error
             )
-
-            for i in range(n):
-                state[i] = proposed_state[i]
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)

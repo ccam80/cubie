@@ -71,6 +71,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
                 numba_precision,
                 numba_precision[:],
                 numba_precision[:],
@@ -80,10 +81,11 @@ class BackwardsEulerStep(ODEImplicitStep):
         )
         def step(
             state,
+            proposed_state,
+            work_buffer,
             parameters,
             drivers,
-            observables,
-            proposed_state,
+            observables, # unused here
             error,
             dt_scalar,
             shared,
@@ -92,10 +94,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = state[i]
 
-            delta = cuda.local.array(n, numba_precision)
             resid = cuda.local.array(n, numba_precision)
             z = cuda.local.array(n, numba_precision)
-            temp = cuda.local.array(n, numba_precision)
 
             status = solver_fn(
                 proposed_state,
@@ -104,14 +104,11 @@ class BackwardsEulerStep(ODEImplicitStep):
                 dt_scalar,
                 a_ij,
                 state,
-                delta,
+                work_buffer,
                 resid,
                 z,
-                temp,
+                error,
             )
-
-            for i in range(n):
-                state[i] = proposed_state[i]
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)

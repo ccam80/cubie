@@ -37,18 +37,15 @@ class ImplicitStepConfig(BaseStepConfig):
     M: Union[np.ndarray, sp.Matrix] = attrs.field(default=sp.eye(1))
     norm_type: str = attrs.field(default="hairer")
     preconditioner_order: int = attrs.field(default=1)
-    linsolve_tolerance: float = attrs.field(default=1e-6)
+    linsolve_tolerance: float = attrs.field(default=1e-1)
     max_linear_iters: int = attrs.field(default=100)
     linear_correction_type: str = attrs.field(default="minimal_residual")
 
-    nonlinear_tolerance: float = attrs.field(default=1e-6)
+    nonlinear_tolerance: float = attrs.field(default=1e-1)
     max_newton_iters: int = attrs.field(default=100)
     newton_damping: float = attrs.field(default=0.5)
     newton_max_backtracks: int = attrs.field(default=10)
 
-    @property
-    def rtol(self):
-        return self.precision(self.rtol)
 
 class ODEImplicitStep(BaseAlgorithmStep):
     def __init__(self,

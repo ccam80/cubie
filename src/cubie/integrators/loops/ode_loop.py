@@ -120,12 +120,17 @@ class IVPLoop(CUDAFactory):
         """
         config = self.compile_settings
 
+        precision = config.numba_precision
+        simsafe_int32 = simsafe_dtype(np.int32)
+
+        # Fetch device functions from config
         save_state = config.save_state_func
         update_summaries = config.update_summaries_func
         save_summaries = config.save_summaries_func
         step_controller = config.step_controller_fn
         step_fn = config.step_fn
 
+        # Boolean toggles for saving observables and states
         flags = config.compile_flags
         save_obs_bool = flags.save_observables
         save_state_bool = flags.save_state
@@ -133,6 +138,7 @@ class IVPLoop(CUDAFactory):
         summarise_state_bool = flags.summarise_state
         summarise = summarise_obs_bool or summarise_state_bool
 
+        # Indices into shared memory for work buffers
         shared_indices = config.buffer_indices
         state_shared_ind = shared_indices.state
         dxdt_shared_ind = shared_indices.dxdt
@@ -144,23 +150,20 @@ class IVPLoop(CUDAFactory):
         drivers_shared_ind = shared_indices.drivers
         remaining_scratch_ind = shared_indices.scratch
 
+        # Timing values
         saves_per_summary = config.saves_per_summary
-
-        precision = config.numba_precision
-        simsafe_int32 = simsafe_dtype(np.int32)
-
-        n_states = config.buffer_sizes.state
-        n_parameters = config.buffer_sizes.nonzero.parameters
-        n_drivers = config.buffer_sizes.drivers
         dt_save = precision(config.dt_save)
         dt0_default = precision(self.dt0)
         dt_min = precision(self.dt_min)
+
+        # Loop sizes
+        n_states = config.buffer_sizes.state
+        n_parameters = config.buffer_sizes.nonzero.parameters
+        n_drivers = config.buffer_sizes.drivers
+
         fixed_mode = not self.is_adaptive
-        is_implicit = self.algorithm.is_implicit
         controller_scratch = self.step_controller.local_memory_required
         algo_persistent = self.algorithm.persistent_local_required
-
-
 
         @cuda.jit(device=True, inline=True)
         def loop_fn(
@@ -186,7 +189,7 @@ class IVPLoop(CUDAFactory):
 
             state_buffer = shared_scratch[state_shared_ind]
             state_proposal_buffer = shared_scratch[state_prop_shared_ind]
-            dxdt_buffer = shared_scratch[dxdt_shared_ind]
+            work_buffer = shared_scratch[dxdt_shared_ind]
             observables_buffer = shared_scratch[obs_shared_ind]
             parameters_buffer = shared_scratch[params_shared_ind]
             drivers_buffer = shared_scratch[drivers_shared_ind]
@@ -207,6 +210,7 @@ class IVPLoop(CUDAFactory):
             status = int32(0)
             save_idx = int32(0)
             summary_idx = int32(0)
+
             # create step control arguments as local arrays to write in-place
             # in step_controller function. Keep them separate due to
             # differing types and alignment challenges. Watch for spill.
@@ -215,17 +219,8 @@ class IVPLoop(CUDAFactory):
             error_integral = persistent_local[1:2]
             accept_step = persistent_local[2:3].view(simsafe_int32)
             dt[0] = dt0_default
-            dt_eff = dt[0]
             error_integral[0] = precision(0.0)
             accept_step[0] = int32(0)
-
-            controller_temp = persistent_local[
-                n_states + 3 : n_states + 3 + controller_scratch
-            ]
-            algo_local = persistent_local[
-                n_states + 3 + controller_scratch:
-                n_states + 3 + controller_scratch + algo_persistent
-            ]
 
             scaled_error = persistent_local[n_states + 2:n_states + 3]
             controller_temp = persistent_local[
@@ -261,17 +256,14 @@ class IVPLoop(CUDAFactory):
                         do_save = (t + dt[0]) >= next_save
                         dt_eff = cuda.selp(do_save, next_save - t, dt[0])
 
-                    # Do a step with clamped step size
-                    temp_buffer = (
-                        state_proposal_buffer if is_implicit else dxdt_buffer
-                    ) # TODO: check if this is required with aliasing
 
                     status |= step_fn(
                         state_buffer,
+                        state_proposal_buffer,
                         parameters_buffer,
                         drivers_buffer,
                         observables_buffer,
-                        temp_buffer,
+                        work_buffer,
                         error,
                         dt_eff,
                         remaining_shared_scratch,
@@ -337,10 +329,12 @@ class IVPLoop(CUDAFactory):
                                     observable_summaries_output[
                                         summary_idx * summarise_obs_bool, :
                                     ],
-                                    saves_per_summary)
+                                    saves_per_summary,
+                                )
                                 summary_idx += 1
-            #Max iterations exhausted
-            status = int32(10)
+            if status == int32(0):
+                #Max iterations exhausted without other error
+                status = int32(10)
             return status
 
         return loop_fn
