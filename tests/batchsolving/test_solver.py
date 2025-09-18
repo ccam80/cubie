@@ -208,8 +208,12 @@ def test_solve_info_property(solver_instance, solver_settings):
 
 @pytest.mark.parametrize(
     "system_override, solver_settings_override",
-    [({}, {}), ("ThreeChamber", {"duration": 0.5, "output_types": ["state"]})],
-    ids=["default_system", "threechamber_system"],
+    [
+        ({}, {}),
+        ("three_chamber", {"duration": 0.5, "output_types": ["state"]}),
+        ("stiff", {"duration": 0.2, "output_types": ["state"]}),
+    ],
+    ids=["default_system", "three_chamber_system", "stiff_system"],
     indirect=True,
 )
 def test_solve_basic(
@@ -504,7 +508,7 @@ def test_solver_output_types(system, solver_settings):
 
 
 @pytest.mark.parametrize(
-    "system_override", ["ThreeChamber", "Decays123"], indirect=True
+    "system_override", ["three_chamber", "stiff", "linear"], indirect=True
 )
 def test_solver_with_different_systems(solver_instance):
     """Test solver works with different system types."""

@@ -14,7 +14,7 @@ class TestEuler(LoopAlgorithmTester):
     of cases, including incomplete inputs and random floats of different scales."""
 
     @pytest.mark.parametrize(
-        "system_override", ["ThreeChamber", "Decays1_100"]
+        "system_override", ["three_chamber", "stiff", "large"]
     )
     def test_loop_function_builds(self, built_loop_function):
         pass

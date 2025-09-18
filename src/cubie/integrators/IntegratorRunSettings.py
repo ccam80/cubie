@@ -11,8 +11,10 @@ from warnings import warn
 
 import attrs
 import numba
+import numpy as np
 from numpy import ceil, float32
 
+from cubie._utils import gttype_validator
 from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
 
@@ -57,31 +59,31 @@ class IntegratorRunSettings:
 
     precision: type = attrs.field(
         default=float32,
-        validator=attrs.validators.instance_of(type),
+        validator=attrs.validators.in_([np.float32, np.float64, np.float16]),
     )
     _dt_min: float = attrs.field(
         default=1e-6,
-        validator=attrs.validators.instance_of(float),
+        validator=gttype_validator(float, 0),
     )
     _dt_max: float = attrs.field(
         default=1.0,
-        validator=attrs.validators.instance_of(float),
+        validator=gttype_validator(float, 0),
     )
     _dt_save: float = attrs.field(
         default=0.1,
-        validator=attrs.validators.instance_of(float),
+        validator=gttype_validator(float, 0),
     )
     _dt_summarise: float = attrs.field(
         default=0.1,
-        validator=attrs.validators.instance_of(float),
+        validator=gttype_validator(float, 0),
     )
     _atol: float = attrs.field(
         default=1e-6,
-        validator=attrs.validators.instance_of(float),
+        validator=gttype_validator(float, 0),
     )
     _rtol: float = attrs.field(
         default=1e-6,
-        validator=attrs.validators.instance_of(float),
+        validator=gttype_validator(float, 0),
     )
 
     output_types: list[str] = attrs.field(

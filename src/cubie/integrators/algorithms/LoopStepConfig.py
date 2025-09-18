@@ -6,7 +6,9 @@ class for grouping and passing around loop step timing information, including
 step sizes, tolerances, and summary intervals.
 """
 
-from attrs import define, field, validators
+from attrs import define, field
+
+from cubie._utils import gttype_validator
 
 
 @define
@@ -46,14 +48,26 @@ class LoopStepConfig:
     """
 
     dt_min: float = field(
-        default=1e-6, validator=validators.instance_of(float)
+        default=1e-6,
+        validator=gttype_validator(float, 0)
     )
-    dt_max: float = field(default=1.0, validator=validators.instance_of(float))
+    dt_max: float = field(
+        default=1.0,
+        validator=gttype_validator(float, 0)
+    )
     dt_save: float = field(
-        default=0.1, validator=validators.instance_of(float)
+        default=0.1,
+        validator=gttype_validator(float, 0)
     )
     dt_summarise: float = field(
-        default=0.1, validator=validators.instance_of(float)
+        default=0.1,
+        validator=gttype_validator(float, 0)
     )
-    atol: float = field(default=1e-6, validator=validators.instance_of(float))
-    rtol: float = field(default=1e-6, validator=validators.instance_of(float))
+    atol: float = field(
+        default=1e-6,
+        validator=gttype_validator(float, 0)
+    )
+    rtol: float = field(
+        default=1e-6,
+        validator=gttype_validator(float, 0)
+    )

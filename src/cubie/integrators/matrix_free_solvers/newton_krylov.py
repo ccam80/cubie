@@ -128,9 +128,9 @@ def newton_krylov_solver_factory(
         if norm2_prev <= tol_squared:
             status = int32(0)
 
+        mask = cuda.activemask()
         for _ in range(max_iters):
             # Warp-coherent exit if all lanes done
-            mask = cuda.activemask()
             if cuda.all_sync(mask, status >= 0):
                 break
 
@@ -194,7 +194,6 @@ def newton_krylov_solver_factory(
                 # Warp-coherent break when all lanes have accepted
                 if cuda.all_sync(mask, (found_step or status >= 0)):
                     break
-
                 # Not accepted yet; try again with a smaller scale.
                 scale *= typed_damping
 

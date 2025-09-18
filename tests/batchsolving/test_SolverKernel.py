@@ -97,7 +97,7 @@ def test_kernel_builds(solverkernel):
     (
         ({}, {}, {}),
         pytest.param(
-            "ThreeChamber",
+            "three_chamber",
             {
                 "duration": 1.0,
                 "output_types": [
@@ -112,7 +112,7 @@ def test_kernel_builds(solverkernel):
             {},
         marks=pytest.mark.nocudasim
         ),
-        # ("ThreeChamber",
+        # ("three_chamber",
         #  {'duration': 10.0, 'output_types':["state", "observables", "mean", "max"]},
         #  {'num_state_vals_0': 10, 'num_state_vals_1': 10, 'num_param_vals_0': 10, 'num_param_vals_1': 10})
     ),

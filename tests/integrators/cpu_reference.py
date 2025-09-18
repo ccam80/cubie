@@ -477,15 +477,18 @@ def run_reference_loop(
         loop_compile_settings.get("summarised_state_indices", []), np.int32
     )
     summarised_observable_indices = _ensure_array(
-        loop_compile_settings.get("summarised_observable_indices", []), np.int32
+        loop_compile_settings.get("summarised_observable_indices", []),
+        np.int32,
     )
     save_time = "time" in loop_compile_settings.get("output_functions", [])
     max_save_samples = int(duration / dt_save) if dt_save > 0 else 0
     state_history: list[Array] = []
     observable_history: list[Array] = []
     time_history: list[float] = []
-
     state = initial_state.copy()
+    state_history.append(initial_state.copy())
+    observable_history.append(np.zeros(len(saved_observable_indices),
+                                       dtype=precision))
     t = 0.0
     end_time = warmup + duration
     next_save_time = warmup + dt_save if dt_save > 0 else end_time + 1.0

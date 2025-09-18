@@ -41,7 +41,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
-            norm_type="hairer",
+            norm_type="l2",
             preconditioner_order=preconditioner_order,
             linsolve_tolerance=linsolve_tolerance,
             max_linear_iters=max_linear_iters,
@@ -139,9 +139,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             for i in range(n):
                 error[i] = proposed_state[i] - be_state[i]
 
-            # Return worst status from either solver
-            if status != 0:
-                return status
+            return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)
 

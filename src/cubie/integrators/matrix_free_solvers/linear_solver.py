@@ -148,7 +148,7 @@ def linear_solver_factory(
             r = rhs[i] - temp[i]
             rhs[i] = r
             acc += r * r
-
+        mask = cuda.activemask()
         converged = acc <= tol_squared
 
         for _ in range(max_iters):
@@ -187,7 +187,6 @@ def linear_solver_factory(
             converged = converged or (acc <= tol_squared)
 
             #return once all threads in warp have converged
-            mask = cuda.activemask()
             if cuda.all_sync(mask, converged):
                 return int32(0)
 

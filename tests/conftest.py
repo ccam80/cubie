@@ -1,3 +1,4 @@
+import inspect
 import numpy as np
 import pytest
 from pathlib import Path
@@ -7,6 +8,13 @@ from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_functions import OutputFunctions
+from tests.system_fixtures import (
+    build_large_nonlinear_system,
+    build_three_chamber_system,
+    build_three_state_linear_system,
+    build_three_state_nonlinear_system,
+    build_three_state_very_stiff_system,
+)
 
 
 @pytest.fixture(scope="function", autouse=True)
@@ -38,86 +46,86 @@ def precision_override(request):
 
 
 @pytest.fixture(scope="function")
-def precision(precision_override):
+def precision(precision_override, system_override):
     """
-    Run tests with float32 by default, or override with float64.
+    Run tests with float32 by default, upgrade to float64 for stiff problems.
 
     Usage:
     @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
     def test_something(precision):
         # precision will be np.float64 here
     """
-    return (
-        precision_override if precision_override == np.float64 else np.float32
-    )
+    if precision_override is not None:
+        return precision_override
+    if system_override == "stiff":
+        return np.float64
+    return np.float32
 
 
 @pytest.fixture(scope="function")
-def threecm_model(precision):
-    from cubie.odesystems.systems.threeCM import ThreeChamberModel
+def linear_symbolic_system(precision: np.dtype):
+    """Three-state linear symbolic system for tests."""
 
-    threeCM = ThreeChamberModel(precision=precision)
-    threeCM.build()
-    return threeCM
+    return build_three_state_linear_system(precision)
 
 
 @pytest.fixture(scope="function")
-def decays_123_model(precision):
-    from cubie.odesystems.systems.decays import Decays
+def nonlinear_symbolic_system(precision: np.dtype):
+    """Three-state nonlinear symbolic system for tests."""
 
-    decays3 = Decays(
-        coefficients=[precision(1.0), precision(2.0), precision(3.0)],
-        precision=precision,
-    )
-    decays3.build()
-    return decays3
+    return build_three_state_nonlinear_system(precision)
 
 
 @pytest.fixture(scope="function")
-def decays_1_100_model(precision):
-    from cubie.odesystems.systems.decays import Decays
+def three_chamber_symbolic_system(precision: np.dtype):
+    """Symbolic three chamber cardiovascular system."""
 
-    decays100 = Decays(
-        coefficients=np.arange(1, 101, dtype=precision), precision=precision
-    )
-    decays100.build()
-    return decays100
+    return build_three_chamber_system(precision)
+
+
+@pytest.fixture(scope="function")
+def stiff_symbolic_system(precision: np.dtype):
+    """Very stiff nonlinear symbolic system for implicit solver stress tests."""
+    return build_three_state_very_stiff_system(precision)
+
+
+@pytest.fixture(scope="function")
+def large_symbolic_system(precision: np.dtype):
+    """Large nonlinear symbolic system with 100 states."""
+
+    return build_large_nonlinear_system(precision)
 
 
 @pytest.fixture(scope="function")
 def system_override(request):
     """Override for system model type, if provided."""
-    return request.param if hasattr(request, "param") else {}
+    return request.param if hasattr(request, "param") else "linear"
 
 
 @pytest.fixture(scope="function")
 def system(request, system_override, precision):
     """
-    Return the appropriate system model, defaulting to Decays123.
+    Return the appropriate symbolic system, defaulting to ``linear``.
 
     Usage:
-    @pytest.mark.parametrize("system_override", ["ThreeChamber"], indirect=True)
+    @pytest.mark.parametrize("system_override", ["three_chamber"], indirect=True)
     def test_something(system):
-        # system will be the ThreeChamber model here
+        # system will be the cardiovascular symbolic model here
     """
-    # Use the override if provided, otherwise default to Decays123
-    if system_override == {} or system_override is None:
-        model_type = "Decays123"
-    else:
-        model_type = system_override
+    model_type = system_override
 
-    # Initialize the appropriate model fixture based on the parameter
-    if model_type == "ThreeChamber":
-        model = request.getfixturevalue("threecm_model")
-    elif model_type == "Decays123":
-        model = request.getfixturevalue("decays_123_model")
-    elif model_type == "Decays1_100":
-        model = request.getfixturevalue("decays_1_100_model")
-    else:
-        raise ValueError(f"Unknown model type: {model_type}")
+    if model_type == "linear":
+        return request.getfixturevalue("linear_symbolic_system")
+    if model_type == "nonlinear":
+        return request.getfixturevalue("nonlinear_symbolic_system")
+    if model_type in {"three_chamber", "threecm"}:
+        return request.getfixturevalue("three_chamber_symbolic_system")
+    if model_type == "stiff":
+        return request.getfixturevalue("stiff_symbolic_system")
+    if model_type == "large":
+        return request.getfixturevalue("large_symbolic_system")
 
-    model.build()
-    return model
+    raise ValueError(f"Unknown model type: {model_type}")
 
 
 @pytest.fixture(scope="function")
@@ -150,6 +158,8 @@ def update_loop_compile_settings(system, **kwargs):
         "output_functions": ["state"],
     }
     loop_compile_settings_dict.update(kwargs)
+    for key in ("dt_min", "dt_max", "dt_save", "dt_summarise", "atol", "rtol"):
+        loop_compile_settings_dict[key] = float(loop_compile_settings_dict[key])
     return loop_compile_settings_dict
 
 
@@ -166,6 +176,15 @@ def solver_settings_override(request):
     return request.param if hasattr(request, "param") else {}
 
 
+_SOLVER_SIGNATURE = inspect.signature(Solver.__init__)
+
+
+def _solver_default(name: str):
+    """Return the default value for ``name`` from :class:`Solver`."""
+
+    return _SOLVER_SIGNATURE.parameters[name].default
+
+
 @pytest.fixture(scope="function")
 def solver_settings(
     loop_compile_settings, solver_settings_override, precision
@@ -175,12 +194,12 @@ def solver_settings(
         "algorithm": "euler",
         "duration": 1.0,
         "warmup": 0.0,
-        "dt_min": loop_compile_settings["dt_min"],
-        "dt_max": loop_compile_settings["dt_max"],
-        "dt_save": loop_compile_settings["dt_save"],
-        "dt_summarise": loop_compile_settings["dt_summarise"],
-        "atol": loop_compile_settings["atol"],
-        "rtol": loop_compile_settings["rtol"],
+        "dt_min": float(loop_compile_settings["dt_min"]),
+        "dt_max": float(loop_compile_settings["dt_max"]),
+        "dt_save": float(loop_compile_settings["dt_save"]),
+        "dt_summarise": float(loop_compile_settings["dt_summarise"]),
+        "atol": float(loop_compile_settings["atol"]),
+        "rtol": float(loop_compile_settings["rtol"]),
         "saved_state_indices": loop_compile_settings["saved_state_indices"],
         "saved_observable_indices": loop_compile_settings[
             "saved_observable_indices"
@@ -199,7 +218,58 @@ def solver_settings(
         # Update defaults with any overrides provided
         for key, value in solver_settings_override.items():
             if key in defaults:
-                defaults[key] = value
+                if key in {
+                    "dt_min",
+                    "dt_max",
+                    "dt_save",
+                    "dt_summarise",
+                    "atol",
+                    "rtol",
+                    "duration",
+                    "warmup",
+                }:
+                    defaults[key] = float(value)
+                else:
+                    defaults[key] = value
+    for key in (
+        "dt_min",
+        "dt_max",
+        "dt_save",
+        "dt_summarise",
+        "atol",
+        "rtol",
+        "duration",
+        "warmup",
+    ):
+        if defaults[key] is not None:
+            defaults[key] = float(defaults[key])
+    return defaults
+
+
+@pytest.fixture(scope="function")
+def implicit_step_settings_override(request):
+    """Override values for implicit solver helper settings."""
+
+    return request.param if hasattr(request, "param") else {}
+
+
+@pytest.fixture(scope="function")
+def implicit_step_settings(implicit_step_settings_override):
+    """Default tolerances and iteration limits for implicit solves."""
+
+    defaults = {
+        "atol": _solver_default("atol"),
+        "rtol": _solver_default("rtol"),
+        "linear_tolerance": 1e-3,
+        "nonlinear_tolerance": 1e-3,
+        "max_linear_iters": 100,
+        "max_newton_iters": 100,
+        "newton_damping": 0.5,
+        "newton_max_backtracks": 10,
+        "reuse_factorisation": True,
+        "reuse_jacobian": True,
+    }
+    defaults.update(implicit_step_settings_override)
     return defaults
 
 

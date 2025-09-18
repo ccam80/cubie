@@ -4,6 +4,7 @@ to the user; write comments that explain unconventional or complex operations to
 docstrings for all functions and classes. Write type hints for all functions and methods.
 Use descriptive variable names rather than minimal ones.
 Use descriptive function names rather than minimal ones.
+The repository is in development, do not enforce backwards compatibility; breaking changes are expected.
 Type hints are compulsory, in PEP484 format in function definitions, rather than in docstrings.
 
 ## Tests

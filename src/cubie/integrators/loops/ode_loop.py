@@ -155,7 +155,7 @@ class IVPLoop(CUDAFactory):
         dt_save = precision(config.dt_save)
         dt0 = precision(self.dt0)
         dt_min = precision(self.dt_min)
-        steps_per_save = int32(ceil(dt_save / dt0))
+        steps_per_save = int32(ceil(precision(dt_save) / precision(dt0)))
 
         # Loop sizes
         n_states = config.buffer_sizes.state
@@ -182,9 +182,13 @@ class IVPLoop(CUDAFactory):
             t0 = precision(0.0),
         ):
             # Cap max iterations - all internal algorithms_ plus a bonus end/start
+            t = precision(t0)
+            t_end = precision(settling_time + duration)
             max_steps =  (int32(
-                          ceil(duration / max(dt_min, precision(1e-16))))
+                          ceil(t_end / max(dt_min, precision(1e-16))))
                           + int32(2)) * 2
+            n_output_samples = max(state_output.shape[0],
+                                   observables_output.shape[0])
 
             shared_scratch[:] = precision(0.0)
 
@@ -207,7 +211,6 @@ class IVPLoop(CUDAFactory):
             driver_length = drivers.shape[0]
 
             # Loop state
-            t = precision(t0)
 
             #Start again from settling time if given, otherwise keep init val.
             if settling_time > precision(0.0):
@@ -249,9 +252,10 @@ class IVPLoop(CUDAFactory):
             mask = cuda.activemask()
 
             for _ in range(max_steps):
-                finished = t >= duration
-
+                finished = save_idx >= n_output_samples
                 if cuda.all_sync(mask, finished):
+                    return status
+                if finished:
                     return status
 
                 for k in range(n_drivers):
@@ -291,7 +295,7 @@ class IVPLoop(CUDAFactory):
                     if fixed_mode:
                         accept = True
                     else:
-                        retcode = step_controller(
+                        status |= step_controller(
                             dt,
                             state_buffer,
                             state_proposal_buffer,
@@ -300,7 +304,6 @@ class IVPLoop(CUDAFactory):
                             controller_temp,
                         )
                         accept = accept_step[0] != int32(0)  # Convert int32 to boolean
-                        status |= retcode
 
                     t_proposal = t + dt_eff
                     t = cuda.selp(accept, t_proposal, t)

@@ -92,7 +92,7 @@ class LoopAlgorithmTester:
         Returns an instance of the loop class specified in algorithm_class.
 
         Usage example:
-        @pytest.mark.parametrize("system", ["ThreeChamber"], indirect=True)
+        @pytest.mark.parametrize("system", ["three_chamber"], indirect=True)
         def test_loop_function(system, loop_under_test):
             ...
         """
