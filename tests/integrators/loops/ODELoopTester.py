@@ -61,30 +61,27 @@ DECAYS_OBSERVABLES = ["o0", "o1", "o2"]
 def expected_answer(
     system,
     loop_compile_settings,
-    solverkernel,
+    solver_settings,
     inputs,
     precision,
     output_functions,
 ):
-    dt = loop_compile_settings["dt_min"]
-    output_dt = loop_compile_settings["dt_save"]
-    warmup = solverkernel.warmup
-    duration = solverkernel.duration
-    solver_settings = {
-        "dt_min": dt,
-        "dt_max": loop_compile_settings["dt_max"],
-        "dt_save": output_dt,
-        "dt_summarise": loop_compile_settings["dt_summarise"],
-        "warmup": warmup,
-        "duration": duration,
-        "atol": loop_compile_settings["atol"],
-        "rtol": loop_compile_settings["rtol"],
+    solver_config = {
+        "dt_min": float(solver_settings["dt_min"]),
+        "dt_max": float(solver_settings["dt_max"]),
+        "dt_save": float(solver_settings["dt_save"]),
+        "dt_summarise": float(solver_settings["dt_summarise"]),
+        "warmup": float(solver_settings["warmup"]),
+        "duration": float(solver_settings["duration"]),
+        "atol": float(solver_settings["atol"]),
+        "rtol": float(solver_settings["rtol"]),
     }
+    dt = solver_config["dt_min"]
 
     result = run_reference_loop(
         system=system,
         inputs=inputs,
-        solver_settings=solver_settings,
+        solver_settings=solver_config,
         loop_compile_settings=loop_compile_settings,
         output_functions=output_functions,
         stepper="explicit_euler",

@@ -449,42 +449,47 @@ def test_bogus_update_fails(solverkernel):
 
 @pytest.fixture(scope="function")
 def expected_batch_answers_euler(
-    system, solverkernel, batch_input_arrays, square_drive
+    system,
+    solver_settings,
+    loop_compile_settings,
+    batch_input_arrays,
+    square_drive,
+    output_functions,
 ):
     inits, params = batch_input_arrays
     driver_vec = square_drive.T if square_drive.ndim == 2 else square_drive
     precision = system.precision
     driver_matrix = driver_vec.astype(precision)
-    solver_settings = {
-        "dt_min": float(solverkernel.fixed_step_size),
-        "dt_max": float(solverkernel.dt_max),
-        "dt_save": float(solverkernel.dt_save),
-        "dt_summarise": float(solverkernel.dt_summarise),
-        "warmup": float(solverkernel.warmup),
-        "duration": float(solverkernel.duration),
-        "atol": float(solverkernel.atol),
-        "rtol": float(solverkernel.rtol),
+    solver_config = {
+        "dt_min": float(solver_settings["dt_min"]),
+        "dt_max": float(solver_settings["dt_max"]),
+        "dt_save": float(solver_settings["dt_save"]),
+        "dt_summarise": float(solver_settings["dt_summarise"]),
+        "warmup": float(solver_settings["warmup"]),
+        "duration": float(solver_settings["duration"]),
+        "atol": float(solver_settings["atol"]),
+        "rtol": float(solver_settings["rtol"]),
     }
     loop_settings = {
-        "dt_min": solver_settings["dt_min"],
-        "dt_max": solver_settings["dt_max"],
-        "dt_save": solver_settings["dt_save"],
-        "dt_summarise": solver_settings["dt_summarise"],
-        "atol": solver_settings["atol"],
-        "rtol": solver_settings["rtol"],
-        "saved_state_indices": list(solverkernel.saved_state_indices),
+        "dt_min": solver_config["dt_min"],
+        "dt_max": solver_config["dt_max"],
+        "dt_save": solver_config["dt_save"],
+        "dt_summarise": solver_config["dt_summarise"],
+        "atol": solver_config["atol"],
+        "rtol": solver_config["rtol"],
+        "saved_state_indices": list(loop_compile_settings["saved_state_indices"]),
         "saved_observable_indices": list(
-            solverkernel.saved_observable_indices
+            loop_compile_settings["saved_observable_indices"]
         ),
         "summarised_state_indices": list(
-            solverkernel.summarised_state_indices
+            loop_compile_settings["summarised_state_indices"]
         ),
         "summarised_observable_indices": list(
-            solverkernel.summarised_observable_indices
+            loop_compile_settings["summarised_observable_indices"]
         ),
-        "output_functions": list(solverkernel.output_types),
+        "output_functions": list(loop_compile_settings["output_functions"]),
     }
-    controller_settings = {"kind": "fixed", "dt": solver_settings["dt_min"]}
+    controller_settings = {"kind": "fixed", "dt": solver_config["dt_min"]}
     output_sets = []
     for i in range(inits.shape[0]):
         run_inputs = {
@@ -495,9 +500,9 @@ def expected_batch_answers_euler(
         result = run_reference_loop(
             system=system,
             inputs=run_inputs,
-            solver_settings=solver_settings,
+            solver_settings=solver_config,
             loop_compile_settings=loop_settings,
-            output_functions=solverkernel.single_integrator._output_functions,
+            output_functions=output_functions,
             stepper="explicit_euler",
             step_controller_settings=controller_settings,
         )
@@ -507,7 +512,11 @@ def expected_batch_answers_euler(
 
 @pytest.fixture(scope="function")
 def expected_batch_summaries(
-    expected_batch_answers_euler, solverkernel, output_functions, precision
+    expected_batch_answers_euler,
+    solver_settings,
+    loop_compile_settings,
+    output_functions,
+    precision,
 ):
     """
     Calculate the expected summaries_array for the loop algorithm.
@@ -517,8 +526,14 @@ def expected_batch_summaries(
     def test_expected_summaries(expected_summaries):
         ...
     """
-    _, summarise_every, _ = (
-        solverkernel.single_integrator._integrator_instance.compile_settings.fixed_steps
+    saves_per_summary = max(
+        int(
+            np.ceil(
+                float(loop_compile_settings["dt_summarise"])
+                / float(loop_compile_settings["dt_save"])
+            )
+        ),
+        1,
     )
     expected_summaries = []
     for expected_state, expected_output in expected_batch_answers_euler:
@@ -526,9 +541,9 @@ def expected_batch_summaries(
             calculate_expected_summaries(
                 expected_state,
                 expected_output,
-                summarise_every,
-                solverkernel.output_types,
-                solverkernel.single_integrator._output_functions.summaries_output_height_per_var,
+                saves_per_summary,
+                loop_compile_settings["output_functions"],
+                output_functions.summaries_output_height_per_var,
                 precision,
             )
         )

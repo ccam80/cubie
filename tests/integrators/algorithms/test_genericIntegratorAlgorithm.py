@@ -20,7 +20,7 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
         system,
         loop_compile_settings,
         run_settings,
-        solverkernel,
+        solver_settings,
         inputs,
         precision,
     ):
@@ -29,7 +29,15 @@ class TestGenericLoopAlgorithm(LoopAlgorithmTester):
             "observables" in loop_compile_settings["output_functions"]
         )
         n_states_total = inputs["initial_values"].shape[0]
-        n_samples = solverkernel.output_length
+        n_samples = max(
+            int(
+                np.ceil(
+                    float(solver_settings["duration"])
+                    / float(solver_settings["dt_save"])
+                )
+            ),
+            1,
+        )
         save_time = "time" in loop_compile_settings["output_functions"]
 
         if save_state:
