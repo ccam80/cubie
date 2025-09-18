@@ -70,3 +70,5 @@ def l2_squared_norm_factory(precision, n):
         for j in range(n):
             acc += arr[j] * arr[j]
         return acc
+
+    return norm_l2_squared

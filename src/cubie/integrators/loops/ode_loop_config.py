@@ -9,17 +9,16 @@ configuration consistency.
 from typing import Optional, Callable
 
 from attrs import define, field, validators
+import numba
 from numpy import float32, float16, float64
 
-from cubie import is_device_validator
+from cubie import is_device_validator, getype_validator, gttype_validator
+from cubie.cudasim_utils import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
 from cubie.outputhandling.output_sizes import LoopBufferSizes
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))
-valid_float = validators.instance_of(float)
-valid_int = validators.instance_of(int)
-valid_bool = validators.instance_of(bool)
-valid_callable = validators.is_callable
+
 
 @define
 class LoopIndices:
@@ -61,7 +60,7 @@ class LoopIndices:
     )
     local_end: Optional[int] = field(
             default=None,
-            validator=validators.optional(valid_int)
+            validator=validators.optional(getype_validator(int, 0))
     )
     scratch: Optional[slice] = field(
             default=None,
@@ -159,14 +158,38 @@ class ODELoopConfig:
     # local_memory_indices: LoopIndices = field(
     #     factory=LoopIndices, validator=validators.instance_of(LoopIndices)
     # )
-    dt_save: float = field(default=0.1, validator=valid_float)
-    dt_summarise: float = field(default=1.0, validator=valid_float)
+    _dt_save: float = field(
+        default=0.1, validator=gttype_validator(float, 0)
+    )
+    _dt_summarise: float = field(
+        default=1.0, validator=gttype_validator(float, 0)
+    )
 
 
     @property
     def saves_per_summary(self) -> int:
         """Return the number of saves between summary outputs."""
         return int(self.dt_summarise // self.dt_save)
+
+    @property
+    def numba_precision(self) -> type:
+        """Returns numba precision type."""
+        return numba.from_dtype(self.precision)
+
+    @property
+    def simsafe_precision(self) -> type:
+        """Returns simulator safe precision."""
+        return simsafe_dtype(self.precision)
+
+    @property
+    def dt_save(self) -> float:
+        """Returns output save interval."""
+        return self.precision(self._dt_save)
+
+    @property
+    def dt_summarise(self) -> float:
+        """Returns summary interval."""
+        return self.precision(self._dt_summarise)
 
 
 

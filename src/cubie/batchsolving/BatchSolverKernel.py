@@ -17,8 +17,7 @@ from warnings import warn
 
 import numpy as np
 from numba import cuda, float64, float32
-from numba import int32, int16, from_dtype
-from cubie.cudasim_utils import from_dtype as simsafe_dtype
+from numba import int32, int16
 from numpy.typing import NDArray, ArrayLike
 
 from cubie.memory import default_memmgr
@@ -463,9 +462,9 @@ class BatchSolverKernel(CUDAFactory):
         - x-dimension handles intra-run parallelism
         - y-dimension handles different runs
         """
-        # Internal casting should use this simulator-safe dtype
-        simsafe_precision = simsafe_dtype(self.precision)
-        precision = from_dtype(self.precision)
+        config = self.compile_settings
+        simsafe_precision = config.simsafe_precision
+        precision = config.numba_precision
 
         loopfunction = self.single_integrator.device_function
 

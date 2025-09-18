@@ -6,7 +6,7 @@ Antoine Pironet's thesis , suitable for CUDA execution.
 """
 
 import numpy as np
-from numba import cuda, from_dtype
+from numba import cuda
 
 from cubie.odesystems.baseODE import BaseODE, ODECache
 
@@ -170,7 +170,7 @@ class ThreeChamberModel(BaseODE):
             self.precision
         )
 
-        numba_precision = from_dtype(self.precision)
+        numba_precision = self.numba_precision
 
         # no cover: start
         @cuda.jit(

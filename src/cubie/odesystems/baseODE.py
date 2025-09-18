@@ -395,6 +395,16 @@ class BaseODE(CUDAFactory):
         return self.compile_settings.precision
 
     @property
+    def numba_precision(self):
+        """Returns numba precision type."""
+        return self.compile_settings.numba_precision
+
+    @property
+    def simsafe_precision(self):
+        """Returns simulator safe precision."""
+        return self.compile_settings.simsafe_precision
+
+    @property
     def dxdt_function(self):
         """Get the compiled device function.
 

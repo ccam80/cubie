@@ -8,11 +8,13 @@ specific control strategies.
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
 
+import numba
 from numpy import float32, float16, float64
 from attrs import define, field, validators
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie._utils import getype_validator
+from cubie.cudasim_utils import from_dtype as simsafe_dtype
 
 @define
 class BaseStepControllerConfig(ABC):
@@ -34,6 +36,16 @@ class BaseStepControllerConfig(ABC):
     @abstractmethod
     def _validate_config(self) -> None:
         """Check for internal consistency of configuration."""
+
+    @property
+    def numba_precision(self) -> type:
+        """Returns numba precision type."""
+        return numba.from_dtype(self.precision)
+
+    @property
+    def simsafe_precision(self) -> type:
+        """Returns simulator safe precision."""
+        return simsafe_dtype(self.precision)
 
     @property
     @abstractmethod

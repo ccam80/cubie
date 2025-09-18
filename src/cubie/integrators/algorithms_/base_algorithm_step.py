@@ -11,10 +11,12 @@ from typing import Callable, Optional
 import attrs
 import numpy as np
 from attrs import validators
+import numba
 
 from cubie import getype_validator
 from cubie._utils import is_device_validator
 from cubie.CUDAFactory import CUDAFactory
+from cubie.cudasim_utils import from_dtype as simsafe_dtype
 
 
 @attrs.define
@@ -33,6 +35,16 @@ class BaseStepConfig(ABC):
         default=None,
         validator=validators.optional(is_device_validator)
     )
+
+    @property
+    def numba_precision(self) -> type:
+        """Returns numba precision type."""
+        return numba.from_dtype(self.precision)
+
+    @property
+    def simsafe_precision(self) -> type:
+        """Returns simulator safe precision."""
+        return simsafe_dtype(self.precision)
 
 
 @attrs.define

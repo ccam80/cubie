@@ -18,7 +18,14 @@ from cubie.integrators.step_control.adaptive_PI_controller import (
 class PIDStepControlConfig(PIStepControlConfig):
     """Configuration for a proportional–integral–derivative controller."""
 
-    kd: float = field(default=0.0, validator=validators.instance_of(float))
+    _kd: float = field(
+        default=0.0, validator=validators.instance_of(float)
+    )
+
+    @property
+    def kd(self) -> float:
+        """Returns derivative gain."""
+        return self.precision(self._kd)
 
 
 class AdaptivePIDController(BaseAdaptiveStepController):
@@ -38,7 +45,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         kd: float = 0.2,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
-        norm: str = "hairer",
+        norm: str = "l2",
         norm_kwargs: Optional[dict] = None,
     ) -> None:
         """Initialise a proportional–integral–derivative controller."""
@@ -128,10 +135,10 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
 
-            gain_new = safety * ((nrm2 ** expo1) *
+            gain_new = precision(safety * ((nrm2 ** expo1) *
                                  (err_prev ** expo2) *
-                                 (err_prev2 ** expo3))
-            gain = clamp(gain_new, max_gain, min_gain)
+                                 (err_prev2 ** expo3)))
+            gain = precision(clamp(gain_new, max_gain, min_gain))
 
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_max, dt_min)

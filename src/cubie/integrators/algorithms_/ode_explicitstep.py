@@ -1,7 +1,6 @@
 from abc import abstractmethod
 from typing import Callable
 
-from numba import from_dtype
 import attrs
 
 from cubie import getype_validator, gttype_validator
@@ -28,7 +27,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
 
         config = self.compile_settings
         dxdt_function = config.dxdt_function
-        numba_precision = from_dtype(config.precision)
+        numba_precision = config.numba_precision
         n = config.n
         fixed_step_size = config.fixed_step_size
         return self.build_step(

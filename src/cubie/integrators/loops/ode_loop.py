@@ -13,10 +13,10 @@ mathy end of the integration.
 from typing import Optional, Callable
 
 import numpy as np
-from numba import cuda, from_dtype, int32
+from numba import cuda, int32
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie._utils import from_dtype as simsafe_dtype
+from cubie.cudasim_utils import from_dtype as simsafe_dtype
 from cubie.integrators.algorithms_.base_algorithm_step import BaseAlgorithmStep
 from cubie.integrators.loops.ode_loop_config import LoopIndices, ODELoopConfig
 from cubie.integrators.step_control.base_step_controller import \
@@ -146,7 +146,7 @@ class IVPLoop(CUDAFactory):
 
         saves_per_summary = config.saves_per_summary
 
-        precision = from_dtype(self.precision)
+        precision = config.numba_precision
         simsafe_int32 = simsafe_dtype(np.int32)
 
         n_states = config.buffer_sizes.state
@@ -202,7 +202,7 @@ class IVPLoop(CUDAFactory):
             driver_length = drivers.shape[0]
 
             # Loop state
-            t = t0
+            t = precision(t0)
             next_save = precision(settling_time)
             status = int32(0)
             save_idx = int32(0)
@@ -238,34 +238,34 @@ class IVPLoop(CUDAFactory):
 
             for i in range(n_states):
                 error[i] = precision(0.0)
-                
-            # Get active threads to allow a warp-coherent exit without
-            # waiting on inactive threads
+    
             mask = cuda.activemask()
 
             for _ in range(max_steps):
                 finished = t >= duration
+
                 if cuda.all_sync(mask, finished):
                     return status
+
                 for k in range(n_drivers):
                     drivers_buffer[k] = drivers[
                         save_idx % driver_length, k
                     ]
                 if not finished:
-                    # Schedule
+
                     if fixed_mode:
                         # Hit boundary when within half a step of the target time
                         do_save = abs(t - next_save) < (dt[0] * precision(0.5))
                         dt_eff = dt[0]
                     else:
                         do_save = (t + dt[0]) >= next_save
-                        dt_eff = cuda.selp(do_save, next_save - t,
-                                              dt[0])
+                        dt_eff = cuda.selp(do_save, next_save - t, dt[0])
 
                     # Do a step with clamped step size
                     temp_buffer = (
                         state_proposal_buffer if is_implicit else dxdt_buffer
-                    )
+                    ) # TODO: check if this is required with aliasing
+
                     status |= step_fn(
                         state_buffer,
                         parameters_buffer,
@@ -301,7 +301,7 @@ class IVPLoop(CUDAFactory):
                         for i in range(n_states):
                             newv = state_proposal_buffer[i]
                             oldv = state_buffer[i]
-                            state_buffer = cuda.selp(accept, newv, oldv)
+                            state_buffer[i] = cuda.selp(accept, newv, oldv)
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = (accept & do_save)

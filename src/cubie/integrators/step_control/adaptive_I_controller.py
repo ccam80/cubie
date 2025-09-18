@@ -25,7 +25,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
         n: int = 1,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
-        norm: str = "hairer",
+        norm: str = "l2",
         norm_kwargs: Optional[dict] = None,
     ) -> None:
         """Initialise an integral step controller.

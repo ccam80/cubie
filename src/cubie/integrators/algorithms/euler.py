@@ -7,7 +7,7 @@ The implementation is suitable for systems where high accuracy is not required
 and the dynamics are not too stiff.
 """
 
-from numba import cuda, int32, from_dtype
+from numba import cuda, int32
 
 from cubie.integrators.algorithms.genericIntegratorAlgorithm import (
     GenericIntegratorAlgorithm,
@@ -86,7 +86,7 @@ class Euler(GenericIntegratorAlgorithm):
 
     def build_loop(
         self,
-        precision,
+        numba_precision,
         dxdt_function,
         save_state_func,
         update_summaries_func,
@@ -100,7 +100,7 @@ class Euler(GenericIntegratorAlgorithm):
 
         Parameters
         ----------
-        precision : type
+        numba_precision : type
             Numerical precision type for the integration.
         dxdt_function : callable
             Function that computes time derivatives.
@@ -155,8 +155,6 @@ class Euler(GenericIntegratorAlgorithm):
         end_index = (
             observable_summaries_start_index + observables_summary_buffer_size
         )
-
-        numba_precision = from_dtype(precision)
 
         # no cover: start
         @cuda.jit(

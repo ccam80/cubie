@@ -165,12 +165,13 @@ class CUDAFactory(ABC):
         recognized_params = []
 
         for key, value in updates_dict.items():
-            if in_attr(key, self._compile_settings):
-                setattr(self._compile_settings, key, value)
-                recognized_params.append(key)
-            # Modify private variabels in config classes - for convenience.
-            elif in_attr(f"_{key}", self._compile_settings):
+            if in_attr(f"_{key}", self._compile_settings):
                 setattr(self._compile_settings, f"_{key}", value)
+                recognized_params.append(key)
+            # Only check if no underscored var available - avoid setting a
+            # getter-only property.
+            elif in_attr(key, self._compile_settings):
+                setattr(self._compile_settings, key, value)
                 recognized_params.append(key)
 
 

@@ -254,4 +254,4 @@ class TestCrankNicolsonLoop(ODELoopTester):
     ) -> Dict[str, float]:
         """Adaptive algorithms rely on controller updates; no loop changes."""
 
-        return {'_dt_min': 1e-4}
+        return {'dt_min': 1e-4}

@@ -19,14 +19,24 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
     algorithm. More efficient than the traditional I controller used in
     non-stiff systems.
     """
-    kp: float = field(
+    _kp: float = field(
         default=0.075,
-        validator=validators.instance_of(float)
+        validator=validators.instance_of(float),
     )
-    ki: float = field(
+    _ki: float = field(
         default=0.175,
-        validator=validators.instance_of(float)
+        validator=validators.instance_of(float),
     )
+
+    @property
+    def kp(self) -> float:
+        """Returns proportional gain."""
+        return self.precision(self._kp)
+
+    @property
+    def ki(self) -> float:
+        """Returns integral gain."""
+        return self.precision(self._ki)
 
 
 class AdaptivePIController(BaseAdaptiveStepController):
@@ -45,7 +55,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         ki: float = 0.4,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
-        norm: str = "hairer",
+        norm: str = "l2",
         norm_kwargs: Optional[dict] = None,
     ) -> None:
         """Initialise a proportional–integral step controller."""
@@ -98,12 +108,12 @@ class AdaptivePIController(BaseAdaptiveStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: np.ndarray,
+        order: int,
         safety: float,
     ) -> Callable:
         """Create the device function for the PI controller."""
-        kp = self.kp / (order + 1)
-        ki = self.ki / (order + 1)
+        kp = precision(self.kp / (order + 1))
+        ki = precision(self.ki / (order + 1))
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(device=True, inline=True, fastmath=True)
@@ -124,8 +134,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
             accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
 
-            pgain = nrm2 ** (kp / 2)
-            igain = err_prev ** (ki / 2)
+            pgain = precision(nrm2 ** (kp / 2))
+            igain = precision(err_prev ** (ki / 2))
             gain_new = safety * pgain * igain
             gain = clamp(gain_new, max_gain, min_gain)
 
@@ -137,4 +147,4 @@ class AdaptivePIController(BaseAdaptiveStepController):
             return ret
 
         return controller_PI
-   
+

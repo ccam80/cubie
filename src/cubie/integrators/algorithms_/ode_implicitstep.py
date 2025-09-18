@@ -4,7 +4,6 @@ from typing import Union, Optional, Callable
 import attrs
 import numpy as np
 import sympy as sp
-from numba import from_dtype
 
 from cubie.integrators.matrix_free_solvers import (
     linear_solver_factory,
@@ -47,6 +46,9 @@ class ImplicitStepConfig(BaseStepConfig):
     newton_damping: float = attrs.field(default=0.5)
     newton_max_backtracks: int = attrs.field(default=10)
 
+    @property
+    def rtol(self):
+        return self.precision(self.rtol)
 
 class ODEImplicitStep(BaseAlgorithmStep):
     def __init__(self,
@@ -58,7 +60,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
         dxdt_fn = config.dxdt_function
-        numba_precision = from_dtype(config.precision)
+        numba_precision = config.numba_precision
         n = config.n
 
         return self.build_step(

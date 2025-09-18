@@ -6,7 +6,7 @@ exponentially at a rate proportional to its position.
 """
 
 import numpy as np
-from numba import cuda, from_dtype
+from numba import cuda
 
 from cubie.odesystems.baseODE import BaseODE, ODECache
 
@@ -84,7 +84,7 @@ class Decays(BaseODE):
         # Hoist fixed parameters to global namespace
         constants = self.compile_settings.constants.values_array
         n_terms = self.sizes.states
-        numba_precision = from_dtype(self.precision)
+        numba_precision = self.numba_precision
 
         @cuda.jit(
             (

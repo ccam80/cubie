@@ -4,6 +4,10 @@ import attrs
 import numpy as np
 from numpy import float32
 
+import numba
+
+from cubie.cudasim_utils import from_dtype as simsafe_dtype
+
 from cubie.odesystems.SystemValues import SystemValues
 
 
@@ -151,6 +155,16 @@ class ODEData:
             constants=self.num_constants,
             drivers=self.num_drivers,
         )
+
+    @property
+    def numba_precision(self) -> type:
+        """Returns numba precision type."""
+        return numba.from_dtype(self.precision)
+
+    @property
+    def simsafe_precision(self) -> type:
+        """Returns simulator safe precision."""
+        return simsafe_dtype(self.precision)
 
     @classmethod
     def from_BaseODE_initargs(

@@ -37,12 +37,17 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
         validator=float_array_validator,
     )
     algorithm_order: int = field(default=1, validator=getype_validator(int, 1))
-    min_gain: float = field(
-        default=0.3, validator=inrangetype_validator(float, 0, 1)
+    _min_gain: float = field(
+        default=0.3,
+        validator=inrangetype_validator(float, 0, 1),
     )
-    max_gain: float = field(default=2.0, validator=getype_validator(float, 1))
-    safety: float = field(
-        default=0.9, validator=inrangetype_validator(float, 0, 1)
+    _max_gain: float = field(
+        default=2.0,
+        validator=getype_validator(float, 1),
+    )
+    _safety: float = field(
+        default=0.9,
+        validator=inrangetype_validator(float, 0, 1),
     )
 
     def __attrs_post_init__(self) -> None:
@@ -61,23 +66,41 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
 
     @property
     def dt_min(self) -> float:
-        """Return the minimum time step size."""
-        return self._dt_min
+        """Returns minimum time step size."""
+        return self.precision(self._dt_min)
 
     @property
     def dt_max(self) -> float:
-        """Returns the maximum time step size."""
-        return self._dt_max
+        """Returns maximum time step size."""
+        value = self._dt_max
+        if value is None:
+            value = self._dt_min * 100
+        return self.precision(value)
 
     @property
     def dt0(self) -> float:
-        """Returns initial step size at start of loop."""
-        return (self.dt_min + self.dt_max) / 2
+        """Returns initial step size."""
+        return self.precision((self.dt_min + self.dt_max) / 2)
 
     @property
     def is_adaptive(self) -> bool:
-        """Returns whether the step controller is adaptive."""
+        """Returns whether controller adapts step size."""
         return True
+
+    @property
+    def min_gain(self) -> float:
+        """Returns minimum gain."""
+        return self.precision(self._min_gain)
+
+    @property
+    def max_gain(self) -> float:
+        """Returns maximum gain."""
+        return self.precision(self._max_gain)
+
+    @property
+    def safety(self) -> float:
+        """Returns safety factor."""
+        return self.precision(self._safety)
 
 
 class BaseAdaptiveStepController(BaseStepController):
@@ -180,15 +203,15 @@ class BaseAdaptiveStepController(BaseStepController):
         """Create the device function for the specific controller."""
         raise NotImplementedError
 
-    @property
-    def kp(self) -> float:
-        """Returns proportional gain."""
-        return self.compile_settings.kp
-
-    @property
-    def ki(self) -> float:
-        """Returns integral gain."""
-        return self.compile_settings.ki
+    # @property
+    # def kp(self) -> float:
+    #     """Returns proportional gain."""
+    #     return self.compile_settings.kp
+    #
+    # @property
+    # def ki(self) -> float:
+    #     """Returns integral gain."""
+    #     return self.compile_settings.ki
 
     @property
     def min_gain(self) -> float:

@@ -7,7 +7,7 @@ caching of algorithm functions that are incorporated into CUDA kernels,
 and provides the interface that specific algorithms must implement.
 """
 
-from numba import cuda, int32, from_dtype
+from numba import cuda, int32
 
 from cubie.CUDAFactory import CUDAFactory
 # from cubie.integrators.step_control.fixed_step_controller import (
@@ -103,7 +103,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         config = self.compile_settings
 
         integrator_loop = self.build_loop(
-            precision=config.precision,
+            numba_precision=config.numba_precision,
             dxdt_function=config.dxdt_function,
             save_state_func=config.save_state_func,
             update_summaries_func=config.update_summaries_func,
@@ -126,7 +126,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
     def build_loop(
         self,
-        precision,
+        numba_precision,
         dxdt_function,
         save_state_func,
         update_summaries_func,
@@ -141,7 +141,7 @@ class GenericIntegratorAlgorithm(CUDAFactory):
 
         Parameters
         ----------
-        precision : type
+        numba_precision : type
             Numerical precision type for the integration.
         dxdt_function : callable
             Function that computes time derivatives.
@@ -178,8 +178,6 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         loop_sizes = self.compile_settings.buffer_sizes
         loop_states = loop_sizes.state
         loop_obs = loop_sizes.observables
-
-        numba_precision = from_dtype(precision)
 
         # no cover: start
         @cuda.jit(

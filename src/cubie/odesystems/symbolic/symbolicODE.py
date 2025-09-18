@@ -5,7 +5,6 @@ from typing import Callable, Iterable, Optional, Set, Union
 
 import numpy as np
 import sympy as sp
-from numba import from_dtype
 from cubie.odesystems.symbolic.dxdt import generate_dxdt_fac_code
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.solver_helpers import (
@@ -130,7 +129,7 @@ class SymbolicODE(BaseODE):
 
     def build(self):
         """Compile the ``dxdt`` function and populate the cache."""
-        numba_precision = from_dtype(self.precision)
+        numba_precision = self.numba_precision
         constants = self.constants.values_dict
         new_hash = hash_system_definition(
             self.equations, self.indices.constants.default_values
@@ -228,7 +227,7 @@ class SymbolicODE(BaseODE):
         except NotImplementedError:
             pass
 
-        numba_precision = from_dtype(self.precision)
+        numba_precision = self.numba_precision
         constants = self.constants.values_dict
 
         if func_type == "linear_operator":

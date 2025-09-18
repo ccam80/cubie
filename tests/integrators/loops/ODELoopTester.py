@@ -462,6 +462,10 @@ class ODELoopTester:
             obs_sum_arr,
             status_arr,
         ):
+            idx = cuda.grid(1)
+            if idx > 1:
+                return
+            
             shared = cuda.shared.array(0, dtype=numba_precision)
             local = cuda.local.array(local_req, dtype=numba_precision)
             status_arr[0] = loop_fn(
@@ -553,7 +557,7 @@ class ODELoopTester:
             output_functions,
             simulation_duration,
         )
-        assert results["status"] == 0
+        assert results["status"] == 0, f"Solver status {results["status"]}"
         state = results["state"]
         assert_allclose(state, expected_state, rtol=1e-4, atol=1e-4)
 

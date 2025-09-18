@@ -20,7 +20,9 @@ class FixedStepControlConfig(BaseStepControllerConfig):
     dt : float
         Fixed step size.
     """
-    dt: float = field(default=1e-3, validator=getype_validator(float, 0))
+    _dt: float = field(
+        default=1e-3, validator=getype_validator(float, 0)
+    )
 
     def __attrs_post_init__(self) -> None:
         """Validate configuration after initialisation."""
@@ -28,6 +30,11 @@ class FixedStepControlConfig(BaseStepControllerConfig):
 
     def _validate_config(self) -> None:
         return True
+
+    @property
+    def dt(self) -> float:
+        """Returns fixed step size."""
+        return self.precision(self._dt)
 
     @property
     def dt_min(self) -> float:

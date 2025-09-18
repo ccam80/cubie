@@ -25,7 +25,7 @@ class GustafssonController(BaseAdaptiveStepController):
         n: int = 1,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
-        norm: str = "hairer",
+        norm: str = "l2",
         norm_kwargs: Optional[dict] = None,
     ) -> None:
         """Initialise a Gustafsson predictive controller."""
@@ -85,13 +85,13 @@ class GustafssonController(BaseAdaptiveStepController):
             accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
 
-            gain_basic = safety * (nrm2 ** expo)
+            gain_basic = precision(safety * (nrm2 ** expo))
             if accept and dt_prev > precision(0.0) and err_prev > precision(0.0):
                 ratio = nrm2 / err_prev
                 gain_gus = safety * (dt[0] / dt_prev) * (ratio ** expo)
                 gain = gain_gus if gain_gus < gain_basic else gain_basic
                 local_temp[0] = dt[0]
-                local_temp[1] = max(nrm2 ** 0.5, precision(1e-2))
+                local_temp[1] = max(nrm2, precision(1e-4))
             else:
                 gain = gain_basic
 

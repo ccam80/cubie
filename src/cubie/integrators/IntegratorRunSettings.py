@@ -10,9 +10,11 @@ combinations for fixed-step algorithms.
 from warnings import warn
 
 import attrs
-from numpy import ceil
+import numba
+from numpy import ceil, float32
 
 from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
+from cubie.cudasim_utils import from_dtype as simsafe_dtype
 
 
 @attrs.define
@@ -53,23 +55,33 @@ class IntegratorRunSettings:
     LoopStepConfig : Low-level step configuration class
     """
 
-    dt_min: float = attrs.field(
-        default=1e-6, validator=attrs.validators.instance_of(float)
+    precision: type = attrs.field(
+        default=float32,
+        validator=attrs.validators.instance_of(type),
     )
-    dt_max: float = attrs.field(
-        default=1.0, validator=attrs.validators.instance_of(float)
+    _dt_min: float = attrs.field(
+        default=1e-6,
+        validator=attrs.validators.instance_of(float),
     )
-    dt_save: float = attrs.field(
-        default=0.1, validator=attrs.validators.instance_of(float)
+    _dt_max: float = attrs.field(
+        default=1.0,
+        validator=attrs.validators.instance_of(float),
     )
-    dt_summarise: float = attrs.field(
-        default=0.1, validator=attrs.validators.instance_of(float)
+    _dt_save: float = attrs.field(
+        default=0.1,
+        validator=attrs.validators.instance_of(float),
     )
-    atol: float = attrs.field(
-        default=1e-6, validator=attrs.validators.instance_of(float)
+    _dt_summarise: float = attrs.field(
+        default=0.1,
+        validator=attrs.validators.instance_of(float),
     )
-    rtol: float = attrs.field(
-        default=1e-6, validator=attrs.validators.instance_of(float)
+    _atol: float = attrs.field(
+        default=1e-6,
+        validator=attrs.validators.instance_of(float),
+    )
+    _rtol: float = attrs.field(
+        default=1e-6,
+        validator=attrs.validators.instance_of(float),
     )
 
     output_types: list[str] = attrs.field(
@@ -163,7 +175,7 @@ class IntegratorRunSettings:
 
         # Update parameters if they differ from requested values and warn the user
         if actual_dt_save != dt_save:
-            self.dt_save = actual_dt_save
+            self._dt_save = actual_dt_save
             warn(
                 f"dt_save({dt_save}s) is not an integer multiple of loop step size ({step_size}s), "
                 f"so is unachievable in a fixed-step algorithm. The actual time between output samples is "
@@ -172,13 +184,53 @@ class IntegratorRunSettings:
             )
 
         if actual_dt_summarise != dt_summarise:
-            self.dt_summarise = actual_dt_summarise
+            self._dt_summarise = actual_dt_summarise
             warn(
                 f"dt_summarise({dt_summarise}s) is not an integer multiple of dt_save ({actual_dt_save}s), "
                 f"so is unachievable in a fixed-step algorithm. The actual time between summary values is "
                 f"({actual_dt_summarise}s)",
                 UserWarning,
             )
+
+    @property
+    def numba_precision(self) -> type:
+        """Returns numba precision type."""
+        return numba.from_dtype(self.precision)
+
+    @property
+    def simsafe_precision(self) -> type:
+        """Returns simulator safe precision."""
+        return simsafe_dtype(self.precision)
+
+    @property
+    def dt_min(self) -> float:
+        """Returns minimum step size."""
+        return self.precision(self._dt_min)
+
+    @property
+    def dt_max(self) -> float:
+        """Returns maximum step size."""
+        return self.precision(self._dt_max)
+
+    @property
+    def dt_save(self) -> float:
+        """Returns output save interval."""
+        return self.precision(self._dt_save)
+
+    @property
+    def dt_summarise(self) -> float:
+        """Returns summary interval."""
+        return self.precision(self._dt_summarise)
+
+    @property
+    def atol(self) -> float:
+        """Returns absolute tolerance."""
+        return self.precision(self._atol)
+
+    @property
+    def rtol(self) -> float:
+        """Returns relative tolerance."""
+        return self.precision(self._rtol)
 
     @property
     def loop_step_config(self):
