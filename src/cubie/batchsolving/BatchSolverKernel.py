@@ -701,7 +701,7 @@ class BatchSolverKernel(CUDAFactory):
         value : float
             Duration of the simulation.
         """
-        self.compile_settings.duration = value
+        self.compile_settings._duration = value
 
     @property
     def warmup(self):
@@ -725,7 +725,7 @@ class BatchSolverKernel(CUDAFactory):
         value : float
             Warmup time of the simulation.
         """
-        self.compile_settings.warmup = value
+        self.compile_settings._warmup = value
 
     @property
     def output_length(self):

@@ -223,6 +223,7 @@ def backward_euler_step(
     drivers: Array,
     dt: float,
     tol: float = 1e-10,
+    initial_guess: Array | None = None,
 ) -> StepResult:
     """Backward Euler step solved via Newton iteration."""
 
@@ -237,7 +238,12 @@ def backward_euler_step(
         identity = np.eye(jac.shape[0], dtype=precision)
         return identity - dt * jac
 
-    guess = state.astype(precision, copy=True)
+    if initial_guess is None:
+        guess = state.astype(precision, copy=True)
+    else:
+        guess = np.asarray(initial_guess, dtype=precision).astype(
+            precision, copy=True
+        )
     next_state, converged = _newton_solve(residual, jacobian, guess, precision, tol)
     dxdt, observables = evaluator.rhs(next_state, params, drivers)
     error = np.zeros_like(next_state)
@@ -279,11 +285,29 @@ def crank_nicolson_step(
     return StepResult(next_state, observables, error, converged)
 
 
-STEPPER_MAP: Mapping[str, Callable[..., StepResult]] = {
-    "explicit_euler": explicit_euler_step,
-    "backward_euler": backward_euler_step,
-    "crank_nicolson": crank_nicolson_step,
-}
+def backward_euler_predict_correct_step(
+    evaluator: SystemEvaluator,
+    state: Array,
+    params: Array,
+    drivers_now: Array,
+    drivers_next: Array,
+    dt: float,
+    tol: float = 1e-10,
+) -> StepResult:
+    """Predict with explicit Euler and correct with backward Euler."""
+
+    precision = evaluator.precision
+    f_now, _ = evaluator.rhs(state, params, drivers_now)
+    predictor = state.astype(precision, copy=True) + dt * f_now
+    return backward_euler_step(
+        evaluator,
+        state,
+        params,
+        drivers_next,
+        dt,
+        tol=tol,
+        initial_guess=predictor,
+    )
 
 
 class DriverSampler:
@@ -405,16 +429,29 @@ def run_reference_stepper(
 ) -> StepResult:
     """Execute a single step using the requested stepper."""
 
-    stepper = stepper.lower()
-    if stepper not in STEPPER_MAP:
-        raise ValueError(f"Unknown stepper '{stepper}'.")
-    if stepper == "crank_nicolson":
-        return STEPPER_MAP[stepper](
+    stepper_name = stepper.lower()
+    if stepper_name == "explicit_euler":
+        return explicit_euler_step(
+            evaluator, state, params, drivers_now, dt
+        )
+    if stepper_name == "backward_euler":
+        return backward_euler_step(
+            evaluator, state, params, drivers_next, dt
+        )
+    if stepper_name == "backward_euler_predict_correct":
+        return backward_euler_predict_correct_step(
+            evaluator,
+            state,
+            params,
+            drivers_now,
+            drivers_next,
+            dt,
+        )
+    if stepper_name == "crank_nicolson":
+        return crank_nicolson_step(
             evaluator, state, params, drivers_now, drivers_next, dt
         )
-    if stepper == "backward_euler":
-        return STEPPER_MAP[stepper](evaluator, state, params, drivers_next, dt)
-    return STEPPER_MAP[stepper](evaluator, state, params, drivers_now, dt)
+    raise ValueError(f"Unknown stepper '{stepper}'.")
 
 
 def _collect_saved_outputs(

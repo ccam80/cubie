@@ -211,9 +211,14 @@ class SingleIntegratorRun:
         all_unrecognized = set(updates_dict.keys())
         recognized = set()
 
-        # Update anything held in the config object (step sizes, etc)
+        # Update anything held in the config object (step sizes, etc - this
+        # isn't a CUDAFactory so we can't use update_compile_settings)
         for key, value in updates_dict.items():
-            if in_attr(key, self.config):
+            underkey = f"_{key}"
+            if in_attr(underkey, self.config):
+                setattr(self.config, underkey, value)
+                recognized.add(underkey)
+            elif in_attr(key, self.config):
                 setattr(self.config, key, value)
                 recognized.add(key)
 

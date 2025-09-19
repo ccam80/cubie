@@ -12,7 +12,8 @@ from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
     ],
     ids=["valid_timing", "save_warning", "summarise_warning", "both_warnings"],
 )
-def test_timing_validation(dt_min, dt_save, dt_summarise, should_warn):
+def test_timing_validation(dt_min, dt_save, dt_summarise, should_warn,
+                           precision):
     """Test timing validation in fixed_steps property."""
 
     if should_warn:
@@ -25,11 +26,13 @@ def test_timing_validation(dt_min, dt_save, dt_summarise, should_warn):
             dt_min=dt_min, dt_save=dt_save, dt_summarise=dt_summarise
         )
 
-    assert run_settings.dt_min == dt_min
-    assert run_settings.dt_save == int(dt_save / dt_min) * dt_min
+    assert precision(run_settings.dt_min) == precision(dt_min)
+    assert (precision(run_settings.dt_save) == precision(int(dt_save /
+                                                            dt_min) *t_min))
     assert (
-        run_settings.dt_summarise
-        == int(dt_summarise / run_settings.dt_save) * run_settings.dt_save
+        precision(run_settings.dt_summarise)
+        == precision(int(dt_summarise / run_settings.dt_save) *
+        run_settings.dt_save)
     )
 
 

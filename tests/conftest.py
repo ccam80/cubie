@@ -112,10 +112,14 @@ def large_symbolic_system(precision: np.dtype):
     return build_large_nonlinear_system(precision)
 
 
+
 @pytest.fixture(scope="function")
 def system_override(request):
     """Override for system model type, if provided."""
-    return request.param if hasattr(request, "param") else "linear"
+    if hasattr(request, 'param'):
+        if request.param == {}:
+            request.param = 'linear'
+    return request.param
 
 
 @pytest.fixture(scope="function")
@@ -134,7 +138,7 @@ def system(request, system_override, precision):
         return request.getfixturevalue("linear_symbolic_system")
     if model_type == "nonlinear":
         return request.getfixturevalue("nonlinear_symbolic_system")
-    if model_type in {"three_chamber", "threecm"}:
+    if model_type in ["three_chamber", "threecm"]:
         return request.getfixturevalue("three_chamber_symbolic_system")
     if model_type == "stiff":
         return request.getfixturevalue("stiff_symbolic_system")
@@ -305,7 +309,6 @@ def solverkernel(solver_settings, system):
         saved_state_indices=solver_settings["saved_state_indices"],
         saved_observable_indices=solver_settings["saved_observable_indices"],
         output_types=solver_settings["output_types"],
-        precision=solver_settings["precision"],
         profileCUDA=solver_settings.get("profileCUDA", False),
         memory_manager=solver_settings["memory_manager"],
         stream_group=solver_settings["stream_group"],
