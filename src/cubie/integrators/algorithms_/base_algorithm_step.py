@@ -13,8 +13,7 @@ import numpy as np
 from attrs import validators
 import numba
 
-from cubie import getype_validator
-from cubie._utils import is_device_validator
+from cubie._utils import is_device_validator, getype_validator
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
 
@@ -36,6 +35,7 @@ class BaseStepConfig(ABC):
         validator=validators.optional(is_device_validator)
     )
 
+
     @property
     def numba_precision(self) -> type:
         """Returns numba precision type."""
@@ -46,6 +46,11 @@ class BaseStepConfig(ABC):
         """Returns simulator safe precision."""
         return simsafe_dtype(self.precision)
 
+    @property
+    def settings_dict(self) -> dict:
+        """Returns settings as a dictionary."""
+        return {'n': self.n,
+                'precision': self.precision}
 
 @attrs.define
 class StepCache:
@@ -150,6 +155,12 @@ class BaseAlgorithmStep(CUDAFactory):
         raise NotImplementedError
 
     @property
+    @abstractmethod
+    def order(self) -> int:
+        """Order of the algorithm."""
+        raise NotImplementedError
+
+    @property
     def step_function(self) -> Callable:
         """Get the step function.""
 
@@ -167,3 +178,8 @@ class BaseAlgorithmStep(CUDAFactory):
     def nonlinear_solver_function(self) -> Callable:
         """Get the nonlinear solver function."""
         return self.get_cached_output("nonlinear_solver")
+
+    @property
+    def settings_dict(self) -> dict:
+        """Returns settings as a dictionary."""
+        return self.compile_settings.settings_dict

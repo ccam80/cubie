@@ -27,8 +27,10 @@ def test_timing_validation(dt_min, dt_save, dt_summarise, should_warn,
         )
 
     assert precision(run_settings.dt_min) == precision(dt_min)
-    assert (precision(run_settings.dt_save) == precision(int(dt_save /
-                                                            dt_min) *t_min))
+    assert (
+        precision(run_settings.dt_save)
+        == precision(int(dt_save / dt_min) * dt_min)
+    )
     assert (
         precision(run_settings.dt_summarise)
         == precision(int(dt_summarise / run_settings.dt_save) *

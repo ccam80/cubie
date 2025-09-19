@@ -17,6 +17,7 @@ from numba import cuda, int32
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
+from cubie.cudasim_utils import activemask, all_sync
 from cubie.integrators.algorithms_.base_algorithm_step import BaseAlgorithmStep
 from cubie.integrators.loops.ode_loop_config import LoopIndices, ODELoopConfig
 from cubie.integrators.step_control.base_step_controller import \
@@ -249,11 +250,11 @@ class IVPLoop(CUDAFactory):
             dt_eff = dt[0]
             accept_step[0] = int32(0)
 
-            mask = cuda.activemask()
+            mask = activemask()
 
             for _ in range(max_steps):
                 finished = save_idx >= n_output_samples
-                if cuda.all_sync(mask, finished):
+                if all_sync(mask, finished):
                     return status
                 if finished:
                     return status

@@ -96,6 +96,14 @@ class AdaptivePIController(BaseAdaptiveStepController):
         """Amount of local memory required by the controller."""
         return 1
 
+    @property
+    def settings_dict(self) -> dict:
+        """Returns settings as a dictionary."""
+        settings_dict = super().settings_dict
+        settings_dict.update({'kp': self.kp,
+                              'ki': self.ki})
+        return settings_dict
+
     def build_controller(
         self,
         precision: type,

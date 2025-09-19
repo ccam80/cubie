@@ -55,6 +55,11 @@ class FixedStepControlConfig(BaseStepControllerConfig):
         """Returns whether the step controller is adaptive."""
         return False
 
+    def settings_dict(self) -> dict:
+        """Returns settings as a dictionary."""
+        settings_dict = super().settings_dict()
+        settings_dict.update({'dt': self.dt})
+        return settings_dict
 class FixedStepController(BaseStepController):
     """Controller that enforces a constant time step."""
 

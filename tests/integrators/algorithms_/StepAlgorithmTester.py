@@ -236,9 +236,9 @@ class StepAlgorithmTester:
         assert (flag == 0) == cpu_result.converged
         assert step_obj.is_adaptive == cpu_is_adaptive
         if not cpu_is_adaptive and hasattr(
-            step_obj.compile_settings, "fixed_step_size"
+            step_obj.compile_settings, "step_size"
         ):
-            assert step_obj.compile_settings.fixed_step_size == pytest.approx(
+            assert step_obj.compile_settings.step_size == pytest.approx(
                 step_size
             )
 

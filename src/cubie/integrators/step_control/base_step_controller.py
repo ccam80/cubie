@@ -71,6 +71,13 @@ class BaseStepControllerConfig(ABC):
         """Return whether the step controller is adaptive."""
         raise NotImplementedError
 
+    @property
+    @abstractmethod
+    def settings_dict(self) -> dict:
+        """Returns settings as a dictionary."""
+        return {
+            'n': self.n
+        }
 
 class BaseStepController(CUDAFactory):
     """Abstract base class for step-size controllers."""
@@ -124,6 +131,11 @@ class BaseStepController(CUDAFactory):
     def local_memory_required(self) -> int:
         """Amount of local memory required by the controller."""
         return 0
+
+    @property
+    def settings_dict(self) -> dict:
+        """Returns settings as a dictionary."""
+        return self.compile_settings.settings_dict
 
     def update(self,
                updates_dict : Optional[dict] = None,

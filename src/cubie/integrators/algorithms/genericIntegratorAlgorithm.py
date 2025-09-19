@@ -71,17 +71,17 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         compile_flags,
     ):
         super().__init__()
-        #
-        # compile_settings = IntegratorLoopSettings(
-        #     loop_step_config=loop_step_config,
-        #     buffer_sizes=buffer_sizes,
-        #     dxdt_function=dxdt_function,
-        #     save_state_func=save_state_func,
-        #     update_summaries_func=update_summaries_func,
-        #     save_summaries_func=save_summaries_func,
-        #     compile_flags=compile_flags,
-        # )
-        # self.setup_compile_settings(compile_settings)
+
+        compile_settings = IntegratorLoopSettings(
+            loop_step_config=loop_step_config,
+            buffer_sizes=buffer_sizes,
+            dxdt_function=dxdt_function,
+            save_state_func=save_state_func,
+            update_summaries_func=update_summaries_func,
+            save_summaries_func=save_summaries_func,
+            compile_flags=compile_flags,
+        )
+        self.setup_compile_settings(compile_settings)
 
         self.integrator_loop = None
 
@@ -356,4 +356,4 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         float
             The fixed step size from the compile settings.
         """
-        return self.compile_settings.fixed_step_size
+        return self.compile_settings.step_size

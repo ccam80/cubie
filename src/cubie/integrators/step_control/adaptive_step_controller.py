@@ -102,6 +102,18 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
         """Returns safety factor."""
         return self.precision(self._safety)
 
+    @property
+    def settings_dict(self) -> dict:
+        """Returns settings as a dictionary."""
+        settings_dict = super().settings_dict
+        settings_dict.update({'dt_min': self.dt_min,
+                              'dt_max': self.dt_max,
+                              'atol': self.atol,
+                              'rtol': self.rtol,
+                              'min_gain': self.min_gain,
+                              'max_gain': self.max_gain,
+                              'safety': self.safety,})
+        return settings_dict
 
 class BaseAdaptiveStepController(BaseStepController):
     """Base class for adaptive step-size controllers."""

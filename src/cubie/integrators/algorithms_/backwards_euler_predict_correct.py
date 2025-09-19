@@ -4,7 +4,7 @@ from numba import cuda
 from cubie.integrators.algorithms_.base_algorithm_step import StepCache
 
 
-class BackwardsEulerPredictCorrectStep(BackwardsEulerStep):
+class BackwardsEulerPCStep(BackwardsEulerStep):
     """Backwards Euler with a predictor-corrector approach.
 
     This method uses an explicit Euler step to predict the next state,
@@ -14,6 +14,7 @@ class BackwardsEulerPredictCorrectStep(BackwardsEulerStep):
     def build_step(self,
                    solver_fn,
                    dxdt_fn,
+                   obs_fn,
                    numba_precision,
                    n):  # pragma: no cover - complex
         """Build the device function for a backward Euler step."""

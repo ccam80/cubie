@@ -4,6 +4,8 @@ from typing import Callable
 from numba import cuda, int32, from_dtype
 from numpy import float32 as np_float32
 
+from cubie.cudasim_utils import activemask, all_sync
+
 def newton_krylov_solver_factory(
     residual_function: Callable,
     linear_solver: Callable,
@@ -128,10 +130,10 @@ def newton_krylov_solver_factory(
         if norm2_prev <= tol_squared:
             status = int32(0)
 
-        mask = cuda.activemask()
+        mask = activemask()
         for _ in range(max_iters):
             # Warp-coherent exit if all lanes done
-            if cuda.all_sync(mask, status >= 0):
+            if all_sync(mask, status >= 0):
                 break
 
             # Unavoidable branch - solver modifies residual, delta in-place,
@@ -192,7 +194,7 @@ def newton_krylov_solver_factory(
                     norm2_prev = cuda.selp(accept, norm2_new, norm2_prev)
 
                 # Warp-coherent break when all lanes have accepted
-                if cuda.all_sync(mask, (found_step or status >= 0)):
+                if all_sync(mask, (found_step or status >= 0)):
                     break
                 # Not accepted yet; try again with a smaller scale.
                 scale *= typed_damping

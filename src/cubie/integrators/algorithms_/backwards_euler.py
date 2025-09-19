@@ -18,9 +18,6 @@ class BackwardsEulerStep(ODEImplicitStep):
                  n,
                  dxdt_function,
                  get_solver_helper_fn,
-                 atol,
-                 rtol,
-                 norm_type="hairer",
                  preconditioner_order = 1,
                  linsolve_tolerance = 1e-6,
                  max_linear_iters = 100,
@@ -35,8 +32,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
         config = ImplicitStepConfig(
             get_solver_helper_fn=get_solver_helper_fn,
-            atol=atol,
-            rtol=rtol,
             beta=beta,
             gamma=gamma,
             M=M,
@@ -57,6 +52,7 @@ class BackwardsEulerStep(ODEImplicitStep):
     def build_step(self,
                    solver_fn,
                    dxdt_fn,
+                   obs_fn,
                    numba_precision,
                    n):  # pragma: no cover - complex
         """Build the device function for a backward Euler step."""
@@ -91,6 +87,9 @@ class BackwardsEulerStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
+            #calculate and save observables (wastes some compute)
+            obs_fn(state, parameters, drivers, observables)
+
             for i in range(n):
                 proposed_state[i] = state[i]
 
@@ -136,4 +135,13 @@ class BackwardsEulerStep(ODEImplicitStep):
 
     @property
     def threads_per_step(self) -> int:
+        return 1
+
+    @property
+    def settings_dict(self) -> dict:
+        return self.compile_settings.settings_dict
+
+    @property
+    def order(self) -> int:
+        """Order of the algorithm."""
         return 1

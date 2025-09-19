@@ -1,249 +1,223 @@
-"""
-Runtime configuration settings for numerical integration algorithms.
+"""Runtime configuration settings for numerical integration algorithms.
 
-This module provides the IntegratorRunSettings class which manages timing,
-tolerance, and output configuration parameters for ODE integration runs.
-It includes validation logic to ensure consistent and achievable parameter
-combinations for fixed-step algorithms.
+This module provides the :class:`IntegratorRunSettings` class which manages
+timing, tolerance, and controller configuration for ODE integration runs.
+It performs light dependency injection by instantiating algorithm step
+objects and step-size controllers used by the modular IVP loop.
 """
 
-from warnings import warn
+from __future__ import annotations
+
+from typing import Any, Dict, Tuple
 
 import attrs
+from attrs import setters
 import numba
 import numpy as np
-from numpy import ceil, float32
+from numpy import float32
 
-from cubie._utils import gttype_validator
 from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
-from cubie.cudasim_utils import from_dtype as simsafe_dtype
+
+
+_ALGORITHM_ALIASES: Dict[str, str] = {
+    "euler": "explicit_euler",
+    "explicit_euler": "explicit_euler",
+    "explicit": "explicit_euler",
+    "backward_euler": "backwards_euler",
+    "backwards_euler": "backwards_euler",
+    "crank_nicolson": "crank_nicolson",
+}
+
+_CONTROLLER_ALIASES: Dict[str, str] = {
+    "fixed": "fixed",
+    "i": "i",
+    "pi": "pi",
+    "pid": "pid",
+    "gustafsson": "gustafsson",
+}
+
+_KNOWN_ALGORITHM_KEYS: set[str] = {
+    "step_size",
+    "linsolve_tolerance",
+    "max_linear_iters",
+    "linear_correction_type",
+    "nonlinear_tolerance",
+    "max_newton_iters",
+    "newton_damping",
+    "newton_max_backtracks",
+    "norm_type",
+    "preconditioner_order",
+}
+
+_KNOWN_CONTROLLER_KEYS: set[str] = {
+    "algorithm_order",
+    "atol",
+    "dt",
+    "dt_max",
+    "dt_min",
+    "kd",
+    "ki",
+    "kp",
+    "max_gain",
+    "min_gain",
+    "norm",
+    "norm_kwargs",
+    "order",
+    "rtol",
+}
+
+
+def _normalise_algorithm(name: str) -> str:
+    """Return the canonical algorithm identifier."""
+
+    try:
+        return _ALGORITHM_ALIASES[name.lower()]
+    except KeyError as exc:  # pragma: no cover - defensive
+        raise KeyError(f"Unknown integrator algorithm '{name}'.") from exc
+
+
+def _normalise_controller(kind: str) -> str:
+    """Return the canonical controller identifier."""
+
+    try:
+        return _CONTROLLER_ALIASES[kind.lower()]
+    except KeyError as exc:  # pragma: no cover - defensive
+        raise KeyError(f"Unknown step controller '{kind}'.") from exc
 
 
 @attrs.define
 class IntegratorRunSettings:
-    """
-    Container for runtime/timing settings that are commonly grouped together.
-
-    This class manages the configuration parameters for numerical integration
-    runs, including step sizes, tolerances, and output types. It provides
-    validation to ensure that timing parameters are consistent and achievable
-    for fixed-step integration algorithms.
+    """Container for runtime/timing settings grouped for IVP loops.
 
     Parameters
     ----------
-    dt_min : float, default=1e-6
-        Minimum time step size for integration.
-    dt_max : float, default=1.0
-        Maximum time step size for integration.
-    dt_save : float, default=0.1
-        Time interval between saved output samples.
-    dt_summarise : float, default=0.1
-        Time interval between summary calculations.
-    atol : float, default=1e-6
-        Absolute tolerance for integration error control.
-    rtol : float, default=1e-6
-        Relative tolerance for integration error control.
-    output_types : list of str, default=empty list
-        List of output types to generate during integration.
-
-    Notes
-    -----
-    The class automatically validates timing relationships and discretizes
-    step sizes to ensure they are compatible with fixed-step algorithms.
-    Warnings are issued if requested parameters cannot be achieved exactly.
-
-    See Also
-    --------
-    LoopStepConfig : Low-level step configuration class
+    precision
+        Numerical precision used for timing comparisons.
+    algorithm
+        Name of the integration step algorithm.
+    step_controller_kind
+        Name of the step-size controller.
+    algorithm_parameters
+        Keyword arguments forwarded to the algorithm step constructor.
+    step_controller_parameters
+        Keyword arguments forwarded to the controller constructor.
+    dt_min, dt_max
+        Minimum and maximum step size targets.
+    dt_save, dt_summarise
+        Output cadence for saved values and summary statistics.
+    atol, rtol
+        Error tolerances used by adaptive controllers/algorithms.
+    output_types
+        Output selections requested by the run.
     """
 
     precision: type = attrs.field(
         default=float32,
         validator=attrs.validators.in_([np.float32, np.float64, np.float16]),
     )
-    _dt_min: float = attrs.field(
-        default=1e-6,
-        validator=gttype_validator(float, 0),
+    algorithm: str = attrs.field(
+        default="explicit_euler",
+        converter=_normalise_algorithm,
+        on_setattr=setters.convert,
     )
-    _dt_max: float = attrs.field(
-        default=1.0,
-        validator=gttype_validator(float, 0),
-    )
-    _dt_save: float = attrs.field(
-        default=0.1,
-        validator=gttype_validator(float, 0),
-    )
-    _dt_summarise: float = attrs.field(
-        default=0.1,
-        validator=gttype_validator(float, 0),
-    )
-    _atol: float = attrs.field(
-        default=1e-6,
-        validator=gttype_validator(float, 0),
-    )
-    _rtol: float = attrs.field(
-        default=1e-6,
-        validator=gttype_validator(float, 0),
+    step_controller_kind: str = attrs.field(
+        default="fixed",
+        converter=_normalise_controller,
+        on_setattr=setters.convert,
     )
 
-    output_types: list[str] = attrs.field(
-        default=attrs.Factory(list),
-        validator=attrs.validators.deep_iterable(
-        member_validator=attrs.validators.instance_of(str),
-        iterable_validator=attrs.validators.instance_of(list),
-        ),
-    )
 
-# *********************** Refactored out in shift to baseloop/basestep ****** #
-    def __attrs_post_init__(self):
-        """
-        Validate timing relationships after initialization.
+    def __attrs_post_init__(self) -> None:
+        """Validate configuration after initialisation."""
 
-        Automatically called after object creation to ensure all timing
-        parameters are consistent and achievable.
-        """
+        self._apply_parameter_defaults()
         self.validate_settings()
 
-    def validate_settings(self):
-        """
-        Check the timing settings for consistency and raise errors or warnings as appropriate.
-
-        This method validates timing relationships and discretizes step sizes
-        for compatibility with fixed-step algorithms.
-        """
-        self._validate_timing()
-        self._discretize_steps()
-
-    def _validate_timing(self):
-        """
-        Check for impossible or inconsistent timing settings.
-
-        Validates timing relationships such as ensuring dt_max >= dt_min,
-        dt_save >= dt_min, and dt_summarise >= dt_save. Raises errors for
-        impossibilities and warnings if parameters are ignored.
-
-        Raises
-        ------
-        ValueError
-            If timing parameters have impossible relationships (e.g., dt_max < dt_min).
-
-        Warns
-        -----
-        UserWarning
-            If dt_max > dt_save, making dt_max redundant.
-        """
-
-        dt_min = self.dt_min
-        dt_max = self.dt_max
-        dt_save = self.dt_save
-        dt_summarise = self.dt_summarise
-
-        if self.dt_max < self.dt_min:
-            raise ValueError(
-                f"dt_max ({dt_max}s) must be >= dt_min ({dt_min}s).",
-            )
-        if dt_save < dt_min:
-            raise ValueError(
-                f"dt_save ({dt_save}s) must be >= dt_min ({dt_min}s). ",
-            )
-        if dt_summarise < dt_save:
-            raise ValueError(
-                f"dt_summarise ({dt_summarise}s) must be >= to dt_save ({dt_save}s)",
-            )
-
-        if dt_max > dt_save:
-            warn(f"dt_max ({dt_max}s) > dt_save ({dt_save}s). The loop will never be able to step"
-                f"that far before stopping to save, so dt_max is redundant.",
-                UserWarning,
-            )
-
-    def _discretize_steps(self):
-        """
-        Discretize the step sizes for saving and summarising.
-
-        Adjusts dt_save and dt_summarise to be integer multiples of the
-        minimum step size (dt_min) and issues warnings if the requested
-        values are not achievable in a fixed-step algorithm.
-        """
-        step_size = self.dt_min
-        dt_save = self.dt_save
-        dt_summarise = self.dt_summarise
-
-        n_steps_save = int(dt_save / step_size)
-        actual_dt_save = n_steps_save * step_size
-
-        n_steps_summarise = int(dt_summarise / actual_dt_save)
-        actual_dt_summarise = n_steps_summarise * actual_dt_save
-
-        # Update parameters if they differ from requested values and warn the user
-        if actual_dt_save != dt_save:
-            self._dt_save = actual_dt_save
-            warn(
-                f"dt_save({dt_save}s) is not an integer multiple of loop step size ({step_size}s), "
-                f"so is unachievable in a fixed-step algorithm. The actual time between output samples is "
-                f"({actual_dt_save}s)",
-                UserWarning,
-            )
-
-        if actual_dt_summarise != dt_summarise:
-            self._dt_summarise = actual_dt_summarise
-            warn(
-                f"dt_summarise({dt_summarise}s) is not an integer multiple of dt_save ({actual_dt_save}s), "
-                f"so is unachievable in a fixed-step algorithm. The actual time between summary values is "
-                f"({actual_dt_summarise}s)",
-                UserWarning,
-            )
-
+    # ------------------------------------------------------------------
+    # Derived properties
+    # ------------------------------------------------------------------
     @property
     def numba_precision(self) -> type:
-        """Returns numba precision type."""
+        """Return the Numba-compatible precision."""
+
         return numba.from_dtype(self.precision)
 
     @property
-    def simsafe_precision(self) -> type:
-        """Returns simulator safe precision."""
-        return simsafe_dtype(self.precision)
-
-    @property
     def dt_min(self) -> float:
-        """Returns minimum step size."""
-        return self.precision(self._dt_min)
+        """Return the minimum step size."""
+
+        return float(self._dt_min)
+
+    @dt_min.setter
+    def dt_min(self, value: float) -> None:
+        self._dt_min = float(value)
+        self.step_controller_parameters["dt_min"] = self._dt_min
+        if self.step_controller_kind == "fixed":
+            self.step_controller_parameters["dt"] = self._dt_min
+        if self.algorithm == "explicit_euler":
+            self.algorithm_parameters["step_size"] = self._dt_min
+        else:
+            self.algorithm_parameters.pop("step_size", None)
 
     @property
     def dt_max(self) -> float:
-        """Returns maximum step size."""
-        return self.precision(self._dt_max)
+        """Return the maximum step size."""
+
+        return float(self._dt_max)
+
+    @dt_max.setter
+    def dt_max(self, value: float) -> None:
+        self._dt_max = float(value)
+        self.step_controller_parameters["dt_max"] = self._dt_max
 
     @property
     def dt_save(self) -> float:
-        """Returns output save interval."""
-        return self.precision(self._dt_save)
+        """Return the save interval."""
+
+        return float(self._dt_save)
+
+    @dt_save.setter
+    def dt_save(self, value: float) -> None:
+        self._dt_save = float(value)
 
     @property
     def dt_summarise(self) -> float:
-        """Returns summary interval."""
-        return self.precision(self._dt_summarise)
+        """Return the summary interval."""
+
+        return float(self._dt_summarise)
+
+    @dt_summarise.setter
+    def dt_summarise(self, value: float) -> None:
+        self._dt_summarise = float(value)
 
     @property
     def atol(self) -> float:
-        """Returns absolute tolerance."""
-        return self.precision(self._atol)
+        """Return the absolute tolerance."""
+
+        return float(self._atol)
+
+    @atol.setter
+    def atol(self, value: float) -> None:
+        self._atol = float(value)
+        self.step_controller_parameters["atol"] = self._atol
+        self.algorithm_parameters["atol"] = self._atol
 
     @property
     def rtol(self) -> float:
-        """Returns relative tolerance."""
-        return self.precision(self._rtol)
+        """Return the relative tolerance."""
+
+        return float(self._rtol)
+
+    @rtol.setter
+    def rtol(self, value: float) -> None:
+        self._rtol = float(value)
+        self.step_controller_parameters["rtol"] = self._rtol
+        self.algorithm_parameters["rtol"] = self._rtol
 
     @property
-    def loop_step_config(self):
-        """
-        Return the step-size configuration for the integration loop.
+    def loop_step_config(self) -> LoopStepConfig:
+        """Return the step-size configuration for the integration loop."""
 
-        Returns
-        -------
-        LoopStepConfig
-            Configuration object containing all timing parameters for the loop.
-        """
         return LoopStepConfig(
             dt_min=self.dt_min,
             dt_max=self.dt_max,
@@ -253,13 +227,233 @@ class IntegratorRunSettings:
             rtol=self.rtol,
         )
 
-    def dt_save_samples(self):
-        """
-        Calculate the number of samples per save interval.
+    # ------------------------------------------------------------------
+    # Helper construction
+    # ------------------------------------------------------------------
+    def create_step_controller(
+        self, precision: type, n_states: int
+    ) -> object:
+        """Instantiate the configured step-size controller."""
+
+        from cubie.integrators.step_control.adaptive_I_controller import (
+            AdaptiveIController,
+        )
+        from cubie.integrators.step_control.adaptive_PI_controller import (
+            AdaptivePIController,
+        )
+        from cubie.integrators.step_control.adaptive_PID_controller import (
+            AdaptivePIDController,
+        )
+        from cubie.integrators.step_control.fixed_step_controller import (
+            FixedStepController,
+        )
+        from cubie.integrators.step_control.gustafsson_controller import (
+            GustafssonController,
+        )
+
+        params = dict(self.step_controller_parameters)
+        dt_min = float(params.get("dt_min", self._dt_min))
+        dt_max = float(params.get("dt_max", self._dt_max))
+        atol = float(params.get("atol", self._atol))
+        rtol = float(params.get("rtol", self._rtol))
+        order = int(params.get("algorithm_order", params.get("order", 1)))
+        min_gain = params.get("min_gain", 0.2)
+        max_gain = params.get("max_gain", 5.0)
+        norm = params.get("norm", "l2")
+        norm_kwargs = params.get("norm_kwargs")
+
+        kind = self.step_controller_kind
+        if kind == "fixed":
+            dt = float(params.get("dt", dt_min))
+            return FixedStepController(precision, dt)
+        if kind == "i":
+            return AdaptiveIController(
+                precision,
+                dt_min=dt_min,
+                dt_max=dt_max,
+                atol=atol,
+                rtol=rtol,
+                algorithm_order=order,
+                n=n_states,
+                min_gain=min_gain,
+                max_gain=max_gain,
+                norm=norm,
+                norm_kwargs=norm_kwargs,
+            )
+        if kind == "pi":
+            return AdaptivePIController(
+                precision,
+                dt_min=dt_min,
+                dt_max=dt_max,
+                atol=atol,
+                rtol=rtol,
+                algorithm_order=order,
+                n=n_states,
+                kp=params.get("kp", 0.7),
+                ki=params.get("ki", 0.4),
+                min_gain=min_gain,
+                max_gain=max_gain,
+                norm=norm,
+                norm_kwargs=norm_kwargs,
+            )
+        if kind == "pid":
+            return AdaptivePIDController(
+                precision,
+                dt_min=dt_min,
+                dt_max=dt_max,
+                atol=atol,
+                rtol=rtol,
+                algorithm_order=order,
+                n=n_states,
+                kp=params.get("kp", 0.7),
+                ki=params.get("ki", 0.4),
+                kd=params.get("kd", 0.2),
+                min_gain=min_gain,
+                max_gain=max_gain,
+                norm=norm,
+                norm_kwargs=norm_kwargs,
+            )
+        return GustafssonController(
+            precision,
+            dt_min=dt_min,
+            dt_max=dt_max,
+            atol=atol,
+            rtol=rtol,
+            algorithm_order=order,
+            n=n_states,
+            min_gain=min_gain,
+            max_gain=max_gain,
+            norm=norm,
+            norm_kwargs=norm_kwargs,
+        )
+
+    def create_step_object(self, system) -> object:
+        """Instantiate the configured algorithm step object."""
+
+        from cubie.integrators.algorithms_ import (
+            BackwardsEulerStep,
+            CrankNicolsonStep,
+            ExplicitEulerStep,
+        )
+
+        params = dict(self.algorithm_parameters)
+        precision = system.precision
+        n_states = system.sizes.states
+
+        if self.algorithm == "explicit_euler":
+            step = params.get("step_size", self._dt_min)
+            return ExplicitEulerStep(
+                system.dxdt_function,
+                precision,
+                n_states,
+                step,
+            )
+
+        defaults: Dict[str, Any] = {
+            "atol": params.pop("atol", self._atol),
+            "rtol": params.pop("rtol", self._rtol),
+        }
+        defaults.update(params)
+
+        if self.algorithm == "backwards_euler":
+            return BackwardsEulerStep(
+                precision=precision,
+                n=n_states,
+                dxdt_function=system.dxdt_function,
+                get_solver_helper_fn=system.get_solver_helper,
+                **defaults,
+            )
+
+        if self.algorithm == "crank_nicolson":
+            return CrankNicolsonStep(
+                precision=precision,
+                n=n_states,
+                dxdt_function=system.dxdt_function,
+                get_solver_helper_fn=system.get_solver_helper,
+                **defaults,
+            )
+
+        raise KeyError(f"Unsupported algorithm '{self.algorithm}'.")
+
+    # ------------------------------------------------------------------
+    # Updates and validation
+    # ------------------------------------------------------------------
+    def apply_updates(self, updates: Dict[str, Any]) -> Tuple[set[str], bool]:
+        """Apply parameter updates and report recognised keys.
+
+        Parameters
+        ----------
+        updates
+            Mapping of configuration names to new values.
 
         Returns
         -------
-        int
-            Number of integration algorithms_ between each saved output sample.
+        set[str]
+            Keys handled by this settings object.
+        bool
+            Whether dependent objects must be re-instantiated.
         """
-        return int(ceil(self.dt_save / self.dt_min))
+
+        recognised: set[str] = set()
+        needs_rebuild = False
+
+        for key, value in updates.items():
+            if key == "algorithm":
+                new_value = _normalise_algorithm(value)
+                if new_value != self.algorithm:
+                    self.algorithm = new_value
+                    self._ensure_algorithm_defaults()
+                    needs_rebuild = True
+                recognised.add(key)
+            elif key in {"step_controller", "step_controller_kind"}:
+                new_kind = _normalise_controller(value)
+                if new_kind != self.step_controller_kind:
+                    self.step_controller_kind = new_kind
+                    self._apply_parameter_defaults()
+                    needs_rebuild = True
+                recognised.add(key)
+            elif key in {
+                "dt_min",
+                "dt_max",
+                "dt_save",
+                "dt_summarise",
+                "atol",
+                "rtol",
+            }:
+                setattr(self, key, value)
+                needs_rebuild = True
+                recognised.add(key)
+            elif key == "algorithm_parameters" and isinstance(value, dict):
+                if value:
+                    self.algorithm_parameters.update(value)
+                    needs_rebuild = True
+                recognised.add(key)
+            elif (
+                key == "step_controller_parameters"
+                and isinstance(value, dict)
+            ):
+                if value:
+                    self.step_controller_parameters.update(value)
+                    self._apply_parameter_defaults()
+                    needs_rebuild = True
+                recognised.add(key)
+            elif (
+                key in _KNOWN_ALGORITHM_KEYS
+                or key in self.algorithm_parameters
+            ):
+                self.algorithm_parameters[key] = value
+                needs_rebuild = True
+                recognised.add(key)
+            elif (
+                key in _KNOWN_CONTROLLER_KEYS
+                or key in self.step_controller_parameters
+            ):
+                self.step_controller_parameters[key] = value
+                self._apply_parameter_defaults()
+                needs_rebuild = True
+                recognised.add(key)
+
+        if needs_rebuild:
+            self.validate_settings()
+
+        return recognised, needs_rebuild

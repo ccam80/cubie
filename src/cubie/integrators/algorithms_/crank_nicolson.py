@@ -13,35 +13,31 @@ ALGO_CONSTANTS = {'beta': 1.0,
 
 class CrankNicolsonStep(ODEImplicitStep):
     """Crank-Nicolson step solved with matrix-free Newton–Krylov and embedded Backward Euler for error estimation."""
-    def __init__(self,
-                 precision,
-                 n,
-                 dxdt_function,
-                 get_solver_helper_fn,
-                 atol,
-                 rtol,
-                 norm_type="hairer",
-                 preconditioner_order = 1,
-                 linsolve_tolerance = 1e-6,
-                 max_linear_iters = 100,
-                 linear_correction_type = "minimal_residual",
-                 nonlinear_tolerance = 1e-6,
-                 max_newton_iters = 1000,
-                 newton_damping = 0.5,
-                 newton_max_backtracks = 10):
+    def __init__(
+        self,
+        precision,
+        n,
+        dxdt_function,
+        get_solver_helper_fn,
+        preconditioner_order=1,
+        linsolve_tolerance=1e-6,
+        max_linear_iters=100,
+        linear_correction_type="minimal_residual",
+        nonlinear_tolerance=1e-6,
+        max_newton_iters=1000,
+        newton_damping=0.5,
+        newton_max_backtracks=10,
+    ):
 
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
         config = ImplicitStepConfig(
             get_solver_helper_fn=get_solver_helper_fn,
-            atol=atol,
-            rtol=rtol,
             beta=beta,
             gamma=gamma,
             M=M,
             n=n,
-            norm_type="l2",
             preconditioner_order=preconditioner_order,
             linsolve_tolerance=linsolve_tolerance,
             max_linear_iters=max_linear_iters,
@@ -57,6 +53,7 @@ class CrankNicolsonStep(ODEImplicitStep):
     def build_step(self,
                    solver_fn,
                    dxdt_fn,
+                   obs_fn,
                    numba_precision,
                    n):  # pragma: no cover - complex
         """Build the device function for a Crank-Nicolson step with embedded error estimation."""
@@ -92,6 +89,9 @@ class CrankNicolsonStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
+            # calculate and save observables (wastes some compute)
+            obs_fn(state, parameters, drivers, observables)
+
             # Initialize proposed state
             for i in range(n):
                 proposed_state[i] = state[i]
@@ -167,3 +167,8 @@ class CrankNicolsonStep(ODEImplicitStep):
     @property
     def threads_per_step(self) -> int:
         return 1
+
+    @property
+    def order(self) -> int:
+        """Order of the algorithm."""
+        return 2

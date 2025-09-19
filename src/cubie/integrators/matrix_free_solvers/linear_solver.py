@@ -19,6 +19,8 @@ from typing import Callable, Optional
 from numba import cuda, int32, from_dtype
 import numpy as np
 
+from cubie.cudasim_utils import activemask, all_sync
+
 def linear_solver_factory(
     operator_apply: Callable,
     n: int,
@@ -148,7 +150,7 @@ def linear_solver_factory(
             r = rhs[i] - temp[i]
             rhs[i] = r
             acc += r * r
-        mask = cuda.activemask()
+        mask = activemask()
         converged = acc <= tol_squared
 
         for _ in range(max_iters):
@@ -187,7 +189,7 @@ def linear_solver_factory(
             converged = converged or (acc <= tol_squared)
 
             #return once all threads in warp have converged
-            if cuda.all_sync(mask, converged):
+            if all_sync(mask, converged):
                 return int32(0)
 
         return int32(4)

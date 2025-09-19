@@ -10,7 +10,7 @@ def default_integrator_params(system, loop_compile_settings):
     """Default parameters for SingleIntegratorRun."""
     return {
         "system": system,
-        "algorithm": "euler",
+        "algorithm": "explicit_euler",
         "saved_state_indices": loop_compile_settings["saved_state_indices"],
         "saved_observable_indices": loop_compile_settings[
             "saved_observable_indices"
@@ -83,6 +83,7 @@ def test_initialization(single_integrator_run, system, integrator_params):
     )
     assert single_integrator_run.config.atol == integrator_params["atol"]
     assert single_integrator_run.config.rtol == integrator_params["rtol"]
+    assert single_integrator_run.config.step_controller_kind == "fixed"
 
     # Check that output functions are created immediately
     assert single_integrator_run._output_functions is not None
@@ -96,6 +97,8 @@ def test_initialization(single_integrator_run, system, integrator_params):
 
     # Check that integrator instance is created
     assert single_integrator_run._integrator_instance is not None
+    assert single_integrator_run._step_controller is not None
+    assert single_integrator_run._algo_step is not None
 
     # Check that compiled loop starts as None
     assert single_integrator_run._compiled_loop is None
@@ -103,32 +106,27 @@ def test_initialization(single_integrator_run, system, integrator_params):
 
 
 def test_output_functions_immediate_creation(single_integrator_run, system):
-    """Test that output functions are created immediately during initialization."""
+    """Output functions exist immediately after initialisation."""
     # Output functions should exist immediately after initialization
     assert single_integrator_run._output_functions is not None
-    assert isinstance(single_integrator_run._output_functions, OutputFunctions)
+    assert isinstance(
+        single_integrator_run._output_functions, OutputFunctions
+    )
 
     # Should have correct system dimensions
     system_sizes = system.sizes
-    assert (
-        single_integrator_run._output_functions.compile_settings.max_states
-        == system_sizes.states
-    )
-    assert (
-        single_integrator_run._output_functions.compile_settings.max_observables
-        == system_sizes.observables
-    )
+    compile_settings = single_integrator_run._output_functions.compile_settings
+    assert compile_settings.max_states == system_sizes.states
+    assert compile_settings.max_observables == system_sizes.observables
 
 
 def test_integrator_instance_immediate_creation(single_integrator_run):
-    """Test that the integrator instance is created immediately during initialization."""
+    """Integrator instance exists immediately after initialisation."""
     # Integrator instance should exist immediately after initialization
     assert single_integrator_run._integrator_instance is not None
 
     # Should be created from the correct algorithm
-    assert single_integrator_run.algorithm_key in [
-        "euler"
-    ]  # Add other algorithms as needed
+    assert single_integrator_run.algorithm_key in ["explicit_euler"]
 
 
 def test_property_access(single_integrator_run):
@@ -254,14 +252,14 @@ def test_algorithm_change(single_integrator_run):
     initial_instance = single_integrator_run._integrator_instance
 
     # Change algorithm
-    single_integrator_run.update(algorithm="generic")
+    single_integrator_run.update(algorithm="backwards_euler")
 
     # Should have new instance
     new_instance = single_integrator_run._integrator_instance
     assert new_instance is not initial_instance
 
     # Algorithm key should be updated
-    assert single_integrator_run.algorithm_key == "generic"
+    assert single_integrator_run.algorithm_key == "backwards_euler"
 
 
 def test_cache_valid_property(single_integrator_run):
@@ -315,7 +313,7 @@ def test_empty_update_call(single_integrator_run):
 
 
 def test_device_function_property_builds_automatically(single_integrator_run):
-    """Test that accessing device_function property automatically builds if needed."""
+    """device_function property builds lazily when accessed."""
     # Initially cache should be invalid
     assert single_integrator_run.cache_valid is False
 

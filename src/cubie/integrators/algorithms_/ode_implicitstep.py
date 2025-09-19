@@ -19,32 +19,67 @@ from cubie.integrators.algorithms_.base_algorithm_step import (
 class ImplicitStepConfig(BaseStepConfig):
     """Configuration settings for implicit integration steps."""
 
-    atol: float = attrs.field(
-            default=1e-6,
-            validator=attrs.validators.instance_of(float)
-    )
-    rtol: float = attrs.field(
-            default=1e-6,
-            validator=attrs.validators.instance_of(float)
-    )
     get_solver_helper_fn: Optional[Callable] = attrs.field(
             default=None,
     )
 
-
-    beta: float = attrs.field(default=1.0)
-    gamma: float = attrs.field(default=1.0)
+    _beta: float = attrs.field(default=1.0)
+    _gamma: float = attrs.field(default=1.0)
     M: Union[np.ndarray, sp.Matrix] = attrs.field(default=sp.eye(1))
-    norm_type: str = attrs.field(default="hairer")
     preconditioner_order: int = attrs.field(default=1)
-    linsolve_tolerance: float = attrs.field(default=1e-3)
+    _linsolve_tolerance: float = attrs.field(default=1e-3)
     max_linear_iters: int = attrs.field(default=100)
     linear_correction_type: str = attrs.field(default="minimal_residual")
 
-    nonlinear_tolerance: float = attrs.field(default=1e-3)
+    _nonlinear_tolerance: float = attrs.field(default=1e-3)
     max_newton_iters: int = attrs.field(default=100)
-    newton_damping: float = attrs.field(default=0.5)
+    _newton_damping: float = attrs.field(default=0.5)
     newton_max_backtracks: int = attrs.field(default=10)
+
+    @property
+    def beta(self) -> float:
+        """returns beta"""
+        return self.precision(self._beta)
+
+    @property
+    def gamma(self) -> float:
+        """returns gamma"""
+        return self.precision(self._gamma)
+
+    @property
+    def linsolve_tolerance(self) -> float:
+        """returns linear solve tolerance"""
+        return self.precision(self._linsolve_tolerance)
+
+    @property
+    def nonlinear_tolerance(self) -> float:
+        """returns nonlinear tolerance"""
+        return self.precision(self._nonlinear_tolerance)
+
+    @property
+    def newton_damping(self) -> float:
+        """returns newton damping"""
+        return self.precision(self._newton_damping)
+
+
+    @property
+    def settings_dict(self) -> dict:
+        """Returns settings as a dictionary."""
+        settings_dict = super().settings_dict
+        settings_dict.update({'beta': self.beta,
+                              'gamma': self.gamma,
+                              'M': self.M,
+                              'preconditioner_order': self.preconditioner_order,
+                              'linsolve_tolerance': self.linsolve_tolerance,
+                              'max_linear_iters': self.max_linear_iters,
+                              'linear_correction_type': self.linear_correction_type,
+                              'nonlinear_tolerance': self.nonlinear_tolerance,
+                              'max_newton_iters': self.max_newton_iters,
+                              'newton_damping': self.newton_damping,
+                              'newton_max_backtracks': self.newton_max_backtracks,
+                              'get_solver_helper_fn': self.get_solver_helper_fn
+                              })
+        return settings_dict
 
 
 class ODEImplicitStep(BaseAlgorithmStep):
@@ -54,7 +89,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
     def build(self):
         # Build the nonlinear solver chain and pass into concrete step builder
-        solver_fn = self.build_implicit_helpers()
+        solver_fn, obs_fn = self.build_implicit_helpers()
         config = self.compile_settings
         dxdt_fn = config.dxdt_function
         numba_precision = config.numba_precision
@@ -63,6 +98,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         return self.build_step(
             solver_fn,
             dxdt_fn,
+            obs_fn,
             numba_precision,
             n,
         )
@@ -72,6 +108,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def build_step(self,
                    solver_fn: Callable,
                    dxdt_fn: Callable,
+                   obs_fn: Callable,
                    numba_precision:  type,
                    n: int) -> StepCache:
         raise NotImplementedError
@@ -126,6 +163,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 mass=mass,
                 preconditioner_order=preconditioner_order)
 
+        observables = get_fn('observables')
+
         linsolve_tolerance = config.linsolve_tolerance
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
@@ -150,7 +189,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 max_iters=max_newton_iters,
                 damping=newton_damping,
                 max_backtracks=newton_max_backtracks)
-        return nonlinear_solver
+        return nonlinear_solver, obs_fn
     
     @property
     def is_implicit(self) -> bool:

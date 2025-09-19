@@ -10,6 +10,7 @@ from ctypes import c_void_p
 import os
 
 import numba
+from numba import cuda
 import numpy as np
 
 
@@ -103,3 +104,12 @@ def from_dtype(dtype: np.dtype):
         return dtype
 
 # no cover: end
+
+if os.environ.get("NUMBA_ENABLE_CUDASIM") == "1":
+    def activemask():
+        return np.int32(0xFFFF)
+    def all_sync(mask, condition):
+        return condition
+else:
+    activemask = cuda.activemask
+    all_sync = cuda.all_sync

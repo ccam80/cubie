@@ -11,14 +11,18 @@ from cubie.integrators.algorithms_.base_algorithm_step import (
 @attrs.define
 class ExplicitStepConfig(BaseStepConfig):
     """Configuration settings for explicit integration steps.
-
-    Explicit algorithms do not access the full range of fields.
     """
-    fixed_step_size: float = attrs.field(
+    step_size: float = attrs.field(
             default=1e-3,
             validator=gttype_validator(float, 0)
     )
 
+    @property
+    def settings_dict(self) -> dict:
+        """Returns settings as a dictionary."""
+        settings_dict = super().settings_dict
+        settings_dict.update({'step_size': self.step_size})
+        return settings_dict
 
 class ODEExplicitStep(BaseAlgorithmStep):
 
@@ -29,7 +33,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
         dxdt_function = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
-        fixed_step_size = config.fixed_step_size
+        fixed_step_size = config.step_size
         return self.build_step(
             dxdt_function, numba_precision, n, fixed_step_size
         )

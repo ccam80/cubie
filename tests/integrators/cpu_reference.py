@@ -492,6 +492,7 @@ def run_reference_loop(
     dt_save = float(solver_settings["dt_save"])
     dt_summarise = float(solver_settings.get("dt_summarise", dt_save))
     controller_settings = step_controller_settings or {"kind": "fixed"}
+
     controller = AdaptiveController(
         kind=str(controller_settings.get("kind", "fixed")).lower(),
         dt_min=controller_settings.get("dt", dt_min),
