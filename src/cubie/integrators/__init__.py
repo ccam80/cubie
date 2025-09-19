@@ -33,9 +33,9 @@ class IntegratorReturnCodes(IntEnum):
     SUCCESS = 0,
     NEWTON_BACKTRACKING_NO_SUITABLE_STEP = 1   # backtracking failed
     MAX_NEWTON_ITERATIONS_EXCEEDED = 2         # Newton loop hit max_iters
-    MAX_LINEAR_ITERATIONS_EXCEEDED = 3         # inner solver did not converge
-    STEP_TOO_SMALL = 4                         # Step size < dt_min
-
+    MAX_LINEAR_ITERATIONS_EXCEEDED = 4         # inner solver did not converge
+    STEP_TOO_SMALL = 8                         # Step size < dt_min
+    MAX_LOOP_ITERS_EXCEEDED = 16
 
 __all__ = ["ImplementedAlgorithms",
            "newton_krylov_solver_factory",

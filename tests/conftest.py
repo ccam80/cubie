@@ -63,6 +63,22 @@ def precision(precision_override, system_override):
 
 
 @pytest.fixture(scope="function")
+def controller_tolerances(precision: np.dtype):
+    """Return default tolerances and gain limits for controller tests."""
+
+    atol = np.asarray([precision(1e-6)], dtype=precision)
+    rtol = np.asarray([precision(1e-6)], dtype=precision)
+    return {
+        "atol": atol,
+        "rtol": rtol,
+        "order": 2,
+        "safety": float(precision(0.9)),
+        "min_gain": float(precision(0.2)),
+        "max_gain": float(precision(5.0)),
+    }
+
+
+@pytest.fixture(scope="function")
 def linear_symbolic_system(precision: np.dtype):
     """Three-state linear symbolic system for tests."""
 
