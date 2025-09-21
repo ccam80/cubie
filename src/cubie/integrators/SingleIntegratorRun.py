@@ -187,7 +187,7 @@ class SingleIntegratorRun(CUDAFactory):
 
             """
         if fixed_step:
-            kwargs["step_size"] = step_size
+            kwargs["dt"] = step_size
         algorithm = get_algorithm_step(kind,
                                   precision=self.precision,
                                   n=n,
@@ -486,7 +486,7 @@ class SingleIntegratorRun(CUDAFactory):
     def fixed_step_size(self):
         """Return the fixed step size if provided by the algorithm."""
         settings = getattr(self._algo_step, "compile_settings", None)
-        if settings is not None and hasattr(settings, "step_size"):
+        if settings is not None and hasattr(settings, "dt"):
             return settings.fixed_step_size
         return None
 

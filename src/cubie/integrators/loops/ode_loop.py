@@ -15,9 +15,9 @@ from typing import Optional, Callable
 import numpy as np
 from numba import cuda, int32
 
+from cubie.cudasim_utils import activemask, all_sync
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
-from cubie.cudasim_utils import activemask, all_sync
 from cubie.integrators.algorithms_.base_algorithm_step import BaseAlgorithmStep
 from cubie.integrators.loops.ode_loop_config import LoopIndices, ODELoopConfig
 from cubie.integrators.step_control.base_step_controller import \
@@ -164,7 +164,7 @@ class IVPLoop(CUDAFactory):
         n_drivers = config.buffer_sizes.drivers
 
         fixed_mode = not self.is_adaptive
-        controller_scratch = self.step_controller.local_memory_required
+        controller_scratch = self.step_controller.local_memory_elements
         algo_persistent = self.algorithm.persistent_local_required
 
         @cuda.jit(device=True, inline=True)
@@ -392,16 +392,16 @@ class IVPLoop(CUDAFactory):
         int
             Number of threads required per integration loop.
         """
-        algo = self.algorithm.shared_memory_elements
-        controller = self.step_controller.shared_memory_elements
-        own = self.buffer_indices.end
-        return algo + controller + own
+        algo = self.algorithm.shared_memory_required
+        # controller = self.step_controller.shared_memory_elements
+        own = self.buffer_indices.local_end
+        return algo + own
 
     @property
     def local_memory_elements(self):
         self_elements = self.compile_settings.buffer_sizes.state + 3
         algo_elements = self.algorithm.persistent_local_required
-        controller_elements = self.step_controller.local_memory_required
+        controller_elements = self.step_controller.local_memory_elements
         return self_elements + algo_elements + controller_elements
 
     def update(self,
@@ -455,9 +455,6 @@ class IVPLoop(CUDAFactory):
             )
         return recognised
 
-    @property
-    def shared_memory_indices(self):
-        return self.compile_settings.shared_memory_indices
 
     # @property
     # def constant_memory_indices(self):

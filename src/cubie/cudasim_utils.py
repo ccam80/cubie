@@ -103,13 +103,27 @@ def from_dtype(dtype: np.dtype):
     else:
         return dtype
 
-# no cover: end
 
 if os.environ.get("NUMBA_ENABLE_CUDASIM") == "1":
+    # CPU / simulator fallbacks
+    @cuda.jit(device=True, inline=True)
     def activemask():
-        return np.int32(0xFFFF)
-    def all_sync(mask, condition):
-        return condition
+        # Assume 32-lane warp in sim
+        return 0xFFFFFFFF
+
+    @cuda.jit(device=True, inline=True)
+    def all_sync(mask, predicate):
+        # Just return predicate in sim
+        return predicate
 else:
-    activemask = cuda.activemask
-    all_sync = cuda.all_sync
+    # Real CUDA: keep attribute access inside wrapper so Numba sees it
+    @cuda.jit(device=True, inline=True)
+    def activemask():
+        return cuda.activemask()
+
+    @cuda.jit(device=True, inline=True)
+    def all_sync(mask, predicate):
+        return cuda.all_sync(mask, predicate)
+
+
+# no cover: end

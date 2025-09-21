@@ -356,4 +356,4 @@ class GenericIntegratorAlgorithm(CUDAFactory):
         float
             The fixed step size from the compile settings.
         """
-        return self.compile_settings.step_size
+        return self.compile_settings.dt

@@ -816,7 +816,7 @@ class BatchSolverKernel(CUDAFactory):
 
         Notes
         -----
-        Exposes the step_size attribute from the child SingleIntegratorRun object.
+        Exposes the dt attribute from the child SingleIntegratorRun object.
         """
         return self.single_integrator.fixed_step_size
 

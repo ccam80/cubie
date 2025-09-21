@@ -16,10 +16,10 @@ class ExplicitEulerStep(ODEExplicitStep):
         dxdt_function: Callable,
         precision: type,
         n: int,
-        step_size: float,
+        dt: float,
         solver_function_getter: Optional[Callable] = None,
     ):
-        config = ExplicitStepConfig(step_size=step_size,
+        config = ExplicitStepConfig(dt=dt,
                                     precision=precision,
                                     dxdt_function=dxdt_function,
                                     n=n)

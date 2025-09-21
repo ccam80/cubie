@@ -128,7 +128,7 @@ class BaseStepController(CUDAFactory):
 
     @property
     @abstractmethod
-    def local_memory_required(self) -> int:
+    def local_memory_elements(self) -> int:
         """Amount of local memory required by the controller."""
         return 0
 

@@ -1,4 +1,5 @@
-import inspect
+from __future__ import annotations
+
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,7 @@ from pytest import MonkeyPatch
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
+from cubie.integrators.algorithms_ import get_algorithm_step
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.integrators.step_control.adaptive_I_controller import AdaptiveIController
 from cubie.integrators.step_control.adaptive_PID_controller import (
@@ -18,6 +20,8 @@ from cubie.integrators.step_control.gustafsson_controller import GustafssonContr
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.outputhandling.output_sizes import LoopBufferSizes
+from integrators.cpu_reference import CPUODESystem, run_reference_loop
+from integrators.loops.ODELoopTester import Array, _driver_sequence
 from tests.system_fixtures import (
     build_large_nonlinear_system,
     build_three_chamber_system,
@@ -172,6 +176,8 @@ def output_functions(loop_compile_settings, system):
         loop_compile_settings["output_functions"],
         loop_compile_settings["saved_state_indices"],
         loop_compile_settings["saved_observable_indices"],
+        loop_compile_settings["summarised_state_indices"],
+        loop_compile_settings["summarised_observable_indices"],
     )
     return outputfunctions
 
@@ -212,6 +218,10 @@ def solver_settings(
         "saved_observable_indices": loop_compile_settings[
             "saved_observable_indices"
         ],
+        "summarised_state_indices": loop_compile_settings[
+            "summarised_state_indices"],
+        "summarised_observable_indices": loop_compile_settings[
+            "summarised_observable_indices"],
         "output_types": loop_compile_settings["output_functions"],
         "blocksize": 32,
         "stream": 0,
@@ -244,13 +254,13 @@ def implicit_step_settings(solver_settings, implicit_step_settings_override):
         "atol": solver_settings['atol'],
         "rtol": solver_settings['rtol'],
         "linear_tolerance": 1e-3,
+        "correction_type": 'minimal_residual',
         "nonlinear_tolerance": 1e-3,
+        'preconditioner_order': 1,
         "max_linear_iters": 100,
         "max_newton_iters": 100,
         "newton_damping": 0.5,
-        "newton_max_backtracks": 10,
-        "reuse_factorisation": True,
-        "reuse_jacobian": True,
+        "newton_max_backtracks": 10
     }
     defaults.update(implicit_step_settings_override)
     return defaults
@@ -349,54 +359,27 @@ def step_controller_settings_override(request):
 
 @pytest.fixture(scope="function")
 def step_controller_settings(
-    loop_compile_settings, system, step_controller_settings_override
+    solver_settings, system, step_controller_settings_override
 ):
     """Base configuration used to instantiate loop step controllers."""
 
     defaults = {
         "kind": "fixed",
-        "dt": loop_compile_settings["dt_min"],
-        "dt_min": loop_compile_settings["dt_min"],
-        "dt_max": loop_compile_settings["dt_max"],
-        "atol": loop_compile_settings["atol"],
-        "rtol": loop_compile_settings["rtol"],
+        "dt": solver_settings["dt_min"],
+        "dt_min": solver_settings["dt_min"],
+        "dt_max": solver_settings["dt_max"],
+        "atol": solver_settings["atol"],
+        "rtol": solver_settings["rtol"],
         "order": 1,
         "n": system.sizes.states,
+        "kp": 0.6,
+        "ki": 0.3,
+        "kd": 0.1,
     }
     overrides = {**step_controller_settings_override}
     defaults.update(overrides)
     return defaults
 
-
-def _instantiate_adaptive_controller(
-    kind: str,
-    precision: np.dtype,
-    settings: dict,
-):
-    dt_min = settings["dt_min"]
-    dt_max = settings["dt_max"]
-    atol = settings["atol"]
-    rtol = settings["rtol"]
-    order = settings.get("order", 1)
-    n_states = settings["n"]
-    controller_kwargs = dict(
-        precision=precision,
-        dt_min=dt_min,
-        dt_max=dt_max,
-        atol=atol,
-        rtol=rtol,
-        algorithm_order=order,
-        n=n_states,
-    )
-    if kind == "I":
-        return AdaptiveIController(**controller_kwargs)
-    if kind == "PI":
-        return AdaptivePIController(**controller_kwargs)
-    if kind == "PID":
-        return AdaptivePIDController(**controller_kwargs)
-    if kind == "gustafsson":
-        return GustafssonController(**controller_kwargs)
-    raise ValueError(f"Unknown adaptive controller kind '{kind}'.")
 
 
 @pytest.fixture(scope="function")
@@ -404,9 +387,69 @@ def step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
 
     kind = str(step_controller_settings.get("kind", "fixed")).lower()
+    settings = dict(step_controller_settings)
     if kind == "fixed":
         return FixedStepController(precision, step_controller_settings["dt"])
-    return _instantiate_adaptive_controller(kind, precision, step_controller_settings)
+    elif kind == "i":
+        controller = AdaptiveIController(
+                precision=precision,
+                dt_min=float(settings["dt_min"]),
+                dt_max=float(settings["dt_max"]),
+                atol=settings["atol"],
+                rtol=settings["rtol"],
+                algorithm_order=int(settings.get("order", 1)),
+                n=int(settings["n"]),
+        )
+    elif kind == "pi":
+        controller = AdaptivePIController(
+                precision=precision,
+                dt_min=float(settings["dt_min"]),
+                dt_max=float(settings["dt_max"]),
+                atol=settings["atol"],
+                rtol=settings["rtol"],
+                algorithm_order=int(settings.get("order", 1)),
+                n=int(settings["n"]),
+                kp=float(settings["kp"]),
+                ki=float(settings["ki"]),
+        )
+    elif kind == "pid":
+        controller = AdaptivePIDController(
+                precision=precision,
+                dt_min=float(settings["dt_min"]),
+                dt_max=float(settings["dt_max"]),
+                atol=settings["atol"],
+                rtol=settings["rtol"],
+                algorithm_order=int(settings.get("order", 1)),
+                n=int(settings["n"]),
+                kp=float(settings["kp"]),
+                ki=float(settings["ki"]),
+                kd=float(settings["kd"]),
+        )
+    elif kind == "gustafsson":
+        controller = GustafssonController(
+                precision=precision,
+                dt_min=float(settings["dt_min"]),
+                dt_max=float(settings["dt_max"]),
+                atol=settings["atol"],
+                rtol=settings["rtol"],
+                algorithm_order=int(settings.get("order", 1)),
+                n=int(settings["n"]),
+        )
+    else:
+        raise ValueError(f"Unknown adaptive controller kind '{kind}'.")
+
+    update_settings = dict(settings)
+    n_states = int(settings["n"])
+    for key in ("atol", "rtol"):
+        if key in update_settings:
+            value = update_settings[key]
+            if not isinstance(value, np.ndarray):
+                update_settings[key] = np.asarray(
+                        [float(value)] * n_states,
+                        dtype=precision,
+                        )
+    controller.update(updates_dict=update_settings, silent=True)
+    return controller
 
 
 @pytest.fixture(scope="function")
@@ -431,4 +474,73 @@ def loop(
         save_state_func=output_functions.save_state_func,
         update_summaries_func=output_functions.update_summaries_func,
         save_summaries_func=output_functions.save_summary_metrics_func,
+    )
+
+
+@pytest.fixture(scope='function')
+def cpu_system(system):
+    """Return a CPU-based system."""
+    return CPUODESystem(system)
+
+
+@pytest.fixture
+def step_object(solver_settings, implicit_step_settings, precision, system):
+    """Return a step object for the given solver settings."""
+    if solver_settings["algorithm"].lower() == 'euler':
+        solver_kwargs = {
+                'dt':solver_settings["dt_min"],
+                'precision':precision,
+                'n':system.sizes.states,
+                'dxdt_function':system.dxdt_function
+        }
+    else:
+        solver_kwargs = {
+            "precision": precision,
+            "n": system.sizes.states,
+            'dxdt_function':system.dxdt_function,
+            'get_solver_helper_fn':system.get_solver_helper,
+            'preconditioner_order':implicit_step_settings[
+            "preconditioner_order"],
+            'linsolve_tolerance':implicit_step_settings["linear_tolerance"],
+            'max_linear_iters':implicit_step_settings["max_linear_iters"],
+            'linear_correction_type':implicit_step_settings[
+            "correction_type"],
+            'nonlinear_tolerance':implicit_step_settings["nonlinear_tolerance"],
+            'max_newton_iters':implicit_step_settings["max_newton_iters"],
+            'newton_damping':implicit_step_settings["newton_damping"],
+            'newton_max_backtracks':implicit_step_settings[
+                "newton_max_backtracks"],
+        }
+    return get_algorithm_step(solver_settings["algorithm"].lower(),
+                              **solver_kwargs)
+
+
+@pytest.fixture(scope="function")
+def cpu_reference_outputs(
+    system,
+    cpu_system,
+    precision,
+    initial_state,
+    solver_settings,
+    step_controller_settings,
+    output_functions,
+) -> dict[str, Array]:
+    """Execute the CPU reference loop with the provided configuration."""
+    drivers = _driver_sequence(
+            samples=int(np.ceil(
+                    solver_settings["duration"] / solver_settings["dt_save"])),
+            total_time=solver_settings["duration"],
+            n_drivers=system.num_drivers,
+            precision=precision)
+
+    inputs = {'initial_values': initial_state.copy(),
+              'parameters': system.parameters.values_array.copy(),
+              'drivers': drivers}
+
+    return run_reference_loop(
+        evaluator=cpu_system,
+        inputs=inputs,
+        solver_settings=solver_settings,
+        output_functions=output_functions,
+        step_controller_settings=step_controller_settings,
     )

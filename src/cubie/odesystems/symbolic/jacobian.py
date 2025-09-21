@@ -59,11 +59,6 @@ def get_cache_key(equations,
     return (eq_tuple, input_tuple, output_tuple, bool(cse))
 
 
-def clear_cache():
-    """Clear the unified symbolic cache (kept for API compatibility)."""
-    _cache.clear()
-
-
 def generate_jacobian(equations: Union[
                           Iterable[Tuple[sp.Symbol, sp.Expr]],
                           Dict[sp.Symbol, sp.Expr]],

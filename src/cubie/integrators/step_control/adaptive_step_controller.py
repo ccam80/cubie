@@ -1,11 +1,11 @@
-from abc import abstractmethod
 """Common logic for adaptive step-size controllers."""
 
-from typing import Callable, Optional, Union
+from abc import abstractmethod
+from typing import Callable, Optional
 from warnings import warn
 
 import numpy as np
-from attrs import define, field
+from attrs import define, field, Converter
 
 from cubie._utils import getype_validator, inrangetype_validator, clamp_factory, \
     float_array_validator
@@ -14,6 +14,14 @@ from cubie.integrators.step_control.base_step_controller import (
     BaseStepController, BaseStepControllerConfig
 )
 
+def tol_converter(value, self_):
+    if isinstance(value, float):
+        tol = np.asarray([value] * self_.n, dtype=self_.precision)
+    else:
+        tol = np.asarray(value, dtype=self_.precision)
+        if tol.shape[0] != self_.n:
+            raise ValueError("tol must have shape (n,).")
+    return tol
 
 
 @define
@@ -31,10 +39,12 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     atol: np.ndarray = field(
         default=np.asarray([1e-6]),
         validator=float_array_validator,
+        converter=Converter(tol_converter, takes_self=True)
     )
     rtol: np.ndarray = field(
         default=np.asarray([1e-6]),
         validator=float_array_validator,
+        converter=Converter(tol_converter, takes_self=True)
     )
     algorithm_order: int = field(default=1, validator=getype_validator(int, 1))
     _min_gain: float = field(
@@ -63,6 +73,7 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
                 "dt_max = dt_min * 100",
             )
             self._dt_max = self.dt_min * 100
+
 
     @property
     def dt_min(self) -> float:
@@ -152,33 +163,6 @@ class BaseAdaptiveStepController(BaseStepController):
                 "parameters.",
             ) from exc
 
-    def sanitise_tol_array(
-        self, tol: Optional[Union[float, np.ndarray]], n: int, precision: type
-    ) -> np.ndarray:
-        """Return tolerance array with correct shape and dtype.
-
-        Parameters
-        ----------
-        tol
-            Absolute or relative tolerance specification.
-        n
-            Number of state variables.
-        precision
-            Desired floating point precision.
-
-        Returns
-        -------
-        numpy.ndarray
-            Tolerance array of length ``n`` and dtype ``precision``.
-        """
-        if isinstance(tol, float):
-            tol = np.asarray([tol] * n, dtype=precision)
-        else:
-            tol = np.asarray(tol, dtype=precision)
-            if tol.shape[0] != n:
-                raise ValueError("atol must have shape (n,).")
-        return tol
-
     def build(self) -> Callable:
         """Construct the device function implementing the controller."""
         return self.build_controller(
@@ -247,7 +231,7 @@ class BaseAdaptiveStepController(BaseStepController):
 
     @property
     @abstractmethod
-    def local_memory_required(self) -> int:
+    def local_memory_elements(self) -> int:
         """Return number of floats required for controller local memory."""
         raise NotImplementedError
 

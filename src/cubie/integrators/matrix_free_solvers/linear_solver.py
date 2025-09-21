@@ -21,6 +21,7 @@ import numpy as np
 
 from cubie.cudasim_utils import activemask, all_sync
 
+
 def linear_solver_factory(
     operator_apply: Callable,
     n: int,

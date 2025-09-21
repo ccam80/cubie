@@ -3,7 +3,7 @@ from typing import Callable
 
 import attrs
 
-from cubie import  gttype_validator
+from cubie._utils import  gttype_validator
 from cubie.integrators.algorithms_.base_algorithm_step import (
     BaseAlgorithmStep, BaseStepConfig, StepCache)
 
@@ -12,7 +12,7 @@ from cubie.integrators.algorithms_.base_algorithm_step import (
 class ExplicitStepConfig(BaseStepConfig):
     """Configuration settings for explicit integration steps.
     """
-    step_size: float = attrs.field(
+    dt: float = attrs.field(
             default=1e-3,
             validator=gttype_validator(float, 0)
     )
@@ -21,7 +21,7 @@ class ExplicitStepConfig(BaseStepConfig):
     def settings_dict(self) -> dict:
         """Returns settings as a dictionary."""
         settings_dict = super().settings_dict
-        settings_dict.update({'step_size': self.step_size})
+        settings_dict.update({'dt': self.dt})
         return settings_dict
 
 class ODEExplicitStep(BaseAlgorithmStep):
@@ -33,7 +33,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
         dxdt_function = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
-        fixed_step_size = config.step_size
+        fixed_step_size = config.dt
         return self.build_step(
             dxdt_function, numba_precision, n, fixed_step_size
         )
@@ -51,3 +51,8 @@ class ODEExplicitStep(BaseAlgorithmStep):
     @property
     def is_implicit(self) -> bool:
         return False
+
+    @property
+    def dt(self) -> float:
+        return self.compile_settings.dt
+

@@ -163,7 +163,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 mass=mass,
                 preconditioner_order=preconditioner_order)
 
-        observables = get_fn('observables')
+        obs_fn = get_fn('observables')
 
         linsolve_tolerance = config.linsolve_tolerance
         max_linear_iters = config.max_linear_iters

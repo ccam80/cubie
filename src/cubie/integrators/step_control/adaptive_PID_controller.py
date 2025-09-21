@@ -50,9 +50,6 @@ class AdaptivePIDController(BaseAdaptiveStepController):
     ) -> None:
         """Initialise a proportional–integral–derivative controller."""
 
-        atol = self.sanitise_tol_array(atol, n, precision)
-        rtol = self.sanitise_tol_array(rtol, n, precision)
-
         config = PIDStepControlConfig(
             precision=precision,
             dt_min=dt_min,
@@ -86,7 +83,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         return self.compile_settings.kd
 
     @property
-    def local_memory_required(self) -> int:
+    def local_memory_elements(self) -> int:
         """Amount of local memory required by the controller."""
         return 2
 

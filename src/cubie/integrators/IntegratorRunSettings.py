@@ -37,7 +37,7 @@ _CONTROLLER_ALIASES: Dict[str, str] = {
 }
 
 _KNOWN_ALGORITHM_KEYS: set[str] = {
-    "step_size",
+    "dt",
     "linsolve_tolerance",
     "max_linear_iters",
     "linear_correction_type",
@@ -155,9 +155,9 @@ class IntegratorRunSettings:
         if self.step_controller_kind == "fixed":
             self.step_controller_parameters["dt"] = self._dt_min
         if self.algorithm == "explicit_euler":
-            self.algorithm_parameters["step_size"] = self._dt_min
+            self.algorithm_parameters["dt"] = self._dt_min
         else:
-            self.algorithm_parameters.pop("step_size", None)
+            self.algorithm_parameters.pop("dt", None)
 
     @property
     def dt_max(self) -> float:
@@ -341,7 +341,7 @@ class IntegratorRunSettings:
         n_states = system.sizes.states
 
         if self.algorithm == "explicit_euler":
-            step = params.get("step_size", self._dt_min)
+            step = params.get("dt", self._dt_min)
             return ExplicitEulerStep(
                 system.dxdt_function,
                 precision,

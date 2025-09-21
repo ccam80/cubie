@@ -57,9 +57,10 @@ class FixedStepControlConfig(BaseStepControllerConfig):
 
     def settings_dict(self) -> dict:
         """Returns settings as a dictionary."""
-        settings_dict = super().settings_dict()
+        settings_dict = super().settings_dict
         settings_dict.update({'dt': self.dt})
         return settings_dict
+
 class FixedStepController(BaseStepController):
     """Controller that enforces a constant time step."""
 
@@ -81,6 +82,6 @@ class FixedStepController(BaseStepController):
         return controller_fixed_step
 
     @property
-    def local_memory_required(self) -> int:
+    def local_memory_elements(self) -> int:
         """Amount of local memory required by the controller."""
         return 0

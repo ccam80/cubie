@@ -51,8 +51,6 @@ class AdaptiveIController(BaseAdaptiveStepController):
         norm_kwargs
             Additional keyword arguments passed to the norm factory.
         """
-        atol = self.sanitise_tol_array(atol, n, precision)
-        rtol = self.sanitise_tol_array(rtol, n, precision)
 
         config = AdaptiveStepControlConfig(
             precision=precision,
@@ -71,7 +69,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
                          norm_kwargs)
 
     @property
-    def local_memory_required(self) -> int:
+    def local_memory_elements(self) -> int:
         """Amount of local memory required by the controller."""
         return 0
 

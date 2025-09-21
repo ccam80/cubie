@@ -3,8 +3,8 @@ from typing import Callable
 
 from numba import cuda, int32, from_dtype
 from numpy import float32 as np_float32
-
 from cubie.cudasim_utils import activemask, all_sync
+
 
 def newton_krylov_solver_factory(
     residual_function: Callable,

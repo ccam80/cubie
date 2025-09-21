@@ -15,13 +15,14 @@ outputs.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, Mapping, Sequence
+from functools import partial
+from typing import Callable, Dict, Mapping, Sequence, Optional
 
 import numpy as np
 import sympy as sp
 from numpy.typing import NDArray
 
-from cubie.odesystems.baseODE import BaseODE
+from cubie import SymbolicODE
 from cubie.odesystems.symbolic.jacobian import generate_jacobian
 from cubie.odesystems.symbolic.sym_utils import topological_sort
 
@@ -40,81 +41,29 @@ def _ensure_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
     return array
 
 
-class SystemEvaluator:
-    """Light-weight wrapper exposing Python-side evaluations for a system."""
+class CPUODESystem():
+    """Evaluator for symbolic systems using SymPy expressions directly."""
 
-    def __init__(self, system: BaseODE) -> None:
+    def __init__(self, system: SymbolicODE) -> None:
         self.system = system
         self.precision = system.precision
         self.n_states = system.sizes.states
         self.n_observables = system.sizes.observables
         self._state_template = np.zeros(self.n_states, dtype=self.precision)
         self._observable_template = np.zeros(
-            self.n_observables, dtype=self.precision
+                self.n_observables, dtype=self.precision
         )
 
-    # ------------------------------------------------------------------
-    # API expected by the steppers
-    # ------------------------------------------------------------------
-    def rhs(self, state: Array, params: Array, drivers: Array) -> tuple[Array, Array]:
-        """Return state derivatives and observables at ``state``."""
-
-        raise NotImplementedError
-
-    def jacobian(self, state: Array, params: Array, drivers: Array) -> Array:
-        """Return the Jacobian of the state derivative."""
-
-        raise NotImplementedError
-
-
-class PythonSystemEvaluator(SystemEvaluator):
-    """Evaluator that relies on :meth:`BaseODE.correct_answer_python`."""
-
-    def __init__(self, system: BaseODE) -> None:
-        super().__init__(system)
-        machine_eps = np.finfo(self.precision).eps
-        self._finite_difference_epsilon = float(
-            np.cbrt(machine_eps).astype(self.precision)
-        )
-
-    def rhs(self, state: Array, params: Array, drivers: Array) -> tuple[Array, Array]:
-        derivatives, observables = self.system.correct_answer_python(
-            state, params, drivers
-        )
-        return (
-            np.asarray(derivatives, dtype=self.precision),
-            np.asarray(observables, dtype=self.precision),
-        )
-
-    def jacobian(self, state: Array, params: Array, drivers: Array) -> Array:
-        base_dxdt, _ = self.rhs(state, params, drivers)
-        n = base_dxdt.size
-        jac = np.zeros((n, n), dtype=self.precision)
-        eps = self._finite_difference_epsilon
-        for col in range(n):
-            perturbed = state.astype(self.precision, copy=True)
-            perturbed[col] += eps
-            dxdt, _ = self.rhs(perturbed, params, drivers)
-            jac[:, col] = (dxdt - base_dxdt) / eps
-        return jac
-
-
-class SymbolicSystemEvaluator(SystemEvaluator):
-    """Evaluator for symbolic systems using SymPy expressions directly."""
-
-    def __init__(self, system: BaseODE) -> None:
-        super().__init__(system)
         indexed = system.indices
-        self._state_index: Mapping[sp.Symbol, int] = indexed.states.index_map
-        self._parameter_index: Mapping[sp.Symbol, int] = indexed.parameters.index_map
-        self._constant_index: Mapping[sp.Symbol, int] = indexed.constants.index_map
-        self._driver_index: Mapping[sp.Symbol, int] = indexed.drivers.index_map
-        self._observable_index: Mapping[sp.Symbol, int] = (
-            indexed.observables.index_map
-        )
-        self._dx_index: Mapping[sp.Symbol, int] = indexed.dxdt.index_map
+        self._state_index = indexed.states.index_map
+        self._parameter_index = indexed.parameters.index_map
+        self._constant_index = indexed.constants.index_map
+        self._driver_index = indexed.drivers.index_map
+        self._observable_index = indexed.observables.index_map
+
+        self._dx_index = indexed.dxdt.index_map
         ordered_equations = topological_sort(system.equations)
-        self._equations: list[tuple[sp.Symbol, sp.Expr]] = ordered_equations
+        self._equations = ordered_equations
         self._jacobian_expr = generate_jacobian(
             ordered_equations,
             self._state_index,
@@ -122,8 +71,11 @@ class SymbolicSystemEvaluator(SystemEvaluator):
         )
 
     def _subs_dict(
-        self, state: Array, params: Array, drivers: Array
-    ) -> Dict[sp.Symbol, float]:
+            self,
+            state: Array,
+            params: Array,
+            drivers: Array
+        ) -> Dict[sp.Symbol, float]:
         values: Dict[sp.Symbol, float] = {}
         for symbol, index in self._state_index.items():
             values[symbol] = float(state[index])
@@ -135,7 +87,12 @@ class SymbolicSystemEvaluator(SystemEvaluator):
             values[symbol] = float(drivers[index])
         return values
 
-    def rhs(self, state: Array, params: Array, drivers: Array) -> tuple[Array, Array]:
+    def rhs(
+            self,
+            state: Array,
+            params: Array,
+            drivers: Array
+        ) -> tuple[Array, Array]:
         subs = self._subs_dict(state, params, drivers)
         dxdt = self._state_template.copy()
         observables = self._observable_template.copy()
@@ -156,14 +113,6 @@ class SymbolicSystemEvaluator(SystemEvaluator):
         return jacobian
 
 
-def build_system_evaluator(system: BaseODE) -> SystemEvaluator:
-    """Return a system evaluator suitable for ``system``."""
-
-    if "correct_answer_python" in system.__class__.__dict__:
-        return PythonSystemEvaluator(system)
-    return SymbolicSystemEvaluator(system)
-
-
 @dataclass
 class StepResult:
     """Container describing the outcome of a single integration step."""
@@ -175,15 +124,17 @@ class StepResult:
 
 
 def explicit_euler_step(
-    evaluator: SystemEvaluator,
-    state: Array,
-    params: Array,
-    drivers: Array,
-    dt: float,
+    evaluator: CPUODESystem,
+    state: Optional[Array] = None,
+    params: Optional[Array] = None,
+    drivers_now: Optional[Array] = None,
+    drivers_next: Optional[Array] = None,
+    dt: Optional[float] = None,
+    tol: Optional[float] = None,
 ) -> StepResult:
     """Explicit Euler integration step."""
 
-    dxdt, observables = evaluator.rhs(state, params, drivers)
+    dxdt, observables = evaluator.rhs(state, params, drivers_now)
     new_state = state + dt * dxdt
     error = np.zeros_like(state)
     return StepResult(new_state, observables, error, True)
@@ -217,24 +168,25 @@ def _newton_solve(
 
 
 def backward_euler_step(
-    evaluator: SystemEvaluator,
-    state: Array,
-    params: Array,
-    drivers: Array,
-    dt: float,
-    tol: float = 1e-10,
-    initial_guess: Array | None = None,
+    evaluator: CPUODESystem,
+    state: Optional[Array] = None,
+    params: Optional[Array] = None,
+    drivers_now: Optional[Array] = None,
+    drivers_next: Optional[Array] = None,
+    dt: Optional[float] = None,
+    tol: Optional[float] = None,
+    initial_guess: Optional[Array] = None,
 ) -> StepResult:
     """Backward Euler step solved via Newton iteration."""
 
     precision = evaluator.precision
 
     def residual(candidate: Array) -> Array:
-        dxdt, _ = evaluator.rhs(candidate, params, drivers)
+        dxdt, _ = evaluator.rhs(candidate, params, drivers_next)
         return candidate - state - dt * dxdt
 
     def jacobian(candidate: Array) -> Array:
-        jac = evaluator.jacobian(candidate, params, drivers)
+        jac = evaluator.jacobian(candidate, params, drivers_next)
         identity = np.eye(jac.shape[0], dtype=precision)
         return identity - dt * jac
 
@@ -245,19 +197,19 @@ def backward_euler_step(
             precision, copy=True
         )
     next_state, converged = _newton_solve(residual, jacobian, guess, precision, tol)
-    dxdt, observables = evaluator.rhs(next_state, params, drivers)
+    dxdt, observables = evaluator.rhs(next_state, params, drivers_next)
     error = np.zeros_like(next_state)
     return StepResult(next_state, observables, error, converged)
 
 
 def crank_nicolson_step(
-    evaluator: SystemEvaluator,
-    state: Array,
-    params: Array,
-    drivers_now: Array,
-    drivers_next: Array,
-    dt: float,
-    tol: float = 1e-10,
+    evaluator: CPUODESystem,
+    state: Optional[Array] = None,
+    params: Optional[Array] = None,
+    drivers_now: Optional[Array] = None,
+    drivers_next: Optional[Array] = None,
+    dt: Optional[float] = None,
+    tol: Optional[float] = None,
 ) -> StepResult:
     """Crank–Nicolson step with embedded backward Euler for error estimation."""
 
@@ -286,13 +238,13 @@ def crank_nicolson_step(
 
 
 def backward_euler_predict_correct_step(
-    evaluator: SystemEvaluator,
-    state: Array,
-    params: Array,
-    drivers_now: Array,
-    drivers_next: Array,
-    dt: float,
-    tol: float = 1e-10,
+    evaluator: CPUODESystem,
+    state: Optional[Array] = None,
+    params: Optional[Array] = None,
+    drivers_now: Optional[Array] = None,
+    drivers_next: Optional[Array] = None,
+    dt: Optional[float] = None,
+    tol: Optional[float] = None,
 ) -> StepResult:
     """Predict with explicit Euler and correct with backward Euler."""
 
@@ -329,10 +281,8 @@ class DriverSampler:
         index = int(np.floor(time / self._base_dt)) % self._samples
         return self._drivers[:, index]
 
-
-class AdaptiveController:
+class CPUAdaptiveController:
     """Simple adaptive step controller mirroring GPU heuristics."""
-
     def __init__(
         self,
         *,
@@ -354,7 +304,7 @@ class AdaptiveController:
         self.precision = precision
         self.safety = 0.9
         self.min_gain = 0.2
-        self.max_gain = 5.0
+        self.max_gain = 2.0
         self._history: list[float] = []
 
     @property
@@ -418,82 +368,66 @@ class AdaptiveController:
         return gain
 
 
-def run_reference_stepper(
-    stepper: str,
-    evaluator: SystemEvaluator,
-    state: Array,
-    params: Array,
-    drivers_now: Array,
-    drivers_next: Array,
-    dt: float,
-) -> StepResult:
-    """Execute a single step using the requested stepper."""
-
-    stepper_name = stepper.lower()
-    if stepper_name == "explicit_euler":
-        return explicit_euler_step(
-            evaluator, state, params, drivers_now, dt
-        )
-    if stepper_name == "backward_euler":
-        return backward_euler_step(
-            evaluator, state, params, drivers_next, dt
-        )
-    if stepper_name == "backward_euler_predict_correct":
-        return backward_euler_predict_correct_step(
-            evaluator,
-            state,
-            params,
-            drivers_now,
-            drivers_next,
-            dt,
-        )
-    if stepper_name == "crank_nicolson":
-        return crank_nicolson_step(
-            evaluator, state, params, drivers_now, drivers_next, dt
-        )
-    raise ValueError(f"Unknown stepper '{stepper}'.")
+def get_ref_step_fn(
+         algorithm: str,
+         evaluator: CPUODESystem,
+        solver_settings: dict,
+    ) -> Callable:
+    if algorithm.lower() == "euler":
+        return partial(explicit_euler_step, evaluator=evaluator)
+    elif algorithm.lower() == "backward_euler":
+        return partial(backward_euler_step,
+                       evaluator=evaluator,
+                       tol=solver_settings['atol'])
+    elif algorithm.lower() == "backward_euler_predict_correct":
+        return partial(backward_euler_predict_correct_step,
+                       evaluator=evaluator,
+                       tol=solver_settings['atol'])
+    elif algorithm.lower() == "crank_nicolson":
+        return partial(crank_nicolson_step, evaluator=evaluator,
+                       tol=solver_settings['atol'])
+    else:
+        raise ValueError(f"Unknown stepper algorithm: {algorithm}")
 
 
 def _collect_saved_outputs(
     save_history: list[Array],
     indices: Sequence[int],
-    width: int,
     dtype: np.dtype,
 ) -> Array:
+    width = len(indices)
     if width == 0:
         return np.zeros((len(save_history), 0), dtype=dtype)
     data = np.zeros((len(save_history), width), dtype=dtype)
-    for row, snapshot in enumerate(save_history):
-        data[row, :] = snapshot[indices]
+    for row, sample in enumerate(save_history):
+        data[row, :] = sample[indices]
     return data
 
 
 def run_reference_loop(
-    *,
-    system: BaseODE,
+    evaluator: CPUODESystem,
     inputs: Mapping[str, Array],
-    solver_settings: Mapping[str, float],
-    loop_compile_settings: Mapping[str, Iterable[int] | float | Sequence[str]],
+    solver_settings,
     output_functions,
-    stepper: str,
-    step_controller_settings: Mapping[str, float | str] | None = None,
+    step_controller_settings: Optional[Dict] = None,
 ) -> dict[str, Array]:
     """Execute a CPU loop mirroring :class:`IVPLoop` behaviour."""
 
-    evaluator = build_system_evaluator(system)
-    precision = system.precision
+    precision = evaluator.precision
+
     initial_state = inputs["initial_values"].astype(precision, copy=True)
     params = inputs["parameters"].astype(precision, copy=True)
-    forcing_vectors = inputs["forcing_vectors"].astype(precision, copy=False)
+    forcing_vectors = inputs["drivers"].astype(precision, copy=False)
+
     dt_min = float(solver_settings["dt_min"])
-    dt_max = float(solver_settings.get("dt_max", dt_min))
+    dt_max = float(solver_settings["dt_max"])
     duration = float(solver_settings["duration"])
-    warmup = float(solver_settings.get("warmup", 0.0))
+    warmup = float(solver_settings["warmup"])
     dt_save = float(solver_settings["dt_save"])
-    dt_summarise = float(solver_settings.get("dt_summarise", dt_save))
+    dt_summarise = float(solver_settings["dt_summarise"])
     controller_settings = step_controller_settings or {"kind": "fixed"}
 
-    controller = AdaptiveController(
+    controller = CPUAdaptiveController(
         kind=str(controller_settings.get("kind", "fixed")).lower(),
         dt_min=controller_settings.get("dt", dt_min),
         dt_max=controller_settings.get("dt_max", dt_max),
@@ -502,52 +436,56 @@ def run_reference_loop(
         order=controller_settings.get("order", 1),
         precision=precision,
     )
+
+    step_fn = get_ref_step_fn(solver_settings["algorithm"], evaluator,
+                              solver_settings)
+
     controller.dt = controller_settings.get("dt", dt_min)
 
     sampler = DriverSampler(forcing_vectors, dt_min, precision)
+
     saved_state_indices = _ensure_array(
-        loop_compile_settings.get("saved_state_indices", []), np.int32
-    )
+        solver_settings["saved_state_indices"], np.int32)
     saved_observable_indices = _ensure_array(
-        loop_compile_settings.get("saved_observable_indices", []), np.int32
-    )
+        solver_settings["saved_observable_indices"], np.int32)
     summarised_state_indices = _ensure_array(
-        loop_compile_settings.get("summarised_state_indices", []), np.int32
-    )
+        solver_settings["summarised_state_indices"], np.int32)
     summarised_observable_indices = _ensure_array(
-        loop_compile_settings.get("summarised_observable_indices", []),
-        np.int32,
-    )
-    save_time = "time" in loop_compile_settings.get("output_functions", [])
-    max_save_samples = int(duration / dt_save) if dt_save > 0 else 0
-    state_history: list[Array] = []
-    observable_history: list[Array] = []
-    time_history: list[float] = []
+        solver_settings["summarised_observable_indices"], np.int32)
+
+    save_time = output_functions.save_time
+
+    max_save_samples = np.ceil(int(precision(duration) / precision(dt_save)))
+
+    state_history = [initial_state.copy()]
+    observable_history = [np.zeros(len(saved_observable_indices),
+                                  dtype=precision)]
+    time_history: list[float] = [0,]
     state = initial_state.copy()
-    state_history.append(initial_state.copy())
-    observable_history.append(np.zeros(len(saved_observable_indices),
-                                       dtype=precision))
     t = 0.0
     end_time = warmup + duration
     next_save_time = warmup + dt_save if dt_save > 0 else end_time + 1.0
 
     while t < end_time - 1e-12:
         dt = min(controller.dt, end_time - t)
+        dt = min(dt, next_save_time-t)
+
         drivers_now = sampler.sample(t)
         drivers_next = sampler.sample(t + dt)
-        result = run_reference_stepper(
-            stepper,
-            evaluator,
-            state,
-            params,
-            drivers_now,
-            drivers_next,
-            dt,
+        result = step_fn(
+                state=state,
+                params=params,
+                drivers_now=drivers_now,
+                drivers_next=drivers_next,
+                dt=dt
         )
+
         error_norm = controller.error_norm(state, result.state, result.error)
+
         if controller.is_adaptive and error_norm > 1.0:
             controller.propose_dt(error_norm, accept=False)
             continue
+
         t += dt
         controller.propose_dt(error_norm, accept=True)
         state = result.state
@@ -557,59 +495,46 @@ def run_reference_loop(
                 observable_history.append(result.observables.copy())
                 time_history.append(next_save_time - warmup)
                 next_save_time += dt_save
+
     # ------------------------------------------------------------------
     # Convert histories to arrays matching device layout
     # ------------------------------------------------------------------
     state_output = _collect_saved_outputs(
         state_history,
         saved_state_indices,
-        saved_state_indices.size,
         precision,
     )
-    if save_time and state_output.size > 0:
-        times = np.asarray(time_history, dtype=precision)[:, np.newaxis]
-        state_output = np.hstack((state_output, times))
+    if save_time:
+        times = np.asarray(time_history, dtype=precision)
+
     observables_output = _collect_saved_outputs(
         observable_history,
         saved_observable_indices,
-        saved_observable_indices.size,
         precision,
     )
-    if state_output.shape[0] == 0:
-        width = saved_state_indices.size + int(save_time)
-        state_output = np.zeros((max_save_samples or 1, max(1, width)), dtype=precision)
-    if observables_output.shape[0] == 0:
-        width = saved_observable_indices.size
-        observables_output = np.zeros(
-            (max_save_samples or 1, max(1, width)),
-            dtype=precision,
-        )
+    summarise_every = int(np.ceil(dt_summarise / dt_save))
 
-    if state_history:
-        summarise_every = (
-            max(int(round(dt_summarise / dt_save)), 1) if dt_save > 0 else 1
-        )
+    if saved_state_indices.shape[0] > 0:
         state_summary_source = _collect_saved_outputs(
             state_history,
             summarised_state_indices,
-            summarised_state_indices.size,
             precision,
         )
+    else:
+        state_summary_source = np.zeros(
+                (len(state_history), 1), dtype=precision
+        )
+    if saved_observable_indices.shape[0] > 0:
         observable_summary_source = _collect_saved_outputs(
             observable_history,
             summarised_observable_indices,
-            summarised_observable_indices.size,
-            precision,
-        )
-        if state_summary_source.size == 0:
-            state_summary_source = np.zeros(
-                (len(state_history), 1), dtype=precision
-            )
-        if observable_summary_source.size == 0:
-            observable_summary_source = np.zeros(
+            precision)
+    else:
+        observable_summary_source = np.zeros(
                 (len(observable_history), 1), dtype=precision
-            )
-        state_summary, observable_summary = calculate_expected_summaries(
+        )
+
+    state_summary, observable_summary = calculate_expected_summaries(
             state_summary_source,
             observable_summary_source,
             summarise_every,
@@ -617,9 +542,6 @@ def run_reference_loop(
             output_functions.summaries_output_height_per_var,
             precision,
         )
-    else:
-        state_summary = np.zeros((1, 1), dtype=precision)
-        observable_summary = np.zeros((1, 1), dtype=precision)
 
     return {
         "state": state_output,
@@ -627,4 +549,3 @@ def run_reference_loop(
         "state_summaries": state_summary,
         "observable_summaries": observable_summary,
     }
-

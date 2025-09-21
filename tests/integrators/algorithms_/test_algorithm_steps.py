@@ -4,7 +4,7 @@ import pytest
 
 from cubie.integrators.algorithms_.backwards_euler import BackwardsEulerStep
 from cubie.integrators.algorithms_.backwards_euler_predict_correct import (
-    BackwardsEulerPredictCorrectStep,
+    BackwardsEulerPCStep,
 )
 from cubie.integrators.algorithms_.crank_nicolson import CrankNicolsonStep
 from cubie.integrators.algorithms_.explicit_euler import ExplicitEulerStep
@@ -32,7 +32,6 @@ class TestExplicitEulerStep(StepAlgorithmTester):
         return ExplicitEulerStep
 
 
-@pytest.mark.nocudasim
 @pytest.mark.parametrize(
     "system_override", ["linear", "nonlinear"], indirect=True
 )
@@ -65,7 +64,6 @@ class TestBackwardsEulerStep(StepAlgorithmTester):
         }
 
 
-@pytest.mark.nocudasim
 @pytest.mark.parametrize(
     "system_override", ["linear", "nonlinear"], indirect=True
 )
@@ -83,7 +81,7 @@ class TestBackwardsEulerPredictCorrectStep(StepAlgorithmTester):
 
     @pytest.fixture(scope="function")
     def algorithm_class(self):
-        return BackwardsEulerPredictCorrectStep
+        return BackwardsEulerPCStep
 
     @pytest.fixture(scope="function")
     def step_kwargs(self, system, precision):
@@ -98,7 +96,6 @@ class TestBackwardsEulerPredictCorrectStep(StepAlgorithmTester):
         }
 
 
-@pytest.mark.nocudasim
 @pytest.mark.parametrize(
     "system_override", ["linear", "nonlinear"], indirect=True
 )

@@ -12,19 +12,19 @@ setattr(FakeCUDAKernel, "targetoptions", {"device": True})
 
 from cubie.integrators.algorithms_.backwards_euler import BackwardsEulerStep
 from cubie.integrators.algorithms_.backwards_euler_predict_correct import (
-    BackwardsEulerPredictCorrectStep,
+    BackwardsEulerPCStep,
 )
 from cubie.integrators.algorithms_.crank_nicolson import CrankNicolsonStep
 from cubie.integrators.algorithms_.explicit_euler import ExplicitEulerStep
 from tests.integrators.cpu_reference import (
     build_system_evaluator,
-    run_reference_stepper,
+    reference_step,
 )
 
 
 _CPU_REFERENCE: list[tuple[type, tuple[str, bool]]] = [
     (
-        BackwardsEulerPredictCorrectStep,
+        BackwardsEulerPCStep,
         ("backward_euler_predict_correct", False),
     ),
     (BackwardsEulerStep, ("backward_euler", False)),
@@ -112,7 +112,7 @@ class StepAlgorithmTester:
             "dxdt_function": system.dxdt_function,
             "precision": precision,
             "n": system.sizes.states,
-            "step_size": step_size,
+            "dt": step_size,
         }
 
     @pytest.fixture(scope="function")
@@ -220,15 +220,10 @@ class StepAlgorithmTester:
         params = system.parameters.values_array.astype(dtype, copy=True)
         drivers = np.zeros(system.sizes.drivers, dtype=dtype)
         stepper_name, cpu_is_adaptive = _resolve_cpu_reference(algorithm_class)
-        cpu_result = run_reference_stepper(
-            stepper=stepper_name,
-            evaluator=evaluator,
-            state=cpu_state,
-            params=params,
-            drivers_now=drivers,
-            drivers_next=drivers,
-            dt=float(step_size),
-        )
+        cpu_result = reference_step(stepper=stepper_name, evaluator=evaluator,
+                                    state=cpu_state, params=params,
+                                    drivers_now=drivers, drivers_next=drivers,
+                                    dt=float(step_size))
 
         np.testing.assert_allclose(state, cpu_result.state, **tolerances)
         np.testing.assert_allclose(error, cpu_result.error, **tolerances)
@@ -236,9 +231,9 @@ class StepAlgorithmTester:
         assert (flag == 0) == cpu_result.converged
         assert step_obj.is_adaptive == cpu_is_adaptive
         if not cpu_is_adaptive and hasattr(
-            step_obj.compile_settings, "step_size"
+            step_obj.compile_settings, "dt"
         ):
-            assert step_obj.compile_settings.step_size == pytest.approx(
+            assert step_obj.compile_settings.dt == pytest.approx(
                 step_size
             )
 

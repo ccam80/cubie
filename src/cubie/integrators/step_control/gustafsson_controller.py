@@ -30,9 +30,6 @@ class GustafssonController(BaseAdaptiveStepController):
     ) -> None:
         """Initialise a Gustafsson predictive controller."""
 
-        atol = self.sanitise_tol_array(atol, n, precision)
-        rtol = self.sanitise_tol_array(rtol, n, precision)
-
         config = AdaptiveStepControlConfig(
             precision=precision,
             dt_min=dt_min,
@@ -48,7 +45,7 @@ class GustafssonController(BaseAdaptiveStepController):
         super().__init__(config, norm, norm_kwargs)
 
     @property
-    def local_memory_required(self) -> int:
+    def local_memory_elements(self) -> int:
         """Amount of local memory required by the controller."""
         return 2  # previous dt and error
 
