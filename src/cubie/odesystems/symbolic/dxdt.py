@@ -2,6 +2,7 @@ from typing import Iterable, Optional, Tuple
 
 import sympy as sp
 
+from cubie.odesystems.symbolic.jacobian import _prune_unused_assignments
 from cubie.odesystems.symbolic.numba_cuda_printer import print_cuda_multiple
 from cubie.odesystems.symbolic.parser import IndexedBases
 from cubie.odesystems.symbolic.sym_utils import (
@@ -72,13 +73,22 @@ def generate_observables_lines(
     cse: bool = True,
 ):
     """Return lines that evaluate observables for the given equations."""
+    if cse:
+        equations = cse_and_stack(equations.copy())
+    else:
+        equations = topological_sort(equations.copy())
+    out_subs = dict(zip(index_map.dxdt.ref_map.keys(),sp.numbered_symbols(
+            "dxout_", start=1)))
+    equations = [(lhs.subs(out_subs), rhs.subs(out_subs)) for lhs, rhs in
+                 equations]
 
-    dxdt_lines = generate_dxdt_lines(
-        equations, index_map=index_map, cse=cse
+    arrayrefs = index_map.all_arrayrefs
+    equations = [(lhs.subs(arrayrefs), rhs.subs(arrayrefs)) for lhs, rhs in
+                 equations]
+    equations = _prune_unused_assignments(equations, "observables")
+    obs_lines = print_cuda_multiple(
+        equations, symbol_map=index_map.all_arrayrefs
     )
-    obs_lines = [
-        line for line in dxdt_lines if not line.lstrip().startswith("out[")
-    ]
     if not obs_lines:
         obs_lines = ["pass"]
     return obs_lines
