@@ -136,12 +136,15 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                                               abs(state_prev[i]))
                 nrm2 += (tol*tol) / (error[i]*error[i])
 
-            accept = (nrm2 / n) >= precision(1.0)
+            nrm2 = precision(nrm2/n)
+            accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
+            err_prev_safe = err_prev if err_prev > precision(0.0) else nrm2
+            err_prev2_safe = err_prev2 if err_prev2 > precision(0.0) else nrm2
 
             gain_new = precision(safety * ((nrm2 ** expo1) *
-                                 (err_prev ** expo2) *
-                                 (err_prev2 ** expo3)))
+                                 (err_prev_safe ** expo2) *
+                                 (err_prev2_safe ** expo3)))
             gain = precision(clamp(gain_new, max_gain, min_gain))
 
             dt_new_raw = dt[0] * gain

@@ -133,15 +133,16 @@ class AdaptivePIController(BaseAdaptiveStepController):
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
-                nrm2 += (tol*tol) / (error[i]*error[i])
+                ratio = tol / error[i]
+                nrm2 += ratio * ratio
 
-            #consider fusing into this function to include in scaled error
-            # calculation without a buffer
-            accept = (nrm2 / n) >= precision(1.0)
+            nrm2 = precision(nrm2/n)
+            accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
 
             pgain = precision(nrm2 ** (kp / 2))
-            igain = precision(err_prev ** (ki / 2))
+            # Handle uninitialized err_prev by using current error as fallback
+            igain = precision((err_prev if err_prev > precision(0.0) else nrm2) ** (ki / 2))
             gain_new = safety * pgain * igain
             gain = clamp(gain_new, max_gain, min_gain)
 
@@ -153,4 +154,3 @@ class AdaptivePIController(BaseAdaptiveStepController):
             return ret
 
         return controller_PI
-

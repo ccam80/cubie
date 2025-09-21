@@ -6,6 +6,7 @@ from cubie.batchsolving._utils import ensure_nonzero_size
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
+from integrators.cpu_reference import CPUODESystem
 from tests._utils import calculate_expected_summaries
 from tests.integrators.cpu_reference import run_reference_loop
 
@@ -454,6 +455,7 @@ def expected_batch_answers_euler(
     loop_compile_settings,
     batch_input_arrays,
     square_drive,
+    cpu_step_controller,
     output_functions,
 ):
     inits, params = batch_input_arrays
@@ -491,6 +493,7 @@ def expected_batch_answers_euler(
     }
     controller_settings = {"kind": "fixed", "dt": solver_config["dt_min"]}
     output_sets = []
+    evaluator = CPUODESystem(system)
     for i in range(inits.shape[0]):
         run_inputs = {
             "initial_values": inits[i, :].astype(precision),
@@ -498,12 +501,11 @@ def expected_batch_answers_euler(
             "forcing_vectors": driver_matrix,
         }
         result = run_reference_loop(
-            system=system,
+            evaluator=evaluator,
             inputs=run_inputs,
             solver_settings=solver_config,
-            loop_compile_settings=loop_settings,
+            controller=cpu_step_controller,
             output_functions=output_functions,
-            stepper="explicit_euler",
             step_controller_settings=controller_settings,
         )
         output_sets.append((result["state"], result["observables"]))

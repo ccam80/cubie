@@ -20,8 +20,10 @@ from cubie.integrators.step_control.gustafsson_controller import GustafssonContr
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.outputhandling.output_sizes import LoopBufferSizes
-from integrators.cpu_reference import CPUODESystem, run_reference_loop
-from integrators.loops.ODELoopTester import Array, _driver_sequence
+from tests.integrators.cpu_reference import (CPUODESystem,
+                                              run_reference_loop, \
+    CPUAdaptiveController)
+from tests.integrators.loops.ODELoopTester import Array, _driver_sequence
 from tests.system_fixtures import (
     build_large_nonlinear_system,
     build_three_chamber_system,
@@ -56,7 +58,9 @@ def codegen_dir():
 
 @pytest.fixture(scope="function")
 def precision_override(request):
-    return request.param if hasattr(request, "param") else None
+    if hasattr(request, "param"):
+        if request.param is np.float64:
+            return np.float64
 
 
 @pytest.fixture(scope="function")
@@ -71,73 +75,16 @@ def precision(precision_override, system_override):
     """
     if precision_override is not None:
         return precision_override
-    if system_override == "stiff":
-        return np.float64
     return np.float32
-
-
-@pytest.fixture(scope="function")
-def controller_tolerances(precision: np.dtype):
-    """Return default tolerances and gain limits for controller tests."""
-
-    atol = np.asarray([precision(1e-6)], dtype=precision)
-    rtol = np.asarray([precision(1e-6)], dtype=precision)
-    return {
-        "atol": atol,
-        "rtol": rtol,
-        "order": 2,
-        "safety": float(precision(0.9)),
-        "min_gain": float(precision(0.2)),
-        "max_gain": float(precision(5.0)),
-    }
-
-
-@pytest.fixture(scope="function")
-def linear_symbolic_system(precision: np.dtype):
-    """Three-state linear symbolic system for tests."""
-
-    return
-
-
-@pytest.fixture(scope="function")
-def nonlinear_symbolic_system(precision: np.dtype):
-    """Three-state nonlinear symbolic system for tests."""
-
-    return
-
-
-@pytest.fixture(scope="function")
-def three_chamber_symbolic_system(precision: np.dtype):
-    """Symbolic three chamber cardiovascular system."""
-
-    return
-
-
-@pytest.fixture(scope="function")
-def stiff_symbolic_system(precision: np.dtype):
-    """Very stiff nonlinear symbolic system for implicit solver stress tests."""
-    return
-
-
-@pytest.fixture(scope="function")
-def large_symbolic_system(precision: np.dtype):
-    """Large nonlinear symbolic system with 100 states."""
-
-    return
-
 
 
 @pytest.fixture(scope="function")
 def system_override(request):
     """Override for system model type, if provided."""
-    if not hasattr(request, "param"):
-        return "linear"
-
-    param = request.param
-    if param == {} or param is None:
-        return "linear"
-
-    return param
+    if hasattr(request, "param"):
+        if request.param:
+            return request.param
+    return "linear"
 
 
 @pytest.fixture(scope="function")
@@ -167,22 +114,19 @@ def system(request, system_override, precision):
 
 
 @pytest.fixture(scope="function")
-def output_functions(loop_compile_settings, system):
+def output_functions(solver_settings, system):
     # Merge the default config with any overrides
 
     outputfunctions = OutputFunctions(
         system.sizes.states,
         system.sizes.parameters,
-        loop_compile_settings["output_functions"],
-        loop_compile_settings["saved_state_indices"],
-        loop_compile_settings["saved_observable_indices"],
-        loop_compile_settings["summarised_state_indices"],
-        loop_compile_settings["summarised_observable_indices"],
+        solver_settings["output_functions"],
+        solver_settings["saved_state_indices"],
+        solver_settings["saved_observable_indices"],
+        solver_settings["summarised_state_indices"],
+        solver_settings["summarised_observable_indices"],
     )
     return outputfunctions
-
-
-
 
 @pytest.fixture(scope="function")
 def loop_compile_settings_overrides(request):
@@ -190,14 +134,10 @@ def loop_compile_settings_overrides(request):
     unless you're testing that it worked."""
     return request.param if hasattr(request, "param") else {}
 
-
 @pytest.fixture(scope="function")
 def solver_settings_override(request):
     """Override for solver settings, if provided."""
     return request.param if hasattr(request, "param") else {}
-
-
-
 
 @pytest.fixture(scope="function")
 def solver_settings(
@@ -229,6 +169,7 @@ def solver_settings(
         "memory_manager": default_memmgr,
         "stream_group": "test_group",
         "mem_proportion": None,
+        "step_controller": "fixed",
     }
 
     if solver_settings_override:
@@ -364,7 +305,7 @@ def step_controller_settings(
     """Base configuration used to instantiate loop step controllers."""
 
     defaults = {
-        "kind": "fixed",
+        "kind": solver_settings["step_controller"].lower(),
         "dt": solver_settings["dt_min"],
         "dt_min": solver_settings["dt_min"],
         "dt_max": solver_settings["dt_max"],
@@ -386,8 +327,8 @@ def step_controller_settings(
 def step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
 
-    kind = str(step_controller_settings.get("kind", "fixed")).lower()
-    settings = dict(step_controller_settings)
+    kind = step_controller_settings["kind"].lower()
+    settings = step_controller_settings
     if kind == "fixed":
         return FixedStepController(precision, step_controller_settings["dt"])
     elif kind == "i":
@@ -438,17 +379,7 @@ def step_controller(precision, step_controller_settings):
     else:
         raise ValueError(f"Unknown adaptive controller kind '{kind}'.")
 
-    update_settings = dict(settings)
-    n_states = int(settings["n"])
-    for key in ("atol", "rtol"):
-        if key in update_settings:
-            value = update_settings[key]
-            if not isinstance(value, np.ndarray):
-                update_settings[key] = np.asarray(
-                        [float(value)] * n_states,
-                        dtype=precision,
-                        )
-    controller.update(updates_dict=update_settings, silent=True)
+    controller.update(updates_dict=settings, silent=True)
     return controller
 
 
@@ -516,10 +447,35 @@ def step_object(solver_settings, implicit_step_settings, precision, system):
 
 
 @pytest.fixture(scope="function")
+def cpu_step_controller(precision, step_controller_settings):
+    """Instantiate the requested step controller for loop execution."""
+    kind = step_controller_settings["kind"].lower()
+
+    controller = CPUAdaptiveController(
+        kind=step_controller_settings["kind"].lower(),
+        dt_min=step_controller_settings["dt"],
+        dt_max=step_controller_settings["dt_max"],
+        atol=step_controller_settings["atol"],
+        rtol=step_controller_settings["rtol"],
+        order=step_controller_settings["order"],
+        precision=precision,
+    )
+    if kind == 'pi':
+        controller.kp = step_controller_settings["kp"]
+        controller.ki = step_controller_settings["ki"]
+    elif kind == 'pid':
+        controller.kp = step_controller_settings["kp"]
+        controller.ki = step_controller_settings["ki"]
+        controller.kd = step_controller_settings["kd"]
+
+    return controller
+
+@pytest.fixture(scope="function")
 def cpu_reference_outputs(
     system,
     cpu_system,
     precision,
+    cpu_step_controller,
     initial_state,
     solver_settings,
     step_controller_settings,
@@ -541,6 +497,7 @@ def cpu_reference_outputs(
         evaluator=cpu_system,
         inputs=inputs,
         solver_settings=solver_settings,
+        controller=cpu_step_controller,
         output_functions=output_functions,
         step_controller_settings=step_controller_settings,
     )

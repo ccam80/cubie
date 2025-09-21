@@ -293,6 +293,9 @@ class CPUAdaptiveController:
         rtol: float,
         order: int,
         precision: np.dtype,
+        kp: float = 0.7,
+        ki: float = 0.4,
+        kd: float = 0.1,
     ) -> None:
         self.kind = kind
         self.dt_min = float(dt_min)
@@ -305,7 +308,11 @@ class CPUAdaptiveController:
         self.safety = 0.9
         self.min_gain = 0.2
         self.max_gain = 2.0
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
         self._history: list[float] = []
+        self._dt_history: list[float] = []
 
     @property
     def is_adaptive(self) -> bool:
@@ -316,7 +323,8 @@ class CPUAdaptiveController:
             np.abs(state_prev), np.abs(state_new)
         )
         with np.errstate(divide="ignore", invalid="ignore"):
-            norm = np.sqrt(np.mean((error / scale) ** 2))
+            nrm2 = np.sum((scale * scale) / (error * error))
+            norm = nrm2 / len(error)
         if not np.isfinite(norm):
             norm = np.inf
         return float(norm)
@@ -327,8 +335,11 @@ class CPUAdaptiveController:
         gain = self._gain(error_estimate)
         if accept:
             self._history.append(max(error_estimate, 1e-16))
+            self._dt_history.append(self.dt)
             if len(self._history) > 3:
                 self._history.pop(0)
+            if len(self._dt_history) > 2:
+                self._dt_history.pop(0)
             self.dt = min(self.dt_max, max(self.dt_min, self.dt * gain))
         else:
             self.dt = max(self.dt_min, self.dt * min(gain, 1.0))
@@ -336,34 +347,52 @@ class CPUAdaptiveController:
     def _gain(self, error_estimate: float) -> float:
         if error_estimate <= 0.0:
             return self.max_gain
-        if self.kind == "I":
-            exponent = 1.0 / (self.order + 1.0)
-            gain = self.safety * error_estimate ** (-exponent)
-        elif self.kind == "PI":
-            exponent = 0.7 / (self.order + 1.0)
-            prev = self._history[-1] if self._history else error_estimate
-            gain = self.safety * error_estimate ** (-exponent) * prev ** (
-                0.4 / (self.order + 1.0)
-            )
-        elif self.kind == "PID":
-            prev = self._history[-1] if self._history else error_estimate
-            prev_prev = self._history[-2] if len(self._history) > 1 else prev
-            k1 = 0.7 / (self.order + 1.0)
-            k2 = 0.4 / (self.order + 1.0)
-            k3 = 0.1 / (self.order + 1.0)
+
+        if self.kind == "i":
+            # Device: safety * (nrm2 ** (1.0 / (2 * (order + 1))))
+            exponent = 1.0 / (2.0 * (self.order + 1.0))
+            gain = self.safety * (error_estimate ** exponent)
+
+        elif self.kind == "pi":
+            kp_exp = (self.kp / (self.order + 1.0)) / 2.0
+            ki_exp = (self.ki / (self.order + 1.0)) / 2.0
+            prev = self._history[-1] if self._history[-1] > 0.0 else (
+                error_estimate)
+            gain = self.safety * (error_estimate ** kp_exp) * (prev ** ki_exp)
+
+        elif self.kind == "pid":
+            prev = self._history[-1] if self._history[-1] > 0.0 else error_estimate
+            prev_prev = self._history[-2] if self._history[-2] > 0.0 else prev
+            kp_exp = self.kp / (2.0 * (self.order + 1.0))
+            ki_exp = self.ki / (2.0 * (self.order + 1.0))
+            kd_exp = self.kd / (2.0 * (self.order + 1.0))
             gain = (
                 self.safety
-                * error_estimate ** (-k1)
-                * prev ** k2
-                * prev_prev ** (-k3)
+                * (error_estimate ** kp_exp)
+                * (prev ** ki_exp)
+                * (prev_prev ** kd_exp)
             )
+
         elif self.kind == "gustafsson":
-            prev = self._history[-1] if self._history else error_estimate
-            ratio = prev / max(error_estimate, 1e-16)
-            exponent = 1.0 / (self.order + 1.0)
-            gain = self.safety * error_estimate ** (-exponent) * ratio ** 0.1
+            # Device implementation with predictive acceleration
+            exponent = 1.0 / (2.0 * (self.order + 1.0))
+            gain_basic = self.safety * (error_estimate ** exponent)
+
+            if len(self._history) > 0 and len(self._dt_history) > 0:
+                prev = self._history[-1] if self._history[-1] > 0.0 else error_estimate
+                dt_prev = self._dt_history[-1] if self._dt_history[-1] > 0.0\
+                    else self.dt
+                if prev > 0.0 and dt_prev > 0.0:
+                    ratio = error_estimate / prev
+                    gain_gus = self.safety * (self.dt / dt_prev) * (ratio ** exponent)
+                    gain = min(gain_gus, gain_basic)
+                else:
+                    gain = gain_basic
+            else:
+                gain = gain_basic
         else:
             gain = 1.0
+
         gain = min(self.max_gain, max(self.min_gain, gain))
         return gain
 
@@ -409,6 +438,7 @@ def run_reference_loop(
     inputs: Mapping[str, Array],
     solver_settings,
     output_functions,
+    controller,
     step_controller_settings: Optional[Dict] = None,
 ) -> dict[str, Array]:
     """Execute a CPU loop mirroring :class:`IVPLoop` behaviour."""
@@ -426,16 +456,6 @@ def run_reference_loop(
     dt_save = float(solver_settings["dt_save"])
     dt_summarise = float(solver_settings["dt_summarise"])
     controller_settings = step_controller_settings or {"kind": "fixed"}
-
-    controller = CPUAdaptiveController(
-        kind=str(controller_settings.get("kind", "fixed")).lower(),
-        dt_min=controller_settings.get("dt", dt_min),
-        dt_max=controller_settings.get("dt_max", dt_max),
-        atol=solver_settings.get("atol", 1e-6),
-        rtol=solver_settings.get("rtol", 1e-6),
-        order=controller_settings.get("order", 1),
-        precision=precision,
-    )
 
     step_fn = get_ref_step_fn(solver_settings["algorithm"], evaluator,
                               solver_settings)

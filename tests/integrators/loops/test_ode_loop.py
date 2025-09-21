@@ -3,16 +3,9 @@
 from __future__ import annotations
 
 
-import numpy as np
 import pytest
-from numpy.testing import assert_allclose
 
-from cubie.integrators.algorithms_ import (
-    BackwardsEulerStep,
-    CrankNicolsonStep,
-)
-from tests.integrators.loops.ODELoopTester import (extract_state_and_time,
-                                                   run_device_loop,
+from tests.integrators.loops.ODELoopTester import (run_device_loop,
                                                    assert_integration_outputs,
                                                    )
 

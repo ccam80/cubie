@@ -79,16 +79,14 @@ class GustafssonController(BaseAdaptiveStepController):
                                               abs(state_prev[i]))
                 nrm2 += (tol*tol) / (error[i]*error[i])
 
-            accept = (nrm2 / n) >= precision(1.0)
-            accept_out[0] = int32(1) if accept else int32(0)
-
+            nrm2 = precision(nrm2/n)
+            accept = nrm2 >= precision(1.0)
             gain_basic = precision(safety * (nrm2 ** expo))
             if accept and dt_prev > precision(0.0) and err_prev > precision(0.0):
                 ratio = nrm2 / err_prev
                 gain_gus = safety * (dt[0] / dt_prev) * (ratio ** expo)
                 gain = gain_gus if gain_gus < gain_basic else gain_basic
-                local_temp[0] = dt[0]
-                local_temp[1] = max(nrm2, precision(1e-4))
+
             else:
                 gain = gain_basic
 
@@ -96,6 +94,8 @@ class GustafssonController(BaseAdaptiveStepController):
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_max, dt_min)
 
+            local_temp[0] = dt[0]
+            local_temp[1] = max(nrm2, precision(1e-4))
             ret = int32(0) if dt_new_raw > dt_min else int32(1)
             return ret
 

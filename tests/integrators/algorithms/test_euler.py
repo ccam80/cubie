@@ -3,6 +3,7 @@ import pytest
 
 from cubie.integrators.algorithms import Euler
 from cubie.outputhandling.output_sizes import LoopBufferSizes
+from integrators.cpu_reference import CPUODESystem
 from tests.integrators.cpu_reference import run_reference_loop
 from tests.integrators.algorithms.LoopAlgorithmTester import (
     LoopAlgorithmTester,
@@ -37,31 +38,22 @@ class TestEuler(LoopAlgorithmTester):
         self,
         system,
         loop_compile_settings,
+        cpu_step_controller,
+        step_controller_settings,
         solver_settings,
         inputs,
         precision,
         output_functions,
     ):
-        solver_config = {
-            "dt_min": float(solver_settings["dt_min"]),
-            "dt_max": float(solver_settings["dt_max"]),
-            "dt_save": float(solver_settings["dt_save"]),
-            "dt_summarise": float(solver_settings["dt_summarise"]),
-            "warmup": float(solver_settings["warmup"]),
-            "duration": float(solver_settings["duration"]),
-            "atol": float(solver_settings["atol"]),
-            "rtol": float(solver_settings["rtol"]),
-        }
-        dt = solver_config["dt_min"]
 
+        evaluator = CPUODESystem(system)
         result = run_reference_loop(
-            system=system,
+            evaluator=evaluator,
             inputs=inputs,
-            solver_settings=solver_config,
-            loop_compile_settings=loop_compile_settings,
+            solver_settings=solver_settings,
+            controller=cpu_step_controller,
             output_functions=output_functions,
-            stepper="explicit_euler",
-            step_controller_settings={"kind": "fixed", "dt": dt},
+            step_controller_settings=step_controller_settings,
         )
 
         return result["state"], result["observables"]

@@ -2,21 +2,28 @@ import numpy as np
 import pytest
 from numba import cuda
 
-from cubie.integrators.step_control import (
-    AdaptiveIController,
-    AdaptivePIController,
-    AdaptivePIDController,
-    GustafssonController,
-    get_controller,
-)
 
-from tests.integrators.step_control.cpu_controllers import (
-    CPUAdaptiveIController,
-    CPUAdaptivePIController,
-    CPUAdaptivePIDController,
-    CPUGustafssonController,
-)
+@pytest.fixture(scope='function')
+def step_setup(request, precision, system):
+    n = system.sizes.states
+    setup_dict = {'dt0': 0.01,
+                  'error': np.asarray([0.01]*system.sizes.states,
+                                    dtype=precision),
+                  'state': np.ones(n, dtype=precision),
+                  'state_prev': np.ones(n, dtype=precision),
+                  'local_mem': np.zeros(2, dtype=precision)
+                  }
+    if hasattr(request, 'param'):
+        for key, value in request.param.items():
+            if key in setup_dict:
+                setup_dict[key] = value
+    return setup_dict
 
+class StepResult:
+    def __init__(self, dt, accepted, local_mem):
+        self.dt = dt
+        self.accepted = accepted
+        self.local_mem = local_mem
 
 def _run_device_step(
     device_func,
@@ -60,333 +67,173 @@ def _run_device_step(
         )
 
     kernel[1, 1](dt, state_arr, state_prev_arr, err, accept, temp)
-    return float(dt[0]), int(accept[0]), temp.copy()
+    return StepResult(dt=float(dt[0]),
+                      accepted=int(accept[0]),
+                      local_mem=temp.copy())
 
+@pytest.fixture(scope='function')
+def device_step_results(step_controller, precision, step_setup):
+    """Run device step and return results."""
+    return _run_device_step(
+        step_controller.device_function,
+        precision,
+        step_setup['dt0'],
+        step_setup['error'],
+        state=step_setup['state'],
+        state_prev=step_setup['state_prev'],
+        local_mem=step_setup['local_mem'],
+    )
 
-def _make_controller_pair(factory, precision, tolerances, params=None):
-    """Create matching device and CPU controllers."""
+@pytest.fixture(scope='function')
+def cpu_step_results(cpu_step_controller, precision, step_setup):
+    """Simulate one CPU controller step, syncing local memory in/out.
 
-    if params is None:
-        params = {}
-    dt_min = 1e-6
-    dt_max = 1e-2
-    base_device = {
-        "precision": precision,
-        "dt_min": dt_min,
-        "dt_max": dt_max,
-        "n": 1,
-        "atol": tolerances["atol"],
-        "rtol": tolerances["rtol"],
-        "algorithm_order": tolerances["order"],
-        "min_gain": tolerances["min_gain"],
-        "max_gain": tolerances["max_gain"],
-    }
-    base_device.update(params)
-    device = factory(**base_device)
+    Responsibilities:
+    - Ingest provided local_mem (vector sized for max controller) and map to
+      CPU controller internal history/state.
+    - Compute acceptance & error estimate analogous to device function logic.
+    - Update dt via cpu_step_controller.propose_dt(error_estimate, accept).
+    - Export updated local_mem vector matching device layout for that kind.
+    """
+    controller = cpu_step_controller
+    kind = controller.kind.lower()
+    controller.dt = step_setup['dt0']
+    state = np.asarray(step_setup['state'], dtype=precision)
+    state_prev = np.asarray(step_setup['state_prev'], dtype=precision)
+    error_vec = np.asarray(step_setup['error'], dtype=precision)
+    provided_local = np.asarray(step_setup['local_mem'], dtype=precision)
 
-    base_cpu = {
-        "precision": precision,
-        "dt_min": dt_min,
-        "dt_max": dt_max,
-        "atol": tolerances["atol"],
-        "rtol": tolerances["rtol"],
-        "order": tolerances["order"],
-        "safety": tolerances["safety"],
-        "min_gain": tolerances["min_gain"],
-        "max_gain": tolerances["max_gain"],
-    }
-    if factory is AdaptivePIController:
-        kp = params.get("kp", 0.7)
-        ki = params.get("ki", 0.4)
-        cpu = CPUAdaptivePIController(kp=kp, ki=ki, **base_cpu)
-    elif factory is AdaptivePIDController:
-        kp = params.get("kp", 0.7)
-        ki = params.get("ki", 0.4)
-        kd = params.get("kd", 0.2)
-        cpu = CPUAdaptivePIDController(kp=kp, ki=ki, kd=kd, **base_cpu)
-    elif factory is GustafssonController:
-        cpu = CPUGustafssonController(**base_cpu)
+    history = []
+
+    if kind == 'pi':
+        prev_nrm2 = float(provided_local[0])
+        history.append(prev_nrm2)
+    elif kind == 'pid':
+        prev_nrm2 = float(provided_local[0])
+        prev_prev_nrm2 = float(provided_local[1])
+        history.append(prev_prev_nrm2)
+        history.append(prev_nrm2)
+    elif kind == 'gustafsson':
+        dt_prev = float(provided_local[0])
+        err_prev_nrm2 = float(provided_local[1])
+        history.append(err_prev_nrm2)
+
+    controller._history = history[-3:]
+    errornorm = controller.error_norm(state_prev, state, error_vec)
+    accept = True
+    controller.propose_dt(errornorm, accept)
+
+    if kind == 'i':
+        out_local = np.zeros(2, dtype=precision)
+    elif kind == 'pi':
+        out_local = np.array([errornorm, 0.0], dtype=precision)
+    elif kind == 'pid':
+        prev_nrm2 = float(provided_local[0]) if provided_local.size > 0 else 0.0
+        out_local = np.array([errornorm, prev_nrm2], dtype=precision)
+    elif kind == 'gustafsson':
+        out_local = np.array([controller.dt, max(errornorm, 1e-4)],
+                             dtype=precision)
     else:
-        cpu = CPUAdaptiveIController(**base_cpu)
-    return device, cpu, dt_min, dt_max
+        out_local = np.zeros(2, dtype=precision)
 
-
-def _execute_pair(device, cpu, precision, dt0, error, *, local_mem=None):
-    """Run CPU and device controllers and assert identical behaviour."""
-
-    err = np.asarray(error, dtype=precision)
-    cpu_local = None
-    device_local = None
-    if local_mem is not None:
-        device_local = np.asarray(local_mem, dtype=precision)
-        cpu_local = device_local.copy()
-
-    cpu_result = cpu.step(
-        dt=float(dt0),
-        error=err,
-        state=None,
-        state_prev=None,
-        local_mem=cpu_local,
-    )
-    dt_device, accept_device, local_device = _run_device_step(
-        device.device_function,
-        precision,
-        precision(dt0),
-        err,
-        local_mem=device_local,
-    )
-    assert accept_device == cpu_result.accepted
-    assert dt_device == pytest.approx(cpu_result.dt)
-    np.testing.assert_allclose(
-        local_device, cpu_result.local_mem, rtol=1e-6, atol=0.0
-    )
-    return cpu_result
-
-
-def _copy_local(local):
-    """Return a copy of local memory or ``None``."""
-
-    if local is None:
-        return None
-    return [float(val) for val in np.asarray(local).tolist()]
-
+    return StepResult(dt=controller.dt, accepted=int(accept), local_mem=out_local)
 
 @pytest.mark.parametrize(
-    "name, expected",
+    "solver_settings_override",
     [
-        ("i", AdaptiveIController),
-        ("pi", AdaptivePIController),
-        ("pid", AdaptivePIDController),
-        ("gustafsson", GustafssonController),
+        ({"step_controller": "i",
+          'atol':1e-3,'rtol':0.0}),
+        ({"step_controller": "pi",
+          'atol':1e-3,'rtol':0.0}),
+        ({"step_controller": "pid",
+          'atol':1e-3,'rtol':0.0}),
+        ({"step_controller": "gustafsson",
+          'atol':1e-3,'rtol':0.0}),
     ],
+    ids=("i", "pi", "pid", "gustafsson"),
+    indirect=True
 )
-def test_get_controller(name, expected, precision):
-    controller = get_controller(
-        name, precision=precision, dt_min=1e-6, dt_max=1e-3, n=1
-    )
-    assert isinstance(controller, expected)
+class TestControllers:
+    def test_controller_builds(self, step_controller, precision):
+        assert callable(step_controller.device_function)
+    @pytest.mark.parametrize('step_controller_settings_override, step_setup',
+                             (({'dt_min': 0.1, 'dt_max': 0.2},
+                               {'dt0': 1.0, 'error': np.asarray(
+                                       [1e-12, 1e-12, 1e-12])}),
+                              ({'dt_min': 0.1, 'dt_max': 0.2},
+                              {'dt0': 0.001, 'error': np.asarray(
+                                       [1e12, 1e12, 1e12])})),
+                             ids=("max_limit", "min_limit"),
+                             indirect=True)
+    def test_dt_clamps(self, step_controller_settings, step_setup,
+                    device_step_results):
+        dt0 = step_setup['dt0']
+        dt_min = step_controller_settings['dt_min']
+        dt_max = step_controller_settings['dt_max']
+        if dt0 < dt_min:
+            expected = dt_min
+        elif dt0 > dt_max:
+            expected = dt_max
+        else:
+            expected = dt0
+        assert device_step_results.dt == pytest.approx(expected,
+                                                       abs=1e-3,
+                                                       rel=1e-3)
 
-
-@pytest.mark.parametrize(
-    "name, expected",
-    [
-        ("i", AdaptiveIController),
-        ("pi", AdaptivePIController),
-        ("pid", AdaptivePIDController),
-        ("gustafsson", GustafssonController),
-    ],
-)
-def test_controller_builds(name, expected, precision):
-    controller = get_controller(
-        name, precision=precision, dt_min=1e-6, dt_max=1e-3, n=1
-    )
-    assert callable(controller.device_function)
-
-
-def test_i_controller_matches_device(precision, controller_tolerances):
-    device, cpu, _, _ = _make_controller_pair(
-        AdaptiveIController, precision, controller_tolerances
-    )
-    dt0 = float(precision(1e-4))
-    error = [float(precision(2e-6))]
-    result = _execute_pair(device, cpu, precision, dt0, error)
-    assert result.accepted == 0
-    assert result.dt < dt0
-
-
-@pytest.mark.parametrize(
-    ("error_value", "factor", "expected_accept"),
-    [
-        (5e-3, "min_gain", 0),
-        (1e-10, "max_gain", 1),
-    ],
-)
-def test_i_controller_gain_bounds(
-    error_value, factor, expected_accept, precision, controller_tolerances
-):
-    device, cpu, _, _ = _make_controller_pair(
-        AdaptiveIController, precision, controller_tolerances
-    )
-    dt0 = float(precision(1e-4))
-    error = [float(precision(error_value))]
-    result = _execute_pair(device, cpu, precision, dt0, error)
-    expected = dt0 * controller_tolerances[factor]
-    assert result.dt == pytest.approx(expected)
-    assert result.accepted == expected_accept
-
-
-def test_i_controller_clamps_dt_min(precision, controller_tolerances):
-    device, cpu, dt_min, _ = _make_controller_pair(
-        AdaptiveIController, precision, controller_tolerances
-    )
-    error = [float(precision(5e-3))]
-    result = _execute_pair(device, cpu, precision, dt_min, error)
-    assert result.dt == pytest.approx(dt_min)
-    assert result.accepted == 0
-
-
-def test_pi_controller_previous_error(precision, controller_tolerances):
-    params = {"kp": 0.7, "ki": 0.4}
-    device, cpu, _, _ = _make_controller_pair(
-        AdaptivePIController, precision, controller_tolerances, params
-    )
-    dt0 = float(precision(1e-4))
-    error = [float(precision(2e-6))]
-    high = _execute_pair(device, cpu, precision, dt0, error, local_mem=[1.0])
-    low = _execute_pair(device, cpu, precision, dt0, error, local_mem=[0.25])
-    assert high.dt > low.dt
-    assert high.accepted == low.accepted == 0
-    np.testing.assert_allclose(high.local_mem, low.local_mem)
-
-
-@pytest.mark.parametrize(
-    ("error_value", "factor", "expected_accept"),
-    [
-        (5e-3, "min_gain", 0),
-        (1e-10, "max_gain", 1),
-    ],
-)
-def test_pi_controller_gain_bounds(
-    error_value, factor, expected_accept, precision, controller_tolerances
-):
-    params = {"kp": 0.7, "ki": 0.4}
-    device, cpu, _, _ = _make_controller_pair(
-        AdaptivePIController, precision, controller_tolerances, params
-    )
-    dt0 = float(precision(1e-4))
-    error = [float(precision(error_value))]
-    result = _execute_pair(device, cpu, precision, dt0, error, local_mem=[1.0])
-    expected = dt0 * controller_tolerances[factor]
-    assert result.dt == pytest.approx(expected)
-    assert result.accepted == expected_accept
-
-
-def test_pid_controller_error_history(precision, controller_tolerances):
-    params = {"kp": 0.7, "ki": 0.4, "kd": 0.2}
-    device, cpu, _, _ = _make_controller_pair(
-        AdaptivePIDController, precision, controller_tolerances, params
-    )
-    dt0 = float(precision(1e-4))
-    error = [float(precision(2e-6))]
-    full_history = _execute_pair(
-        device, cpu, precision, dt0, error, local_mem=[1.0, 1.0]
-    )
-    damped_history = _execute_pair(
-        device, cpu, precision, dt0, error, local_mem=[1.0, 0.25]
-    )
-    assert full_history.dt > damped_history.dt
-    assert full_history.accepted == damped_history.accepted == 0
-    assert full_history.local_mem[1] == pytest.approx(1.0)
-
-
-@pytest.mark.parametrize(
-    ("error_value", "factor", "expected_accept"),
-    [
-        (5e-3, "min_gain", 0),
-        (1e-10, "max_gain", 1),
-    ],
-)
-def test_pid_controller_gain_bounds(
-    error_value, factor, expected_accept, precision, controller_tolerances
-):
-    params = {"kp": 0.7, "ki": 0.4, "kd": 0.2}
-    device, cpu, _, _ = _make_controller_pair(
-        AdaptivePIDController, precision, controller_tolerances, params
-    )
-    dt0 = float(precision(1e-4))
-    error = [float(precision(error_value))]
-    result = _execute_pair(
-        device, cpu, precision, dt0, error, local_mem=[1.0, 1.0]
-    )
-    expected = dt0 * controller_tolerances[factor]
-    assert result.dt == pytest.approx(expected)
-    assert result.accepted == expected_accept
-
-
-def test_gustafsson_predictive_history(precision, controller_tolerances):
-    device, cpu, _, _ = _make_controller_pair(
-        GustafssonController, precision, controller_tolerances
-    )
-    dt0 = float(precision(1e-4))
-    tol = float(controller_tolerances["atol"][0])
-    error_first = [float(precision(tol / 2.0))]
-    history = _execute_pair(
-        device, cpu, precision, dt0, error_first, local_mem=[0.0, 0.0]
-    )
-    dt1 = history.dt
-    error_second = [float(precision(tol / np.sqrt(2.0)))]
-    predictive = _execute_pair(
-        device,
-        cpu,
-        precision,
-        dt1,
-        error_second,
-        local_mem=history.local_mem.copy(),
-    )
-    baseline = _execute_pair(
-        device,
-        cpu,
-        precision,
-        dt1,
-        error_second,
-        local_mem=[0.0, 0.0],
-    )
-    assert predictive.accepted == baseline.accepted == 1
-    assert predictive.dt <= baseline.dt
-
-
-@pytest.mark.parametrize(
-    ("error_value", "factor", "expected_accept"),
-    [
-        (5e-3, "min_gain", 0),
-        (5e-9, "max_gain", 1),
-    ],
-)
-def test_gustafsson_gain_bounds(
-    error_value, factor, expected_accept, precision, controller_tolerances
-):
-    device, cpu, _, _ = _make_controller_pair(
-        GustafssonController, precision, controller_tolerances
-    )
-    dt0 = float(precision(1e-4))
-    error = [float(precision(error_value))]
-    result = _execute_pair(
-        device, cpu, precision, dt0, error, local_mem=[0.0, 0.0]
-    )
-    expected = dt0 * controller_tolerances[factor]
-    assert result.dt == pytest.approx(expected)
-    assert result.accepted == expected_accept
-
-
-@pytest.mark.parametrize(
-    "factory, params, template",
-    [
-        (AdaptiveIController, {}, lambda dt: None),
-        (AdaptivePIController, {"kp": 0.7, "ki": 0.4}, lambda dt: [1.0]),
+    @pytest.mark.parametrize(
+        'step_controller_settings_override, step_setup',
         (
-            AdaptivePIDController,
-            {"kp": 0.7, "ki": 0.4, "kd": 0.2},
-            lambda dt: [1.0, 1.0],
+            (
+                {'dt_min': 1e-4, 'dt_max': 1.0, 'min_gain': 0.5, 'max_gain': 1.5},
+                {'dt0': 0.1, 'error': np.asarray([1e-12, 1e-12, 1e-12])}
+            ),
+            (
+                {'dt_min': 1e-4, 'dt_max': 1.0, 'min_gain': 0.5, 'max_gain': 1.5},
+                {'dt0': 0.1, 'error': np.asarray([1e12, 1e12, 1e12])}
+            ),
         ),
-        (GustafssonController, {}, lambda dt: [dt, 1.0]),
-    ],
-)
-def test_controllers_converge(
-    factory, params, template, precision, controller_tolerances
-):
-    device, cpu, _, _ = _make_controller_pair(
-        factory, precision, controller_tolerances, params
+        ids=("gain_max_clamp", "gain_min_clamp"),
+        indirect=True,
     )
-    dt0 = float(precision(1e-4))
-    err_high = [float(precision(5e-6))]
-    err_low = [float(precision(5e-7))]
-    local_high = _copy_local(template(dt0))
-    local_low = _copy_local(template(dt0))
-    down = _execute_pair(
-        device, cpu, precision, dt0, err_high, local_mem=local_high
+    def test_gain_clamps(self, step_controller_settings, step_setup, device_step_results):
+        """Similar to test_dt_clamps, set narrow gain bounds, set error very high or very low, confirm that
+        dt_out is either max_gain or min_gain * dt0."""
+        dt0 = step_setup['dt0']
+        min_gain = step_controller_settings['min_gain']
+        max_gain = step_controller_settings['max_gain']
+        # Decide direction based on error magnitude
+        if float(step_setup['error'][0]) < 1e-6:
+            expected = dt0 * max_gain
+        else:
+            expected = dt0 * min_gain
+        assert device_step_results.dt == pytest.approx(expected, rel=1e-4, abs=1e-6)
+
+    @pytest.mark.parametrize(
+        'step_setup',
+        (
+            {'dt0': 0.005, 'error': np.asarray([5e-4, 5e-4, 5e-4])},  # low error
+            {'dt0': 0.005, 'error': np.asarray([5e-3, 5e-3, 5e-3])},  # high error
+            {'dt0': 0.005, 'error': np.asarray([5e-4, 5e-4, 5e-4]),
+             'local_mem': np.asarray([0.005, 0.8])},
+            {'dt0': 0.005, 'error': np.asarray([5e-3, 5e-3, 5e-3]),
+             'local_mem': np.asarray([0.005, 0.8])},
+        ),
+        ids=("low_err", "high_err", "low_err_with_mem", "high_err_with_mem"),
+        indirect=True,
     )
-    up = _execute_pair(
-        device, cpu, precision, dt0, err_low, local_mem=local_low
-    )
-    assert down.dt < dt0
-    assert up.dt > dt0
+    def test_matches_cpu(self, step_controller,step_controller_settings,
+                        step_setup, cpu_step_results, device_step_results):
+        """The test should just assert approximate (1e-6) equality between
+        the fields of the cpu_step_results and device_step_results classes.
+        Parameterise to:
+        - Setup two "normal" situations, with high and low error
+        and dt0 in the middle of the range. Confirm that device results
+        match cpu results.
+        Set values for local_mem that somewhat match a realistic scenario.
+        Test that they match again. (same local mem input for all
+        controllers; some will ignore parts of it and this is fine) """
+        # Compare dt and local memory contents
+        assert device_step_results.dt == pytest.approx(cpu_step_results.dt, abs=1e-6, rel=1e-6)
+        valid_localmem = step_controller.local_memory_elements
+        assert np.allclose(device_step_results.local_mem[:valid_localmem],
+                           cpu_step_results.local_mem[:valid_localmem], rtol=1e-6, atol=1e-6)

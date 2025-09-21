@@ -100,9 +100,10 @@ class AdaptiveIController(BaseAdaptiveStepController):
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
-                nrm2 += (tol*tol) / (error[i]*error[i])
+                nrm2 += (tol * tol) / (error[i] * error[i])
 
-            accept = (nrm2 / n) >= precision(1.0)
+            nrm2 = precision(nrm2/n)
+            accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
 
             gaintmp = safety * (nrm2 ** order_exponent)
@@ -116,4 +117,4 @@ class AdaptiveIController(BaseAdaptiveStepController):
             return ret
 
         return controller_I
-   
+
