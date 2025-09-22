@@ -34,28 +34,9 @@ from tests.system_fixtures import (
 )
 
 
-@pytest.fixture(scope="function", autouse=True)
-def codegen_dir():
-    """Redirect code generation to a temporary directory for the whole session.
-
-    Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
-    removed automatically between parameterized test cases. Remove the
-    directory at session teardown.
-    """
-    import tempfile
-    import shutil
-    from cubie.odesystems.symbolic import odefile
-
-    gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
-    mp = MonkeyPatch()
-    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
-    try:
-        yield gen_dir
-    finally:
-        # restore original attribute and remove temporary dir
-        mp.undo()
-        shutil.rmtree(gen_dir, ignore_errors=True)
-
+# ========================================
+# SETTINGS DICTS (override -> fixture -> override -> fixture)
+# ========================================
 
 @pytest.fixture(scope="function")
 def precision_override(request):
@@ -115,30 +96,41 @@ def system(request, system_override, precision):
 
 
 @pytest.fixture(scope="function")
-def output_functions(solver_settings, system):
-    # Merge the default config with any overrides
-
-    outputfunctions = OutputFunctions(
-        system.sizes.states,
-        system.sizes.parameters,
-        solver_settings["output_types"],
-        solver_settings["saved_state_indices"],
-        solver_settings["saved_observable_indices"],
-        solver_settings["summarised_state_indices"],
-        solver_settings["summarised_observable_indices"],
-    )
-    return outputfunctions
-
-@pytest.fixture(scope="function")
 def loop_compile_settings_overrides(request):
     """Parametrize this fixture indirectly to change compile settings, no need to request this fixture directly
     unless you're testing that it worked."""
     return request.param if hasattr(request, "param") else {}
 
+
+@pytest.fixture(scope="function")
+def loop_compile_settings(request, system, loop_compile_settings_overrides):
+    """
+    Create a dictionary of compile settings for the loop function.
+    This is the fixture your test should use - if you want to change the compile settings, indirectly parametrize the
+    compile_settings_overrides fixture.
+    """
+    loop_compile_settings_dict = {
+        "dt_min": 0.01,
+        "dt_max": 1.0,
+        "dt_save": 0.1,
+        "dt_summarise": 0.2,
+        "atol": 1e-6,
+        "rtol": 1e-6,
+        "saved_state_indices": [0, 1],
+        "saved_observable_indices": [0, 1],
+        "summarised_state_indices": [0, 1],
+        "summarised_observable_indices": [0, 1],
+        "output_functions": ["state"],
+    }
+    loop_compile_settings_dict.update(loop_compile_settings_overrides)
+    return loop_compile_settings_dict
+
+
 @pytest.fixture(scope="function")
 def solver_settings_override(request):
     """Override for solver settings, if provided."""
     return request.param if hasattr(request, "param") else {}
+
 
 @pytest.fixture(scope="function")
 def solver_settings(
@@ -209,6 +201,80 @@ def implicit_step_settings(solver_settings, implicit_step_settings_override):
 
 
 @pytest.fixture(scope="function")
+def step_controller_settings_override(request):
+    """Override dictionary for the step controller configuration."""
+
+    return request.param if hasattr(request, "param") else {}
+
+
+@pytest.fixture(scope="function")
+def step_controller_settings(
+    solver_settings, system, step_controller_settings_override
+):
+    """Base configuration used to instantiate loop step controllers."""
+
+    defaults = {
+        "kind": solver_settings["step_controller"].lower(),
+        "dt": solver_settings["dt_min"],
+        "dt_min": solver_settings["dt_min"],
+        "dt_max": solver_settings["dt_max"],
+        "atol": solver_settings["atol"],
+        "rtol": solver_settings["rtol"],
+        "order": 1,
+        "n": system.sizes.states,
+        "kp": 0.6,
+        "ki": 0.4,
+        "kd": 0.1,
+    }
+    overrides = {**step_controller_settings_override}
+    defaults.update(overrides)
+    return defaults
+
+
+# ========================================
+# OBJECT FIXTURES
+# ========================================
+
+@pytest.fixture(scope="function", autouse=True)
+def codegen_dir():
+    """Redirect code generation to a temporary directory for the whole session.
+
+    Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
+    removed automatically between parameterized test cases. Remove the
+    directory at session teardown.
+    """
+    import tempfile
+    import shutil
+    from cubie.odesystems.symbolic import odefile
+
+    gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
+    mp = MonkeyPatch()
+    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
+    try:
+        yield gen_dir
+    finally:
+        # restore original attribute and remove temporary dir
+        mp.undo()
+        shutil.rmtree(gen_dir, ignore_errors=True)
+
+
+@pytest.fixture(scope="function")
+def output_functions(solver_settings, system):
+    # Merge the default config with any overrides
+
+    outputfunctions = OutputFunctions(
+        system.sizes.states,
+        system.sizes.parameters,
+        solver_settings["output_types"],
+        solver_settings["saved_state_indices"],
+        solver_settings["saved_observable_indices"],
+        solver_settings["summarised_state_indices"],
+        solver_settings["summarised_observable_indices"],
+    )
+    return outputfunctions
+
+
+@pytest.fixture(scope="function")
 def solverkernel(solver_settings, system):
     return BatchSolverKernel(
         system,
@@ -252,76 +318,6 @@ def solver(system, solver_settings):
         stream_group=solver_settings["stream_group"],
         mem_proportion=solver_settings["mem_proportion"],
     )
-
-
-@pytest.fixture(scope="function")
-def loop_compile_settings(request, system, loop_compile_settings_overrides):
-    """
-    Create a dictionary of compile settings for the loop function.
-    This is the fixture your test should use - if you want to change the compile settings, indirectly parametrize the
-    compile_settings_overrides fixture.
-    """
-    loop_compile_settings_dict = {
-        "dt_min": 0.01,
-        "dt_max": 1.0,
-        "dt_save": 0.1,
-        "dt_summarise": 0.2,
-        "atol": 1e-6,
-        "rtol": 1e-6,
-        "saved_state_indices": [0, 1],
-        "saved_observable_indices": [0, 1],
-        "summarised_state_indices": [0, 1],
-        "summarised_observable_indices": [0, 1],
-        "output_functions": ["state"],
-    }
-    loop_compile_settings_dict.update(loop_compile_settings_overrides)
-    return loop_compile_settings_dict
-
-
-@pytest.fixture(scope="function")
-def initial_state(system, precision):
-    """Return a copy of the system's initial state vector."""
-
-    return system.initial_values.values_array.astype(precision, copy=True)
-
-
-@pytest.fixture(scope="function")
-def loop_buffer_sizes(system, output_functions):
-    """Loop buffer sizes derived from the system and output configuration."""
-
-    return LoopBufferSizes.from_system_and_output_fns(system, output_functions)
-
-
-@pytest.fixture(scope="function")
-def step_controller_settings_override(request):
-    """Override dictionary for the step controller configuration."""
-
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def step_controller_settings(
-    solver_settings, system, step_controller_settings_override
-):
-    """Base configuration used to instantiate loop step controllers."""
-
-    defaults = {
-        "kind": solver_settings["step_controller"].lower(),
-        "dt": solver_settings["dt_min"],
-        "dt_min": solver_settings["dt_min"],
-        "dt_max": solver_settings["dt_max"],
-        "atol": solver_settings["atol"],
-        "rtol": solver_settings["rtol"],
-        "order": 1,
-        "n": system.sizes.states,
-        "kp": 0.6,
-        "ki": 0.4,
-        "kd": 0.1,
-    }
-    overrides = {**step_controller_settings_override}
-    defaults.update(overrides)
-    return defaults
-
 
 
 @pytest.fixture(scope="function")
@@ -471,6 +467,29 @@ def cpu_step_controller(precision, step_controller_settings):
 
     return controller
 
+
+# ========================================
+# INPUT FIXTURES
+# ========================================
+
+@pytest.fixture(scope="function")
+def initial_state(system, precision):
+    """Return a copy of the system's initial state vector."""
+
+    return system.initial_values.values_array.astype(precision, copy=True)
+
+
+@pytest.fixture(scope="function")
+def loop_buffer_sizes(system, output_functions):
+    """Loop buffer sizes derived from the system and output configuration."""
+
+    return LoopBufferSizes.from_system_and_output_fns(system, output_functions)
+
+
+# ========================================
+# COMPUTED OUTPUT FIXTURES
+# ========================================
+
 @pytest.fixture(scope="function")
 def cpu_loop_outputs(
     system,
@@ -505,6 +524,7 @@ def cpu_loop_outputs(
         step_controller_settings=step_controller_settings,
     )
 
+
 @pytest.fixture(scope="function")
 def device_loop_outputs(
     loop,
@@ -523,5 +543,3 @@ def device_loop_outputs(
         output_functions=output_functions,
         solver_config=solver_settings,
     )
-
-
