@@ -118,8 +118,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
         safety: float,
     ) -> Callable:
         """Create the device function for the PI controller."""
-        kp = precision(self.kp / (order + 1))
-        ki = precision(self.ki / (order + 1))
+        kp = precision(self.kp / ((order + 1) * 2))
+        ki = precision(self.ki / ((order + 1) * 2))
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(device=True, inline=True, fastmath=True)
@@ -140,9 +140,9 @@ class AdaptivePIController(BaseAdaptiveStepController):
             accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
 
-            pgain = precision(nrm2 ** (kp / 2))
+            pgain = precision(nrm2 ** (kp))
             # Handle uninitialized err_prev by using current error as fallback
-            igain = precision((err_prev if err_prev > precision(0.0) else nrm2) ** (ki / 2))
+            igain = precision((err_prev if err_prev > precision(0.0) else nrm2) ** (ki))
             gain_new = safety * pgain * igain
             gain = clamp(gain_new, max_gain, min_gain)
 

@@ -182,12 +182,13 @@ class IVPLoop(CUDAFactory):
             settling_time,
             t0 = precision(0.0),
         ):
-            # Cap max iterations - all internal algorithms_ plus a bonus end/start
+            # Cap max iterations - all internal steps at dt_min, plus a bonus
+            # end/start, plus two failures per successful step.
             t = precision(t0)
             t_end = precision(settling_time + duration)
             max_steps =  (int32(
                           ceil(t_end / max(dt_min, precision(1e-16))))
-                          + int32(2)) * 2
+                          + int32(2)) * 3
             n_output_samples = max(state_output.shape[0],
                                    observables_output.shape[0])
 

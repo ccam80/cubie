@@ -89,8 +89,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            # calculate and save observables (wastes some compute)
-            obs_fn(state, parameters, drivers, observables)
+
 
             # Initialize proposed state
             for i in range(n):
@@ -120,7 +119,10 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             # Solve Backward Euler step for error estimation (start from CN solution)
             for i in range(n):
-                be_state[i] = proposed_state[i]  # Use CN solution as initial guess instead of state[i]
+                be_state[i] = proposed_state[i]
+
+            # calculate and save observables (wastes some compute)
+            obs_fn(proposed_state, parameters, drivers, observables)
 
             status |= solver_fn(
                 be_state,

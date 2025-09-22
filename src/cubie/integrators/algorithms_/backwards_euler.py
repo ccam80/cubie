@@ -36,7 +36,6 @@ class BackwardsEulerStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
-            norm_type="hairer",
             preconditioner_order=preconditioner_order,
             linsolve_tolerance=linsolve_tolerance,
             max_linear_iters=max_linear_iters,
@@ -87,8 +86,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            #calculate and save observables (wastes some compute)
-            obs_fn(state, parameters, drivers, observables)
+
 
             for i in range(n):
                 proposed_state[i] = state[i]
@@ -108,6 +106,9 @@ class BackwardsEulerStep(ODEImplicitStep):
                 z,
                 error,
             )
+
+            # calculate and save observables (wastes some compute)
+            obs_fn(proposed_state, parameters, drivers, observables)
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)
@@ -118,8 +119,7 @@ class BackwardsEulerStep(ODEImplicitStep):
 
     @property
     def shared_memory_required(self) -> int:  # pragma: no cover - simple
-        # 4 work vectors = 4*n. All reusable; no kept state.
-        return 4 * self.compile_settings.n
+        return 0
 
     @property
     def local_scratch_required(self) -> int:  # pragma: no cover - simple

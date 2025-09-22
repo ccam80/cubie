@@ -23,7 +23,8 @@ from cubie.outputhandling.output_sizes import LoopBufferSizes
 from tests.integrators.cpu_reference import (CPUODESystem,
                                               run_reference_loop, \
     CPUAdaptiveController)
-from tests.integrators.loops.ODELoopTester import Array, _driver_sequence
+from tests._utils import run_device_loop, _driver_sequence
+from tests.integrators.loops.test_ode_loop import Array
 from tests.system_fixtures import (
     build_large_nonlinear_system,
     build_three_chamber_system,
@@ -120,7 +121,7 @@ def output_functions(solver_settings, system):
     outputfunctions = OutputFunctions(
         system.sizes.states,
         system.sizes.parameters,
-        solver_settings["output_functions"],
+        solver_settings["output_types"],
         solver_settings["saved_state_indices"],
         solver_settings["saved_observable_indices"],
         solver_settings["summarised_state_indices"],
@@ -194,14 +195,14 @@ def implicit_step_settings(solver_settings, implicit_step_settings_override):
     defaults = {
         "atol": solver_settings['atol'],
         "rtol": solver_settings['rtol'],
-        "linear_tolerance": 1e-3,
+        "linear_tolerance": 1e-6,
         "correction_type": 'minimal_residual',
-        "nonlinear_tolerance": 1e-3,
+        "nonlinear_tolerance": 1e-6,
         'preconditioner_order': 1,
         "max_linear_iters": 100,
         "max_newton_iters": 100,
         "newton_damping": 0.5,
-        "newton_max_backtracks": 10
+        "newton_max_backtracks": 25
     }
     defaults.update(implicit_step_settings_override)
     return defaults
@@ -261,12 +262,12 @@ def loop_compile_settings(request, system, loop_compile_settings_overrides):
     compile_settings_overrides fixture.
     """
     loop_compile_settings_dict = {
-        "dt_min": 0.001,
-        "dt_max": 0.01,
-        "dt_save": 0.01,
-        "dt_summarise": 0.1,
+        "dt_min": 0.01,
+        "dt_max": 1.0,
+        "dt_save": 0.1,
+        "dt_summarise": 0.2,
         "atol": 1e-6,
-        "rtol": 1e-3,
+        "rtol": 1e-6,
         "saved_state_indices": [0, 1],
         "saved_observable_indices": [0, 1],
         "summarised_state_indices": [0, 1],
@@ -314,7 +315,7 @@ def step_controller_settings(
         "order": 1,
         "n": system.sizes.states,
         "kp": 0.6,
-        "ki": 0.3,
+        "ki": 0.4,
         "kd": 0.1,
     }
     overrides = {**step_controller_settings_override}
@@ -471,11 +472,12 @@ def cpu_step_controller(precision, step_controller_settings):
     return controller
 
 @pytest.fixture(scope="function")
-def cpu_reference_outputs(
+def cpu_loop_outputs(
     system,
     cpu_system,
     precision,
     cpu_step_controller,
+    implicit_step_settings,
     initial_state,
     solver_settings,
     step_controller_settings,
@@ -497,7 +499,29 @@ def cpu_reference_outputs(
         evaluator=cpu_system,
         inputs=inputs,
         solver_settings=solver_settings,
+        implicit_step_settings=implicit_step_settings,
         controller=cpu_step_controller,
         output_functions=output_functions,
         step_controller_settings=step_controller_settings,
     )
+
+@pytest.fixture(scope="function")
+def device_loop_outputs(
+    loop,
+    system,
+    initial_state,
+    solver_settings,
+    step_controller_settings,
+    output_functions,
+    cpu_system,
+):
+    """Execute the device loop with the provided configuration."""
+    return  run_device_loop(
+        loop=loop,
+        system=system,
+        initial_state=initial_state,
+        output_functions=output_functions,
+        solver_config=solver_settings,
+    )
+
+

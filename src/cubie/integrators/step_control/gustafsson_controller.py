@@ -10,6 +10,7 @@ from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
 
+# FIXME: This isn't gustafsson at all - that needs number of iterations. '
 
 class GustafssonController(BaseAdaptiveStepController):
     """Adaptive controller using Gustafsson acceleration."""
@@ -81,6 +82,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
             nrm2 = precision(nrm2/n)
             accept = nrm2 >= precision(1.0)
+            accept_out[0] = int32(1) if accept else int32(0)
             gain_basic = precision(safety * (nrm2 ** expo))
             if accept and dt_prev > precision(0.0) and err_prev > precision(0.0):
                 ratio = nrm2 / err_prev

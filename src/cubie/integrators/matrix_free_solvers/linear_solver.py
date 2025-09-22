@@ -192,7 +192,7 @@ def linear_solver_factory(
             #return once all threads in warp have converged
             if all_sync(mask, converged):
                 return int32(0)
-
+        # max_iters exceeded without finding a solution
         return int32(4)
     # no cover: end
     return linear_solver

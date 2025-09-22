@@ -15,9 +15,7 @@ outputs.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import partial
 from typing import Callable, Dict, Mapping, Sequence, Optional
-
 import numpy as np
 import sympy as sp
 from numpy.typing import NDArray
@@ -35,14 +33,14 @@ Array = NDArray[np.floating]
 def _ensure_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
     """Return ``vector`` as a one-dimensional array with the desired dtype."""
 
-    array = np.asarray(vector, dtype=dtype)
+    array = np.atleast_1d(vector).astype(dtype)
     if array.ndim != 1:
         raise ValueError("Expected a one-dimensional array of samples.")
     return array
 
 
 class CPUODESystem():
-    """Evaluator for symbolic systems using SymPy expressions directly."""
+    """Evaluator for symbolic systems using compiled numerical functions."""
 
     def __init__(self, system: SymbolicODE) -> None:
         self.system = system
@@ -70,22 +68,120 @@ class CPUODESystem():
             self._dx_index,
         )
 
-    def _subs_dict(
+        # Precompile expressions for fast numerical evaluation
+        self._compile_expressions()
+
+    def _compile_expressions(self) -> None:
+        """Compile symbolic expressions into fast numerical functions using lambdify."""
+        # Create symbol-to-value mapping for easy lookup
+        self._symbol_to_index = {}
+
+        # Add state variables
+        for symbol, index in self._state_index.items():
+            self._symbol_to_index[symbol] = ('state', index)
+
+        # Add parameters
+        for symbol, index in self._parameter_index.items():
+            self._symbol_to_index[symbol] = ('param', index)
+
+        # Add constants
+        for symbol, index in self._constant_index.items():
+            self._symbol_to_index[symbol] = ('const', index)
+
+        # Add drivers
+        for symbol, index in self._driver_index.items():
+            self._symbol_to_index[symbol] = ('driver', index)
+
+        # Compile each equation's RHS with only the symbols it depends on
+        self._compiled_equations = []
+        self._equation_targets = []
+        self._equation_symbols = []  # Track which symbols each equation needs
+
+        for lhs, rhs in self._equations:
+            # Find which symbols this expression actually uses
+            expr_symbols = list(rhs.free_symbols)
+
+            # Compile the RHS expression with only the symbols it needs
+            if expr_symbols:
+                compiled_fn = sp.lambdify(expr_symbols, rhs, modules=['numpy'])
+            else:
+                # Handle constant expressions
+                compiled_fn = lambda: float(rhs)
+
+            self._compiled_equations.append(compiled_fn)
+            self._equation_targets.append(lhs)
+            self._equation_symbols.append(expr_symbols)
+
+        # Compile jacobian if it exists
+        if self._jacobian_expr.shape[0] > 0:
+            jacobian_entries = []
+            jacobian_symbols = []
+            jac_rows, jac_cols = self._jacobian_expr.shape
+
+            for i in range(jac_rows):
+                row_entries = []
+                row_symbols = []
+                for j in range(jac_cols):
+                    expr = self._jacobian_expr[i, j]
+                    expr_syms = list(expr.free_symbols)
+                    if expr_syms:
+                        compiled_entry = sp.lambdify(expr_syms, expr, modules=['numpy'])
+                    else:
+                        compiled_entry = lambda: float(expr)
+                    row_entries.append(compiled_entry)
+                    row_symbols.append(expr_syms)
+                jacobian_entries.append(row_entries)
+                jacobian_symbols.append(row_symbols)
+
+            self._compiled_jacobian = jacobian_entries
+            self._jacobian_symbols = jacobian_symbols
+        else:
+            self._compiled_jacobian = []
+            self._jacobian_symbols = []
+
+    def _get_symbol_values(
             self,
             state: Array,
             params: Array,
-            drivers: Array
-        ) -> Dict[sp.Symbol, float]:
-        values: Dict[sp.Symbol, float] = {}
+            drivers: Array,
+            computed_values: dict
+        ) -> dict:
+        """Get current values for all symbols."""
+        drivers = _ensure_array(drivers, self.precision)
+
+        values = {}
+
+        # Add state values
         for symbol, index in self._state_index.items():
             values[symbol] = float(state[index])
+
+        # Add parameter values
         for symbol, index in self._parameter_index.items():
             values[symbol] = float(params[index])
+
+        # Add constant values
         for symbol, index in self._constant_index.items():
             values[symbol] = float(self.system.constants.values_array[index])
+
+        # Add driver values
         for symbol, index in self._driver_index.items():
             values[symbol] = float(drivers[index])
+
+        # Add computed intermediate values
+        values.update(computed_values)
+
         return values
+
+    def _prepare_args(
+            self,
+            symbols: list,
+            symbol_values: dict
+        ) -> tuple:
+        """Prepare arguments for a compiled function with specific symbols."""
+        args = []
+        for symbol in symbols:
+            args.append(symbol_values[symbol])
+        return tuple(args)
 
     def rhs(
             self,
@@ -93,26 +189,54 @@ class CPUODESystem():
             params: Array,
             drivers: Array
         ) -> tuple[Array, Array]:
-        subs = self._subs_dict(state, params, drivers)
         dxdt = self._state_template.copy()
         observables = self._observable_template.copy()
-        for lhs, rhs in self._equations:
-            value = float(rhs.evalf(subs=subs))
-            subs[lhs] = value
+
+        # Track computed intermediate values
+        computed_values = {}
+
+        # Evaluate each compiled equation
+        for i, (compiled_fn, lhs, expr_symbols) in enumerate(zip(
+            self._compiled_equations, self._equation_targets, self._equation_symbols
+        )):
+            # Get current symbol values including any computed intermediates
+            symbol_values = self._get_symbol_values(state, params, drivers, computed_values)
+
+            # Prepare arguments for this specific function
+            if expr_symbols:
+                args = self._prepare_args(expr_symbols, symbol_values)
+                value = float(compiled_fn(*args))
+            else:
+                # Constant expression
+                value = float(compiled_fn())
+
+            computed_values[lhs] = value
+
             if lhs in self._dx_index:
                 dxdt[self._dx_index[lhs]] = value
             elif lhs in self._observable_index:
                 observables[self._observable_index[lhs]] = value
-            else:  # auxiliary expression
-                continue
+            # auxiliary expressions are stored in computed_values for dependent equations
+
         return dxdt, observables
 
     def jacobian(self, state: Array, params: Array, drivers: Array) -> Array:
-        subs = self._subs_dict(state, params, drivers)
-        jacobian = np.array(self._jacobian_expr.evalf(subs=subs), dtype=self.precision)
+        if not self._compiled_jacobian:
+            return np.zeros((self.n_states, self.n_states), dtype=self.precision)
+
+        symbol_values = self._get_symbol_values(state, params, drivers, {})
+        jac_rows = len(self._compiled_jacobian)
+        jac_cols = len(self._compiled_jacobian[0]) if jac_rows > 0 else 0
+        jacobian = np.zeros((jac_rows, jac_cols), dtype=self.precision)
+
+        for i, (row, row_symbols) in enumerate(zip(self._compiled_jacobian, self._jacobian_symbols)):
+            for j, (compiled_entry, expr_symbols) in enumerate(zip(row, row_symbols)):
+                if expr_symbols:
+                    args = self._prepare_args(expr_symbols, symbol_values)
+                    jacobian[i, j] = float(compiled_entry(*args))
+                else:
+                    jacobian[i, j] = float(compiled_entry())
         return jacobian
-
-
 @dataclass
 class StepResult:
     """Container describing the outcome of a single integration step."""
@@ -131,6 +255,7 @@ def explicit_euler_step(
     drivers_next: Optional[Array] = None,
     dt: Optional[float] = None,
     tol: Optional[float] = None,
+    max_iters: Optional[int] = None,
 ) -> StepResult:
     """Explicit Euler integration step."""
 
@@ -151,7 +276,7 @@ def _newton_solve(
     """Solve ``residual(x) = 0`` using a dense Newton iteration."""
 
     state = initial_guess.astype(precision, copy=True)
-    for _ in range(max_iters):
+    for iteration in range(max_iters):
         res = residual(state)
         res_norm = np.linalg.norm(res, ord=np.inf)
         if res_norm < tol:
@@ -162,8 +287,6 @@ def _newton_solve(
         except np.linalg.LinAlgError:
             delta = np.linalg.lstsq(jac, -res, rcond=None)[0]
         state = state + delta.astype(precision)
-        if np.linalg.norm(delta, ord=np.inf) < tol:
-            return state, True
     return state, False
 
 
@@ -176,6 +299,7 @@ def backward_euler_step(
     dt: Optional[float] = None,
     tol: Optional[float] = None,
     initial_guess: Optional[Array] = None,
+    max_iters: int = 25,
 ) -> StepResult:
     """Backward Euler step solved via Newton iteration."""
 
@@ -196,7 +320,7 @@ def backward_euler_step(
         guess = np.asarray(initial_guess, dtype=precision).astype(
             precision, copy=True
         )
-    next_state, converged = _newton_solve(residual, jacobian, guess, precision, tol)
+    next_state, converged = _newton_solve(residual, jacobian, guess, precision, tol, max_iters)
     dxdt, observables = evaluator.rhs(next_state, params, drivers_next)
     error = np.zeros_like(next_state)
     return StepResult(next_state, observables, error, converged)
@@ -210,6 +334,7 @@ def crank_nicolson_step(
     drivers_next: Optional[Array] = None,
     dt: Optional[float] = None,
     tol: Optional[float] = None,
+    max_iters: int = 25,
 ) -> StepResult:
     """Crank–Nicolson step with embedded backward Euler for error estimation."""
 
@@ -226,12 +351,19 @@ def crank_nicolson_step(
         return identity - 0.5 * dt * jac
 
     guess = state.astype(precision, copy=True)
-    next_state, converged = _newton_solve(residual, jacobian, guess, precision, tol)
+    next_state, converged = _newton_solve(residual, jacobian, guess, precision, tol, max_iters)
     _, observables = evaluator.rhs(next_state, params, drivers_next)
 
     # Embedded backward Euler step for the error estimate
     be_result = backward_euler_step(
-        evaluator, state, params, drivers_next, dt, tol
+        evaluator=evaluator,
+        state=state,
+        params=params,
+        drivers_next=drivers_next,
+        dt=dt,
+        tol=tol,
+        initial_guess = next_state,
+        max_iters=max_iters
     )
     error = next_state - be_result.state
     return StepResult(next_state, observables, error, converged)
@@ -245,6 +377,7 @@ def backward_euler_predict_correct_step(
     drivers_next: Optional[Array] = None,
     dt: Optional[float] = None,
     tol: Optional[float] = None,
+    max_iters: int = 25,
 ) -> StepResult:
     """Predict with explicit Euler and correct with backward Euler."""
 
@@ -252,13 +385,14 @@ def backward_euler_predict_correct_step(
     f_now, _ = evaluator.rhs(state, params, drivers_now)
     predictor = state.astype(precision, copy=True) + dt * f_now
     return backward_euler_step(
-        evaluator,
-        state,
-        params,
-        drivers_next,
-        dt,
+        evaluator=evaluator,
+        state=state,
+        params=params,
+        drivers_next=drivers_next,
+        dt=dt,
         tol=tol,
         initial_guess=predictor,
+        max_iters=max_iters,
     )
 
 
@@ -311,8 +445,15 @@ class CPUAdaptiveController:
         self.kp = kp
         self.ki = ki
         self.kd = kd
-        self._history: list[float] = []
-        self._dt_history: list[float] = []
+        self._history: list[float] = [0.0, 0.0]
+        self._dt_history: list[float] = [0.0, 0.0]
+        self._step_count = 0
+        self._convergence_failed = False
+        # Track consecutive rejections at dt_min to decide true failure
+        self._rejections_at_dt_min = 0
+        # Device-style cached previous nrm2 and its inverse for PID/gustafsson
+        self._prev_nrm2 = 0.0
+        self._prev_inv_nrm2 = 0.0
 
     @property
     def is_adaptive(self) -> bool:
@@ -326,23 +467,43 @@ class CPUAdaptiveController:
             nrm2 = np.sum((scale * scale) / (error * error))
             norm = nrm2 / len(error)
         if not np.isfinite(norm):
-            norm = np.inf
+            norm = 1e5 #Arbitrarily big
         return float(norm)
 
     def propose_dt(self, error_estimate: float, accept: bool) -> None:
+        self._step_count += 1
+
         if not self.is_adaptive:
+            # print(f"[PID] Step #{self._step_count}: Fixed step size dt={self.dt:.6e}, error_norm={error_estimate:.2e}, ACCEPT")
             return
+
         gain = self._gain(error_estimate)
-        if accept:
-            self._history.append(max(error_estimate, 1e-16))
-            self._dt_history.append(self.dt)
-            if len(self._history) > 3:
-                self._history.pop(0)
-            if len(self._dt_history) > 2:
-                self._dt_history.pop(0)
-            self.dt = min(self.dt_max, max(self.dt_min, self.dt * gain))
-        else:
-            self.dt = max(self.dt_min, self.dt * min(gain, 1.0))
+        unclamped_dt = self.dt * gain
+
+        # Clamp
+        new_dt = min(self.dt_max, max(self.dt_min, unclamped_dt))
+        self.dt = new_dt
+
+        # Track dt floor rejections
+        if (not accept) and (new_dt <= self.dt_min + 1e-30):
+            self._rejections_at_dt_min += 1
+            if self._rejections_at_dt_min >= 8:
+                self._convergence_failed = True
+        elif accept:
+            self._rejections_at_dt_min = 0
+
+        # History for PI controller variants still kept
+        self._history.append(max(error_estimate, 1e-16))
+        if len(self._history) > 3:
+            self._history.pop(0)
+        self._dt_history.append(self.dt)
+        if len(self._dt_history) > 2:
+            self._dt_history.pop(0)
+
+        # Update device-style caches (used by PID/gustafsson branches)
+        if error_estimate > 0.0:
+            self._prev_inv_nrm2 = 1.0 / error_estimate
+            self._prev_nrm2 = error_estimate
 
     def _gain(self, error_estimate: float) -> float:
         if error_estimate <= 0.0:
@@ -356,65 +517,57 @@ class CPUAdaptiveController:
         elif self.kind == "pi":
             kp_exp = (self.kp / (self.order + 1.0)) / 2.0
             ki_exp = (self.ki / (self.order + 1.0)) / 2.0
-            prev = self._history[-1] if self._history[-1] > 0.0 else (
-                error_estimate)
+            prev = self._history[-1] if self._history[-1] > 0.0 else error_estimate
             gain = self.safety * (error_estimate ** kp_exp) * (prev ** ki_exp)
 
         elif self.kind == "pid":
-            prev = self._history[-1] if self._history[-1] > 0.0 else error_estimate
-            prev_prev = self._history[-2] if self._history[-2] > 0.0 else prev
+            # Device-aligned: gain = safety * (nrm2**kp) * (prev_nrm2**ki) * ((nrm2/prev_nrm2)**kd)
+            prev_nrm2 = self._prev_nrm2 if self._prev_nrm2 > 0.0 else error_estimate
+            prev_inv = self._prev_inv_nrm2 if self._prev_inv_nrm2 > 0.0 else (1.0 / error_estimate)
             kp_exp = self.kp / (2.0 * (self.order + 1.0))
             ki_exp = self.ki / (2.0 * (self.order + 1.0))
             kd_exp = self.kd / (2.0 * (self.order + 1.0))
+            ratio_term = error_estimate * prev_inv  # nrm2 / prev_nrm2
             gain = (
                 self.safety
                 * (error_estimate ** kp_exp)
-                * (prev ** ki_exp)
-                * (prev_prev ** kd_exp)
+                * (prev_nrm2 ** ki_exp)
+                * (ratio_term ** kd_exp)
             )
 
-        elif self.kind == "gustafsson":
-            # Device implementation with predictive acceleration
-            exponent = 1.0 / (2.0 * (self.order + 1.0))
-            gain_basic = self.safety * (error_estimate ** exponent)
-
-            if len(self._history) > 0 and len(self._dt_history) > 0:
-                prev = self._history[-1] if self._history[-1] > 0.0 else error_estimate
-                dt_prev = self._dt_history[-1] if self._dt_history[-1] > 0.0\
-                    else self.dt
-                if prev > 0.0 and dt_prev > 0.0:
-                    ratio = error_estimate / prev
-                    gain_gus = self.safety * (self.dt / dt_prev) * (ratio ** exponent)
-                    gain = min(gain_gus, gain_basic)
-                else:
-                    gain = gain_basic
-            else:
-                gain = gain_basic
-        else:
-            gain = 1.0
-
+        #Current gustafsson is just a hallucination
+        # elif self.kind == "gustafsson":
+        #     # Device implementation with predictive acceleration
+        #     exponent = 1.0 / (2.0 * (self.order + 1.0))
+        #     gain_basic = self.safety * (error_estimate ** exponent)
+        #
+        #     if self._prev_nrm2 > 0.0 and self._prev_inv_nrm2 > 0.0 and self._dt_history[-1] > 0.0:
+        #         prev = self._prev_nrm2
+        #         dt_prev = self._dt_history[-1]
+        #         ratio = error_estimate / prev
+        #         gain_gus = self.safety * (self.dt / dt_prev) * (ratio ** exponent)
+        #         gain = min(gain_gus, gain_basic)
+        #     else:
+        #         gain = gain_basic
+        # else:
+        #     gain = 1.0
+        #
         gain = min(self.max_gain, max(self.min_gain, gain))
         return gain
 
 
 def get_ref_step_fn(
          algorithm: str,
-         evaluator: CPUODESystem,
-        solver_settings: dict,
     ) -> Callable:
+
     if algorithm.lower() == "euler":
-        return partial(explicit_euler_step, evaluator=evaluator)
-    elif algorithm.lower() == "backward_euler":
-        return partial(backward_euler_step,
-                       evaluator=evaluator,
-                       tol=solver_settings['atol'])
-    elif algorithm.lower() == "backward_euler_predict_correct":
-        return partial(backward_euler_predict_correct_step,
-                       evaluator=evaluator,
-                       tol=solver_settings['atol'])
+        return explicit_euler_step
+    elif algorithm.lower() == "backwards_euler":
+        return backward_euler_step
+    elif algorithm.lower() == "backwards_euler_pc":
+        return backward_euler_predict_correct_step
     elif algorithm.lower() == "crank_nicolson":
-        return partial(crank_nicolson_step, evaluator=evaluator,
-                       tol=solver_settings['atol'])
+        return crank_nicolson_step
     else:
         raise ValueError(f"Unknown stepper algorithm: {algorithm}")
 
@@ -437,6 +590,7 @@ def run_reference_loop(
     evaluator: CPUODESystem,
     inputs: Mapping[str, Array],
     solver_settings,
+    implicit_step_settings,
     output_functions,
     controller,
     step_controller_settings: Optional[Dict] = None,
@@ -457,8 +611,10 @@ def run_reference_loop(
     dt_summarise = float(solver_settings["dt_summarise"])
     controller_settings = step_controller_settings or {"kind": "fixed"}
 
-    step_fn = get_ref_step_fn(solver_settings["algorithm"], evaluator,
-                              solver_settings)
+    step_fn = get_ref_step_fn(solver_settings["algorithm"])
+
+    # Store the tolerance for explicit passing to step functions
+    # nonlinear_tol = implicit_step_settings["nonlinear_tolerance"]
 
     controller.dt = controller_settings.get("dt", dt_min)
 
@@ -469,13 +625,14 @@ def run_reference_loop(
     saved_observable_indices = _ensure_array(
         solver_settings["saved_observable_indices"], np.int32)
     summarised_state_indices = _ensure_array(
-        solver_settings["summarised_state_indices"], np.int32)
+        solver_settings["summarised_state_indices"], np.int32
+    )
     summarised_observable_indices = _ensure_array(
         solver_settings["summarised_observable_indices"], np.int32)
 
     save_time = output_functions.save_time
 
-    max_save_samples = np.ceil(int(precision(duration) / precision(dt_save)))
+    max_save_samples = int(np.ceil(duration / dt_save))
 
     state_history = [initial_state.copy()]
     observable_history = [np.zeros(len(saved_observable_indices),
@@ -485,6 +642,7 @@ def run_reference_loop(
     t = 0.0
     end_time = warmup + duration
     next_save_time = warmup + dt_save if dt_save > 0 else end_time + 1.0
+    max_iters = implicit_step_settings.get('max_iterations', 25)
 
     while t < end_time - 1e-12:
         dt = min(controller.dt, end_time - t)
@@ -492,18 +650,31 @@ def run_reference_loop(
 
         drivers_now = sampler.sample(t)
         drivers_next = sampler.sample(t + dt)
+
+        # Pass max_iters from implicit_step_settings to step functions
+
         result = step_fn(
+                evaluator,
                 state=state,
                 params=params,
                 drivers_now=drivers_now,
                 drivers_next=drivers_next,
-                dt=dt
-        )
+                dt=dt,
+                tol=implicit_step_settings['nonlinear_tolerance'],
+                max_iters=max_iters
+            )
 
         error_norm = controller.error_norm(state, result.state, result.error)
 
-        if controller.is_adaptive and error_norm > 1.0:
+        if controller.is_adaptive and error_norm < 1.0:
             controller.propose_dt(error_norm, accept=False)
+
+            # Check if the controller has signaled convergence failure
+            if hasattr(controller, '_convergence_failed') and controller._convergence_failed:
+                print(f"[LOOP] Integration failed: unclamped dt < dt_min at t={t:.6e}")
+                # Return current state with convergence failure flag
+                break
+
             continue
 
         t += dt
@@ -524,6 +695,9 @@ def run_reference_loop(
         saved_state_indices,
         precision,
     )
+    assert controller._convergence_failed is False, \
+        ("Integration failed: CPU solver did not converge, try decreasing "
+         "dt_min")
     if save_time:
         times = np.asarray(time_history, dtype=precision)
 

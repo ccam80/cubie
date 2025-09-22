@@ -117,7 +117,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         kd = self.kd
         expo1 = precision(kp / (2 * (order + 1)))
         expo2 = precision(ki / (2 * (order + 1)))
-        expo3 = precision(kd / (2 * (order + 1)))
+        expo3 =     precision(kd / (2 * (order + 1)))
 
         @cuda.jit(device=True, inline=True, fastmath=True)
         def controller_PID(
@@ -129,7 +129,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             local_temp
         ):
             err_prev = local_temp[0]
-            err_prev2 = local_temp[1]
+            err_prev_inv = local_temp[1]
             nrm2 = precision(0.0)
             for i in range(n):
                 tol = atol[i] + rtol[i] * max(abs(state[i]),
@@ -140,16 +140,17 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
             err_prev_safe = err_prev if err_prev > precision(0.0) else nrm2
-            err_prev2_safe = err_prev2 if err_prev2 > precision(0.0) else nrm2
+            err_prev_inv_safe = err_prev_inv if err_prev_inv > precision(0.0) \
+                else nrm2
 
             gain_new = precision(safety * ((nrm2 ** expo1) *
                                  (err_prev_safe ** expo2) *
-                                 (err_prev2_safe ** expo3)))
+                                 ((nrm2*err_prev_inv_safe) ** expo3)))
             gain = precision(clamp(gain_new, max_gain, min_gain))
 
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_max, dt_min)
-            local_temp[1] = err_prev
+            local_temp[1] = 1/nrm2
             local_temp[0] = nrm2
 
             ret = int32(0) if dt_new_raw > dt_min else int32(1)

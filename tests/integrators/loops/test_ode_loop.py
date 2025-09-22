@@ -1,466 +1,88 @@
-"""Integration loop tests comparing device output with CPU references."""
+"""Utility helpers for testing :mod:`cubie.integrators.loops.ode_loop`."""
 
 from __future__ import annotations
 
+from typing import Callable
 
+import numpy as np
+from numpy.typing import NDArray
 import pytest
 
-from tests.integrators.loops.ODELoopTester import (run_device_loop,
-                                                   assert_integration_outputs,
-                                                   )
+from tests._utils import assert_integration_outputs
 
+Array = NDArray[np.floating]
 
+# Build, update, getter tests combined into one large test to avoid paying
+# setup cost multiple times. Numerical tests are done on pre-updated
+# settings as the fixtures are set up at function start.
+@pytest.mark.parametrize(
+    "solver_settings_override",
+    [
+        {"algorithm": "euler", "step_controller": "fixed", "dt_min": 0.05},
+        {"algorithm": "crank_nicolson", "step_controller": "pid", 'atol': 1e-6,
+         'rtol': 1e-6, 'dt_min': 0.005},
+    ],
+    indirect=True,
+)
+class TestLoop:
 
-@pytest.mark.parametrize("solver_settings", [{'algorithm':'euler'}],
-                      indirect=True)
-class TestExplicitEulerLoop:
-    """Tests for :class:`ExplicitEulerStep` with fixed and adaptive control."""
+    def test_build(self, loop, step_controller, step_object,
+                   loop_buffer_sizes, precision, solver_settings,
+                   device_loop_outputs, cpu_loop_outputs, output_functions):
+        assert isinstance(loop.device_function, Callable), "Loop builds"
 
+        #Test getters get
+        assert loop.is_adaptive == step_controller.is_adaptive, "is_adaptive getter"
+        assert loop.precision == precision, "precision getter"
+        assert loop.dt0 == step_controller.dt0, "dt0 getter"
+        assert loop.dt_min == step_controller.dt_min, "dt_min getter"
+        assert loop.dt_max == step_controller.dt_max, "dt_max getter"
+        assert loop.dt_save == precision(solver_settings['dt_save']), \
+            "dt_save getter"
+        assert loop.dt_summarise == precision(solver_settings[
+                                                  'dt_summarise']),\
+            "dt_summarise getter"
+        assert (loop.local_memory_elements ==
+                step_object.persistent_local_required +
+                step_controller.local_memory_elements +
+                loop_buffer_sizes.state + 3), "local_memory getter"
+        assert loop.shared_memory_elements == (
+                step_object.shared_memory_required + loop.buffer_indices.local_end
+        ), "shared_memory getter"
+        assert loop.buffer_indices is not None, "buffer_indices getter"
 
-    @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [
-            {
-                "dt_min": 0.02,
-                "dt_max": 0.02,
-                "dt_save": 0.04,
-                "dt_summarise": 0.08,
-                "saved_state_indices": [0, 1, 2],
-                "saved_observable_indices": [0, 1, 2],
-                "summarised_state_indices": [0, 1, 2],
-                "summarised_observable_indices": [0, 1, 2],
-                "output_functions": [
-                    "state",
-                    "observables",
-                    "time",
-                    "mean",
-                    "max",
-                ],
-            }
-        ],
-        indirect=True,
-    )
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [
-            {
-                "duration": 0.24,
-                "warmup": 0.04,
-                "dt_save": 0.04,
-                "dt_summarise": 0.08,
-            }
-        ],
-        indirect=True,
-    )
-    @pytest.mark.parametrize(
-        "step_controller_settings_override",
-        [{"kind": "fixed"}],
-        indirect=True,
-    )
-    def test_fixed_controller_matches_reference(
-        self,
-        loop,
-        system,
-        cpu_reference_outputs,
-        initial_state,
-        solver_settings,
-        loop_compile_settings,
-        output_functions,
-        step_controller_settings,
-    ) -> None:
+        #test update
+        if solver_settings['algorithm'].lower() == 'euler':
+            updates = {'dt': 0.0001}
+            loop.update(updates)
+            assert step_controller.dt_min == pytest.approx(0.0001, rel=1e-6,
+                                                           abs=1e-6), \
+                "fixed controller dt_min update"
+            assert step_object.dt == pytest.approx(0.0001, rel=1e-6,
+                                                   abs=1e-6),\
+                "euler step dt update"
+        else:
+            updates = {'dt_min': 0.0001,
+                       'atol': 1e-12,
+                       'ki': 2.0,
+                       'max_newton_iters': 512}
+            loop.update(updates)
+            assert step_controller.dt_min == pytest.approx(
+                    0.0001, rel=1e-6, abs=1e-6),\
+                "adaptive controller dt_min update"
+            assert step_controller.atol == pytest.approx(
+                    1e-12, rel=1e-6, abs=1e-6), \
+                "adaptive controller atol update"
+            assert step_object.compile_settings.max_newton_iters == 512, \
+                "CN step max_newton_iters update"
+            assert loop.dt_min == pytest.approx(
+                    0.0001, rel=1e-6, abs=1e-6), \
+                "Loop dt_min update"
 
-        device_output = run_device_loop(
-            loop=loop,
-            system=system,
-            initial_state=initial_state,
-            output_functions=output_functions,
-            solver_config=solver_settings
-        )
-
-        assert device_output.status == 0
+        assert device_loop_outputs.status == 0
         assert_integration_outputs(
-                cpu_reference_outputs,
-                device_output,
+                cpu_loop_outputs,
+                device_loop_outputs,
                 output_functions,
                 rtol=1e-5,
                 atol=1e-6)
-
-#
-#     @pytest.mark.parametrize(
-#         (
-#             "loop_compile_settings_overrides",
-#             "solver_settings_override",
-#             "step_controller_settings_override",
-#         ),
-#         [
-#             pytest.param(
-#                 {
-#                     "dt_min": 0.01,
-#                     "dt_max": 0.1,
-#                     "dt_save": 0.05,
-#                     "dt_summarise": 0.15,
-#                     "saved_state_indices": [0, 1, 2],
-#                     "saved_observable_indices": [0, 1, 2],
-#                     "summarised_state_indices": [0, 1, 2],
-#                     "summarised_observable_indices": [0, 1, 2],
-#                     "output_functions": [
-#                         "state",
-#                         "observables",
-#                         "time",
-#                         "mean",
-#                     ],
-#                     "atol": 1e-5,
-#                     "rtol": 1e-4,
-#                 },
-#                 {
-#                     "duration": 0.2,
-#                     "warmup": 0.0,
-#                     "dt_save": 0.05,
-#                     "dt_summarise": 0.15,
-#                     "atol": 1e-5,
-#                     "rtol": 1e-4,
-#                 },
-#                 {
-#                     "kind": "PI",
-#                     "order": 2,
-#                     "dt_min": 0.01,
-#                     "dt_max": 0.1,
-#                     "atol": 1e-5,
-#                     "rtol": 1e-4,
-#                 },
-#                 id="pi_loose",
-#             ),
-#             pytest.param(
-#                 {
-#                     "dt_min": 0.01,
-#                     "dt_max": 0.1,
-#                     "dt_save": 0.05,
-#                     "dt_summarise": 0.15,
-#                     "saved_state_indices": [0, 1, 2],
-#                     "saved_observable_indices": [0, 1, 2],
-#                     "summarised_state_indices": [0, 1, 2],
-#                     "summarised_observable_indices": [0, 1, 2],
-#                     "output_functions": [
-#                         "state",
-#                         "observables",
-#                         "time",
-#                         "mean",
-#                     ],
-#                     "atol": 5e-6,
-#                     "rtol": 5e-5,
-#                 },
-#                 {
-#                     "duration": 0.2,
-#                     "warmup": 0.0,
-#                     "dt_save": 0.05,
-#                     "dt_summarise": 0.15,
-#                     "atol": 5e-6,
-#                     "rtol": 5e-5,
-#                 },
-#                 {
-#                     "kind": "PI",
-#                     "order": 2,
-#                     "dt_min": 0.01,
-#                     "dt_max": 0.1,
-#                     "atol": 5e-6,
-#                     "rtol": 5e-5,
-#                 },
-#                 id="pi_tight",
-#             ),
-#         ],
-#         indirect=True,
-#     )
-#     def test_adaptive_time_vector_matches_reference(
-#         self,
-#         loop,
-#         system,
-#         initial_state,
-#         solver_settings,
-#         loop_compile_settings,
-#         output_functions,
-#         step_controller_settings,
-#     ) -> None:
-#         """Adaptive controller should match the CPU save times."""
-#
-#         reference, device = _execute_reference_and_device(
-#             loop=loop,
-#             system=system,
-#             initial_state=initial_state,
-#             solver_settings=solver_settings,
-#             loop_compile_settings=loop_compile_settings,
-#             output_functions=output_functions,
-#             stepper="explicit_euler",
-#             step_controller_settings=step_controller_settings,
-#         )
-#         assert device.status == 0
-#         assert_integration_outputs(reference, device, output_functions,
-#                                    rtol=5e-4, atol=1e-6)
-#         assert_allclose(
-#             device.observables,
-#             reference["observables"],
-#             rtol=5e-4,
-#             atol=1e-6,
-#         )
-#         _, time_ref = extract_state_and_time(
-#             reference["state"], output_functions
-#         )
-#         _, time_dev = extract_state_and_time(device.state, output_functions)
-#         if time_ref is not None and time_ref.shape[0] > 1:
-#             assert_allclose(
-#                 np.diff(time_dev[:, 0]),
-#                 np.diff(time_ref[:, 0]),
-#                 rtol=5e-4,
-#                 atol=1e-6,
-#             )
-#
-#
-# class TestBackwardEulerLoop:
-#     """Tests for :class:`BackwardsEulerStep` using adaptive control."""
-#
-#     @pytest.fixture(scope="function", name="step_object")
-#     def step_object(
-#         self,
-#         system,
-#         loop_compile_settings,
-#         precision,
-#     ) -> BackwardsEulerStep:
-#         return BackwardsEulerStep(
-#             precision=precision,
-#             n=system.sizes.states,
-#             dxdt_function=system.dxdt_function,
-#             get_solver_helper_fn=system.get_solver_helper,
-#             atol=loop_compile_settings["atol"],
-#             rtol=loop_compile_settings["rtol"],
-#         )
-#
-#     @pytest.mark.parametrize(
-#         (
-#             "loop_compile_settings_overrides",
-#             "solver_settings_override",
-#             "step_controller_settings_override",
-#         ),
-#         [
-#             pytest.param(
-#                 {
-#                     "dt_min": 0.002,
-#                     "dt_max": 0.05,
-#                     "dt_save": 0.05,
-#                     "dt_summarise": 0.1,
-#                     "saved_state_indices": [0, 1, 2],
-#                     "saved_observable_indices": [0, 1, 2],
-#                     "summarised_state_indices": [0, 1, 2],
-#                     "summarised_observable_indices": [0, 1, 2],
-#                     "output_functions": [
-#                         "state",
-#                         "observables",
-#                         "time",
-#                         "mean",
-#                         "max",
-#                     ],
-#                     "atol": 5e-6,
-#                     "rtol": 5e-5,
-#                 },
-#                 {
-#                     "duration": 0.25,
-#                     "warmup": 0.05,
-#                     "dt_save": 0.05,
-#                     "dt_summarise": 0.1,
-#                     "atol": 5e-6,
-#                     "rtol": 5e-5,
-#                 },
-#                 {
-#                     "kind": "PID",
-#                     "order": 2,
-#                     "dt_min": 0.002,
-#                     "dt_max": 0.05,
-#                     "atol": 5e-6,
-#                     "rtol": 5e-5,
-#                 },
-#                 id="pid_loose",
-#             ),
-#             pytest.param(
-#                 {
-#                     "dt_min": 0.002,
-#                     "dt_max": 0.05,
-#                     "dt_save": 0.05,
-#                     "dt_summarise": 0.1,
-#                     "saved_state_indices": [0, 1, 2],
-#                     "saved_observable_indices": [0, 1, 2],
-#                     "summarised_state_indices": [0, 1, 2],
-#                     "summarised_observable_indices": [0, 1, 2],
-#                     "output_functions": [
-#                         "state",
-#                         "observables",
-#                         "time",
-#                         "mean",
-#                         "max",
-#                     ],
-#                     "atol": 1e-6,
-#                     "rtol": 1e-5,
-#                 },
-#                 {
-#                     "duration": 0.25,
-#                     "warmup": 0.05,
-#                     "dt_save": 0.05,
-#                     "dt_summarise": 0.1,
-#                     "atol": 1e-6,
-#                     "rtol": 1e-5,
-#                 },
-#                 {
-#                     "kind": "PID",
-#                     "order": 2,
-#                     "dt_min": 0.002,
-#                     "dt_max": 0.05,
-#                     "atol": 1e-6,
-#                     "rtol": 1e-5,
-#                 },
-#                 id="pid_tight",
-#             ),
-#         ],
-#         indirect=True,
-#     )
-#     def test_adaptive_loop_matches_reference(
-#         self,
-#         loop,
-#         system,
-#         initial_state,
-#         solver_settings,
-#         loop_compile_settings,
-#         output_functions,
-#         step_controller_settings,
-#     ) -> None:
-#         """Backward Euler device loop should reproduce the CPU simulation."""
-#
-#         reference, device = _execute_reference_and_device(
-#             loop=loop,
-#             system=system,
-#             initial_state=initial_state,
-#             solver_settings=solver_settings,
-#             loop_compile_settings=loop_compile_settings,
-#             output_functions=output_functions,
-#             stepper="backward_euler",
-#             step_controller_settings=step_controller_settings,
-#         )
-#         assert device.status == 0
-#         assert_integration_outputs(reference, device, output_functions,
-#                                    rtol=5e-4, atol=1e-6)
-#         assert_allclose(
-#             device.observables,
-#             reference["observables"],
-#             rtol=5e-4,
-#             atol=1e-6,
-#         )
-#
-#
-# class TestCrankNicolsonLoop:
-#     """Crank–Nicolson loop tests covering multiple tolerance levels."""
-#
-#     @pytest.fixture(scope="function", name="step_object")
-#     def fixture_step_object(
-#         self,
-#         system,
-#         loop_compile_settings,
-#         precision,
-#     ) -> CrankNicolsonStep:
-#         return CrankNicolsonStep(
-#             precision=precision,
-#             n=system.sizes.states,
-#             dxdt_function=system.dxdt_function,
-#             get_solver_helper_fn=system.get_solver_helper,
-#             atol=loop_compile_settings["atol"],
-#             rtol=loop_compile_settings["rtol"],
-#         )
-#
-#     @pytest.mark.parametrize(
-#         "loop_compile_settings_overrides",
-#         [
-#             {
-#                 "dt_min": 0.001,
-#                 "dt_max": 0.05,
-#                 "dt_save": 0.04,
-#                 "dt_summarise": 0.12,
-#                 "saved_state_indices": [0, 1, 2],
-#                 "saved_observable_indices": [0, 1, 2],
-#                 "summarised_state_indices": [0, 1, 2],
-#                 "summarised_observable_indices": [0, 1, 2],
-#                 "output_functions": [
-#                     "state",
-#                     "observables",
-#                     "time",
-#                     "mean",
-#                     "max",
-#                 ],
-#                 "atol": 1e-5,
-#                 "rtol": 1e-4,
-#             }
-#         ],
-#         indirect=True,
-#     )
-#     @pytest.mark.parametrize(
-#         "solver_settings_override",
-#         [
-#             {
-#                 "duration": 0.24,
-#                 "warmup": 0.02,
-#                 "dt_save": 0.04,
-#                 "dt_summarise": 0.12,
-#                 "atol": 1e-5,
-#                 "rtol": 1e-4,
-#             }
-#         ],
-#         indirect=True,
-#     )
-#     @pytest.mark.parametrize(
-#         "step_controller_settings_override",
-#         [
-#             {
-#                 "kind": "gustafsson",
-#                 "order": 2,
-#                 "dt_min": 0.001,
-#                 "dt_max": 0.05,
-#                 "atol": 1e-5,
-#                 "rtol": 1e-4,
-#             },
-#             {
-#                 "kind": "PI",
-#                 "order": 2,
-#                 "dt_min": 0.001,
-#                 "dt_max": 0.05,
-#                 "atol": 5e-6,
-#                 "rtol": 5e-5,
-#             },
-#         ],
-#         indirect=True,
-#     )
-#     def test_adaptive_outputs_match_reference(
-#         self,
-#         loop,
-#         system,
-#         initial_state,
-#         solver_settings,
-#         loop_compile_settings,
-#         output_functions,
-#         step_controller_settings,
-#     ) -> None:
-#         """All outputs should match the CPU reference for adaptive control."""
-#
-#         reference, device = _execute_reference_and_device(
-#             loop=loop,
-#             system=system,
-#             initial_state=initial_state,
-#             solver_settings=solver_settings,
-#             loop_compile_settings=loop_compile_settings,
-#             output_functions=output_functions,
-#             stepper="crank_nicolson",
-#             step_controller_settings=step_controller_settings,
-#         )
-#         assert device.status == 0
-#         assert_integration_outputs(reference, device, output_functions,
-#                                    rtol=1e-3, atol=1e-6)
-#         assert_allclose(
-#             device.observables,
-#             reference["observables"],
-#             rtol=1e-3,
-#             atol=1e-6,
-#         )
-#

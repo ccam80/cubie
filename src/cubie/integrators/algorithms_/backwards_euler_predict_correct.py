@@ -69,6 +69,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 z,
                 error, # fixed-step loop doesn't use error, reuse as scratch
             )
+
+            obs_fn(proposed_state, parameters, drivers, observables)
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)

@@ -63,6 +63,7 @@ markers = [
 addopts = [
     "--import-mode=importlib",
     "-ra",
+    "-s",
     "--cov=cubie",
     "--cov-report=xml:coverage.xml",
     "--cov-report=term-missing",
