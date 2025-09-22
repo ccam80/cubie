@@ -58,8 +58,9 @@ class CrankNicolsonStep(ODEImplicitStep):
                    n):  # pragma: no cover - complex
         """Build the device function for a Crank-Nicolson step with embedded error estimation."""
 
-        a_ij_cn = numba_precision(0.5)  # Crank-Nicolson coefficient
-        a_ij_be = numba_precision(1.0)  # Backward Euler coefficient for error estimation
+        half = numba_precision(0.5)
+        a_ij = numba_precision(1.0)
+        # Backward Euler coefficient for error estimation
 
         @cuda.jit(
             (
@@ -102,15 +103,23 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             # Additional array for error estimation
             be_state = cuda.local.array(n, numba_precision)
+            base_adjusted = cuda.local.array(n, numba_precision)
+
+            # Evaluate f(state) to enforce Crank-Nicolson averaging
+            dxdt_fn(state, parameters, drivers, observables, resid)
+
+            cn_dt = dt_scalar * half
+            for i in range(n):
+                base_adjusted[i] = state[i] + cn_dt * resid[i]
 
             # Solve Crank-Nicolson step (main solution)
             status = solver_fn(
                 proposed_state,
                 parameters,
                 drivers,
-                dt_scalar,
-                a_ij_cn,
-                state,
+                cn_dt,
+                a_ij,
+                base_adjusted,
                 work_buffer,
                 resid,
                 z,
@@ -129,7 +138,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 parameters,
                 drivers,
                 dt_scalar,
-                a_ij_be,
+                a_ij,
                 state,
                 work_buffer,
                 resid,

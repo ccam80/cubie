@@ -1,7 +1,6 @@
 import sympy as sp
 
 from cubie.odesystems.symbolic.jacobian import (
-    clear_cache,
     generate_analytical_jvp,
     generate_jacobian,
     get_cache_counts,
@@ -52,7 +51,6 @@ def test_jacobian_caching():
     equations = [(sp.Symbol("dx"), x + y)]
     input_order = {x: 0, y: 1}
     output_order = {sp.Symbol("dx"): 0}
-    clear_cache()
     generate_jacobian(equations, input_order, output_order)
     generate_analytical_jvp(equations, input_order, output_order)
     counts = get_cache_counts()

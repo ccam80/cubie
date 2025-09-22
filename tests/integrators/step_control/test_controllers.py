@@ -104,21 +104,21 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
     provided_local = np.asarray(step_setup['local_mem'], dtype=precision)
 
     history = []
-
+    dt_history = []
     if kind == 'pi':
         prev_nrm2 = float(provided_local[0])
         history.append(prev_nrm2)
     elif kind == 'pid':
         prev_nrm2 = float(provided_local[0])
-        prev_prev_nrm2 = float(provided_local[1])
-        history.append(prev_prev_nrm2)
-        history.append(prev_nrm2)
-    elif kind == 'gustafsson':
-        dt_prev = float(provided_local[0])
-        err_prev_nrm2 = float(provided_local[1])
-        history.append(err_prev_nrm2)
-
+        controller._prev_nrm2 = prev_nrm2
+        controller._prev_inv_nrm2 = 1.0 / prev_nrm2
+    # elif kind == 'gustafsson':
+    #     dt_prev = float(provided_local[0])
+    #     err_prev_nrm2 = float(provided_local[1])
+    #     history.append(err_prev_nrm2)
+    #     controller._dt_history[] = dt_history[-2:]
     controller._history = history[-3:]
+
     errornorm = controller.error_norm(state_prev, state, error_vec)
     accept = True
     controller.propose_dt(errornorm, accept)
@@ -129,10 +129,10 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
         out_local = np.array([errornorm, 0.0], dtype=precision)
     elif kind == 'pid':
         prev_nrm2 = float(provided_local[0]) if provided_local.size > 0 else 0.0
-        out_local = np.array([errornorm, prev_nrm2], dtype=precision)
-    elif kind == 'gustafsson':
-        out_local = np.array([controller.dt, max(errornorm, 1e-4)],
-                             dtype=precision)
+        out_local = np.array([errornorm, 1/errornorm], dtype=precision)
+    # elif kind == 'gustafsson':
+    #     out_local = np.array([controller.dt, max(errornorm, 1e-4)],
+    #                          dtype=precision)
     else:
         out_local = np.zeros(2, dtype=precision)
 

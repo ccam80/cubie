@@ -98,9 +98,9 @@ class SingleIntegratorRun(CUDAFactory):
         )
 
         self.config = IntegratorRunSettings(
+            precision=system.precision,
             algorithm=algorithm,
             step_controller_kind=step_controller_kind or "fixed",
-            buffer_sizes=buffer_sizes
         )
 
         self._step_controller = self.instantiate_controller(
