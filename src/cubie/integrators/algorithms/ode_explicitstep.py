@@ -4,7 +4,7 @@ from typing import Callable
 import attrs
 
 from cubie._utils import  gttype_validator
-from cubie.integrators.algorithms_.base_algorithm_step import (
+from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep, BaseStepConfig, StepCache)
 
 

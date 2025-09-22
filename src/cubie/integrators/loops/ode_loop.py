@@ -7,7 +7,7 @@ update behaviour and properties for a unified interface and inherits build
 and cache logic from CUDAFactory.
 
 Integration loops handle the "outer" logic of an ODE integration, organising
-algorithms_ and saving output, and call an algorithm-specific step function to do the
+algorithms and saving output, and call an algorithm-specific step function to do the
 mathy end of the integration.
 """
 from typing import Optional, Callable
@@ -18,7 +18,7 @@ from numba import cuda, int32
 from cubie.cudasim_utils import activemask, all_sync
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
-from cubie.integrators.algorithms_.base_algorithm_step import BaseAlgorithmStep
+from cubie.integrators.algorithms.base_algorithm_step import BaseAlgorithmStep
 from cubie.integrators.loops.ode_loop_config import LoopIndices, ODELoopConfig
 from cubie.integrators.step_control.base_step_controller import \
     BaseStepController

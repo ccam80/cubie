@@ -18,9 +18,9 @@ Array = NDArray[np.floating]
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
-        {"algorithm": "euler", "step_controller": "fixed", "dt_min": 0.05},
+        {"algorithm": "euler", "step_controller": "fixed", "dt_min": 0.01},
         {"algorithm": "crank_nicolson", "step_controller": "pid", 'atol': 1e-6,
-         'rtol': 1e-6, 'dt_min': 0.005},
+         'rtol': 1e-6, 'dt_min': 0.001},
     ],
     indirect=True,
 )

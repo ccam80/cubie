@@ -4,8 +4,8 @@ from typing import Callable, Optional
 
 from numba import cuda, int32
 
-from cubie.integrators.algorithms_.base_algorithm_step import StepCache
-from cubie.integrators.algorithms_.ode_explicitstep import ODEExplicitStep, \
+from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie.integrators.algorithms.ode_explicitstep import ODEExplicitStep, \
     ExplicitStepConfig
 
 class ExplicitEulerStep(ODEExplicitStep):

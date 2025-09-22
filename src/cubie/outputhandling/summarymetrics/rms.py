@@ -136,7 +136,7 @@ class RMS(SummaryMetric):
             output_array : array-like
                 Output array location for saving the RMS value.
             summarise_every : int
-                Number of algorithms_ between saves, used as divisor for mean
+                Number of algorithms between saves, used as divisor for mean
                 calculation.
             customisable_variable : int
                 Extra parameter for metric-specific calculations (unused for

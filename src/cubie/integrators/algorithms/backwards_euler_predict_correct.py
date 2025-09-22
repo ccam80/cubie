@@ -1,7 +1,7 @@
-from cubie.integrators.algorithms_.backwards_euler import BackwardsEulerStep
+from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
 from numba import cuda
 
-from cubie.integrators.algorithms_.base_algorithm_step import StepCache
+from cubie.integrators.algorithms.base_algorithm_step import StepCache
 
 
 class BackwardsEulerPCStep(BackwardsEulerStep):

@@ -17,7 +17,7 @@ from numpy.typing import ArrayLike
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
-from cubie.integrators.algorithms_ import get_algorithm_step
+from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.outputhandling.output_sizes import LoopBufferSizes
@@ -176,13 +176,13 @@ class SingleIntegratorRun(CUDAFactory):
         kwargs
         ------
         Individual algorithm step parameters. These vary by algorithm. See:
-            :class:`~cubie.integrators.algorithms_.explicit_euler
+            :class:`~cubie.integrators.algorithms.explicit_euler
             .ExplicitEulerStep`,
-            :class:`~cubie.integrators.algorithms_.backwards_euler
+            :class:`~cubie.integrators.algorithms.backwards_euler
             .BackwardsEulerStep`,
-            :class:`~cubie.integrators.algorithms_.crank_nicolson
+            :class:`~cubie.integrators.algorithms.crank_nicolson
             .CrankNicolsonStep`,
-            :class:`~cubie.integrators.algorithms_
+            :class:`~cubie.integrators.algorithms
             .backwards_euler_predict_correct.BackwardsEulerPCStep`,
 
             """

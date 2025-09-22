@@ -1,65 +1,37 @@
-"""
-Integration algorithm implementations and registry.
+"""Algorithm step implementations."""
 
-This module provides concrete implementations of numerical integration
-algorithms for CUDA-based ODE solving, along with a registry system
-for accessing available algorithms. It includes the base algorithm
-framework and specific implementations like the Euler method.
-"""
+from typing import Optional, Callable
 
-from attrs import define
-
-from cubie.integrators.algorithms.euler import Euler
-from cubie.integrators.algorithms.genericIntegratorAlgorithm import (
-    GenericIntegratorAlgorithm,
-)
+from .base_algorithm_step import BaseStepConfig, BaseAlgorithmStep
+from .ode_explicitstep import ExplicitStepConfig, ODEExplicitStep
+from .ode_implicitstep import ImplicitStepConfig, ODEImplicitStep
+from .explicit_euler import ExplicitEulerStep
+from .backwards_euler import BackwardsEulerStep
+from .crank_nicolson import CrankNicolsonStep
+from .backwards_euler_predict_correct import BackwardsEulerPCStep
 
 
-@define
-class _ImplementedAlgorithms:
-    """
-    Container for implemented integrator algorithms.
+__all__ = [
+    "get_algorithm_step",
+    "ExplicitStepConfig",
+    "ImplicitStepConfig",
+    "ExplicitEulerStep",
+    "BackwardsEulerStep",
+    "BackwardsEulerPCStep",
+    "CrankNicolsonStep",
+]
 
-    This class provides a registry of available integration algorithms
-    that can be accessed by name. It supports both attribute and
-    dictionary-style access to algorithms.
-
-    Attributes
-    ----------
-    euler : Euler
-        Euler integration algorithm implementation.
-    generic : GenericIntegratorAlgorithm
-        Base generic integration algorithm class.
-    """
-
-    euler = Euler
-    generic = GenericIntegratorAlgorithm
-
-    def __getitem__(self, item):
-        """
-        Allow access to algorithms by name.
-
-        Parameters
-        ----------
-        item : str
-            Name of the algorithm to retrieve.
-
-        Returns
-        -------
-        class
-            The algorithm class corresponding to the given name.
-
-        Raises
-        ------
-        KeyError
-            If the algorithm name is not implemented.
-        """
-        try:
-            return getattr(self, item)
-        except AttributeError:
-            raise KeyError(f"Algorithm '{item}' is not implemented.")
-
-
-ImplementedAlgorithms = _ImplementedAlgorithms()
-
-__all__ = ["Euler", "GenericIntegratorAlgorithm", "ImplementedAlgorithms"]
+def get_algorithm_step(name,
+                       **kwargs) -> BaseAlgorithmStep:
+    """Return an algorith step instance based on ``name`` with parameters
+    given by kwargs"""
+    if name == "euler":
+        return ExplicitEulerStep(**kwargs)
+    elif name == "backwards_euler":
+        return BackwardsEulerStep(**kwargs)
+    elif name == "backwards_euler_pc":
+        return BackwardsEulerPCStep(**kwargs)
+    elif name == "crank_nicolson":
+        return CrankNicolsonStep(**kwargs)
+    else:
+        raise ValueError(f"Unknown algorithm '{name}'.")

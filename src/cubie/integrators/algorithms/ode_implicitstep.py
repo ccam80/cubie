@@ -9,7 +9,7 @@ from cubie.integrators.matrix_free_solvers import (
     linear_solver_factory,
     newton_krylov_solver_factory
 )
-from cubie.integrators.algorithms_.base_algorithm_step import (
+from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep,
     BaseStepConfig,
     StepCache,

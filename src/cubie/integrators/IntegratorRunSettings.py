@@ -16,7 +16,7 @@ import numba
 import numpy as np
 from numpy import float32
 
-from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
+# from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
 
 
 _ALGORITHM_ALIASES: Dict[str, str] = {
@@ -214,18 +214,18 @@ class IntegratorRunSettings:
         self.step_controller_parameters["rtol"] = self._rtol
         self.algorithm_parameters["rtol"] = self._rtol
 
-    @property
-    def loop_step_config(self) -> LoopStepConfig:
-        """Return the step-size configuration for the integration loop."""
-
-        return LoopStepConfig(
-            dt_min=self.dt_min,
-            dt_max=self.dt_max,
-            dt_save=self.dt_save,
-            dt_summarise=self.dt_summarise,
-            atol=self.atol,
-            rtol=self.rtol,
-        )
+    # @property
+    # def loop_step_config(self) -> LoopStepConfig:
+    #     """Return the step-size configuration for the integration loop."""
+    #
+    #     return LoopStepConfig(
+    #         dt_min=self.dt_min,
+    #         dt_max=self.dt_max,
+    #         dt_save=self.dt_save,
+    #         dt_summarise=self.dt_summarise,
+    #         atol=self.atol,
+    #         rtol=self.rtol,
+    #     )
 
     # ------------------------------------------------------------------
     # Helper construction
@@ -330,7 +330,7 @@ class IntegratorRunSettings:
     def create_step_object(self, system) -> object:
         """Instantiate the configured algorithm step object."""
 
-        from cubie.integrators.algorithms_ import (
+        from cubie.integrators.algorithms import (
             BackwardsEulerStep,
             CrankNicolsonStep,
             ExplicitEulerStep,

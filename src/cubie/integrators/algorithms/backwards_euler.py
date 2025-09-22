@@ -3,9 +3,9 @@
 from numba import cuda
 import numpy as np
 
-from cubie.integrators.algorithms_ import ImplicitStepConfig
-from cubie.integrators.algorithms_.base_algorithm_step import StepCache
-from cubie.integrators.algorithms_.ode_implicitstep import ODEImplicitStep
+from cubie.integrators.algorithms import ImplicitStepConfig
+from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,

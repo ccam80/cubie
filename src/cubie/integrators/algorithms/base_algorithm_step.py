@@ -67,9 +67,9 @@ class BaseAlgorithmStep(CUDAFactory):
     This class provides default update behaviour and properties for a
     unified interface and inherits build and cache logic from CUDAFactory.
 
-    Algorithm algorithms_ handle the "inner" logic of an ODE integration,
+    Algorithm algorithms handle the "inner" logic of an ODE integration,
     estimating state at some future time given current state and parameters.
-    All algorithms_ should return an integer code indicating success or failure.
+    All algorithms should return an integer code indicating success or failure.
     """
 
     def __init__(self,

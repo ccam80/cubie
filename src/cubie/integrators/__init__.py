@@ -37,7 +37,6 @@ class IntegratorReturnCodes(IntEnum):
     STEP_TOO_SMALL = 8                         # Step size < dt_min
     MAX_LOOP_ITERS_EXCEEDED = 16
 
-__all__ = ["ImplementedAlgorithms",
-           "newton_krylov_solver_factory",
+__all__ = ["newton_krylov_solver_factory",
            "linear_solver_factory",
            "IntegratorReturnCodes"]

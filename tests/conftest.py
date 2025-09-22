@@ -8,7 +8,7 @@ from pytest import MonkeyPatch
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
-from cubie.integrators.algorithms_ import get_algorithm_step
+from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.integrators.step_control.adaptive_I_controller import AdaptiveIController
 from cubie.integrators.step_control.adaptive_PID_controller import (
