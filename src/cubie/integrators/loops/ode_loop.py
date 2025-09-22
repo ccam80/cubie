@@ -235,8 +235,8 @@ class IVPLoop(CUDAFactory):
                     simsafe_int32)
             local_index += 1
             error = persistent_local[local_index:local_index + n_states]
-            #TODO: This error array is right in the hot loop and persistent,
-            # consider making it shared
+            # TODO: This error array is right in the hot loop and persistent,
+            #  consider making it shared
             local_index += n_states
             controller_temp = persistent_local[
                 local_index : local_index + controller_scratch

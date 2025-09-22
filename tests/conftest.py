@@ -96,20 +96,18 @@ def system(request, system_override, precision):
 
 
 @pytest.fixture(scope="function")
-def loop_compile_settings_overrides(request):
-    """Parametrize this fixture indirectly to change compile settings, no need to request this fixture directly
-    unless you're testing that it worked."""
+def solver_settings_override(request):
+    """Override for solver settings, if provided."""
     return request.param if hasattr(request, "param") else {}
 
 
 @pytest.fixture(scope="function")
-def loop_compile_settings(request, system, loop_compile_settings_overrides):
-    """
-    Create a dictionary of compile settings for the loop function.
-    This is the fixture your test should use - if you want to change the compile settings, indirectly parametrize the
-    compile_settings_overrides fixture.
-    """
-    loop_compile_settings_dict = {
+def solver_settings(solver_settings_override, precision):
+    """Create LoopStepConfig with default solver configuration."""
+    defaults = {
+        "algorithm": "euler",
+        "duration": 1.0,
+        "warmup": 0.0,
         "dt_min": 0.01,
         "dt_max": 1.0,
         "dt_save": 0.1,
@@ -120,42 +118,7 @@ def loop_compile_settings(request, system, loop_compile_settings_overrides):
         "saved_observable_indices": [0, 1],
         "summarised_state_indices": [0, 1],
         "summarised_observable_indices": [0, 1],
-        "output_functions": ["state"],
-    }
-    loop_compile_settings_dict.update(loop_compile_settings_overrides)
-    return loop_compile_settings_dict
-
-
-@pytest.fixture(scope="function")
-def solver_settings_override(request):
-    """Override for solver settings, if provided."""
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def solver_settings(
-    loop_compile_settings, solver_settings_override, precision
-):
-    """Create LoopStepConfig from loop_compile_settings."""
-    defaults = {
-        "algorithm": "euler",
-        "duration": 1.0,
-        "warmup": 0.0,
-        "dt_min": loop_compile_settings["dt_min"],
-        "dt_max": loop_compile_settings["dt_max"],
-        "dt_save": loop_compile_settings["dt_save"],
-        "dt_summarise": loop_compile_settings["dt_summarise"],
-        "atol": loop_compile_settings["atol"],
-        "rtol": loop_compile_settings["rtol"],
-        "saved_state_indices": loop_compile_settings["saved_state_indices"],
-        "saved_observable_indices": loop_compile_settings[
-            "saved_observable_indices"
-        ],
-        "summarised_state_indices": loop_compile_settings[
-            "summarised_state_indices"],
-        "summarised_observable_indices": loop_compile_settings[
-            "summarised_observable_indices"],
-        "output_types": loop_compile_settings["output_functions"],
+        "output_types": ["state"],
         "blocksize": 32,
         "stream": 0,
         "profileCUDA": False,
@@ -163,6 +126,7 @@ def solver_settings(
         "stream_group": "test_group",
         "mem_proportion": None,
         "step_controller": "fixed",
+        "precision": precision,
     }
 
     if solver_settings_override:
@@ -387,14 +351,14 @@ def loop(
     loop_buffer_sizes,
     output_functions,
     step_controller,
-    loop_compile_settings,
+    solver_settings,
 ):
     """Construct the :class:`IVPLoop` instance used in loop tests."""
 
     return IVPLoop(
         precision=precision,
-        dt_save=loop_compile_settings["dt_save"],
-        dt_summarise=loop_compile_settings["dt_summarise"],
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
         step_controller=step_controller,
         step_object=step_object,
         buffer_sizes=loop_buffer_sizes,

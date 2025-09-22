@@ -6,28 +6,33 @@ from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 
 
 @pytest.fixture(scope="function")
-def default_integrator_params(system, loop_compile_settings):
+def default_integrator_params(system, solver_settings):
     """Default parameters for SingleIntegratorRun."""
     return {
         "system": system,
         "algorithm": "explicit_euler",
-        "saved_state_indices": loop_compile_settings["saved_state_indices"],
-        "saved_observable_indices": loop_compile_settings[
-            "saved_observable_indices"
-        ],
-        "summarised_state_indices": loop_compile_settings.get(
-            "summarised_state_indices", None
+        "saved_state_indices": list(solver_settings["saved_state_indices"]),
+        "saved_observable_indices": list(
+            solver_settings["saved_observable_indices"]
         ),
-        "summarised_observable_indices": loop_compile_settings.get(
-            "summarised_observable_indices", None
+        "summarised_state_indices": (
+            list(solver_settings["summarised_state_indices"])
+            if solver_settings.get("summarised_state_indices") is not None
+            else None
         ),
-        "dt_min": loop_compile_settings["dt_min"],
-        "dt_max": loop_compile_settings["dt_max"],
-        "dt_save": loop_compile_settings["dt_save"],
-        "dt_summarise": loop_compile_settings["dt_summarise"],
-        "atol": loop_compile_settings["atol"],
-        "rtol": loop_compile_settings["rtol"],
-        "output_types": loop_compile_settings["output_functions"],
+        "summarised_observable_indices": (
+            list(solver_settings["summarised_observable_indices"])
+            if solver_settings.get("summarised_observable_indices")
+            is not None
+            else None
+        ),
+        "dt_min": solver_settings["dt_min"],
+        "dt_max": solver_settings["dt_max"],
+        "dt_save": solver_settings["dt_save"],
+        "dt_summarise": solver_settings["dt_summarise"],
+        "atol": solver_settings["atol"],
+        "rtol": solver_settings["rtol"],
+        "output_types": list(solver_settings["output_types"]),
     }
 
 

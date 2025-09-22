@@ -109,8 +109,6 @@ class LoopIndices:
             all=slice(None),
         )
 
-
-
 @define
 class ODELoopConfig:
     """

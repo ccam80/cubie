@@ -6,7 +6,6 @@ from cubie.batchsolving._utils import ensure_nonzero_size
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from integrators.cpu_reference import CPUODESystem
 from tests._utils import calculate_expected_summaries
 from tests.integrators.cpu_reference import run_reference_loop
 
@@ -452,12 +451,13 @@ def test_bogus_update_fails(solverkernel):
 def expected_batch_answers_euler(
     system,
     solver_settings,
-    loop_compile_settings,
     implicit_step_settings,
     batch_input_arrays,
     square_drive,
     cpu_step_controller,
     output_functions,
+    cpu_system,
+    step_controller_settings,
 ):
     inits, params = batch_input_arrays
     driver_vec = square_drive.T if square_drive.ndim == 2 else square_drive
@@ -473,28 +473,7 @@ def expected_batch_answers_euler(
         "atol": float(solver_settings["atol"]),
         "rtol": float(solver_settings["rtol"]),
     }
-    loop_settings = {
-        "dt_min": solver_config["dt_min"],
-        "dt_max": solver_config["dt_max"],
-        "dt_save": solver_config["dt_save"],
-        "dt_summarise": solver_config["dt_summarise"],
-        "atol": solver_config["atol"],
-        "rtol": solver_config["rtol"],
-        "saved_state_indices": list(loop_compile_settings["saved_state_indices"]),
-        "saved_observable_indices": list(
-            loop_compile_settings["saved_observable_indices"]
-        ),
-        "summarised_state_indices": list(
-            loop_compile_settings["summarised_state_indices"]
-        ),
-        "summarised_observable_indices": list(
-            loop_compile_settings["summarised_observable_indices"]
-        ),
-        "output_functions": list(loop_compile_settings["output_functions"]),
-    }
-    controller_settings = {"kind": "fixed", "dt": solver_config["dt_min"]}
     output_sets = []
-    evaluator = CPUODESystem(system)
     for i in range(inits.shape[0]):
         run_inputs = {
             "initial_values": inits[i, :].astype(precision),
@@ -502,13 +481,13 @@ def expected_batch_answers_euler(
             "forcing_vectors": driver_matrix,
         }
         result = run_reference_loop(
-            evaluator=evaluator,
+            evaluator=cpu_system,
             inputs=run_inputs,
             solver_settings=solver_config,
             implicit_step_settings=implicit_step_settings,
             controller=cpu_step_controller,
             output_functions=output_functions,
-            step_controller_settings=controller_settings,
+            step_controller_settings=step_controller_settings,
         )
         output_sets.append((result["state"], result["observables"]))
     return output_sets
@@ -518,7 +497,6 @@ def expected_batch_answers_euler(
 def expected_batch_summaries(
     expected_batch_answers_euler,
     solver_settings,
-    loop_compile_settings,
     output_functions,
     precision,
 ):
@@ -533,8 +511,8 @@ def expected_batch_summaries(
     saves_per_summary = max(
         int(
             np.ceil(
-                float(loop_compile_settings["dt_summarise"])
-                / float(loop_compile_settings["dt_save"])
+                float(solver_settings["dt_summarise"])
+                / float(solver_settings["dt_save"])
             )
         ),
         1,
@@ -546,7 +524,7 @@ def expected_batch_summaries(
                 expected_state,
                 expected_output,
                 saves_per_summary,
-                loop_compile_settings["output_functions"],
+                solver_settings["output_types"],
                 output_functions.summaries_output_height_per_var,
                 precision,
             )

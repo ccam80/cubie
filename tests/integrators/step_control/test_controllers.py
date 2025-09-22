@@ -151,7 +151,7 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
         # ({"step_controller": "gustafsson",
         #   'atol':1e-3,'rtol':0.0}),
     ],
-    ids=("i", "pi", "pid", "gustafsson"),
+    ids=("i", "pi", "pid"),
     indirect=True
 )
 class TestControllers:
