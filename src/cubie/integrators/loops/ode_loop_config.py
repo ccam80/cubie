@@ -20,9 +20,106 @@ from cubie.outputhandling.output_sizes import LoopBufferSizes
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))
 
+@define
+class LoopLocalIndices:
+    """Index slices for persistent local memory used by the loop."""
+
+    dt: Optional[slice] = field(default=None, validator=valid_opt_slice)
+    accept: Optional[slice] = field(default=None, validator=valid_opt_slice)
+    error: Optional[slice] = field(default=None, validator=valid_opt_slice)
+    controller: Optional[slice] = field(
+        default=None, validator=valid_opt_slice
+    )
+    algorithm: Optional[slice] = field(default=None, validator=valid_opt_slice)
+    loop_end: Optional[int] = field(
+        default=None, validator=validators.optional(getype_validator(int, 0))
+    )
+    total_end: Optional[int] = field(
+        default=None, validator=validators.optional(getype_validator(int, 0))
+    )
+    all: Optional[slice] = field(default=None, validator=valid_opt_slice)
+
+    @classmethod
+    def empty(cls) -> "LoopLocalIndices":
+        """Return an empty local-memory layout."""
+
+        zero = slice(0, 0)
+        return cls(
+            dt=zero,
+            error_integral=zero,
+            accept=zero,
+            error=zero,
+            controller=zero,
+            algorithm=zero,
+            loop_end=0,
+            total_end=0,
+            all=slice(None),
+        )
+
+    @classmethod
+    def from_sizes(
+        cls, n_states: int, controller_len: int, algorithm_len: int
+    ) -> "LoopLocalIndices":
+        """Build index slices from component memory requirements."""
+
+        n_states = max(int(n_states), 0)
+        controller_len = max(int(controller_len), 0)
+        algorithm_len = max(int(algorithm_len), 0)
+
+        dt_slice = slice(0, 1)
+        accept_slice = slice(1, 2)
+        error_start = 2
+        error_stop = error_start + n_states
+        error_slice = slice(error_start, error_stop)
+
+        controller_start = error_stop
+        controller_stop = controller_start + controller_len
+        controller_slice = slice(controller_start, controller_stop)
+
+        algorithm_start = controller_stop
+        algorithm_stop = algorithm_start + algorithm_len
+        algorithm_slice = slice(algorithm_start, algorithm_stop)
+
+        return cls(
+            dt=dt_slice,
+            accept=accept_slice,
+            error=error_slice,
+            controller=controller_slice,
+            algorithm=algorithm_slice,
+            loop_end=error_slice.stop,
+            total_end=algorithm_slice.stop,
+            all=slice(None),
+        )
+
+    @property
+    def loop_elements(self) -> int:
+        """Return the loop's intrinsic persistent local requirement."""
+        return int(self.loop_end or 0)
+
+    # @property
+    # def total_elements(self) -> int:
+    #     """Return the total persistent local requirement including children."""
+    #
+    #     return int(self.total_end or 0)
+    #
+    # @property
+    # def controller_elements(self) -> int:
+    #     """Return the controller contribution to persistent local memory."""
+    #
+    #     if self.controller is None:
+    #         return 0
+    #     return int(self.controller.stop - self.controller.start)
+    #
+    # @property
+    # def algorithm_elements(self) -> int:
+    #     """Return the algorithm contribution to persistent local memory."""
+    #
+    #     if self.algorithm is None:
+    #         return 0
+    #     return int(self.algorithm.stop - self.algorithm.start)
 
 @define
-class LoopIndices:
+class LoopSharedIndices:
     """General container for array indices used in integrator loops. Each
     attribute is a slice, for indexing arrays directly"""
 
@@ -34,7 +131,6 @@ class LoopIndices:
             default=None,
             validator=valid_opt_slice
     )
-    # Alias this to state indices for shared mem in fixed-step mode
     proposed_state: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
@@ -82,7 +178,7 @@ class LoopIndices:
         self.local_end = self.scratch.stop
 
     @classmethod
-    def from_buffer_sizes(cls, sizes: LoopBufferSizes) -> "LoopIndices":
+    def from_buffer_sizes(cls, sizes: LoopBufferSizes) -> "LoopSharedIndices":
         state_start_idx = 0
         state_proposal_start_idx = state_start_idx + sizes.state
         dxdt_start_index = state_proposal_start_idx + sizes.state
@@ -109,6 +205,27 @@ class LoopIndices:
             all=slice(None),
         )
 
+    @property
+    def loop_shared_elements(self) -> int:
+        """Return the number of shared memory elements."""
+        return int(self.local_end or 0)
+
+    @property
+    def n_states(self) -> int:
+        """Return the number of states."""
+        return int(self.state.stop - self.state.start)
+
+    @property
+    def n_parameters(self) -> int:
+        """Return the number of proposed states."""
+        return int(self.parameters.stop - self.parameters.start)
+
+    @property
+    def n_drivers(self) -> int:
+        """Return the number of drivers."""
+        return int(self.drivers.stop - self.drivers.start)
+
+
 @define
 class ODELoopConfig:
     """
@@ -121,11 +238,12 @@ class ODELoopConfig:
     update_from methods which extract relevant settings from other objects.
 
     """
-    buffer_sizes: LoopBufferSizes = field(
-        validator=validators.instance_of(LoopBufferSizes)
+
+    shared_buffer_indices: LoopSharedIndices = field(
+        validator=validators.instance_of(LoopSharedIndices)
     )
-    buffer_indices: LoopIndices = field(
-        validator=validators.instance_of(LoopIndices)
+    local_indices: LoopLocalIndices = field(
+            validator=validators.instance_of(LoopLocalIndices)
     )
     save_state_func: Callable = field(validator=is_device_validator)
     update_summaries_func: Callable = field(validator=is_device_validator)
@@ -148,7 +266,20 @@ class ODELoopConfig:
     _dt_summarise: float = field(
         default=1.0,
         validator=gttype_validator(float, 0)
+    )    
+    _dt0: float = field(
+        default=0.01,
+        validator=gttype_validator(float, 0),
     )
+    _dt_min: float = field(
+        default=0.01,
+        validator=gttype_validator(float, 0),
+    )
+    _dt_max: float = field(
+        default=0.1,
+        validator=gttype_validator(float, 0),
+    )
+    is_adaptive: bool = field(default=False, validator=validators.instance_of(bool))
 
     @property
     def saves_per_summary(self) -> int:
@@ -174,3 +305,32 @@ class ODELoopConfig:
     def dt_summarise(self) -> float:
         """Returns summary interval."""
         return self.precision(self._dt_summarise)
+
+    @property
+    def dt0(self) -> float:
+        """Return the initial timestep."""
+        return float(self._dt0)
+
+    @property
+    def dt_min(self) -> float:
+        """Return the minimum allowable timestep."""
+        return float(self._dt_min)
+
+    @property
+    def dt_max(self) -> float:
+        """Return the maximum allowable timestep."""
+        return float(self._dt_max)
+
+    @property
+    def loop_shared_elements(self) -> int:
+        """Return the loop's shared-memory contribution."""
+
+        local_end = getattr(self.shared_buffer_indices, "local_end", None)
+        return int(local_end or 0)
+
+    @property
+    def loop_local_elements(self) -> int:
+        """Return the loop's persistent local-memory contribution."""
+
+        return self.local_indices.loop_elements
+

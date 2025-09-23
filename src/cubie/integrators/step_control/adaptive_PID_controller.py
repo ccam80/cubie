@@ -125,6 +125,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             state,
             state_prev,
             error,
+            niters,
             accept_out,
             local_temp
         ):

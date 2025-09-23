@@ -93,7 +93,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(device=True, inline=True, fastmath=True)
-        def controller_I(dt, state, state_prev, error, accept_out, local_temp):
+        def controller_I(dt, state, state_prev, error, niters, accept_out, local_temp):
             """Integral accept/step-size controller."""
             nrm2 = precision(0.0)
             for i in range(n):
@@ -117,4 +117,3 @@ class AdaptiveIController(BaseAdaptiveStepController):
             return ret
 
         return controller_I
-

@@ -124,7 +124,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(device=True, inline=True, fastmath=True)
         def controller_PI(
-            dt, state, state_prev, error, accept_out, local_temp
+            dt, state, state_prev, error, niters, accept_out, local_temp
         ):
             """Proportional–integral accept/step-size controller."""
             err_prev = local_temp[0]

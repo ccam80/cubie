@@ -245,6 +245,7 @@ class StepResult:
     observables: Array
     error: Array
     converged: bool = True
+    niters: int = 0
 
 
 def explicit_euler_step(
@@ -272,7 +273,7 @@ def _newton_solve(
     precision: np.dtype,
     tol: float = 1e-10,
     max_iters: int = 25,
-) -> tuple[Array, bool]:
+):
     """Solve ``residual(x) = 0`` using a dense Newton iteration."""
 
     state = initial_guess.astype(precision, copy=True)
@@ -280,14 +281,14 @@ def _newton_solve(
         res = residual(state)
         res_norm = np.linalg.norm(res, ord=np.inf)
         if res_norm < tol:
-            return state, True
+            return state, True, iteration + 1
         jac = jacobian(state)
         try:
             delta = np.linalg.solve(jac, -res)
         except np.linalg.LinAlgError:
             delta = np.linalg.lstsq(jac, -res, rcond=None)[0]
         state = state + delta.astype(precision)
-    return state, False
+    return state, False, max_iters
 
 
 def backward_euler_step(
@@ -320,10 +321,10 @@ def backward_euler_step(
         guess = np.asarray(initial_guess, dtype=precision).astype(
             precision, copy=True
         )
-    next_state, converged = _newton_solve(residual, jacobian, guess, precision, tol, max_iters)
+    next_state, converged, niters = _newton_solve(residual, jacobian, guess, precision, tol, max_iters)
     dxdt, observables = evaluator.rhs(next_state, params, drivers_next)
     error = np.zeros_like(next_state)
-    return StepResult(next_state, observables, error, converged)
+    return StepResult(next_state, observables, error, converged, niters)
 
 
 def crank_nicolson_step(
@@ -351,7 +352,7 @@ def crank_nicolson_step(
         return identity - 0.5 * dt * jac
 
     guess = state.astype(precision, copy=True)
-    next_state, converged = _newton_solve(residual, jacobian, guess, precision, tol, max_iters)
+    next_state, converged, niters = _newton_solve(residual, jacobian, guess, precision, tol, max_iters)
     _, observables = evaluator.rhs(next_state, params, drivers_next)
 
     # Embedded backward Euler step for the error estimate
@@ -366,7 +367,7 @@ def crank_nicolson_step(
         max_iters=max_iters
     )
     error = next_state - be_result.state
-    return StepResult(next_state, observables, error, converged)
+    return StepResult(next_state, observables, error, converged, niters)
 
 
 def backward_euler_predict_correct_step(
@@ -430,8 +431,10 @@ class CPUAdaptiveController:
         kp: float = 0.7,
         ki: float = 0.4,
         kd: float = 0.1,
+        gamma: float = 0.9,
+        max_newton_iters: int = 4,
     ) -> None:
-        self.kind = kind
+        self.kind = kind.lower()
         self.dt_min = float(dt_min)
         self.dt_max = float(dt_max)
         self.dt = float(dt_min)
@@ -445,15 +448,16 @@ class CPUAdaptiveController:
         self.kp = kp
         self.ki = ki
         self.kd = kd
+        self.gamma = float(gamma)
+        self.max_newton_iters = int(max_newton_iters)
         self._history: list[float] = [0.0, 0.0]
         self._dt_history: list[float] = [0.0, 0.0]
         self._step_count = 0
         self._convergence_failed = False
-        # Track consecutive rejections at dt_min to decide true failure
         self._rejections_at_dt_min = 0
-        # Device-style cached previous nrm2 and its inverse for PID/gustafsson
         self._prev_nrm2 = 0.0
         self._prev_inv_nrm2 = 0.0
+        self._prev_dt = 0.0
 
     @property
     def is_adaptive(self) -> bool:
@@ -470,15 +474,17 @@ class CPUAdaptiveController:
             norm = 1e5 #Arbitrarily big
         return float(norm)
 
-    def propose_dt(self, error_estimate: float, accept: bool) -> None:
+    def propose_dt(self, error_estimate: float, accept: bool, niters: int = 0) -> None:
         self._step_count += 1
 
         if not self.is_adaptive:
             # print(f"[PID] Step #{self._step_count}: Fixed step size dt={self.dt:.6e}, error_norm={error_estimate:.2e}, ACCEPT")
             return
 
-        gain = self._gain(error_estimate)
-        unclamped_dt = self.dt * gain
+        # Save current dt before computing new gain (needed for gustafsson)
+        current_dt = self.dt
+        gain = self._gain(error_estimate, accept, niters, current_dt)
+        unclamped_dt = current_dt * gain
 
         # Clamp
         new_dt = min(self.dt_max, max(self.dt_min, unclamped_dt))
@@ -492,20 +498,12 @@ class CPUAdaptiveController:
         elif accept:
             self._rejections_at_dt_min = 0
 
-        # History for PI controller variants still kept
-        self._history.append(max(error_estimate, 1e-16))
-        if len(self._history) > 3:
-            self._history.pop(0)
-        self._dt_history.append(self.dt)
-        if len(self._dt_history) > 2:
-            self._dt_history.pop(0)
+        # Update histories (store nrm2 capped like device code)
+        capped = min(error_estimate, 1e4) if error_estimate > 0 else 0.0
+        self._prev_nrm2 = capped
+        self._prev_dt = current_dt  # previous accepted/attempted dt used for next gustafsson
 
-        # Update device-style caches (used by PID/gustafsson branches)
-        if error_estimate > 0.0:
-            self._prev_inv_nrm2 = 1.0 / error_estimate
-            self._prev_nrm2 = error_estimate
-
-    def _gain(self, error_estimate: float) -> float:
+    def _gain(self, error_estimate: float, accept: bool, niters: int, current_dt: float) -> float:
         if error_estimate <= 0.0:
             return self.max_gain
 
@@ -517,7 +515,7 @@ class CPUAdaptiveController:
         elif self.kind == "pi":
             kp_exp = (self.kp / (self.order + 1.0)) / 2.0
             ki_exp = (self.ki / (self.order + 1.0)) / 2.0
-            prev = self._history[-1] if self._history[-1] > 0.0 else error_estimate
+            prev = self._prev_nrm2 if self._prev_nrm2 > 0.0 else error_estimate
             gain = self.safety * (error_estimate ** kp_exp) * (prev ** ki_exp)
 
         elif self.kind == "pid":
@@ -535,23 +533,22 @@ class CPUAdaptiveController:
                 * (ratio_term ** kd_exp)
             )
 
-        #Current gustafsson is just a hallucination
-        # elif self.kind == "gustafsson":
-        #     # Device implementation with predictive acceleration
-        #     exponent = 1.0 / (2.0 * (self.order + 1.0))
-        #     gain_basic = self.safety * (error_estimate ** exponent)
-        #
-        #     if self._prev_nrm2 > 0.0 and self._prev_inv_nrm2 > 0.0 and self._dt_history[-1] > 0.0:
-        #         prev = self._prev_nrm2
-        #         dt_prev = self._dt_history[-1]
-        #         ratio = error_estimate / prev
-        #         gain_gus = self.safety * (self.dt / dt_prev) * (ratio ** exponent)
-        #         gain = min(gain_gus, gain_basic)
-        #     else:
-        #         gain = gain_basic
-        # else:
-        #     gain = 1.0
-        #
+        elif self.kind == "gustafsson":
+            expo = 1.0 / (2.0 * (self.order + 1.0))
+            M = self.max_newton_iters
+            nit = max(1, niters)  # ensure positive
+            fac = min(self.gamma, ((1 + 2 * M) * self.gamma) / (nit + 2 * M))
+            gain_basic = self.safety * fac * (error_estimate ** expo)
+            use_gus = accept and (self._prev_dt > 0.0) and (self._prev_nrm2 > 0.0)
+            if use_gus:
+                ratio = (error_estimate * error_estimate) / self._prev_nrm2
+                gain_gus = self.safety * (current_dt / self._prev_dt) * (ratio ** expo) * self.gamma
+                gain = gain_gus if gain_gus < gain_basic else gain_basic
+            else:
+                gain = gain_basic
+        else:
+            gain = 1.0
+
         gain = min(self.max_gain, max(self.min_gain, gain))
         return gain
 
@@ -667,18 +664,14 @@ def run_reference_loop(
         error_norm = controller.error_norm(state, result.state, result.error)
 
         if controller.is_adaptive and error_norm < 1.0:
-            controller.propose_dt(error_norm, accept=False)
-
-            # Check if the controller has signaled convergence failure
+            controller.propose_dt(error_norm, accept=False, niters=result.niters)
             if hasattr(controller, '_convergence_failed') and controller._convergence_failed:
                 print(f"[LOOP] Integration failed: unclamped dt < dt_min at t={t:.6e}")
-                # Return current state with convergence failure flag
                 break
-
             continue
 
         t += dt
-        controller.propose_dt(error_norm, accept=True)
+        controller.propose_dt(error_norm, accept=True, niters=result.niters)
         state = result.state
         if t >= warmup and len(state_history) < max_save_samples:
             if t + 1e-12 >= next_save_time:

@@ -19,3 +19,8 @@ Never shortcut "is_device" or implement patches to get around other cuda-related
 Install from workspace/cubie with pip install -e .[dev]
 To run tests from an environment without CUDA drivers, set the environment variable NUMBA_ENABLE_CUDASIM="1".
 If running tests without CUDA drivers, then omit pytests marked nocudasim and cupy.
+
+## Attrs usage
+For any floating-point attributes in an attrs class, save the attributes with a leading underscore, then add a property 
+which returns self.precision(self._attribute). Never add an alias to these underscored variables. Never include the underscore
+in calls to __init__. Attrs handles both internally.

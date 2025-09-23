@@ -7,7 +7,6 @@ from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from tests._utils import calculate_expected_summaries
-from tests.integrators.cpu_reference import run_reference_loop
 
 
 @pytest.fixture(scope="function")
@@ -126,7 +125,7 @@ def test_run(
     solver_settings,
     square_drive,
     batch_settings,
-    expected_batch_answers_euler,
+    expected_batch_answers,
     expected_batch_summaries,
     precision,
 ):
@@ -270,7 +269,7 @@ def test_run(
         rtol = 1e-12
 
     for i, (expected_state_output, expected_observables_output) in enumerate(
-        expected_batch_answers_euler
+        expected_batch_answers
     ):
         expected_state_summaries = expected_batch_summaries[i][0]
         expected_obs_summaries = expected_batch_summaries[i][1]
@@ -448,54 +447,31 @@ def test_bogus_update_fails(solverkernel):
 
 
 @pytest.fixture(scope="function")
-def expected_batch_answers_euler(
-    system,
-    solver_settings,
-    implicit_step_settings,
+def expected_batch_answers(
     batch_input_arrays,
+    cpu_loop_runner,
     square_drive,
-    cpu_step_controller,
-    output_functions,
-    cpu_system,
-    step_controller_settings,
+    precision,
 ):
     inits, params = batch_input_arrays
-    driver_vec = square_drive.T if square_drive.ndim == 2 else square_drive
-    precision = system.precision
-    driver_matrix = driver_vec.astype(precision)
-    solver_config = {
-        "dt_min": float(solver_settings["dt_min"]),
-        "dt_max": float(solver_settings["dt_max"]),
-        "dt_save": float(solver_settings["dt_save"]),
-        "dt_summarise": float(solver_settings["dt_summarise"]),
-        "warmup": float(solver_settings["warmup"]),
-        "duration": float(solver_settings["duration"]),
-        "atol": float(solver_settings["atol"]),
-        "rtol": float(solver_settings["rtol"]),
-    }
-    output_sets = []
-    for i in range(inits.shape[0]):
-        run_inputs = {
-            "initial_values": inits[i, :].astype(precision),
-            "parameters": params[i, :].astype(precision),
-            "forcing_vectors": driver_matrix,
-        }
-        result = run_reference_loop(
-            evaluator=cpu_system,
-            inputs=run_inputs,
-            solver_settings=solver_config,
-            implicit_step_settings=implicit_step_settings,
-            controller=cpu_step_controller,
-            output_functions=output_functions,
-            step_controller_settings=step_controller_settings,
+    driver_matrix = np.array(square_drive, dtype=precision, copy=True)
+
+    output_sets: list[tuple[np.ndarray, np.ndarray]] = []
+    for idx in range(inits.shape[0]):
+        loop_result = cpu_loop_runner(
+            initial_values=inits[idx, :],
+            parameters=params[idx, :],
+            forcing_vectors=driver_matrix,
         )
-        output_sets.append((result["state"], result["observables"]))
+        output_sets.append(
+            (loop_result["state"], loop_result["observables"])
+        )
     return output_sets
 
 
 @pytest.fixture(scope="function")
 def expected_batch_summaries(
-    expected_batch_answers_euler,
+    expected_batch_answers,
     solver_settings,
     output_functions,
     precision,
@@ -518,7 +494,7 @@ def expected_batch_summaries(
         1,
     )
     expected_summaries = []
-    for expected_state, expected_output in expected_batch_answers_euler:
+    for expected_state, expected_output in expected_batch_answers:
         expected_summaries.append(
             calculate_expected_summaries(
                 expected_state,

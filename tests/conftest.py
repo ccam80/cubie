@@ -10,6 +10,8 @@ from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import IVPLoop
+from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
+    LoopLocalIndices
 from cubie.integrators.step_control.adaptive_I_controller import AdaptiveIController
 from cubie.integrators.step_control.adaptive_PID_controller import (
     AdaptivePIDController,
@@ -354,18 +356,29 @@ def loop(
     solver_settings,
 ):
     """Construct the :class:`IVPLoop` instance used in loop tests."""
+    buffer_indices = LoopSharedIndices.from_buffer_sizes(loop_buffer_sizes)
+    local_indices = LoopLocalIndices.from_sizes(
+            loop_buffer_sizes.state,
+            step_controller.local_memory_elements,
+            step_object.persistent_local_required,
+    )
 
     return IVPLoop(
         precision=precision,
-        dt_save=solver_settings["dt_save"],
-        dt_summarise=solver_settings["dt_summarise"],
-        step_controller=step_controller,
-        step_object=step_object,
-        buffer_sizes=loop_buffer_sizes,
+        buffer_indices=buffer_indices,
+        local_indices=local_indices,
         compile_flags=output_functions.compile_flags,
         save_state_func=output_functions.save_state_func,
         update_summaries_func=output_functions.update_summaries_func,
         save_summaries_func=output_functions.save_summary_metrics_func,
+        step_controller_fn=step_controller.device_function,
+        step_fn=step_object.step_function,
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        dt0=step_controller.dt0,
+        dt_min=step_controller.dt_min,
+        dt_max=step_controller.dt_max,
+        is_adaptive=step_controller.is_adaptive,
     )
 
 
@@ -453,6 +466,80 @@ def loop_buffer_sizes(system, output_functions):
 # ========================================
 # COMPUTED OUTPUT FIXTURES
 # ========================================
+@pytest.fixture(scope="function")
+def cpu_loop_runner(
+    system,
+    cpu_system,
+    precision,
+    cpu_step_controller,
+    solver_settings,
+    step_controller_settings,
+    implicit_step_settings,
+    output_functions,
+):
+    """Return a callable for generating CPU reference loop outputs."""
+
+    def _run_loop(
+        *,
+        initial_values=None,
+        parameters=None,
+        forcing_vectors=None,
+    ):
+
+        solver_config = dict(solver_settings)
+        driver_matrix: np.ndarray
+        if forcing_vectors is None:
+            samples = int(
+                np.ceil(
+                    solver_config["duration"] / max(solver_config["dt_save"], 1e-12)
+                )
+            )
+            samples = max(samples, 1)
+            driver_matrix = _driver_sequence(
+                samples=samples,
+                total_time=solver_config["duration"],
+                n_drivers=system.num_drivers,
+                precision=precision,
+            )
+        else:
+            driver_matrix = np.array(forcing_vectors, dtype=precision, copy=True)
+
+        if driver_matrix.ndim == 2 and system.num_drivers:
+            drivers_first_dim = driver_matrix.shape[0]
+            drivers_second_dim = driver_matrix.shape[1]
+            if drivers_first_dim != system.num_drivers and (
+                drivers_second_dim == system.num_drivers
+            ):
+                driver_matrix = driver_matrix.T
+
+        initial_vec = (
+            np.asarray(initial_values, dtype=precision).copy()
+            if initial_values is not None
+            else system.initial_values.values_array.astype(precision, copy=True)
+        )
+        parameter_vec = (
+            np.asarray(parameters, dtype=precision).copy()
+            if parameters is not None
+            else system.parameters.values_array.astype(precision, copy=True)
+        )
+
+        inputs = {
+            "initial_values": initial_vec,
+            "parameters": parameter_vec,
+            "drivers": driver_matrix,
+        }
+
+        return run_reference_loop(
+            evaluator=cpu_system,
+            inputs=inputs,
+            solver_settings=solver_config,
+            implicit_step_settings=implicit_step_settings,
+            controller=cpu_step_controller,
+            output_functions=output_functions,
+            step_controller_settings=step_controller_settings,
+        )
+
+    return _run_loop
 
 @pytest.fixture(scope="function")
 def cpu_loop_outputs(

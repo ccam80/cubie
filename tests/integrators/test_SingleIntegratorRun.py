@@ -100,8 +100,8 @@ def test_initialization(single_integrator_run, system, integrator_params):
         == integrator_params["algorithm"].lower()
     )
 
-    # Check that integrator instance is created
-    assert single_integrator_run._integrator_instance is not None
+    # Check that loop dependencies are created
+    assert single_integrator_run._loop is not None
     assert single_integrator_run._step_controller is not None
     assert single_integrator_run._algo_step is not None
 
@@ -123,17 +123,6 @@ def test_output_functions_immediate_creation(single_integrator_run, system):
     compile_settings = single_integrator_run._output_functions.compile_settings
     assert compile_settings.max_states == system_sizes.states
     assert compile_settings.max_observables == system_sizes.observables
-
-
-def test_integrator_instance_immediate_creation(single_integrator_run):
-    """Integrator instance exists immediately after initialisation."""
-    # Integrator instance should exist immediately after initialization
-    assert single_integrator_run._integrator_instance is not None
-
-    # Should be created from the correct algorithm
-    assert single_integrator_run.algorithm_key in ["explicit_euler"]
-
-
 def test_property_access(single_integrator_run):
     """Test that properties can be accessed correctly."""
     # Test buffer sizes
@@ -158,6 +147,18 @@ def test_property_access(single_integrator_run):
     assert threads > 0
 
 
+def test_memory_requirements(single_integrator_run):
+    """Shared and local memory calculations include dependencies."""
+
+    base_shared = single_integrator_run.config.loop_shared_elements
+    algo_shared = single_integrator_run._algo_step.shared_memory_required
+    assert single_integrator_run.shared_memory_elements == base_shared + algo_shared
+    assert (
+        single_integrator_run.local_memory_elements
+        == single_integrator_run.config.total_local_elements
+    )
+
+
 def test_function_access_properties(single_integrator_run):
     """Test that function access properties work correctly."""
     # Test dxdt function
@@ -176,17 +177,12 @@ def test_function_access_properties(single_integrator_run):
     save_summaries_func = single_integrator_run.save_summaries_func
     assert callable(save_summaries_func)
 
-    # Test loop step config
-    loop_config = single_integrator_run.loop_step_config
-    assert loop_config is not None
-
-
 def test_build_device_function(single_integrator_run):
     """Test that build() creates a device function successfully."""
     device_func = single_integrator_run.build()
 
     assert callable(device_func)
-    assert single_integrator_run._integrator_instance is not None
+    assert single_integrator_run._loop is not None
     assert single_integrator_run._compiled_loop is not None
     assert single_integrator_run._loop_cache_valid is True
 
@@ -254,14 +250,13 @@ def test_algorithm_change(single_integrator_run):
     """Test that algorithm can be changed and integrator is recreated."""
     # Build initial version
     single_integrator_run.build()
-    initial_instance = single_integrator_run._integrator_instance
+    initial_algo = single_integrator_run._algo_step
 
     # Change algorithm
     single_integrator_run.update(algorithm="backwards_euler")
 
     # Should have new instance
-    new_instance = single_integrator_run._integrator_instance
-    assert new_instance is not initial_instance
+    assert single_integrator_run._algo_step is not initial_algo
 
     # Algorithm key should be updated
     assert single_integrator_run.algorithm_key == "backwards_euler"
@@ -295,7 +290,7 @@ def test_shared_memory_bytes(single_integrator_run):
 def test_error_handling_unrecognized_parameters(single_integrator_run):
     """Test error handling for unrecognized parameters."""
     # Test invalid parameter that no component recognizes
-    with pytest.raises(KeyError, match="not recognized by any component"):
+    with pytest.raises(KeyError, match="Unrecognized parameters"):
         single_integrator_run.update(invalid_param_name=42)
 
 
