@@ -220,6 +220,18 @@ class BaseAdaptiveStepController(BaseStepController):
         return self.compile_settings.max_gain
 
     @property
+    def safety(self) -> float:
+        """Return the safety factor used by the controller."""
+
+        return self.compile_settings.safety
+
+    @property
+    def algorithm_order(self) -> int:
+        """Return the integration algorithm order assumed by the controller."""
+
+        return int(self.compile_settings.algorithm_order)
+
+    @property
     def atol(self) -> np.ndarray:
         """Return absolute tolerance."""
         return self.compile_settings.atol

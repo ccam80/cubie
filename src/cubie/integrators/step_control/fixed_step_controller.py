@@ -66,7 +66,6 @@ class FixedStepController(BaseStepController):
 
     def __init__(self, precision: type, dt: float) -> None:
         """Initialise the fixed step controller."""
-        self.dt = dt
         super().__init__()
         config = FixedStepControlConfig(precision=precision, n=1, dt=dt)
         self.setup_compile_settings(config)
@@ -85,3 +84,9 @@ class FixedStepController(BaseStepController):
     def local_memory_elements(self) -> int:
         """Amount of local memory required by the controller."""
         return 0
+
+    @property
+    def dt(self) -> float:
+        """Return the fixed step size used by the controller."""
+
+        return self.compile_settings.dt

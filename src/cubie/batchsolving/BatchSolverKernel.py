@@ -475,6 +475,7 @@ class BatchSolverKernel(CUDAFactory):
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
+        local_elements_per_run = self.local_memory_elements_per_run
         shared_elements_per_run = self.shared_memory_elements_per_run
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
@@ -504,8 +505,9 @@ class BatchSolverKernel(CUDAFactory):
             observables_output,
             state_summaries_output,
             observables_summaries_output,
-            duration_samples,
-            warmup_samples=0,
+            duration,
+            warmup=precision(0.0),
+            t0=precision(0.0),
             n_runs=1,
         ):
             tx = int16(cuda.threadIdx.x)
@@ -520,6 +522,8 @@ class BatchSolverKernel(CUDAFactory):
 
             #Declare shared memory in 32b units to allow for skewing/padding
             shared_memory = cuda.shared.array(0, dtype=float32)
+            local_scratch = cuda.local.array(local_elements_per_run,
+                                             dtype=float32)
             c_forcing_vector = cuda.const.array_like(forcing_vector)
 
             # Run-indexed slices of shared and output memory
@@ -549,12 +553,14 @@ class BatchSolverKernel(CUDAFactory):
                 rx_params,
                 c_forcing_vector,
                 rx_shared_memory,
+                local_scratch,
                 rx_state,
                 rx_observables,
                 rx_state_summaries,
                 rx_observables_summaries,
-                duration_samples,
-                warmup_samples,
+                duration,
+                warmup,
+                t0,
             )
 
             return None
@@ -645,6 +651,17 @@ class BatchSolverKernel(CUDAFactory):
         SingleIntegratorRun object.
         """
         return self.single_integrator.shared_memory_elements
+
+    @property
+    def local_memory_elements_per_run(self):
+        """Get local memory elements per run.
+
+        Returns
+        -------
+        int
+            Number of local memory elements per run.
+        """
+        return self.single_integrator.local_memory_elements
 
     @property
     def precision(self):

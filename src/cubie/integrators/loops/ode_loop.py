@@ -111,6 +111,18 @@ class IVPLoop(CUDAFactory):
         """Returns numerical precision for system"""
         return self.compile_settings.precision
 
+    @property
+    def numba_precision(self):
+        """Return the Numba compatible precision for the loop."""
+
+        return self.compile_settings.numba_precision
+
+    @property
+    def simsafe_precision(self):
+        """Return the simulator safe precision for the loop."""
+
+        return self.compile_settings.simsafe_precision
+
     def build(self):
         """
         Build the integrator loop, unpacking config for local scope.
@@ -359,8 +371,16 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.dt_summarise
 
     @property
-    def buffer_indices(self):
+    def shared_buffer_indices(self) -> LoopSharedIndices:
+        """Return the shared buffer index layout."""
+
         return self.compile_settings.shared_buffer_indices
+
+    @property
+    def buffer_indices(self) -> LoopSharedIndices:
+        """Return the shared buffer index layout."""
+
+        return self.shared_buffer_indices
 
     @property
     def local_indices(self) -> LoopLocalIndices:
@@ -377,6 +397,66 @@ class IVPLoop(CUDAFactory):
     def local_memory_elements(self) -> int:
         """Return the loop's persistent local-memory requirement."""
         return self.compile_settings.loop_local_elements
+
+    @property
+    def compile_flags(self) -> OutputCompileFlags:
+        """Return the output compile flags associated with the loop."""
+
+        return self.compile_settings.compile_flags
+
+    @property
+    def save_state_fn(self) -> Optional[Callable]:
+        """Return the cached state saving device function."""
+
+        return self.compile_settings.save_state_fn
+
+    @property
+    def update_summaries_fn(self) -> Optional[Callable]:
+        """Return the cached summary update device function."""
+
+        return self.compile_settings.update_summaries_fn
+
+    @property
+    def save_summaries_fn(self) -> Optional[Callable]:
+        """Return the cached summary saving device function."""
+
+        return self.compile_settings.save_summaries_fn
+
+    @property
+    def step_controller_fn(self) -> Optional[Callable]:
+        """Return the device function implementing step control."""
+
+        return self.compile_settings.step_controller_fn
+
+    @property
+    def step_fn(self) -> Optional[Callable]:
+        """Return the algorithm step device function used by the loop."""
+
+        return self.compile_settings.step_fn
+
+    @property
+    def dt0(self) -> Optional[float]:
+        """Return the initial step size provided to the loop."""
+
+        return self.compile_settings.dt0
+
+    @property
+    def dt_min(self) -> Optional[float]:
+        """Return the minimum allowable step size for the loop."""
+
+        return self.compile_settings.dt_min
+
+    @property
+    def dt_max(self) -> Optional[float]:
+        """Return the maximum allowable step size for the loop."""
+
+        return self.compile_settings.dt_max
+
+    @property
+    def is_adaptive(self) -> Optional[bool]:
+        """Return whether the loop operates in adaptive mode."""
+
+        return self.compile_settings.is_adaptive
 
     def update(self,
                updates_dict : Optional[dict] = None,

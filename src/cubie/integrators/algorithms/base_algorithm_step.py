@@ -153,6 +153,30 @@ class BaseAlgorithmStep(CUDAFactory):
         return recognised
 
     @property
+    def precision(self) -> type:
+        """Return the numerical precision associated with the step."""
+
+        return self.compile_settings.precision
+
+    @property
+    def numba_precision(self) -> type:
+        """Return the Numba compatible precision for this step."""
+
+        return self.compile_settings.numba_precision
+
+    @property
+    def simsafe_precision(self) -> type:
+        """Return the simulator-safe precision for this step."""
+
+        return self.compile_settings.simsafe_precision
+
+    @property
+    def n(self) -> int:
+        """Return the number of state variables handled by the step."""
+
+        return self.compile_settings.n
+
+    @property
     @abstractmethod
     def threads_per_step(self) -> int:
         raise NotImplementedError

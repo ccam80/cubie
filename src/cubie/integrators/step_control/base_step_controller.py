@@ -124,6 +124,24 @@ class BaseStepController(CUDAFactory):
         return self.compile_settings.precision
 
     @property
+    def numba_precision(self) -> type:
+        """Return the Numba compatible precision for the controller."""
+
+        return self.compile_settings.numba_precision
+
+    @property
+    def simsafe_precision(self) -> type:
+        """Return the simulator safe precision for the controller."""
+
+        return self.compile_settings.simsafe_precision
+
+    @property
+    def n(self) -> int:
+        """Return the number of states controlled by the controller."""
+
+        return self.compile_settings.n
+
+    @property
     def dt_min(self) -> float:
         """Returns worst-case minimum step for calculating max iterations"""
         return self.compile_settings.dt_min

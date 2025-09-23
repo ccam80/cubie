@@ -193,7 +193,73 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 damping=newton_damping,
                 max_backtracks=newton_max_backtracks)
         return nonlinear_solver, obs_fn
-    
+
     @property
     def is_implicit(self) -> bool:
         return True
+
+    @property
+    def beta(self) -> float:
+        """Return the implicit integration beta coefficient."""
+
+        return self.compile_settings.beta
+
+    @property
+    def gamma(self) -> float:
+        """Return the implicit integration gamma coefficient."""
+
+        return self.compile_settings.gamma
+
+    @property
+    def mass_matrix(self):
+        """Return the mass matrix used by the implicit scheme."""
+
+        return self.compile_settings.M
+
+    @property
+    def preconditioner_order(self) -> int:
+        """Return the order of the Neumann preconditioner."""
+
+        return int(self.compile_settings.preconditioner_order)
+
+    @property
+    def linsolve_tolerance(self) -> float:
+        """Return the tolerance used for the linear solve."""
+
+        return self.compile_settings.linsolve_tolerance
+
+    @property
+    def max_linear_iters(self) -> int:
+        """Return the maximum number of linear iterations allowed."""
+
+        return int(self.compile_settings.max_linear_iters)
+
+    @property
+    def linear_correction_type(self) -> str:
+        """Return the linear correction strategy identifier."""
+
+        return self.compile_settings.linear_correction_type
+
+    @property
+    def nonlinear_tolerance(self) -> float:
+        """Return the Newton solve tolerance."""
+
+        return self.compile_settings.nonlinear_tolerance
+
+    @property
+    def max_newton_iters(self) -> int:
+        """Return the maximum allowed Newton iterations."""
+
+        return int(self.compile_settings.max_newton_iters)
+
+    @property
+    def newton_damping(self) -> float:
+        """Return the Newton damping factor."""
+
+        return self.compile_settings.newton_damping
+
+    @property
+    def newton_max_backtracks(self) -> int:
+        """Return the maximum number of Newton backtracking steps."""
+
+        return int(self.compile_settings.newton_max_backtracks)
