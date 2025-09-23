@@ -6,89 +6,42 @@ from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 
 
 @pytest.fixture(scope="function")
-def default_integrator_params(system, solver_settings):
-    """Default parameters for SingleIntegratorRun."""
-    return {
-        "system": system,
-        "algorithm": "explicit_euler",
-        "saved_state_indices": list(solver_settings["saved_state_indices"]),
-        "saved_observable_indices": list(
-            solver_settings["saved_observable_indices"]
-        ),
-        "summarised_state_indices": (
-            list(solver_settings["summarised_state_indices"])
-            if solver_settings.get("summarised_state_indices") is not None
-            else None
-        ),
-        "summarised_observable_indices": (
-            list(solver_settings["summarised_observable_indices"])
-            if solver_settings.get("summarised_observable_indices")
-            is not None
-            else None
-        ),
-        "dt_min": solver_settings["dt_min"],
-        "dt_max": solver_settings["dt_max"],
-        "dt_save": solver_settings["dt_save"],
-        "dt_summarise": solver_settings["dt_summarise"],
-        "atol": solver_settings["atol"],
-        "rtol": solver_settings["rtol"],
-        "output_types": list(solver_settings["output_types"]),
-    }
-
-
-@pytest.fixture(scope="function")
-def algorithm_override(request):
-    """Override for integrator parameters."""
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def integrator_params(default_integrator_params, algorithm_override):
-    """Combine default and override parameters."""
-    params = default_integrator_params.copy()
-    params.update(algorithm_override)
-    return params
-
-
-@pytest.fixture(scope="function")
-def single_integrator_run(system, integrator_params):
+def single_integrator_run(system, solver_settings):
     """Create a SingleIntegratorRun instance with the given parameters."""
     return SingleIntegratorRun(
-        system=integrator_params["system"],
-        algorithm=integrator_params["algorithm"],
-        dt_min=integrator_params["dt_min"],
-        dt_max=integrator_params["dt_max"],
-        dt_save=integrator_params["dt_save"],
-        dt_summarise=integrator_params["dt_summarise"],
-        atol=integrator_params["atol"],
-        rtol=integrator_params["rtol"],
-        saved_state_indices=integrator_params["saved_state_indices"],
-        saved_observable_indices=integrator_params["saved_observable_indices"],
-        summarised_state_indices=integrator_params["summarised_state_indices"],
-        summarised_observable_indices=integrator_params[
-            "summarised_observable_indices"
-        ],
-        output_types=integrator_params["output_types"],
+        system=system,
+        algorithm=solver_settings["algorithm"],
+        dt_min=solver_settings["dt_min"],
+        dt_max=solver_settings["dt_max"],
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        atol=solver_settings["atol"],
+        rtol=solver_settings["rtol"],
+        saved_state_indices=solver_settings["saved_state_indices"],
+        saved_observable_indices=solver_settings["saved_observable_indices"],
+        summarised_state_indices=solver_settings["summarised_state_indices"],
+        summarised_observable_indices=solver_settings["summarised_observable_indices"],
+        output_types=solver_settings["output_types"],
     )
 
 
-def test_initialization(single_integrator_run, system, integrator_params):
+def test_initialization(single_integrator_run, system, solver_settings):
     """Test that SingleIntegratorRun initializes correctly."""
     # Check that the system is stored correctly
     assert single_integrator_run._system == system
 
-    # Check that config object is created correctly
-    assert isinstance(single_integrator_run.config, IntegratorRunSettings)
-    assert single_integrator_run.config.dt_min == integrator_params["dt_min"]
-    assert single_integrator_run.config.dt_max == integrator_params["dt_max"]
-    assert single_integrator_run.config.dt_save == integrator_params["dt_save"]
+    # Check that compile_settings object is created correctly
+    assert isinstance(single_integrator_run.compile_settings, IntegratorRunSettings)
+    assert single_integrator_run.compile_settings.dt_min == solver_settings["dt_min"]
+    assert single_integrator_run.compile_settings.dt_max == solver_settings["dt_max"]
+    assert single_integrator_run.compile_settings.dt_save == solver_settings["dt_save"]
     assert (
-        single_integrator_run.config.dt_summarise
-        == integrator_params["dt_summarise"]
+        single_integrator_run.compile_settings.dt_summarise
+        == solver_settings["dt_summarise"]
     )
-    assert single_integrator_run.config.atol == integrator_params["atol"]
-    assert single_integrator_run.config.rtol == integrator_params["rtol"]
-    assert single_integrator_run.config.step_controller_kind == "fixed"
+    assert single_integrator_run.compile_settings.atol == solver_settings["atol"]
+    assert single_integrator_run.compile_settings.rtol == solver_settings["rtol"]
+    assert single_integrator_run.compile_settings.step_controller_kind == "fixed"
 
     # Check that output functions are created immediately
     assert single_integrator_run._output_functions is not None
@@ -97,7 +50,7 @@ def test_initialization(single_integrator_run, system, integrator_params):
     # Check algorithm key
     assert (
         single_integrator_run.algorithm_key
-        == integrator_params["algorithm"].lower()
+        == solver_settings["algorithm"].lower()
     )
 
     # Check that loop dependencies are created
@@ -123,6 +76,8 @@ def test_output_functions_immediate_creation(single_integrator_run, system):
     compile_settings = single_integrator_run._output_functions.compile_settings
     assert compile_settings.max_states == system_sizes.states
     assert compile_settings.max_observables == system_sizes.observables
+
+
 def test_property_access(single_integrator_run):
     """Test that properties can be accessed correctly."""
     # Test buffer sizes
@@ -150,12 +105,12 @@ def test_property_access(single_integrator_run):
 def test_memory_requirements(single_integrator_run):
     """Shared and local memory calculations include dependencies."""
 
-    base_shared = single_integrator_run.config.loop_shared_elements
+    base_shared = single_integrator_run.compile_settings.loop_shared_elements
     algo_shared = single_integrator_run._algo_step.shared_memory_required
     assert single_integrator_run.shared_memory_elements == base_shared + algo_shared
     assert (
         single_integrator_run.local_memory_elements
-        == single_integrator_run.config.total_local_elements
+        == single_integrator_run.compile_settings.total_local_elements
     )
 
 
@@ -176,6 +131,7 @@ def test_function_access_properties(single_integrator_run):
     # Test save summaries_array function
     save_summaries_func = single_integrator_run.save_summaries_func
     assert callable(save_summaries_func)
+
 
 def test_build_device_function(single_integrator_run):
     """Test that build() creates a device function successfully."""
@@ -212,19 +168,19 @@ def test_cache_invalidation(single_integrator_run):
     assert device_func1 is not device_func2
 
 
-def test_parameter_updates_config_object(single_integrator_run):
-    """Test that parameter updates correctly modify the config object."""
-    original_dt_min = single_integrator_run.config.dt_min
-    original_atol = single_integrator_run.config.atol
+def test_parameter_updates_compile_settings_object(single_integrator_run):
+    """Test that parameter updates correctly modify the compile_settings object."""
+    original_dt_min = single_integrator_run.compile_settings.dt_min
+    original_atol = single_integrator_run.compile_settings.atol
 
     # Update parameters
     single_integrator_run.update(dt_min=0.005, atol=1e-8)
 
-    # Check that config object was updated
-    assert single_integrator_run.config.dt_min == 0.005
-    assert single_integrator_run.config.atol == 1e-8
-    assert single_integrator_run.config.dt_min != original_dt_min
-    assert single_integrator_run.config.atol != original_atol
+    # Check that compile_settings object was updated
+    assert single_integrator_run.compile_settings.dt_min == 0.005
+    assert single_integrator_run.compile_settings.atol == 1e-8
+    assert single_integrator_run.compile_settings.dt_min != original_dt_min
+    assert single_integrator_run.compile_settings.atol != original_atol
 
 
 def test_update_cache_invalidation(single_integrator_run, system):

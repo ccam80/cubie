@@ -15,7 +15,7 @@ from _utils import assert_integration_outputs, \
     _driver_sequence
 
 Array = np.ndarray
-
+STATUS_MASK = 0xFFFF
 
 @dataclass
 class StepResult:
@@ -25,6 +25,7 @@ class StepResult:
     observables: Array
     error: Array
     status: int
+    niters: int
 
 def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
     """Generate expected properties for each algorithm given n_states."""
@@ -182,12 +183,14 @@ def device_step_results(
         dt_value,
     )
     cuda.synchronize()
-
+    
+    status_value = int(d_status.copy_to_host()[0])
     return StepResult(
         state=d_proposed.copy_to_host(),
         observables=d_observables.copy_to_host(),
         error=d_error.copy_to_host(),
-        status=int(d_status.copy_to_host()[0]),
+        status=status_value & STATUS_MASK,
+        niters=(status_value >> 16) & STATUS_MASK,
     )
 
 
@@ -221,12 +224,12 @@ def cpu_step_results(
         tol=implicit_step_settings['nonlinear_tolerance']
         )
 
-    status = 0 if result.converged else 1
     return StepResult(
         state=result.state.astype(cpu_system.precision, copy=True),
         observables=result.observables.astype(cpu_system.precision, copy=True),
         error=result.error.astype(cpu_system.precision, copy=True),
-        status=status,
+        status=int(result.status),
+        niters=result.niters,
     )
 
 
@@ -360,6 +363,8 @@ def test_algorithm(
     tolerances = {"rtol": 1e-4, "atol": 1e-4}
     assert device_step_results.status == cpu_step_results.status, \
         "status matches"
+    assert device_step_results.niters == cpu_step_results.niters, \
+        "niters match"
     assert_allclose(
         device_step_results.state,
         cpu_step_results.state,
@@ -389,3 +394,4 @@ def test_algorithm(
         rtol=tolerances["rtol"],
         atol=tolerances["atol"],
     )
+

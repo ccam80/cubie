@@ -830,7 +830,7 @@ class BatchSolverKernel(CUDAFactory):
         float
             Minimum step size allowed for the solver.
         """
-        return self.single_integrator.config.dt_min
+        return self.single_integrator.dt_min
 
     @property
     def dt_max(self):
@@ -842,7 +842,7 @@ class BatchSolverKernel(CUDAFactory):
         float
             Maximum step size allowed for the solver.
         """
-        return self.single_integrator.config.dt_max
+        return self.single_integrator.dt_max
 
     @property
     def atol(self):
@@ -854,7 +854,7 @@ class BatchSolverKernel(CUDAFactory):
         float
             Absolute tolerance for the solver.
         """
-        return self.single_integrator.config.atol
+        return self.single_integrator.atol
 
     @property
     def rtol(self):
@@ -866,7 +866,7 @@ class BatchSolverKernel(CUDAFactory):
         float
             Relative tolerance for the solver.
         """
-        return self.single_integrator.config.rtol
+        return self.single_integrator.rtol
 
     @property
     def dt_save(self):

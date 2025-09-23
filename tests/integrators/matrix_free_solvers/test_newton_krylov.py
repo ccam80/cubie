@@ -10,6 +10,8 @@ from cubie.integrators.matrix_free_solvers.newton_krylov import (
 )
 from cubie.integrators.matrix_free_solvers import SolverRetCodes
 
+STATUS_MASK = 0xFFFF
+
 
 @pytest.fixture(scope="function")
 def placeholder_system(precision):
@@ -62,7 +64,9 @@ def test_newton_krylov_placeholder(placeholder_system, precision):
     x = cuda.to_device(x0)
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
-    assert out_flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
+    status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
+
+    assert status_code == SolverRetCodes.SUCCESS
     assert np.allclose(x.copy_to_host(), expected, atol=1e-5)
 
 
@@ -123,12 +127,14 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order):
     x = system_setup["state_init"]
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
-    retcode = out_flag.copy_to_host()
-    #Nonlinear system needs preconditioning.
-    if system_setup["id"] == 'nonlinear' and precond_order == 0:
-        assert retcode == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+    status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
+    # Nonlinear system needs preconditioning.
+    if system_setup["id"] == "nonlinear" and precond_order == 0:
+        assert (
+            status_code == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+        )
     else:
-        assert retcode == SolverRetCodes.SUCCESS
+        assert status_code == SolverRetCodes.SUCCESS
         assert np.allclose(x.copy_to_host(), expected, atol=1e-4)
 
 
@@ -170,8 +176,11 @@ def test_newton_krylov_failure(precision):
 
     out_flag = cuda.to_device(np.array([1], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
-    assert out_flag.copy_to_host()[0] == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
-
+    status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
+    assert (
+            status_code
+            == SolverRetCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+    )
 
 def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
     """Returns MAX_NEWTON_ITERATIONS_EXCEEDED when max_iters=0 and residual>tolerance."""
@@ -204,7 +213,8 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
     x = cuda.to_device(np.array([0.0], dtype=precision))  # ensures residual>tol
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
-    assert out_flag.copy_to_host()[0] == SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+    status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
+    assert status_code == SolverRetCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
 
 
 def test_newton_krylov_linear_solver_failure_propagates(precision):
@@ -254,7 +264,5 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
 
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
-    assert (
-        out_flag.copy_to_host()[0]
-        == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
-    )
+    status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
+    assert status_code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED

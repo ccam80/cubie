@@ -20,7 +20,7 @@ import numpy as np
 import sympy as sp
 from numpy.typing import NDArray
 
-from cubie import SymbolicODE
+from cubie import SymbolicODE, IntegratorReturnCodes
 from cubie.odesystems.symbolic.jacobian import generate_jacobian
 from cubie.odesystems.symbolic.sym_utils import topological_sort
 
@@ -28,6 +28,7 @@ from tests._utils import calculate_expected_summaries
 
 
 Array = NDArray[np.floating]
+STATUS_MASK = 0xFFFF
 
 
 def _ensure_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
@@ -244,9 +245,19 @@ class StepResult:
     state: Array
     observables: Array
     error: Array
-    converged: bool = True
+    status: int = 0
     niters: int = 0
 
+def _encode_solver_status(converged: bool, niters: int) -> int:
+    """Return a solver status word with the Newton iteration count encoded."""
+
+    base_code = (
+        IntegratorReturnCodes.SUCCESS
+        if converged
+        else IntegratorReturnCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+    )
+    iter_count = max(0, min(int(niters), STATUS_MASK))
+    return (iter_count << 16) | (int(base_code) & STATUS_MASK)
 
 def explicit_euler_step(
     evaluator: CPUODESystem,
@@ -263,7 +274,8 @@ def explicit_euler_step(
     dxdt, observables = evaluator.rhs(state, params, drivers_now)
     new_state = state + dt * dxdt
     error = np.zeros_like(state)
-    return StepResult(new_state, observables, error, True)
+    status = _encode_solver_status(True, 0)
+    return StepResult(new_state, observables, error, status, 0)
 
 
 def _newton_solve(
@@ -321,10 +333,18 @@ def backward_euler_step(
         guess = np.asarray(initial_guess, dtype=precision).astype(
             precision, copy=True
         )
-    next_state, converged, niters = _newton_solve(residual, jacobian, guess, precision, tol, max_iters)
+    next_state, converged, niters = _newton_solve(
+        residual,
+        jacobian,
+        guess,
+        precision,
+        tol,
+        max_iters,
+    )
     dxdt, observables = evaluator.rhs(next_state, params, drivers_next)
     error = np.zeros_like(next_state)
-    return StepResult(next_state, observables, error, converged, niters)
+    status = _encode_solver_status(converged, niters)
+    return StepResult(next_state, observables, error, status, niters)
 
 
 def crank_nicolson_step(
@@ -352,6 +372,14 @@ def crank_nicolson_step(
         return identity - 0.5 * dt * jac
 
     guess = state.astype(precision, copy=True)
+    next_state, converged, niters = _newton_solve(
+            residual,
+            jacobian,
+            guess,
+            precision,
+            tol,
+            max_iters,
+    )
     next_state, converged, niters = _newton_solve(residual, jacobian, guess, precision, tol, max_iters)
     _, observables = evaluator.rhs(next_state, params, drivers_next)
 
@@ -363,12 +391,12 @@ def crank_nicolson_step(
         drivers_next=drivers_next,
         dt=dt,
         tol=tol,
-        initial_guess = next_state,
-        max_iters=max_iters
+        initial_guess=next_state,
+        max_iters=max_iters,
     )
     error = next_state - be_result.state
-    return StepResult(next_state, observables, error, converged, niters)
-
+    status = _encode_solver_status(converged, niters)
+    return StepResult(next_state, observables, error, status, niters)
 
 def backward_euler_predict_correct_step(
     evaluator: CPUODESystem,
@@ -607,7 +635,9 @@ def run_reference_loop(
     dt_save = float(solver_settings["dt_save"])
     dt_summarise = float(solver_settings["dt_summarise"])
     controller_settings = step_controller_settings or {"kind": "fixed"}
-
+    status_flags = 0
+    last_step_status = 0
+    
     step_fn = get_ref_step_fn(solver_settings["algorithm"])
 
     # Store the tolerance for explicit passing to step functions
@@ -660,19 +690,25 @@ def run_reference_loop(
                 tol=implicit_step_settings['nonlinear_tolerance'],
                 max_iters=max_iters
             )
-
+        step_status = int(result.status)
+        status_flags |= step_status & STATUS_MASK
+        
         error_norm = controller.error_norm(state, result.state, result.error)
 
         if controller.is_adaptive and error_norm < 1.0:
             controller.propose_dt(error_norm, accept=False, niters=result.niters)
             if hasattr(controller, '_convergence_failed') and controller._convergence_failed:
                 print(f"[LOOP] Integration failed: unclamped dt < dt_min at t={t:.6e}")
+                status_flags |= int(IntegratorReturnCodes.STEP_TOO_SMALL)
+
                 break
             continue
 
         t += dt
         controller.propose_dt(error_norm, accept=True, niters=result.niters)
         state = result.state
+        last_step_status = step_status
+
         if t >= warmup and len(state_history) < max_save_samples:
             if t + 1e-12 >= next_save_time:
                 state_history.append(state.copy())
@@ -713,12 +749,11 @@ def run_reference_loop(
         )
     if saved_observable_indices.shape[0] > 0:
         observable_summary_source = _collect_saved_outputs(
-            observable_history,
-            summarised_observable_indices,
-            precision)
+            observable_history, summarised_observable_indices, precision
+        )
     else:
         observable_summary_source = np.zeros(
-                (len(observable_history), 1), dtype=precision
+            (len(observable_history), 1), dtype=precision
         )
 
     state_summary, observable_summary = calculate_expected_summaries(
@@ -729,10 +764,13 @@ def run_reference_loop(
             output_functions.summaries_output_height_per_var,
             precision,
         )
+    upper_bits = last_step_status & ~STATUS_MASK
+    final_status = upper_bits | (status_flags & STATUS_MASK)
 
     return {
         "state": state_output,
         "observables": observables_output,
         "state_summaries": state_summary,
         "observable_summaries": observable_summary,
+        "status": final_status,
     }

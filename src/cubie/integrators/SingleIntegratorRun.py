@@ -138,7 +138,12 @@ class SingleIntegratorRun(CUDAFactory):
                 .persistent_local_required,
                 compile_flags=self._output_functions.compile_flags,
                 dt_save=dt_save,
-                dt_summarise=dt_summarise)
+                dt_summarise=dt_summarise,
+                dt0=self._step_controller.dt0,
+                dt_min=self._step_controller.dt_min,
+                dt_max=self._step_controller.dt_max,
+                is_adaptive=self._step_controller.is_adaptive,
+        )
 
     def check_compatibility(self):
         if (not self._algo_step.is_adaptive and
@@ -268,7 +273,11 @@ class SingleIntegratorRun(CUDAFactory):
                          algorithm_local_elements: int,
                          compile_flags: OutputCompileFlags,
                          dt_save: float,
-                         dt_summarise: float
+                         dt_summarise: float,
+                         dt0: float,
+                         dt_min: float,
+                         dt_max: float,
+                         is_adaptive: bool,
                          ):
         """Instantiate the integrator loop."""
         shared_indices = LoopSharedIndices.from_sizes(
@@ -290,7 +299,11 @@ class SingleIntegratorRun(CUDAFactory):
                        local_indices,
                        compile_flags,
                        dt_save=dt_save,
-                       dt_summarise=dt_summarise)
+                       dt_summarise=dt_summarise,
+                       dt0=dt0,
+                       dt_min=dt_min,
+                       dt_max=dt_max,
+                       is_adaptive=is_adaptive )
         return loop
 
     def update(self, updates_dict=None, silent=False, **kwargs):

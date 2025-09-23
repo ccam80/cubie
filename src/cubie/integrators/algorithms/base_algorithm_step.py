@@ -49,7 +49,7 @@ class BaseStepConfig(ABC):
     )
     get_solver_helper_fn: Optional[Callable] = attrs.field(
         default=None,
-        validator=validators.optional(is_device_validator)
+            validator=validators.optional(validators.is_callable())
     )
 
 
