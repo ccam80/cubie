@@ -81,12 +81,12 @@ class SingleIntegratorRun(CUDAFactory):
         step_controller_parameters: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__()
-        self.config = IntegratorRunSettings(
+        config = IntegratorRunSettings(
             precision=system.precision,
             algorithm=algorithm,
             step_controller_kind=step_controller_kind or "fixed",
         )
-
+        self.setup_compile_settings(config)
         self._system = system
         system_sizes = system.sizes
 
@@ -115,14 +115,14 @@ class SingleIntegratorRun(CUDAFactory):
             algorithm,
             n=system.sizes.states,
             fixed_step=fixed,
-            dxdt_function=self._system.dxdt,
+            dxdt_function=self._system.dxdt_function,
             solver_function_getter=self._system.get_solver_helper,
             step_size=fixed_step_size,
             **(algorithm_parameters or {}),
         )
 
-
-        self._step_controller.update(algorithm_order=self._algo_step.order)
+        if self._step_controller.is_adaptive:
+            self._step_controller.update(algorithm_order=self._algo_step.order)
 
         self._loop = self.instantiate_loop(
                 n_states=system_sizes.states,
@@ -141,7 +141,10 @@ class SingleIntegratorRun(CUDAFactory):
                 dt_summarise=dt_summarise)
 
     def check_compatibility(self):
-        pass
+        if (not self._algo_step.is_adaptive and
+                self._step_controller.is_adaptive):
+            raise ValueError("Adaptive step controller cannot be used with "
+                             "fixed-step algorithm.")
 
     def instantiate_step_object(self,
                                 kind: str = 'euler',
@@ -242,7 +245,7 @@ class SingleIntegratorRun(CUDAFactory):
         if kind == 'fixed':
             controller = get_controller(kind,
                     precision=self.precision,
-                    fixed_step_size=fixed_step_size)
+                    dt=fixed_step_size)
         else:
             controller = get_controller(kind,
                     precision=self.precision,

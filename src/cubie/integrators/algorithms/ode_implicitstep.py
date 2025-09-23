@@ -5,6 +5,7 @@ import attrs
 import numpy as np
 import sympy as sp
 
+from cubie._utils import inrangetype_validator
 from cubie.integrators.matrix_free_solvers import (
     linear_solver_factory,
     newton_krylov_solver_factory
@@ -24,11 +25,17 @@ class ImplicitStepConfig(BaseStepConfig):
     M: Union[np.ndarray, sp.Matrix] = attrs.field(default=sp.eye(1))
     preconditioner_order: int = attrs.field(default=1)
     _linsolve_tolerance: float = attrs.field(default=1e-3)
-    max_linear_iters: int = attrs.field(default=100)
+    max_linear_iters: int = attrs.field(
+            default=100,
+            validator=inrangetype_validator(int, 1, 32767)
+    )
     linear_correction_type: str = attrs.field(default="minimal_residual")
 
     _nonlinear_tolerance: float = attrs.field(default=1e-3)
-    max_newton_iters: int = attrs.field(default=100)
+    max_newton_iters: int = attrs.field(
+            default=100,
+            validator=inrangetype_validator(int, 1, 32767)
+    )
     _newton_damping: float = attrs.field(default=0.5)
     newton_max_backtracks: int = attrs.field(default=10)
 

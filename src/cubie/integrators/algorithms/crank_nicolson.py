@@ -1,6 +1,6 @@
 """Crank-Nicolson step implementation using Newton–Krylov with embedded error estimation."""
 
-from numba import cuda
+from numba import cuda, int32
 import numpy as np
 
 from cubie.integrators.algorithms import ImplicitStepConfig
@@ -144,7 +144,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 resid,
                 z,
                 temp,
-            )
+            ) & int32(0xFFFF) #don't record newton iterations for error check
 
             # Compute error as difference between Crank-Nicolson and Backward Euler
             for i in range(n):

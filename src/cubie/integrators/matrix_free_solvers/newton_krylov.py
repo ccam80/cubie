@@ -44,11 +44,13 @@ def newton_krylov_solver_factory(
 
     Notes on return code
     --------------------
-    The device function returns an int status:
+    The device function returns an int status whose lower 16 bits encode the
+    outcome code:
       0: success
       1: no suitable step found (backtracking failed)
       2: max Newton iterations exceeded
       3: inner linear solver did not converge (propagated)
+    The upper 16 bits contain the number of Newton iterations completed.
     """
     tol_squared = precision(tolerance*tolerance)
     precision = from_dtype(precision)
@@ -130,12 +132,14 @@ def newton_krylov_solver_factory(
         if norm2_prev <= tol_squared:
             status = int32(0)
 
+        iters_count = int32(0)
         mask = activemask()
-        for _ in range(max_iters):
+        for iters in range(max_iters):
             # Warp-coherent exit if all lanes done
             if all_sync(mask, status >= 0):
                 break
 
+            iters_count += int32(1)
             # Unavoidable branch - solver modifies residual, delta in-place,
             # which we don't want for already-converged guesses.
             if status < 0:
@@ -207,7 +211,7 @@ def newton_krylov_solver_factory(
         if status < 0:
             # Lanes still active after max_iters
             status = int32(2)
-
+        status |= (iters_count + 1) << 16
         return status
     # no cover: end
     return newton_krylov_solver

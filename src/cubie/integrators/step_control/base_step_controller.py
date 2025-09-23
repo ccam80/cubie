@@ -7,6 +7,7 @@ specific control strategies.
 
 from abc import ABC, abstractmethod
 from typing import Callable, Optional
+import warnings
 
 import numba
 from numpy import float32, float16, float64
@@ -15,6 +16,22 @@ from attrs import define, field, validators
 from cubie.CUDAFactory import CUDAFactory
 from cubie._utils import getype_validator
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
+
+# Define all possible step controller parameters across all controller types
+ALL_STEP_CONTROLLER_PARAMETERS = {
+    # Base parameters
+    'precision', 'n',
+    # Fixed step controller
+    'dt',
+    # Adaptive step controller parameters
+    'dt_min', 'dt_max', 'atol', 'rtol', 'algorithm_order', 'min_gain', 'max_gain', 'safety',
+    # PI controller parameters
+    'kp', 'ki',
+    # PID controller parameters (kd in addition to PI)
+    'kd',
+    # Gustafsson controller parameters
+    'gamma', 'max_newton_iters'
+}
 
 @define
 class BaseStepControllerConfig(ABC):
@@ -170,11 +187,30 @@ class BaseStepController(CUDAFactory):
             return set()
 
         recognised = self.update_compile_settings(updates_dict, silent=True)
-
         unrecognised = set(updates_dict.keys()) - recognised
-        if not silent and unrecognised:
+
+        # Check if unrecognized parameters are valid step controller parameters
+        # but not applicable to this specific controller
+        valid_but_inapplicable = unrecognised & ALL_STEP_CONTROLLER_PARAMETERS
+        truly_invalid = unrecognised - ALL_STEP_CONTROLLER_PARAMETERS
+
+        # Mark valid controller parameters as recognized to prevent error propagation
+        recognised |= valid_but_inapplicable
+
+        if valid_but_inapplicable:
+            controller_type = self.__class__.__name__
+            params_str = ", ".join(sorted(valid_but_inapplicable))
+            warnings.warn(
+                f"Parameters {{{params_str}}} are not recognized by {controller_type}; "
+                "updates have been ignored.",
+                UserWarning,
+                stacklevel=2
+            )
+
+        if not silent and truly_invalid:
             raise KeyError(
-                f"Unrecognized parameters in update: {unrecognised}. "
+                f"Unrecognized parameters in update: {truly_invalid}. "
                 "These parameters were not updated.",
             )
+
         return recognised

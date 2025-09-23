@@ -7,6 +7,7 @@ returning an integer code that indicates the success or failure of the step."""
 
 from abc import abstractmethod, ABC
 from typing import Callable, Optional
+import warnings
 
 import attrs
 import numpy as np
@@ -16,6 +17,18 @@ import numba
 from cubie._utils import is_device_validator, getype_validator
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
+
+# Define all possible algorithm step parameters across all algorithm types
+ALL_ALGORITHM_STEP_PARAMETERS = {
+    # Base parameters
+    'precision', 'n', 'dxdt_function', 'get_solver_helper_fn',
+    # Explicit algorithm parameters
+    'dt',
+    # Implicit algorithm parameters
+    'beta', 'gamma', 'M', 'preconditioner_order', 'linsolve_tolerance',
+    'max_linear_iters', 'linear_correction_type', 'nonlinear_tolerance',
+    'max_newton_iters', 'newton_damping', 'newton_max_backtracks'
+}
 
 
 @attrs.define
@@ -113,11 +126,30 @@ class BaseAlgorithmStep(CUDAFactory):
         recognised = self.update_compile_settings(updates_dict, silent=True)
         unrecognised = set(updates_dict.keys()) - recognised
 
-        if not silent and unrecognised:
+        # Check if unrecognized parameters are valid algorithm step parameters
+        # but not applicable to this specific algorithm
+        valid_but_inapplicable = unrecognised & ALL_ALGORITHM_STEP_PARAMETERS
+        truly_invalid = unrecognised - ALL_ALGORITHM_STEP_PARAMETERS
+
+        # Mark valid algorithm parameters as recognized to prevent error propagation
+        recognised |= valid_but_inapplicable
+
+        if valid_but_inapplicable:
+            algorithm_type = self.__class__.__name__
+            params_str = ", ".join(sorted(valid_but_inapplicable))
+            warnings.warn(
+                f"Parameters {{{params_str}}} are not recognized by {algorithm_type}; "
+                "updates have been ignored.",
+                UserWarning,
+                stacklevel=2
+            )
+
+        if not silent and truly_invalid:
             raise KeyError(
-                f"Unrecognized parameters in update: {unrecognised}. "
+                f"Unrecognized parameters in update: {truly_invalid}. "
                 "These parameters were not updated.",
             )
+
         return recognised
 
     @property

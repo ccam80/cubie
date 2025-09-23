@@ -171,7 +171,7 @@ class IVPLoop(CUDAFactory):
         n_drivers = shared_indices.n_drivers
 
         fixed_mode = not config.is_adaptive
-
+        status_mask = int32(0xFFFF)
 
         equality_breaker = precision(1e-16)
         @cuda.jit(device=True, inline=True)
@@ -266,7 +266,7 @@ class IVPLoop(CUDAFactory):
                         status |= cuda.selp(dt_eff <= precision(0.0),
                                             int32(16), int32(0))
 
-                    status |= step_fn(
+                    step_status = step_fn(
                         state_buffer,
                         state_proposal_buffer,
                         work_buffer,
@@ -278,7 +278,9 @@ class IVPLoop(CUDAFactory):
                         remaining_shared_scratch,
                         algo_local,
                     )
-                    niters = int32(1)
+                    niters = (step_status >> 16) & status_mask
+                    status |= step_status & status_mask
+
                     # Adjust dt if step rejected - auto-accepts if fixed-step
                     if not fixed_mode:
                         status |= step_controller(

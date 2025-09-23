@@ -16,7 +16,6 @@ from cubie._utils import (is_device_validator, getype_validator,
                           gttype_validator)
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
-from cubie.outputhandling.output_sizes import LoopBufferSizes
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))
 
@@ -46,7 +45,6 @@ class LoopLocalIndices:
         zero = slice(0, 0)
         return cls(
             dt=zero,
-            error_integral=zero,
             accept=zero,
             error=zero,
             controller=zero,
@@ -95,28 +93,6 @@ class LoopLocalIndices:
     def loop_elements(self) -> int:
         """Return the loop's intrinsic persistent local requirement."""
         return int(self.loop_end or 0)
-
-    # @property
-    # def total_elements(self) -> int:
-    #     """Return the total persistent local requirement including children."""
-    #
-    #     return int(self.total_end or 0)
-    #
-    # @property
-    # def controller_elements(self) -> int:
-    #     """Return the controller contribution to persistent local memory."""
-    #
-    #     if self.controller is None:
-    #         return 0
-    #     return int(self.controller.stop - self.controller.start)
-    #
-    # @property
-    # def algorithm_elements(self) -> int:
-    #     """Return the algorithm contribution to persistent local memory."""
-    #
-    #     if self.algorithm is None:
-    #         return 0
-    #     return int(self.algorithm.stop - self.algorithm.start)
 
 @define
 class LoopSharedIndices:
@@ -252,11 +228,7 @@ class ODELoopConfig:
     local_indices: LoopLocalIndices = field(
             validator=validators.instance_of(LoopLocalIndices)
     )
-    save_state_fn: Callable = field(validator=is_device_validator)
-    update_summaries_fn: Callable = field(validator=is_device_validator)
-    save_summaries_fn: Callable = field(validator=is_device_validator)
-    step_controller_fn: Callable = field(validator=is_device_validator)
-    step_fn: Callable = field(validator=is_device_validator)
+
 
     precision: type = field(
         default=float32,
@@ -273,20 +245,42 @@ class ODELoopConfig:
     _dt_summarise: float = field(
         default=1.0,
         validator=gttype_validator(float, 0)
-    )    
-    _dt0: float = field(
-        default=0.01,
-        validator=gttype_validator(float, 0),
     )
-    _dt_min: float = field(
-        default=0.01,
-        validator=gttype_validator(float, 0),
+    save_state_fn: Optional[Callable] = field(
+            default=None,
+            validator=validators.optional(is_device_validator)
     )
-    _dt_max: float = field(
+    update_summaries_fn: Callable = field(
+            default=None,
+            validator=validators.optional(is_device_validator)
+    )
+    save_summaries_fn: Callable = field(
+            default=None,
+            validator=validators.optional(is_device_validator)
+    )
+    step_controller_fn: Callable = field(
+            default=None,
+            validator=validators.optional(is_device_validator)
+    )
+    step_fn: Callable = field(
+            default=None,
+            validator=validators.optional(is_device_validator)
+    )
+    _dt0: Optional[float] = field(
+        default=0.01,
+        validator=validators.optional(gttype_validator(float, 0)),
+    )
+    _dt_min: Optional[float] = field(
+        default=0.01,
+        validator=validators.optional(gttype_validator(float, 0)),
+    )
+    _dt_max: Optional[float] = field(
         default=0.1,
-        validator=gttype_validator(float, 0),
+        validator=validators.optional(gttype_validator(float, 0)),
     )
-    is_adaptive: bool = field(default=False, validator=validators.instance_of(bool))
+    is_adaptive: Optional[bool] = field(
+            default=False,
+            validator=validators.optional(validators.instance_of(bool)))
 
     @property
     def saves_per_summary(self) -> int:

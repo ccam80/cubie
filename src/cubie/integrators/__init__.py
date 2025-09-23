@@ -28,6 +28,7 @@ from cubie.integrators.matrix_free_solvers import (
 
 # Note: integer codes for linear solvers are the same to allow direct
 # pass-through, but IntegratorReturnCodes.SUCCESS != SolverRetCodes.SUCCESS.
+# The upper 16 bits of a solver status encode the Newton iteration count.
 # Enums can not be subclassed.
 class IntegratorReturnCodes(IntEnum):
     SUCCESS = 0,
