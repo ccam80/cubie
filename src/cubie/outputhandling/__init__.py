@@ -10,4 +10,5 @@ from cubie.outputhandling.output_sizes import *
 from cubie.outputhandling.output_config import *
 
 
-__all__ = ["summary_metrics", "OutputFunctions", "OutputConfig"]
+__all__ = ["summary_metrics", "OutputFunctions", "OutputConfig",
+           "OutputCompileFlags", "OutputArrayHeights", "SummariesBufferSizes"]

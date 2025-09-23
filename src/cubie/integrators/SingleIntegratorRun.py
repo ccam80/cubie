@@ -19,8 +19,10 @@ from cubie.CUDAFactory import CUDAFactory
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import IVPLoop
+from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
+    LoopLocalIndices
+from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
-from cubie.outputhandling.output_sizes import LoopBufferSizes
 from cubie.odesystems.ODEData import SystemSizes
 from cubie.integrators.step_control import get_controller
 
@@ -78,29 +80,24 @@ class SingleIntegratorRun(CUDAFactory):
         algorithm_parameters: Optional[Dict[str, Any]] = None,
         step_controller_parameters: Optional[Dict[str, Any]] = None,
     ) -> None:
+        super().__init__()
+        self.config = IntegratorRunSettings(
+            precision=system.precision,
+            algorithm=algorithm,
+            step_controller_kind=step_controller_kind or "fixed",
+        )
 
         self._system = system
         system_sizes = system.sizes
-        n = system_sizes.states
 
         self._output_functions = OutputFunctions(
-            max_states=n,
+            max_states=system_sizes.states,
             max_observables=system_sizes.observables,
             output_types=output_types,
             saved_state_indices=saved_state_indices,
             saved_observable_indices=saved_observable_indices,
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
-        )
-
-        buffer_sizes = LoopBufferSizes.from_system_and_output_fns(
-            self._system, self._output_functions
-        )
-
-        self.config = IntegratorRunSettings(
-            precision=system.precision,
-            algorithm=algorithm,
-            step_controller_kind=step_controller_kind or "fixed",
         )
 
         self._step_controller = self.instantiate_controller(
@@ -115,33 +112,33 @@ class SingleIntegratorRun(CUDAFactory):
 
         fixed = not self._step_controller.is_adaptive
         self._algo_step = self.instantiate_step_object(
-                algorithm,
-                n=n,
-                fixed_step=fixed,
-                dxdt_function=self._system.dxdt,
-                solver_function_getter=self._system.get_solver_helper,
-                step_size=fixed_step_size,
-                **(algorithm_parameters or {}),
+            algorithm,
+            n=system.sizes.states,
+            fixed_step=fixed,
+            dxdt_function=self._system.dxdt,
+            solver_function_getter=self._system.get_solver_helper,
+            step_size=fixed_step_size,
+            **(algorithm_parameters or {}),
         )
+
+
         self._step_controller.update(algorithm_order=self._algo_step.order)
 
-        self._integrator_instance: Optional[object] = None
-        self._compiled_loop = None
-        self._loop_cache_valid = False
-
-    @property
-    def loop_buffer_sizes(self):
-        """
-        Get buffer sizes required for the integration loop.
-
-        Returns
-        -------
-        LoopBufferSizes
-            Buffer size configuration for the integration loop.
-        """
-        return LoopBufferSizes.from_system_and_output_fns(
-            self._system, self._output_functions
-        )
+        self._loop = self.instantiate_loop(
+                n_states=system_sizes.states,
+                n_parameters=system_sizes.parameters,
+                n_observables=system_sizes.observables,
+                n_drivers=system_sizes.drivers,
+                n_state_summaries=self._output_functions.n_summarised_states,
+                n_observable_summaries=self._output_functions
+                .n_summarised_observables,
+                controller_local_elements=self._step_controller
+                .local_memory_elements,
+                algorithm_local_elements=self._algo_step
+                .persistent_local_required,
+                compile_flags=self._output_functions.compile_flags,
+                dt_save=dt_save,
+                dt_summarise=dt_summarise)
 
     def check_compatibility(self):
         pass
@@ -255,44 +252,43 @@ class SingleIntegratorRun(CUDAFactory):
                     atol=atol,
                     rtol=rtol,
                     **kwargs)
-
         return controller
 
     def instantiate_loop(self,
-                         buffer_sizes: LoopBufferSizes = None,
+                         n_states: int,
+                         n_parameters: int,
+                         n_observables: int,
+                         n_drivers: int,
+                         n_state_summaries: int,
+                         n_observable_summaries: int,
+                         controller_local_elements: int,
+                         algorithm_local_elements: int,
+                         compile_flags: OutputCompileFlags,
+                         dt_save: float,
+                         dt_summarise: float
                          ):
         """Instantiate the integrator loop."""
-        loop = IVPLoop(
-            self.precision,
-            self._step_controller,
-            self._system,
-            self._output_functions,
+        shared_indices = LoopSharedIndices.from_sizes(
+                n_states=n_states,
+                n_observables=n_parameters,
+                n_parameters=n_observables,
+                n_drivers=n_drivers,
+                n_state_summaries=n_state_summaries,
+                n_observable_summaries=n_observable_summaries
         )
+        local_indices = LoopLocalIndices.from_sizes(
+                n_states=n_states,
+                controller_len=controller_local_elements,
+                algorithm_len=algorithm_local_elements
+        )
+
+        loop = IVPLoop(self.precision,
+                       shared_indices,
+                       local_indices,
+                       compile_flags,
+                       dt_save=dt_save,
+                       dt_summarise=dt_summarise)
         return loop
-
-    @property
-    def output_array_heights(self):
-        """
-        Get the heights of output arrays.
-
-        Returns
-        -------
-        OutputArrayHeights
-            Output array height configuration from the OutputFunctions object.
-        """
-        return self._output_functions.output_array_heights
-
-    @property
-    def summaries_buffer_sizes(self):
-        """
-        Get buffer sizes for summary calculations.
-
-        Returns
-        -------
-        SummaryBufferSizes
-            Summary buffer size configuration from the OutputFunctions object.
-        """
-        return self._output_functions.summaries_buffer_sizes
 
     def update(self, updates_dict=None, silent=False, **kwargs):
         """
@@ -340,6 +336,16 @@ class SingleIntegratorRun(CUDAFactory):
         all_unrecognized = set(updates_dict.keys())
         recognized = set()
 
+        if "step_controller_kind" in updates_dict.keys():
+            new_step_controller_kind = updates_dict["step_controller_kind"]
+            if new_step_controller_kind != self.step_controller_kind:
+                old_settings = self._step_controller.settings_dict
+                _step_controller = self.instantiate_controller(
+                        new_step_controller_kind,
+                )
+                _step_controller.update(old_settings, silent=True)
+            recognized.add("step_controller_kind")
+
         if "algorithm" in updates_dict.keys():
             # If the algorithm is being updated, we need to reset the
             # integrator instance
@@ -356,53 +362,107 @@ class SingleIntegratorRun(CUDAFactory):
                 _algo_step.update(old_settings, silent=True)
                 self._algo_step = _algo_step
             recognized.add("algorithm")
+            updates_dict.update({'algorithm_order':self._algo_step.order})
 
-        if "step_controller_kind" in updates_dict.keys():
-            new_step_controller_kind = updates_dict["step_controller_kind"]
-            if new_step_controller_kind != self.step_controller_kind:
-                old_settings = self._step_controller.settings_dict
-                _step_controller = self.instantiate_controller(
-                        new_step_controller_kind,
-                )
-                _step_controller.update(old_settings, silent=True)
-            recognized.add("step_controller_kind")
+        output_recognized = self._output_functions.update(updates_dict,
+                                                      silent=True)
+        ctrl_recognized = self._step_controller.update(updates_dict,
+                                                      silent=True)
+        step_recognized = self._algo_step.update(updates_dict, silent=True)
+        system_recognized = self._system.update(updates_dict, silent=True)
 
+        recognized |= output_recognized
+        recognized |= ctrl_recognized
+        recognized |= step_recognized
+        recognized |= system_recognized
 
-        recognized |= self._algo_step.update(updates_dict, silent=True)
-        recognized |= self._step_controller.update(updates_dict, silent=True)
-        recognized |= self._system.update(updates_dict, silent=True)
-        recognized |= self._output_functions.update(updates_dict, silent=True)
+        #Recalculate settings derived from changes in children
+        if system_recognized:
+            updates_dict.update({'n': self._system.sizes.states})
+        if output_recognized:
+            updates_dict.update({
+                'n_saved_states': self._output_functions.n_saved_states,
+                'n_summarised_states':
+                    self._output_functions.n_summarised_states,
+                'compile_flags': self._output_functions.compile_flags,
+            })
+        if ctrl_recognized:
+            updates_dict.update(
+                {
+                    "is_adaptive": self._step_controller.is_adaptive,
+                    "dt_min": self._step_controller.dt_min,
+                    "dt_max": self._step_controller.dt_max,
+                    "dt0": self._step_controller.dt0,
+                }
+            )
+        if step_recognized:
+            updates_dict.update(
+                {
+                    "threads_per_step": self._algo_step.threads_per_step,
+                }
+            )
+
+        system_sizes=self.system_sizes
+        shared_indices = LoopSharedIndices.from_sizes(
+            n_states=system_sizes.states,
+            n_observables=system_sizes.parameters,
+            n_parameters=system_sizes.observables,
+            n_drivers=system_sizes.drivers,
+            n_state_summaries=self._output_functions.n_summarised_states,
+            n_observable_summaries=self._output_functions
+            .n_summarised_observables,
+        )
+        local_indices = LoopLocalIndices.from_sizes(
+                n_states=system_sizes.states,
+                controller_len=self._step_controller.local_memory_elements,
+                algorithm_len=self._algo_step.persistent_local_required,
+        )
+        updates_dict.update({'shared_buffer_indices': shared_indices,
+                             'local_indices': local_indices})
+
         recognized |= self.update_compile_settings(updates_dict, silent=True)
 
         all_unrecognized -= recognized
         if all_unrecognized and not silent:
-            raise KeyError(
-                f"Unrecognized parameters: {all_unrecognized}"
-            )
+            raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
         if recognized:
             self._invalidate_cache()
+
+        self.check_compatibility()
 
         return recognized
 
     def build(self) -> Callable:
         """Instantiate the step controller, algorithm step, and loop."""
-        #How to rebuild and pass in step_controller and algorithm_step?
-        loop_fn = self._integrator_instance.device_function
+
+        # Lowest level - check for changes in dxdt_fn, get_solver_helper_fn
+        dxdt_fn = self._system.dxdt_function
+        get_solver_helper_fn = self._system.get_solver_helper
+        compiled_fns_dict = {}
+        if dxdt_fn != self._algo_step.dxdt_function:
+            compiled_fns_dict['dxdt_function'] = dxdt_fn
+        if get_solver_helper_fn != self._algo_step.get_solver_helper_fn:
+            compiled_fns_dict['get_solver_helper_fn'] = get_solver_helper_fn
+
+        #Build algorithm fn after change made
+        self._algo_step.update(compiled_fns_dict)
+
+        compiled_functions = {
+            'save_state_fn': self._output_functions.save_state_func,
+            'update_summaries_fn': self._output_functions.update_summaries_func,
+            'save_summaries_fn': self._output_functions.save_summary_metrics_func,
+            'step_controller_fn': self._step_controller.device_function,
+            'step_fn': self._algo_step.step_function,
+        }
+
+        self._loop.update(compiled_functions)
+        loop_fn = self._loop.device_function
+
         return loop_fn
-
-    # ------------------------------------------------------------------
-    # Buffer sizing and metadata
-    # ------------------------------------------------------------------
-    @property
-    def loop_buffer_sizes(self) -> LoopBufferSizes:
-        """Return buffer sizes required for the integration loop."""
-
-        return self.compile_settings.buffer_sizes
 
     @property
     def output_array_heights(self):
         """Return output array heights from the output functions."""
-
         return self._output_functions.output_array_heights
 
     @property
@@ -417,17 +477,24 @@ class SingleIntegratorRun(CUDAFactory):
     @property
     def shared_memory_elements(self) -> int:
         """Return required shared-memory elements for the loop."""
+        loop_shared = self._loop.shared_memory_elements
+        algo_shared = self._algo_step.shared_memory_required
 
-        if not self.cache_valid:
-            self.build()
-        return self._integrator_instance.shared_memory_elements
+        return loop_shared + algo_shared
 
     @property
     def shared_memory_bytes(self) -> int:
         """Return required shared-memory size in bytes."""
-
         datasize = self.precision(0.0).nbytes
         return int(self.shared_memory_elements * datasize)
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return required persistent-memory elements for the loop."""
+        loop = self._loop.local_memory_elements
+        algo = self._algo_step.persistent_local_required
+        ctrl = self._step_controller.local_memory_elements
+        return loop + algo + ctrl
 
     # ------------------------------------------------------------------
     # Convenience reach-through properties
@@ -477,12 +544,6 @@ class SingleIntegratorRun(CUDAFactory):
         return self._output_functions.save_summary_metrics_func
 
     @property
-    def loop_step_config(self):
-        """Return the timing configuration for the loop."""
-
-        return self.config.loop_step_config
-
-    @property
     def fixed_step_size(self):
         """Return the fixed step size if provided by the algorithm."""
         settings = getattr(self._algo_step, "compile_settings", None)
@@ -494,13 +555,13 @@ class SingleIntegratorRun(CUDAFactory):
     def dt_save(self) -> float:
         """Return the save interval."""
 
-        return self.config.dt_save
+        return self._loop.dt_save
 
     @property
     def dt_summarise(self) -> float:
         """Return the summary interval."""
 
-        return self.config.dt_summarise
+        return self._loop.dt_summarise
 
     @property
     def system_sizes(self) -> SystemSizes:
@@ -561,3 +622,12 @@ class SingleIntegratorRun(CUDAFactory):
         """Return the underlying ODE system."""
         return self._system
 
+    @property
+    def threads_per_step(self) -> int:
+        """Return the number of threads required for the step algorithm."""
+        return self._algo_step.threads_per_step
+
+    @property
+    def loop_function(self) -> Callable:
+        """Return the loop function."""
+        return self.device_function

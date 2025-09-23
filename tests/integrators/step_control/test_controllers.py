@@ -98,7 +98,7 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
         out_local = np.array([errornorm, 1/errornorm], dtype=precision)
     elif kind == 'gustafsson':
         out_local = np.array([
-            controller._prev_dt if controller._prev_dt > 0 else controller.dt,
+            controller.dt,
             max(errornorm, 1e-4),
             0.0,
             getattr(controller, '_last_gain', 1.0)

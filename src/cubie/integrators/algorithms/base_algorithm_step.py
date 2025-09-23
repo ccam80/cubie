@@ -34,6 +34,10 @@ class BaseStepConfig(ABC):
         default=None,
         validator=validators.optional(is_device_validator)
     )
+    get_solver_helper_fn: Optional[Callable] = attrs.field(
+        default=None,
+        validator=validators.optional(is_device_validator)
+    )
 
 
     @property
@@ -183,3 +187,12 @@ class BaseAlgorithmStep(CUDAFactory):
     def settings_dict(self) -> dict:
         """Returns settings as a dictionary."""
         return self.compile_settings.settings_dict
+
+    @property
+    def dxdt_function(self):
+        return self.compile_settings.dxdt_function
+
+
+    @property
+    def get_solver_helper_fn(self):
+        return self.compile_settings.get_solver_helper_fn

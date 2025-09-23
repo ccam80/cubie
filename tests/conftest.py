@@ -356,30 +356,33 @@ def loop(
     solver_settings,
 ):
     """Construct the :class:`IVPLoop` instance used in loop tests."""
-    buffer_indices = LoopSharedIndices.from_buffer_sizes(loop_buffer_sizes)
+    shared_indices = LoopSharedIndices.from_sizes(
+            n_states=loop_buffer_sizes.state,
+            n_observables=loop_buffer_sizes.observables,
+            n_parameters=loop_buffer_sizes.parameters,
+            n_drivers=loop_buffer_sizes.drivers,
+            n_state_summaries=loop_buffer_sizes.state_summaries,
+            n_observable_summaries=loop_buffer_sizes.observable_summaries
+    )
     local_indices = LoopLocalIndices.from_sizes(
             loop_buffer_sizes.state,
             step_controller.local_memory_elements,
             step_object.persistent_local_required,
     )
 
-    return IVPLoop(
-        precision=precision,
-        buffer_indices=buffer_indices,
-        local_indices=local_indices,
-        compile_flags=output_functions.compile_flags,
-        save_state_func=output_functions.save_state_func,
-        update_summaries_func=output_functions.update_summaries_func,
-        save_summaries_func=output_functions.save_summary_metrics_func,
-        step_controller_fn=step_controller.device_function,
-        step_fn=step_object.step_function,
-        dt_save=solver_settings["dt_save"],
-        dt_summarise=solver_settings["dt_summarise"],
-        dt0=step_controller.dt0,
-        dt_min=step_controller.dt_min,
-        dt_max=step_controller.dt_max,
-        is_adaptive=step_controller.is_adaptive,
-    )
+    return IVPLoop(precision=precision, shared_indices=shared_indices,
+                   local_indices=local_indices,
+                   compile_flags=output_functions.compile_flags,
+                   save_state_func=output_functions.save_state_func,
+                   update_summaries_func=output_functions.update_summaries_func,
+                   save_summaries_func=output_functions.save_summary_metrics_func,
+                   step_controller_fn=step_controller.device_function,
+                   step_fn=step_object.step_function,
+                   dt_save=solver_settings["dt_save"],
+                   dt_summarise=solver_settings["dt_summarise"],
+                   dt0=step_controller.dt0, dt_min=step_controller.dt_min,
+                   dt_max=step_controller.dt_max,
+                   is_adaptive=step_controller.is_adaptive)
 
 
 @pytest.fixture(scope='function')

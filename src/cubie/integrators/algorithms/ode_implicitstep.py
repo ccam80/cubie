@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Union, Optional, Callable
+from typing import Union, Callable
 
 import attrs
 import numpy as np
@@ -18,10 +18,6 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 @attrs.define
 class ImplicitStepConfig(BaseStepConfig):
     """Configuration settings for implicit integration steps."""
-
-    get_solver_helper_fn: Optional[Callable] = attrs.field(
-            default=None,
-    )
 
     _beta: float = attrs.field(default=1.0)
     _gamma: float = attrs.field(default=1.0)

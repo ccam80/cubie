@@ -65,29 +65,29 @@ class IVPLoop(CUDAFactory):
     def __init__(
         self,
         precision: type,
-        buffer_indices: LoopSharedIndices,
+        shared_indices: LoopSharedIndices,
         local_indices: LoopLocalIndices,
         compile_flags: OutputCompileFlags,
-        save_state_func: Callable,
-        update_summaries_func: Callable,
-        save_summaries_func: Callable,
-        step_controller_fn: Callable,
-        step_fn: Callable,
         dt_save: float,
         dt_summarise: float,
-        dt0: float,
-        dt_min: float,
-        dt_max: float,
-        is_adaptive: bool,
+        dt0: Optional[float]=None,
+        dt_min: Optional[float]=None,
+        dt_max: Optional[float]=None,
+        is_adaptive: Optional[bool]=None,
+        save_state_func: Optional[Callable] = None,
+        update_summaries_func: Optional[Callable] = None,
+        save_summaries_func: Optional[Callable] = None,
+        step_controller_fn: Optional[Callable] = None,
+        step_fn: Optional[Callable] = None,
     ) -> None:
         super().__init__()
 
         config = ODELoopConfig(
-            shared_buffer_indices=buffer_indices,
+            shared_buffer_indices=shared_indices,
             local_indices=local_indices,
-            save_state_func=save_state_func,
-            update_summaries_func=update_summaries_func,
-            save_summaries_func=save_summaries_func,
+            save_state_fn=save_state_func,
+            update_summaries_fn=update_summaries_func,
+            save_summaries_fn=save_summaries_func,
             step_controller_fn=step_controller_fn,
             step_fn=step_fn,
             precision=precision,
@@ -125,9 +125,9 @@ class IVPLoop(CUDAFactory):
         precision = config.numba_precision
         simsafe_int32 = simsafe_dtype(np.int32)
 
-        save_state = config.save_state_func
-        update_summaries = config.update_summaries_func
-        save_summaries = config.save_summaries_func
+        save_state = config.save_state_fn
+        update_summaries = config.update_summaries_fn
+        save_summaries = config.save_summaries_fn
         step_controller = config.step_controller_fn
         step_fn = config.step_fn
 

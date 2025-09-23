@@ -145,3 +145,7 @@ class BackwardsEulerStep(ODEImplicitStep):
     def order(self) -> int:
         """Order of the algorithm."""
         return 1
+
+    @property
+    def dxdt_function(self):
+        return self.compile_settings.dxdt_function

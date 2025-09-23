@@ -178,17 +178,24 @@ class LoopSharedIndices:
         self.local_end = self.scratch.stop
 
     @classmethod
-    def from_buffer_sizes(cls, sizes: LoopBufferSizes) -> "LoopSharedIndices":
+    def from_sizes(cls,
+                   n_states: int,
+                   n_observables: int,
+                   n_parameters: int,
+                   n_drivers: int,
+                   n_state_summaries: int,
+                   n_observable_summaries: int,
+                   ) -> "LoopSharedIndices":
+
         state_start_idx = 0
-        state_proposal_start_idx = state_start_idx + sizes.state
-        dxdt_start_index = state_proposal_start_idx + sizes.state
-        observables_start_index = dxdt_start_index + sizes.dxdt
-        parameters_start_index = observables_start_index + sizes.observables
-        drivers_start_index = parameters_start_index + sizes.parameters
-        state_summaries_start_index = drivers_start_index + sizes.drivers
-        obs_summaries_start_index = (state_summaries_start_index
-                                     + sizes.state_summaries)
-        end_index = obs_summaries_start_index + sizes.observable_summaries
+        state_proposal_start_idx = state_start_idx + n_states
+        dxdt_start_index = state_proposal_start_idx + n_states
+        observables_start_index = dxdt_start_index + n_states
+        parameters_start_index = observables_start_index + n_observables
+        drivers_start_index = parameters_start_index + n_parameters
+        state_summ_start_index = drivers_start_index + n_drivers
+        obs_summ_start_index = state_summ_start_index + n_state_summaries
+        end_index = obs_summ_start_index + n_observable_summaries
 
         return cls(
             state=slice(state_start_idx, state_proposal_start_idx),
@@ -196,14 +203,14 @@ class LoopSharedIndices:
             dxdt=slice(dxdt_start_index, observables_start_index),
             observables=slice(observables_start_index, parameters_start_index),
             parameters=slice(parameters_start_index, drivers_start_index),
-            drivers=slice(drivers_start_index, state_summaries_start_index),
-            state_summaries=slice(state_summaries_start_index,
-                                  obs_summaries_start_index),
-            observable_summaries=slice(obs_summaries_start_index, end_index),
+            drivers=slice(drivers_start_index, state_summ_start_index),
+            state_summaries=slice(state_summ_start_index, obs_summ_start_index),
+            observable_summaries=slice(obs_summ_start_index, end_index),
             local_end=end_index,
             scratch=slice(end_index, None),
             all=slice(None),
         )
+
 
     @property
     def loop_shared_elements(self) -> int:
@@ -245,9 +252,9 @@ class ODELoopConfig:
     local_indices: LoopLocalIndices = field(
             validator=validators.instance_of(LoopLocalIndices)
     )
-    save_state_func: Callable = field(validator=is_device_validator)
-    update_summaries_func: Callable = field(validator=is_device_validator)
-    save_summaries_func: Callable = field(validator=is_device_validator)
+    save_state_fn: Callable = field(validator=is_device_validator)
+    update_summaries_fn: Callable = field(validator=is_device_validator)
+    save_summaries_fn: Callable = field(validator=is_device_validator)
     step_controller_fn: Callable = field(validator=is_device_validator)
     step_fn: Callable = field(validator=is_device_validator)
 
