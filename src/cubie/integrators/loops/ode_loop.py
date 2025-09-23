@@ -220,19 +220,24 @@ class IVPLoop(CUDAFactory):
             
             for k in range(n_states):
                 state_buffer[k] = initial_states[k]
-                state_output[0,k] = initial_states[k]
             for k in range(n_parameters):
                 parameters_buffer[k] = parameters[k]
 
             driver_length = drivers.shape[0]
+            save_idx = int32(0)
 
-            #Start again from settling time if given, otherwise keep init val.
             if settling_time > precision(0.0):
                 next_save = precision(settling_time)
-                save_idx = int32(0)
             else:
                 next_save = precision(dt_save)
-                save_idx = int32(1)
+                save_state(
+                    state_buffer,
+                    observables_buffer,
+                    state_output[save_idx * save_state_bool, :],
+                    observables_output[save_idx * save_obs_bool, :],
+                    t,
+                )
+                save_idx += int32(1)
 
             status = int32(0)
             summary_idx = int32(0)
