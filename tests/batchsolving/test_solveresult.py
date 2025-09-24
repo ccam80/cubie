@@ -5,6 +5,7 @@ import pytest
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
 from tests.batchsolving.conftest import BatchResult
+from tests._utils import _driver_sequence
 
 
 
@@ -13,16 +14,36 @@ from tests.batchsolving.conftest import BatchResult
 
 @pytest.fixture(scope="function")
 def solver_with_arrays(
-    solver, batch_input_arrays, solver_settings, square_drive
+    solver,
+    batch_input_arrays,
+    solver_settings,
+    system,
+    precision,
 ):
     """Solver with actual arrays computed - ready for SolveResult instantiation"""
     inits, params = batch_input_arrays
+
+    samples = max(
+        1,
+        int(
+            np.ceil(
+                solver_settings["duration"]
+                / max(float(solver_settings["dt_min"]), 1e-12)
+            )
+        ),
+    )
+    drivers = _driver_sequence(
+        samples=samples,
+        total_time=solver_settings["duration"],
+        n_drivers=system.num_drivers,
+        precision=precision,
+    )
 
     solver.kernel.run(
         duration=solver_settings["duration"],
         params=params,
         inits=inits,
-        forcing_vectors=square_drive,
+        forcing_vectors=drivers,
         blocksize=solver_settings["blocksize"],
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],

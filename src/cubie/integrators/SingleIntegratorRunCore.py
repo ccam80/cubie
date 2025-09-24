@@ -23,7 +23,6 @@ from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
     LoopLocalIndices
 from cubie.outputhandling import OutputCompileFlags
 from cubie.outputhandling.output_functions import OutputFunctions
-from cubie.odesystems.ODEData import SystemSizes
 from cubie.integrators.step_control import get_controller
 
 
@@ -34,7 +33,7 @@ class SingleIntegratorRunCore(CUDAFactory):
     ----------
     system : BaseODE
         The ODE system to integrate.
-    algorithm : str, default="explicit_euler"
+    algorithm : str, default="euler"
         Name of the algorithm step implementation.
     dt_min, dt_max : float, default (0.01, 0.1)
         Minimum and maximum step size targets forwarded to the controller.
@@ -181,7 +180,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         kwargs
         ------
         Individual algorithm step parameters. These vary by algorithm. See:
-            :class:`~cubie.integrators.algorithms.explicit_euler
+            :class:`~cubie.integrators.algorithms.euler
             .ExplicitEulerStep`,
             :class:`~cubie.integrators.algorithms.backwards_euler
             .BackwardsEulerStep`,

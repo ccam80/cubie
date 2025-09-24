@@ -6,6 +6,7 @@ from cubie.batchsolving._utils import ensure_nonzero_size
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from tests.batchsolving.conftest import BatchResult
+from tests._utils import _driver_sequence
 
 
 
@@ -47,20 +48,36 @@ def test_run(
     solverkernel,
     batch_input_arrays,
     solver_settings,
-    square_drive,
     batch_settings,
     batch_results: list[BatchResult],
     precision,
+    system,
 ):
     """Big integration tet. Runs a batch integratino and checks outputs match expected. Expensive, don't run
     "scorcher" in CI."""
     inits, params = batch_input_arrays
 
+    samples = max(
+        1,
+        int(
+            np.ceil(
+                solver_settings["duration"]
+                / max(float(solver_settings["dt_min"]), 1e-12)
+            )
+        ),
+    )
+    drivers = _driver_sequence(
+        samples=samples,
+        total_time=solver_settings["duration"],
+        n_drivers=system.num_drivers,
+        precision=precision,
+    )
+
     solverkernel.run(
         duration=solver_settings["duration"],
         params=params,
         inits=inits,  # debug: inits has no varied parameters
-        forcing_vectors=square_drive,
+        forcing_vectors=drivers,
         blocksize=solver_settings["blocksize"],
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],
@@ -227,7 +244,7 @@ def test_run(
 
 
 def test_algorithm_change(solverkernel):
-    solverkernel.update({"algorithm": "generic"})
+    solverkernel.update({"algorithm": "backwards_euler_pc"})
     assert (
         solverkernel.single_integrator._integrator_instance.shared_memory_required
         == 0
@@ -318,12 +335,8 @@ def test_all_lower_plumbing(system, solverkernel):
         "rtol": 1e-1,
         "saved_state_indices": [0, 1, 2],
         "saved_observable_indices": [0, 1, 2],
-        "summarised_state_indices": [
-            0,
-        ],
-        "summarised_observable_indices": [
-            0,
-        ],
+        "summarised_state_indices": [0],
+        "summarised_observable_indices": [0],
         "output_types": [
             "state",
             "observables",
@@ -332,7 +345,6 @@ def test_all_lower_plumbing(system, solverkernel):
             "rms",
             "peaks[3]",
         ],
-        "precision": np.float64,
     }
     solverkernel.update(new_settings)
     freshsolver = BatchSolverKernel(system, algorithm="euler", **new_settings)

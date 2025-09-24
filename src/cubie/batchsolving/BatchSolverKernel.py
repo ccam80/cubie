@@ -403,6 +403,7 @@ class BatchSolverKernel(CUDAFactory):
                 self.output_arrays.device_observable_summaries,
                 chunk_duration,
                 chunk_warmup,
+                self.precision(0.0),
                 numruns,
             )
             self.memory_manager.sync_stream(self)

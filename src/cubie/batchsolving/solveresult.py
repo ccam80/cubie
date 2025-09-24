@@ -6,6 +6,7 @@ the :class:`SolveResult` class aggregates output arrays and related metadata.
 
 from typing import Optional, TYPE_CHECKING, Union, List, Any
 
+
 if TYPE_CHECKING:
     from cubie.batchsolving.solver import Solver
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -16,7 +17,12 @@ import numpy as np
 from numpy.typing import NDArray
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
-from cubie._utils import slice_variable_dimension
+from cubie._utils import (
+    slice_variable_dimension,
+    getype_validator,
+    gttype_validator,
+    ALLOWED_PRECISIONS
+)
 
 
 @attrs.define
@@ -47,21 +53,25 @@ class SolveSpec:
         Floating point precision used.
     """
 
-    dt_min: float = attrs.field(validator=val.instance_of(float))
-    dt_max: float = attrs.field(validator=val.instance_of(float))
-    dt_save: float = attrs.field(validator=val.instance_of(float))
-    dt_summarise: float = attrs.field(validator=val.instance_of(float))
-    atol: float = attrs.field(validator=val.instance_of(float))
-    rtol: float = attrs.field(validator=val.instance_of(float))
-    duration: float = attrs.field(validator=val.instance_of(float))
-    warmup: float = attrs.field(validator=val.instance_of(float))
+    dt_min: float = attrs.field(validator=gttype_validator(float, 0.0))
+    dt_max: float = attrs.field(validator=gttype_validator(float, 0.0))
+    dt_save: float = attrs.field(validator=gttype_validator(float, 0.0))
+    dt_summarise: float = attrs.field(validator=getype_validator(float, 0.0))
+    atol: Optional[float] = attrs.field(
+            validator=val.optional(gttype_validator(float, 0.0)),
+    )
+    rtol: Optional[float] = attrs.field(
+            validator=val.optional(gttype_validator(float, 0.0)),
+    )
+    duration: float = attrs.field(validator=gttype_validator(float, 0.0))
+    warmup: float = attrs.field(validator=getype_validator(float, 0.0))
     algorithm: str = attrs.field(validator=val.instance_of(str))
     saved_states: Optional[List[str]] = attrs.field()
     saved_observables: Optional[List[str]] = attrs.field()
     summarised_states: Optional[List[str]] = attrs.field()
     summarised_observables: Optional[List[str]] = attrs.field()
     output_types: Optional[List[str]] = attrs.field()
-    precision: type = attrs.field(validator=val.instance_of(type))
+    precision: type = attrs.field(validator=val.in_(ALLOWED_PRECISIONS))
 
 
 @attrs.define

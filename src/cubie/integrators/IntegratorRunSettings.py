@@ -20,9 +20,9 @@ from numpy import float32
 
 
 _ALGORITHM_ALIASES: Dict[str, str] = {
-    "euler": "explicit_euler",
-    "explicit_euler": "explicit_euler",
-    "explicit": "explicit_euler",
+    "euler": "euler",
+    "euler": "euler",
+    "explicit": "euler",
     "backward_euler": "backwards_euler",
     "backwards_euler": "backwards_euler",
     "crank_nicolson": "crank_nicolson",
@@ -104,7 +104,7 @@ class IntegratorRunSettings:
         validator=attrs.validators.in_([np.float32, np.float64, np.float16]),
     )
     algorithm: str = attrs.field(
-        default="explicit_euler",
+        default="euler",
         converter=_normalise_algorithm,
         on_setattr=setters.convert,
     )

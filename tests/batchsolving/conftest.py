@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
+from tests._utils import _driver_sequence
 
 
 Array = np.ndarray
@@ -18,27 +19,6 @@ def batchconfig_instance(system) -> BatchGridBuilder:
     """Return a batch grid builder for the configured system."""
 
     return BatchGridBuilder.from_system(system)
-
-
-@pytest.fixture(scope="function")
-def square_drive(system, solver_settings, precision, request) -> Array:
-    """Generate a square driver waveform for forcing vectors."""
-
-    if hasattr(request, "param"):
-        if "cycles" in request.param:
-            cycles = request.getattr("cycles", 5)
-    else:
-        cycles = 5
-
-    numvecs = system.sizes.drivers
-    length = int(solver_settings["duration"] // solver_settings["dt_min"])
-    driver = np.zeros((length, numvecs), dtype=precision)
-    half_period = length // (2 * cycles)
-
-    for idx in range(cycles):
-        driver[idx * half_period : (idx + 1) * half_period, :] = 1.0
-
-    return driver
 
 
 @pytest.fixture(scope="function")
@@ -105,13 +85,28 @@ class BatchResult:
 def batch_results(
     batch_input_arrays,
     cpu_loop_runner,
-    square_drive,
+    system,
+    solver_settings,
     precision,
 ) -> list[BatchResult]:
     """Compute CPU reference outputs for each run in the requested batch."""
 
     initial_sets, parameter_sets = batch_input_arrays
-    driver_matrix = np.array(square_drive, dtype=precision, copy=True)
+    samples = max(
+        1,
+        int(
+            np.ceil(
+                solver_settings["duration"]
+                / max(float(solver_settings["dt_min"]), 1e-12)
+            )
+        ),
+    )
+    driver_matrix = _driver_sequence(
+        samples=samples,
+        total_time=solver_settings["duration"],
+        n_drivers=system.num_drivers,
+        precision=precision,
+    )
 
     results: list[BatchResult] = []
     for idx in range(initial_sets.shape[0]):
