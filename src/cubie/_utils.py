@@ -6,7 +6,7 @@ updates and CUDA utilities that are shared across the code base.
 import os
 from functools import wraps
 from time import time
-from typing import Callable
+from typing import Callable, Union
 from warnings import warn
 
 import numpy as np
@@ -19,6 +19,21 @@ from numba.cuda.random import (
 from attrs import fields, has, validators
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
+
+PrecisionDtype = Union[
+    type[np.float16],
+    type[np.float32],
+    type[np.float64],
+    np.dtype[np.float16],
+    np.dtype[np.float32],
+    np.dtype[np.float64],
+]
+
+ALLOWED_PRECISIONS = {
+    np.dtype(np.float16),
+    np.dtype(np.float32),
+    np.dtype(np.float64),
+}
 
 
 def slice_variable_dimension(slices, indices, ndim):

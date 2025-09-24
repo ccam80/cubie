@@ -114,8 +114,6 @@ class TestSingleIntegratorRun:
     ):
         """Requesting the device loop compiles children and preserves getters."""
 
-        monkeypatch.setenv("NUMBA_ENABLE_CUDASIM", "1")
-
         run = single_integrator_run
         device_fn = run.device_function
         assert callable(device_fn)

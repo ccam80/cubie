@@ -19,6 +19,7 @@ Never shortcut "is_device" or implement patches to get around other cuda-related
 Install from workspace/cubie with pip install -e .[dev]
 To run tests from an environment without CUDA drivers, set the environment variable NUMBA_ENABLE_CUDASIM="1".
 If running tests without CUDA drivers, then omit pytests marked nocudasim and cupy.
+- Never modify environment variables, as a monkeypatch or otherwise. Set CUDASIM in the environment external to the python source, never in python source.
 
 ## Attrs usage
 For any floating-point attributes in an attrs class, save the attributes with a leading underscore, then add a property
@@ -35,6 +36,15 @@ in calls to __init__. Attrs handles both internally.
 ###### src/cubie/integrators/algorithms
 ###### src/cubie/integrators/loops
 ###### src/cubie/integrators/matrix_free_solvers
+Labelled:
+- CUDA device solver factories that return matrix-free linear and
+  Newton--Krylov iterations built with :mod:`numba.cuda`.
+- Relies on warp-vote helpers for convergence checks and expects
+  caller-supplied operator and residual callbacks plus preallocated
+  device buffers.
+- Public API exposes ``linear_solver_factory``,
+  ``newton_krylov_solver_factory``, and ``SolverRetCodes`` status codes.
+
 ###### src/cubie/integrators/step_control
 ##### src/cubie/memory
 ##### src/cubie/odesystems

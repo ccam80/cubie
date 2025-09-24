@@ -494,6 +494,7 @@ class BatchSolverKernel(CUDAFactory):
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
+                precision[:, :, :],
                 precision,
                 precision,
                 precision,

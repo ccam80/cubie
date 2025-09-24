@@ -12,6 +12,7 @@ __all__ = [
     "AdaptivePIController",
     "AdaptivePIDController",
     "GustafssonController",
+    "FixedStepController",
     "get_controller",
 ]
 
