@@ -147,10 +147,10 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             gain_new = precision(safety * ((nrm2 ** expo1) *
                                  (err_prev_safe ** expo2) *
                                  ((nrm2*err_prev_inv_safe) ** expo3)))
-            gain = precision(clamp(gain_new, max_gain, min_gain))
+            gain = precision(clamp(gain_new, min_gain, max_gain))
 
             dt_new_raw = dt[0] * gain
-            dt[0] = clamp(dt_new_raw, dt_max, dt_min)
+            dt[0] = clamp(dt_new_raw, dt_min, dt_max)
             local_temp[1] = 1/nrm2
             local_temp[0] = nrm2
 

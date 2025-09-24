@@ -213,13 +213,17 @@ def timing(_func=None, *, nruns=1):
 
 def clamp_factory(precision):
     precision = from_dtype(precision)
-    @cuda.jit(precision(precision, precision, precision),
-               device=True,
-               inline=True)
-    def clamp(v, hi, lo):
-        v1 = cuda.selp(v > hi, hi, v)
-        v2 = cuda.selp(v1 < lo, lo, v1)
-        return v2
+
+    @cuda.jit(
+        precision(precision, precision, precision),
+        device=True,
+        inline=True,
+    )
+    def clamp(value, minimum, maximum):
+        clamped_high = cuda.selp(value > maximum, maximum, value)
+        clamped = cuda.selp(clamped_high < minimum, minimum, clamped_high)
+        return clamped
+
     return clamp
 
 

@@ -144,10 +144,10 @@ class AdaptivePIController(BaseAdaptiveStepController):
             # Handle uninitialized err_prev by using current error as fallback
             igain = precision((err_prev if err_prev > precision(0.0) else nrm2) ** (ki))
             gain_new = safety * pgain * igain
-            gain = clamp(gain_new, max_gain, min_gain)
+            gain = clamp(gain_new, min_gain, max_gain)
 
             dt_new_raw = dt[0] * gain
-            dt[0] = clamp(dt_new_raw, dt_max, dt_min)
+            dt[0] = clamp(dt_new_raw, dt_min, dt_max)
             local_temp[0] = nrm2
 
             ret = int32(0) if dt_new_raw > dt_min else int32(1)
