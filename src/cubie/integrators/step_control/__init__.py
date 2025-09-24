@@ -1,4 +1,4 @@
-"""Step size controller interfaces."""
+"""Public entry points for step-size controllers."""
 
 from .adaptive_I_controller import AdaptiveIController
 from .adaptive_PI_controller import AdaptivePIController
@@ -17,14 +17,14 @@ __all__ = [
 ]
 
 
-def get_controller(kind: str, **kwargs) -> BaseStepController:
+def get_controller(kind: str, **kwargs: object) -> BaseStepController:
     """Return a controller instance based on ``kind``.
 
     Parameters
     ----------
     kind
-        Simplified name of the controller (``"i"``, ``"pi"``, ``"pid"``,
-        ``"gustafsson"``).
+        Simplified name of the controller (``"fixed"``, ``"i"``, ``"pi"``,
+        ``"pid"``, ``"gustafsson"``).
     **kwargs
         Arguments passed to the controller constructor. These are set by the
         signature of the controller.
@@ -33,6 +33,11 @@ def get_controller(kind: str, **kwargs) -> BaseStepController:
     -------
     BaseStepController
         Instance of the requested controller.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``kind`` does not match a known controller type.
     """
     kind = kind.lower()
     if kind == "fixed":

@@ -1,6 +1,6 @@
 """Gustafsson predictive step controller."""
 
-from typing import Optional, Union, Callable
+from typing import Callable, Optional, Union
 
 import numpy as np
 from numba import cuda, int32
@@ -16,17 +16,30 @@ from cubie._utils import getype_validator, inrangetype_validator
 class GustafssonStepControlConfig(AdaptiveStepControlConfig):
     """Configuration for Gustafsson-like predictive controller.
 
-    Adds gamma damping factor and maximum Newton iterations for implicit solves.
+    Notes
+    -----
+    Includes damping and Newton iteration limits used by Gustafsson's
+    predictor for implicit integrators.
     """
-    _gamma: float = field(default=0.9, validator=inrangetype_validator(float, 0, 1))
-    _max_newton_iters: int = field(default=0, validator=getype_validator(int, 0))
+    _gamma: float = field(
+        default=0.9,
+        validator=inrangetype_validator(float, 0, 1),
+    )
+    _max_newton_iters: int = field(
+        default=0,
+        validator=getype_validator(int, 0),
+    )
 
     @property
     def gamma(self) -> float:
+        """Return the damping factor applied to the gain."""
+
         return self.precision(self._gamma)
 
     @property
     def max_newton_iters(self) -> int:
+        """Return the maximum number of Newton iterations considered."""
+
         return int(self._max_newton_iters)
 
 
@@ -44,12 +57,36 @@ class GustafssonController(BaseAdaptiveStepController):
         n: int = 1,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
-        norm: str = "l2",
-        norm_kwargs: Optional[dict] = None,
         gamma: float = 0.9,
         max_newton_iters: int = 0,
     ) -> None:
-        """Initialise a Gustafsson predictive controller."""
+        """Initialise a Gustafsson predictive controller.
+
+        Parameters
+        ----------
+        precision
+            Precision used for controller calculations.
+        dt_min
+            Minimum allowed step size.
+        dt_max
+            Maximum allowed step size.
+        atol
+            Absolute tolerance specification.
+        rtol
+            Relative tolerance specification.
+        algorithm_order
+            Order of the integration algorithm.
+        n
+            Number of state variables.
+        min_gain
+            Lower bound for the step size change factor.
+        max_gain
+            Upper bound for the step size change factor.
+        gamma
+            Gustafsson damping factor applied to the gain.
+        max_newton_iters
+            Maximum number of Newton iterations expected during solves.
+        """
 
         config = GustafssonStepControlConfig(
             precision=precision,
@@ -65,26 +102,30 @@ class GustafssonController(BaseAdaptiveStepController):
             max_newton_iters=max_newton_iters,
         )
 
-        super().__init__(config, norm, norm_kwargs)
+        super().__init__(config)
 
     @property
     def gamma(self) -> float:
+        """Return the damping factor applied to the gain."""
+
         return self.compile_settings.gamma
 
     @property
     def max_newton_iters(self) -> int:
+        """Return the maximum number of Newton iterations considered."""
+
         return self.compile_settings.max_newton_iters
 
     @property
     def local_memory_elements(self) -> int:
-        """Amount of local memory required by the controller."""
+        """Return the number of local memory slots required."""
+
         return 2
 
     def build_controller(
         self,
         precision: type,
         clamp: Callable,
-        norm_func: Callable,
         min_gain: float,
         max_gain: float,
         dt_min: float,
@@ -92,10 +133,41 @@ class GustafssonController(BaseAdaptiveStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: np.ndarray,
+        order: int,
         safety: float,
     ) -> Callable:
-        """Create the device function for the Gustafsson controller."""
+        """Create the device function for the Gustafsson controller.
+
+        Parameters
+        ----------
+        precision
+            Precision callable used to coerce scalars on device.
+        clamp
+            Callable that clamps proposed step sizes.
+        min_gain
+            Minimum allowed gain when adapting the step size.
+        max_gain
+            Maximum allowed gain when adapting the step size.
+        dt_min
+            Minimum permissible step size.
+        dt_max
+            Maximum permissible step size.
+        n
+            Number of state variables controlled per step.
+        atol
+            Absolute tolerance vector.
+        rtol
+            Relative tolerance vector.
+        order
+            Order of the integration algorithm.
+        safety
+            Safety factor used when scaling the step size.
+
+        Returns
+        -------
+        Callable
+            CUDA device function implementing the Gustafsson controller.
+        """
         expo = precision(1.0 / (2 * (order + 1)))
         gamma = precision(self.gamma)
         max_newton_iters = int(self.max_newton_iters)
@@ -105,7 +177,32 @@ class GustafssonController(BaseAdaptiveStepController):
         def controller_gustafsson(
             dt, state, state_prev, error, niters, accept_out, local_temp
         ):
-            dt_prev = max(local_temp[0],precision(1e-16))
+            """Gustafsson accept/step controller.
+
+            Parameters
+            ----------
+            dt : device array
+                Current integration step size.
+            state : device array
+                Current state vector.
+            state_prev : device array
+                Previous state vector.
+            error : device array
+                Estimated local error vector.
+            niters : device array
+                Iteration counters from the integrator loop.
+            accept_out : device array
+                Output flag indicating acceptance of the step.
+            local_temp : device array
+                Scratch space provided by the integrator.
+
+            Returns
+            -------
+            int32
+                Non-zero when the step is rejected at the minimum size.
+            """
+
+            dt_prev = max(local_temp[0], precision(1e-16))
             err_prev = max(local_temp[1], precision(1e-16))
 
             nrm2 = precision(0.0)

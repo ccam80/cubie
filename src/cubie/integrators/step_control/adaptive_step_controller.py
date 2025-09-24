@@ -1,20 +1,48 @@
-"""Common logic for adaptive step-size controllers."""
+"""Shared infrastructure for adaptive step-size controllers."""
 
 from abc import abstractmethod
 from typing import Callable, Optional
 from warnings import warn
 
 import numpy as np
-from attrs import define, field, Converter
+from attrs import Converter, define, field
+from numpy.typing import ArrayLike
 
-from cubie._utils import getype_validator, inrangetype_validator, clamp_factory, \
-    float_array_validator
-from cubie.errornorms import get_norm_factory
+from cubie._utils import (
+    clamp_factory,
+    float_array_validator,
+    getype_validator,
+    inrangetype_validator,
+)
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepController, BaseStepControllerConfig
 )
 
-def tol_converter(value, self_):
+
+def tol_converter(
+    value: float | ArrayLike,
+    self_: "AdaptiveStepControlConfig",
+) -> np.ndarray:
+    """Convert tolerance input into an array with controller precision.
+
+    Parameters
+    ----------
+    value
+        Scalar or array-like tolerance specification.
+    self_
+        Configuration instance providing precision and dimension information.
+
+    Returns
+    -------
+    numpy.ndarray
+        Tolerance array with one value per state variable.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``value`` cannot be broadcast to the expected shape.
+    """
+
     if isinstance(value, float):
         tol = np.asarray([value] * self_.n, dtype=self_.precision)
     else:
@@ -28,6 +56,8 @@ def tol_converter(value, self_):
 class AdaptiveStepControlConfig(BaseStepControllerConfig):
     """Configuration for adaptive step controllers.
 
+    Notes
+    -----
     Parameters influencing compilation should live here so that device
     functions are rebuilt when they change.
     """
@@ -61,28 +91,28 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     )
 
     def __attrs_post_init__(self) -> None:
-        """Validate configuration after initialisation."""
-        self._validate_config()
+        """Ensure step limits are coherent after initialisation."""
 
-    def _validate_config(self) -> None:
         if self._dt_max is None:
-            self._dt_max = self.dt_min * 100
-        if self.dt_max < self.dt_min:
+            self._dt_max = self._dt_min * 100
+        elif self._dt_max < self._dt_min:
             warn(
-                "dt_max ({self.dt_max}) < dt_min ({self.dt_min}). Setting "
-                "dt_max = dt_min * 100",
+                (
+                    f"dt_max ({self._dt_max}) < dt_min ({self._dt_min}). "
+                    "Setting dt_max = dt_min * 100"
+                )
             )
-            self._dt_max = self.dt_min * 100
+            self._dt_max = self._dt_min * 100
 
 
     @property
     def dt_min(self) -> float:
-        """Returns minimum time step size."""
+        """Return the minimum permissible step size."""
         return self.precision(self._dt_min)
 
     @property
     def dt_max(self) -> float:
-        """Returns maximum time step size."""
+        """Return the maximum permissible step size."""
         value = self._dt_max
         if value is None:
             value = self._dt_min * 100
@@ -90,32 +120,32 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
 
     @property
     def dt0(self) -> float:
-        """Returns initial step size."""
+        """Return the initial step size."""
         return self.precision((self.dt_min + self.dt_max) / 2)
 
     @property
     def is_adaptive(self) -> bool:
-        """Returns whether controller adapts step size."""
+        """Return ``True`` because the controller adapts step size."""
         return True
 
     @property
     def min_gain(self) -> float:
-        """Returns minimum gain."""
+        """Return the minimum gain factor."""
         return self.precision(self._min_gain)
 
     @property
     def max_gain(self) -> float:
-        """Returns maximum gain."""
+        """Return the maximum gain factor."""
         return self.precision(self._max_gain)
 
     @property
     def safety(self) -> float:
-        """Returns safety factor."""
+        """Return the safety scaling factor."""
         return self.precision(self._safety)
 
     @property
-    def settings_dict(self) -> dict:
-        """Returns settings as a dictionary."""
+    def settings_dict(self) -> dict[str, object]:
+        """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict
         settings_dict.update({'dt_min': self.dt_min,
                               'dt_max': self.dt_max,
@@ -132,8 +162,6 @@ class BaseAdaptiveStepController(BaseStepController):
     def __init__(
         self,
         config: AdaptiveStepControlConfig,
-        norm_type: str,
-        norm_kwargs: Optional[dict] = None,
     ) -> None:
         """Initialise the adaptive controller.
 
@@ -141,34 +169,21 @@ class BaseAdaptiveStepController(BaseStepController):
         ----------
         config
             Configuration for the controller.
-        norm_type
-            Name of the error norm to use.
-        norm_kwargs
-            Additional keyword arguments for the norm factory.
         """
         super().__init__()
         self.setup_compile_settings(config)
 
-        norm_factory = get_norm_factory(norm_type)
-        if norm_kwargs is None:
-            norm_kwargs = {}
-        try:
-            self.norm_func = norm_factory(
-                config.precision, config.n, **norm_kwargs
-            )
-        except TypeError as exc:  # pragma: no cover - defensive
-            raise AttributeError(
-                "Invalid parameters for chosen norm: "
-                f"{norm_kwargs}. Check the norm function for expected "
-                "parameters.",
-            ) from exc
-
     def build(self) -> Callable:
-        """Construct the device function implementing the controller."""
+        """Construct the device function implementing the controller.
+
+        Returns
+        -------
+        Callable
+            Compiled CUDA device function for adaptive control.
+        """
         return self.build_controller(
             precision=self.precision,
             clamp=clamp_factory(self.precision),
-            norm_func=self.norm_func,
             min_gain=self.min_gain,
             max_gain=self.max_gain,
             dt_min=self.dt_min,
@@ -185,7 +200,6 @@ class BaseAdaptiveStepController(BaseStepController):
         self,
         precision: type,
         clamp: Callable,
-        norm_func: Callable,
         min_gain: float,
         max_gain: float,
         dt_min: float,
@@ -193,10 +207,41 @@ class BaseAdaptiveStepController(BaseStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: np.ndarray,
+        order: int,
         safety: float,
     ) -> Callable:
-        """Create the device function for the specific controller."""
+        """Create the device function for the specific controller.
+
+        Parameters
+        ----------
+        precision
+            Precision callable used to coerce values.
+        clamp
+            Callable that limits step updates.
+        min_gain
+            Minimum allowed gain when adapting the step size.
+        max_gain
+            Maximum allowed gain when adapting the step size.
+        dt_min
+            Minimum permissible step size.
+        dt_max
+            Maximum permissible step size.
+        n
+            Number of state variables handled by the controller.
+        atol
+            Absolute tolerance vector.
+        rtol
+            Relative tolerance vector.
+        order
+            Order of the integration algorithm.
+        safety
+            Safety factor used when scaling the step size.
+
+        Returns
+        -------
+        Callable
+            CUDA device function implementing the controller policy.
+        """
         raise NotImplementedError
 
     # @property
@@ -211,17 +256,19 @@ class BaseAdaptiveStepController(BaseStepController):
 
     @property
     def min_gain(self) -> float:
-        """Returns minimum gain."""
+        """Return the minimum gain factor."""
+
         return self.compile_settings.min_gain
 
     @property
     def max_gain(self) -> float:
-        """Returns maximum gain."""
+        """Return the maximum gain factor."""
+
         return self.compile_settings.max_gain
 
     @property
     def safety(self) -> float:
-        """Return the safety factor used by the controller."""
+        """Return the safety scaling factor."""
 
         return self.compile_settings.safety
 

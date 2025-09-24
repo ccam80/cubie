@@ -53,3 +53,13 @@ Labelled:
 ##### src/cubie/outputhandling
 ###### src/cubie/outputhandling/summarymetrics
 #### src/cubie.egg-info
+
+## Labelled
+
+### src/cubie/integrators/step_control
+Controllers share attrs-based configuration classes paired with CUDAFactory
+builders that JIT Numba CUDA device functions. Adaptive controllers depend on
+precision-controlled tolerance vectors rather than external error-norm helpers
+and respect precision choices surfaced by the configuration. Keep docstrings
+numpydoc-style with explicit parameter and return sections, and ensure module
+documentation highlights the fixed and adaptive controller hierarchy.
