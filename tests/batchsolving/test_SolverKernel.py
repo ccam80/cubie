@@ -3,87 +3,11 @@ import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
 from cubie.batchsolving._utils import ensure_nonzero_size
-from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from tests._utils import calculate_expected_summaries
+from tests.batchsolving.conftest import BatchResult
 
 
-@pytest.fixture(scope="function")
-def batchconfig_instance(system):
-    return BatchGridBuilder.from_system(system)
-
-
-@pytest.fixture(scope="function")
-def square_drive(system, solver_settings, precision, request):
-    """amplitude 1 square wave, request "cycles" to change default cycles per simulation from 5"""
-    if hasattr(request, "param"):
-        if "cycles" in request.param:
-            cycles = request.getattr("cycles", 5)
-    else:
-        cycles = 5
-    numvecs = system.sizes.drivers
-    length = int(solver_settings["duration"] // solver_settings["dt_min"])
-    driver = np.zeros((length, numvecs), dtype=precision)
-    half_period = length // (2 * cycles)
-
-    for i in range(cycles):
-        driver[i * half_period : (i + 1) * half_period, :] = 1.0
-
-    return driver
-
-
-@pytest.fixture(scope="function")
-def batch_settings_override(request):
-    return request.param if hasattr(request, "param") else {}
-
-
-@pytest.fixture(scope="function")
-def batch_settings(batch_settings_override):
-    """Fixture providing default batch settings."""
-    defaults = {
-        "num_state_vals_0": 2,
-        "num_state_vals_1": 0,
-        "num_param_vals_0": 2,
-        "num_param_vals_1": 0,
-        "kind": "combinatorial",
-    }
-
-    if batch_settings_override:
-        for key, value in batch_settings_override.items():
-            if key in defaults:
-                defaults[key] = value
-    return defaults
-
-
-@pytest.fixture(scope="function")
-def batch_request(system, batch_settings):
-    """Parametrized batch settings."""
-    state_names = list(system.initial_values.names)
-    param_names = list(system.parameters.names)
-    return {
-        state_names[0]: np.linspace(
-            0.1, 1.0, batch_settings["num_state_vals_0"]
-        ),
-        # system)
-        state_names[1]: np.linspace(
-            0.1, 1.0, batch_settings["num_state_vals_1"]
-        ),
-        # system)
-        param_names[0]: np.linspace(
-            0.1, 1.0, batch_settings["num_param_vals_0"]
-        ),
-        param_names[1]: np.linspace(
-            0.1, 1.0, batch_settings["num_param_vals_1"]
-        ),
-    }
-
-
-@pytest.fixture(scope="function")
-def batch_input_arrays(batch_request, batch_settings, batchconfig_instance):
-    return batchconfig_instance.grid_arrays(
-        batch_request, kind=batch_settings["kind"]
-    )
 
 
 def test_kernel_builds(solverkernel):
@@ -125,8 +49,7 @@ def test_run(
     solver_settings,
     square_drive,
     batch_settings,
-    expected_batch_answers,
-    expected_batch_summaries,
+    batch_results: list[BatchResult],
     precision,
 ):
     """Big integration tet. Runs a batch integratino and checks outputs match expected. Expensive, don't run
@@ -268,39 +191,35 @@ def test_run(
         atol = 1e-12
         rtol = 1e-12
 
-    for i, (expected_state_output, expected_observables_output) in enumerate(
-        expected_batch_answers
-    ):
-        expected_state_summaries = expected_batch_summaries[i][0]
-        expected_obs_summaries = expected_batch_summaries[i][1]
+    for run_idx, expected in enumerate(batch_results):
         if active_output_arrays.state:
             assert_allclose(
-                expected_state_output,
-                state[:, i, :],
+                expected.state,
+                state[:, run_idx, :],
                 atol=atol,
                 rtol=rtol,
                 err_msg="Output does not match expected.",
             )
         if active_output_arrays.observables:
             assert_allclose(
-                expected_observables_output,
-                observables[:, i, :],
+                expected.observables,
+                observables[:, run_idx, :],
                 atol=atol,
                 rtol=rtol,
                 err_msg="Observables do not match expected.",
             )
         if active_output_arrays.state_summaries:
             assert_allclose(
-                expected_state_summaries,
-                state_summaries[:, i, :],
+                expected.state_summaries,
+                state_summaries[:, run_idx, :],
                 atol=atol,
                 rtol=rtol,
                 err_msg="Summary states do not match expected.",
             )
         if active_output_arrays.observable_summaries:
             assert_allclose(
-                expected_obs_summaries,
-                observable_summaries[:, i, :],
+                expected.observable_summaries,
+                observable_summaries[:, run_idx, :],
                 atol=atol,
                 rtol=rtol,
                 err_msg="Summary observables do not match expected.",
@@ -446,63 +365,3 @@ def test_bogus_update_fails(solverkernel):
         solverkernel.update(obviously_bogus_key="this should not work")
 
 
-@pytest.fixture(scope="function")
-def expected_batch_answers(
-    batch_input_arrays,
-    cpu_loop_runner,
-    square_drive,
-    precision,
-):
-    inits, params = batch_input_arrays
-    driver_matrix = np.array(square_drive, dtype=precision, copy=True)
-
-    output_sets: list[tuple[np.ndarray, np.ndarray]] = []
-    for idx in range(inits.shape[0]):
-        loop_result = cpu_loop_runner(
-            initial_values=inits[idx, :],
-            parameters=params[idx, :],
-            forcing_vectors=driver_matrix,
-        )
-        output_sets.append(
-            (loop_result["state"], loop_result["observables"])
-        )
-    return output_sets
-
-
-@pytest.fixture(scope="function")
-def expected_batch_summaries(
-    expected_batch_answers,
-    solver_settings,
-    output_functions,
-    precision,
-):
-    """
-    Calculate the expected summaries_array for the loop algorithm.
-
-    Usage example:
-    @pytest.mark.parametrize("summarise_every", [10], indirect=True)
-    def test_expected_summaries(expected_summaries):
-        ...
-    """
-    saves_per_summary = max(
-        int(
-            np.ceil(
-                float(solver_settings["dt_summarise"])
-                / float(solver_settings["dt_save"])
-            )
-        ),
-        1,
-    )
-    expected_summaries = []
-    for expected_state, expected_output in expected_batch_answers:
-        expected_summaries.append(
-            calculate_expected_summaries(
-                expected_state,
-                expected_output,
-                saves_per_summary,
-                solver_settings["output_types"],
-                output_functions.summaries_output_height_per_var,
-                precision,
-            )
-        )
-    return expected_summaries
