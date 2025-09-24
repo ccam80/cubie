@@ -332,14 +332,15 @@ class BatchSolverKernel(CUDAFactory):
 
         if chunk_axis == "run":
             chunkruns = int(np.ceil(numruns / chunks))
-            chunklength = self.output_length
+            chunk_duration = duration  # Each chunk processes full duration
             chunksize = chunkruns
         elif chunk_axis == "time":
-            chunklength = int(np.ceil(self.output_length / chunks))
+            # Divide duration by number of chunks to maintain total sample count
+            chunk_duration = duration / chunks
             chunkruns = numruns
-            chunksize = chunklength
+            chunksize = int(np.ceil(self.output_length / chunks))
         else:
-            chunklength = self.output_length
+            chunk_duration = duration
             chunkruns = numruns
             chunksize = None
             chunks = 1
@@ -348,8 +349,6 @@ class BatchSolverKernel(CUDAFactory):
         self.chunk_axis = chunk_axis
         self.chunks = chunks
         numruns = chunkruns
-        output_length = chunklength
-        warmup_length = self.warmup_length
         pad_perrun = 4 if self.shared_memory_needs_padding else 0
         padded_bytes_perrun = self.shared_memory_bytes_per_run + pad_perrun
         dynamic_sharedmem = int(
@@ -372,7 +371,8 @@ class BatchSolverKernel(CUDAFactory):
 
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
-        BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))  #
+        BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
+
         # selectively chunk by chunk_size - depends on chunk_axis
         if (
             os.environ.get("NUMBA_ENABLE_CUDASIM") != "1"
@@ -384,6 +384,9 @@ class BatchSolverKernel(CUDAFactory):
             indices = slice(i * chunksize, (i + 1) * chunksize)
             self.input_arrays.initialise(indices)
             self.output_arrays.initialise(indices)
+
+            # Apply warmup only to the first chunk
+            chunk_warmup = warmup if i == 0 else 0.0
 
             self.device_function[
                 BLOCKSPERGRID,
@@ -398,8 +401,8 @@ class BatchSolverKernel(CUDAFactory):
                 self.output_arrays.device_observables,
                 self.output_arrays.device_state_summaries,
                 self.output_arrays.device_observable_summaries,
-                output_length,
-                warmup_length,
+                chunk_duration,
+                chunk_warmup,
                 numruns,
             )
             self.memory_manager.sync_stream(self)
@@ -491,9 +494,9 @@ class BatchSolverKernel(CUDAFactory):
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
-                precision[:, :, :],
-                int32,
-                int32,
+                precision,
+                precision,
+                precision,
                 int32,
             ),
         )

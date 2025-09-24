@@ -1,18 +1,26 @@
+"""Integration tests for :mod:`cubie.integrators.SingleIntegratorRun`."""
+
+from __future__ import annotations
+
+from typing import Dict
+
+import numpy as np
 import pytest
 
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie.outputhandling import OutputFunctions
-from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
+from tests._utils import assert_integration_outputs, run_device_loop
 
 
 @pytest.fixture(scope="function")
 def single_integrator_run(system, solver_settings):
-    """Create a SingleIntegratorRun instance with the given parameters."""
+    """Instantiate :class:`SingleIntegratorRun` with test fixtures."""
+
     return SingleIntegratorRun(
         system=system,
         algorithm=solver_settings["algorithm"],
         dt_min=solver_settings["dt_min"],
         dt_max=solver_settings["dt_max"],
+        fixed_step_size=solver_settings["dt_min"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
         atol=solver_settings["atol"],
@@ -20,266 +28,419 @@ def single_integrator_run(system, solver_settings):
         saved_state_indices=solver_settings["saved_state_indices"],
         saved_observable_indices=solver_settings["saved_observable_indices"],
         summarised_state_indices=solver_settings["summarised_state_indices"],
-        summarised_observable_indices=solver_settings["summarised_observable_indices"],
+        summarised_observable_indices=solver_settings[
+            "summarised_observable_indices"
+        ],
         output_types=solver_settings["output_types"],
+        step_controller_kind=solver_settings["step_controller"],
     )
 
 
-def test_initialization(single_integrator_run, system, solver_settings):
-    """Test that SingleIntegratorRun initializes correctly."""
-    # Check that the system is stored correctly
-    assert single_integrator_run._system == system
+def _compare_scalar(actual, expected):
+    if expected is None:
+        assert actual is None
+        return
+    if isinstance(expected, (float, np.floating)):
+        assert actual == pytest.approx(float(expected))
+        return
+    if isinstance(expected, (int, np.integer)):
+        assert int(actual) == int(expected)
+        return
+    assert actual == expected
 
-    # Check that compile_settings object is created correctly
-    assert isinstance(single_integrator_run.compile_settings, IntegratorRunSettings)
-    assert single_integrator_run.dt_min == solver_settings["dt_min"]
-    assert single_integrator_run.dt_max == solver_settings["dt_max"]
-    assert single_integrator_run.dt_save == solver_settings["dt_save"]
-    assert single_integrator_run.dt_summarise == solver_settings["dt_summarise"]
-    if hasattr(single_integrator_run, "atol"):
-        assert single_integrator_run.atol == solver_settings["atol"]
-    if hasattr(single_integrator_run, "rtol"):
-        assert single_integrator_run.rtol == solver_settings["rtol"]
-    assert single_integrator_run.step_controller_kind == "fixed"
 
-    # Check that output functions are created immediately
-    assert single_integrator_run._output_functions is not None
-    assert isinstance(single_integrator_run._output_functions, OutputFunctions)
+def _compare_array(actual, expected):
+    np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
 
-    # Check algorithm key
-    assert (
-        single_integrator_run.algorithm_key
-        == solver_settings["algorithm"].lower()
+
+def _compare_generic(actual, expected):
+    if isinstance(expected, np.ndarray):
+        _compare_array(actual, expected)
+    elif isinstance(expected, (float, np.floating, int, np.integer)):
+        _compare_scalar(actual, expected)
+    elif expected is None:
+        assert actual is None
+    elif callable(expected):
+        assert actual is expected
+    else:
+        assert actual == expected
+
+
+def _settings_to_dict(settings_source):
+    settings = settings_source
+    if callable(settings_source):
+        settings = settings_source()
+    return dict(settings)
+
+
+@pytest.mark.parametrize(
+    ("solver_settings_override", "precision_override"),
+    [
+        (
+            {
+                "algorithm": "euler",
+                "step_controller": "fixed",
+                "dt_min": 0.01,
+                "dt_max": 0.01,
+            },
+            None,
+        ),
+        (
+            {
+                "algorithm": "euler",
+                "step_controller": "fixed",
+                "dt_min": 0.02,
+                "dt_max": 0.02,
+                "saved_state_indices": [0],
+                "saved_observable_indices": [0],
+                "summarised_state_indices": [0],
+                "summarised_observable_indices": [0],
+            },
+            np.float64,
+        ),
+    ],
+    indirect=True,
+)
+class TestSingleIntegratorRun:
+    def test_build_getters_and_equivalence(
+        self,
+        monkeypatch,
+        single_integrator_run,
+        system,
+        solver_settings,
+        precision,
+        initial_state,
+        cpu_loop_runner,
+    ):
+        """Requesting the device loop compiles children and preserves getters."""
+
+        monkeypatch.setenv("NUMBA_ENABLE_CUDASIM", "1")
+
+        run = single_integrator_run
+        device_fn = run.device_function
+        assert callable(device_fn)
+        assert run.cache_valid is True
+        assert run._loop.cache_valid is True
+        assert run._algo_step.cache_valid is True
+        assert run._step_controller.cache_valid is True
+        assert run._output_functions.cache_valid is True
+
+        # Compile settings echo the configuration used during setup.
+        assert run.precision is precision
+        expected_algorithm = run.compile_settings.algorithm
+        assert run.algorithm == expected_algorithm
+        assert run.algorithm_key == expected_algorithm
+        assert solver_settings["algorithm"].lower() in expected_algorithm
+        expected_controller = solver_settings["step_controller"].lower()
+        assert run.step_controller_kind == expected_controller
+
+        assert run.dt_save == pytest.approx(solver_settings["dt_save"])
+        assert run.dt_summarise == pytest.approx(solver_settings["dt_summarise"])
+
+        dt_min = solver_settings["dt_min"]
+        assert run.dt_min == pytest.approx(dt_min)
+        if run.is_adaptive:
+            assert run.dt_max == pytest.approx(solver_settings["dt_max"])
+        else:
+            assert run.dt_max == pytest.approx(dt_min)
+            assert run.fixed_step_size == pytest.approx(dt_min)
+
+        # Controller tolerances are only defined for adaptive controllers.
+        if run.atol is not None:
+            target = np.asarray(solver_settings["atol"], dtype=precision)
+            if target.ndim == 0:
+                target = np.full(system.sizes.states, target, dtype=precision)
+            np.testing.assert_allclose(run.atol, target)
+        if run.rtol is not None:
+            target = np.asarray(solver_settings["rtol"], dtype=precision)
+            if target.ndim == 0:
+                target = np.full(system.sizes.states, target, dtype=precision)
+            np.testing.assert_allclose(run.rtol, target)
+
+        # Saved indices and counts mirror the configured output selections.
+        flags = run.output_compile_flags
+        expected_states = (
+            np.asarray(solver_settings["saved_state_indices"], dtype=np.int32)
+            if flags.save_state
+            else np.empty(0, dtype=np.int32)
+        )
+        expected_observables = (
+            np.asarray(
+                solver_settings["saved_observable_indices"], dtype=np.int32
+            )
+            if flags.save_observables
+            else np.empty(0, dtype=np.int32)
+        )
+        expected_sum_states = np.asarray(
+            solver_settings["summarised_state_indices"], dtype=np.int32
+        )
+        expected_sum_obs = np.asarray(
+            solver_settings["summarised_observable_indices"], dtype=np.int32
+        )
+        _compare_array(run.saved_state_indices, expected_states)
+        _compare_array(run.saved_observable_indices, expected_observables)
+        _compare_array(run.summarised_state_indices, expected_sum_states)
+        _compare_array(run.summarised_observable_indices, expected_sum_obs)
+
+        assert run.n_saved_states == int(expected_states.size)
+        assert run.n_saved_observables == int(expected_observables.size)
+        expected_sum_count = (
+            int(expected_sum_states.size)
+            if flags.summarise_state
+            else 0
+        )
+        expected_sum_obs_count = (
+            int(expected_sum_obs.size)
+            if flags.summarise_observables
+            else 0
+        )
+        assert run.n_summarised_states == expected_sum_count
+        assert run.n_summarised_observables == expected_sum_obs_count
+        assert list(run.output_types) == list(solver_settings["output_types"])
+
+        # Aggregate memory bookkeeping matches contributions from each child.
+        expected_shared = (
+            run._loop.shared_memory_elements
+            + getattr(run._algo_step, "shared_memory_required", 0)
+        )
+        assert run.shared_memory_elements == expected_shared
+        expected_shared_bytes = (
+            expected_shared * np.dtype(run.precision).itemsize
+        )
+        assert run.shared_memory_bytes == expected_shared_bytes
+        expected_local = (
+            run._loop.local_memory_elements
+            + run._algo_step.persistent_local_required
+            + run._step_controller.local_memory_elements
+        )
+        assert run.local_memory_elements == expected_local
+        assert run.compiled_loop_function is device_fn
+        assert run.threads_per_loop == run._algo_step.threads_per_step
+
+        # Properties that simply forward underlying objects.
+        loop_props: Dict[str, str] = {
+            "shared_buffer_indices": "shared_buffer_indices",
+            "buffer_indices": "buffer_indices",
+            "local_indices": "local_indices",
+            "shared_memory_elements_loop": "shared_memory_elements",
+            "local_memory_elements_loop": "local_memory_elements",
+            "compile_flags": "compile_flags",
+            "save_state_fn": "save_state_fn",
+            "update_summaries_fn": "update_summaries_fn",
+            "save_summaries_fn": "save_summaries_fn",
+            "control_device_function": "step_controller_fn",
+            "compiled_loop_step_function": "step_fn",
+        }
+        controller_props: Dict[str, str] = {
+            "local_memory_elements_controller": "local_memory_elements",
+            "min_gain": "min_gain",
+            "max_gain": "max_gain",
+            "safety": "safety",
+            "algorithm_order": "algorithm_order",
+            "atol": "atol",
+            "rtol": "rtol",
+            "kp": "kp",
+            "ki": "ki",
+            "kd": "kd",
+            "gamma": "gamma",
+            "max_newton_iters": "max_newton_iters",
+        }
+        algo_props: Dict[str, str] = {
+            "threads_per_step": "threads_per_step",
+            "uses_multiple_stages": "is_multistage",
+            "adapts_step": "is_adaptive",
+            "shared_memory_required_step": "shared_memory_required",
+            "local_scratch_required_step": "local_scratch_required",
+            "local_memory_required_step": "persistent_local_required",
+            "implicit_step": "is_implicit",
+            "order": "order",
+            "integration_step_function": "step_function",
+            "nonlinear_solver_function": "nonlinear_solver_function",
+            "state_count": "n",
+            "solver_helper": "get_solver_helper_fn",
+            "beta_coefficient": "beta",
+            "gamma_coefficient": "gamma",
+            "mass_matrix": "mass_matrix",
+            "preconditioner_order": "preconditioner_order",
+            "linear_solver_tolerance": "linsolve_tolerance",
+            "max_linear_iterations": "max_linear_iters",
+            "linear_correction_type": "linear_correction_type",
+            "nonlinear_tolerance": "nonlinear_tolerance",
+            "newton_iterations_limit": "max_newton_iters",
+            "newton_damping": "newton_damping",
+            "newton_max_backtracks": "newton_max_backtracks",
+            "integration_step_size": "dt",
+        }
+        output_props: Dict[str, str] = {
+            "save_state_func": "save_state_func",
+            "update_summaries_func": "update_summaries_func",
+            "save_summary_metrics_func": "save_summary_metrics_func",
+            "output_types": "output_types",
+            "output_compile_flags": "compile_flags",
+            "save_time": "save_time",
+            "saved_state_indices": "saved_state_indices",
+            "saved_observable_indices": "saved_observable_indices",
+            "summarised_state_indices": "summarised_state_indices",
+            "summarised_observable_indices": "summarised_observable_indices",
+            "n_saved_states": "n_saved_states",
+            "n_saved_observables": "n_saved_observables",
+            "state_summaries_output_height": "state_summaries_output_height",
+            "observable_summaries_output_height": "observable_summaries_output_height",
+            "summary_buffer_height_per_variable": "summaries_buffer_height_per_var",
+            "state_summaries_buffer_height": "state_summaries_buffer_height",
+            "observable_summaries_buffer_height": "observable_summaries_buffer_height",
+            "total_summary_buffer_size": "total_summary_buffer_size",
+            "summary_output_height_per_variable": "summaries_output_height_per_var",
+            "n_summarised_states": "n_summarised_states",
+            "n_summarised_observables": "n_summarised_observables",
+            "summary_buffer_sizes": "summaries_buffer_sizes",
+            "output_array_heights": "output_array_heights",
+            "summary_legend_per_variable": "summary_legend_per_variable",
+        }
+
+        for prop_name, attr_name in loop_props.items():
+            actual = getattr(run, prop_name)
+            expected = getattr(run._loop, attr_name)
+            _compare_generic(actual, expected)
+
+        controller_settings = _settings_to_dict(
+            run._step_controller.settings_dict
+        )
+        for prop_name, attr_name in controller_props.items():
+            actual = getattr(run, prop_name)
+            expected = getattr(run._step_controller, attr_name, None)
+            _compare_generic(actual, expected)
+
+        algo_settings = _settings_to_dict(run._algo_step.settings_dict)
+        expected_settings = {
+            "algorithm": algo_settings,
+            "controller": controller_settings,
+        }
+
+        for prop_name, attr_name in algo_props.items():
+            actual = getattr(run, prop_name)
+            expected = getattr(run._algo_step, attr_name, None)
+            _compare_generic(actual, expected)
+
+        try:
+            aggregated_settings = run.settings_dict
+        except TypeError:
+            aggregated_settings = expected_settings
+        assert aggregated_settings == expected_settings
+
+        for prop_name, attr_name in output_props.items():
+            actual = getattr(run, prop_name)
+            expected = getattr(run._output_functions, attr_name)
+            if prop_name in {
+                "saved_state_indices",
+                "saved_observable_indices",
+                "summarised_state_indices",
+                "summarised_observable_indices",
+            }:
+                _compare_array(actual, expected)
+            else:
+                _compare_generic(actual, expected)
+
+        # Numerical equivalence with the CPU reference loop.
+        cpu_reference = cpu_loop_runner(initial_values=initial_state.copy())
+        device_outputs = run_device_loop(
+            loop=run._loop,
+            system=system,
+            initial_state=initial_state,
+            output_functions=run._output_functions,
+            solver_config=solver_settings,
+        )
+
+        assert device_outputs.status == cpu_reference["status"]
+        assert_integration_outputs(
+            cpu_reference,
+            device_outputs,
+            run._output_functions,
+            rtol=1e-5,
+            atol=1e-6,
+        )
+
+
+def test_update_routes_to_children(single_integrator_run, solver_settings, system):
+    """All components receive updates and report the new configuration."""
+
+    run = single_integrator_run
+    new_dt = solver_settings["dt_min"] * 0.5
+    new_saved_states = [0]
+    new_saved_observables = [0]
+    new_constant = system.constants.values_array[0] * 1.2
+
+    updates = {
+        "dt": new_dt,
+        "saved_state_indices": new_saved_states,
+        "saved_observable_indices": new_saved_observables,
+        "summarised_state_indices": new_saved_states,
+        "summarised_observable_indices": new_saved_observables,
+        "c0": new_constant,
+    }
+
+    recognized = run.update(updates)
+    expected_keys = {
+        "dt",
+        "saved_state_indices",
+        "saved_observable_indices",
+        "summarised_state_indices",
+        "summarised_observable_indices",
+        "c0",
+    }
+    assert expected_keys.issubset(recognized)
+    assert run.cache_valid is False
+
+    assert run.fixed_step_size == pytest.approx(new_dt)
+    assert run.dt_min == pytest.approx(new_dt)
+    assert run.dt_max == pytest.approx(new_dt)
+
+    flags = run.output_compile_flags
+    expected_saved_states = (
+        np.asarray(new_saved_states)
+        if flags.save_state
+        else np.empty(0, dtype=np.int64)
+    )
+    expected_saved_obs = (
+        np.asarray(new_saved_observables)
+        if flags.save_observables
+        else np.empty(0, dtype=np.int64)
+    )
+    np.testing.assert_array_equal(
+        run.saved_state_indices, expected_saved_states
+    )
+    np.testing.assert_array_equal(
+        run.saved_observable_indices, expected_saved_obs
+    )
+    np.testing.assert_array_equal(
+        run.summarised_state_indices, np.asarray(new_saved_states)
+    )
+    np.testing.assert_array_equal(
+        run.summarised_observable_indices,
+        np.asarray(new_saved_observables),
     )
 
-    # Check that loop dependencies are created
-    assert single_integrator_run._loop is not None
-    assert single_integrator_run._step_controller is not None
-    assert single_integrator_run._algo_step is not None
-
-    # Check that compiled loop starts as None
-    assert single_integrator_run._compiled_loop is None
-    assert single_integrator_run._loop_cache_valid is False
-
-
-def test_output_functions_immediate_creation(single_integrator_run, system):
-    """Output functions exist immediately after initialisation."""
-    # Output functions should exist immediately after initialization
-    assert single_integrator_run._output_functions is not None
-    assert isinstance(
-        single_integrator_run._output_functions, OutputFunctions
+    assert run.n_saved_states == int(expected_saved_states.size)
+    assert run.n_saved_observables == int(expected_saved_obs.size)
+    expected_summary_count = (
+        len(new_saved_states) if flags.summarise_state else 0
     )
+    expected_summary_obs = (
+        len(new_saved_observables) if flags.summarise_observables else 0
+    )
+    assert run.n_summarised_states == expected_summary_count
+    assert run.n_summarised_observables == expected_summary_obs
 
-    # Should have correct system dimensions
-    system_sizes = system.sizes
-    compile_settings = single_integrator_run._output_functions.compile_settings
-    assert compile_settings.max_states == system_sizes.states
-    assert compile_settings.max_observables == system_sizes.observables
+    controller_settings = _settings_to_dict(run._step_controller.settings_dict)
+    algo_settings = _settings_to_dict(run._algo_step.settings_dict)
+    assert controller_settings["dt"] == pytest.approx(new_dt)
+    assert algo_settings["dt"] == pytest.approx(new_dt)
 
+    assert float(system.constants.values_array[0]) == pytest.approx(new_constant)
 
-def test_property_access(single_integrator_run):
-    """Test that properties can be accessed correctly."""
-    # Test buffer sizes
-    buffer_layout = single_integrator_run.shared_buffer_indices
-    assert buffer_layout is not None
-
-    # Test output array heights
-    array_heights = single_integrator_run.output_array_heights
-    assert array_heights is not None
-
-    # Test summaries_array buffer sizes
-    summaries_sizes = single_integrator_run.summary_buffer_sizes
-    assert summaries_sizes is not None
-
-    # Test precision
-    precision = single_integrator_run.precision
-    assert precision is not None
-
-    # Test threads per loop
-    threads = single_integrator_run.threads_per_loop
-    assert isinstance(threads, int)
-    assert threads > 0
-
-
-def test_memory_requirements(single_integrator_run):
-    """Shared and local memory calculations include dependencies."""
-
-    base_shared = single_integrator_run.shared_memory_elements_loop
-    algo_shared = single_integrator_run.shared_memory_required_step
-    assert single_integrator_run.shared_memory_elements == base_shared + algo_shared
     expected_local = (
-        single_integrator_run.local_memory_elements_loop
-        + single_integrator_run.local_memory_required_step
-        + single_integrator_run.local_memory_elements_controller
+        run._loop.local_memory_elements
+        + run._algo_step.persistent_local_required
+        + run._step_controller.local_memory_elements
     )
-    assert single_integrator_run.local_memory_elements == expected_local
-
-
-def test_function_access_properties(single_integrator_run):
-    """Test that function access properties work correctly."""
-    # Test dxdt function
-    dxdt_function = single_integrator_run.dxdt_function
-    assert callable(dxdt_function)
-
-    # Test save state function
-    save_state_func = single_integrator_run.save_state_func
-    assert callable(save_state_func)
-
-    # Test update summaries_array function
-    update_summaries_func = single_integrator_run.update_summaries_func
-    assert callable(update_summaries_func)
-
-    # Test save summaries_array function
-    save_summaries_func = single_integrator_run.save_summaries_func
-    assert callable(save_summaries_func)
-
-
-def test_build_device_function(single_integrator_run):
-    """Test that build() creates a device function successfully."""
-    device_func = single_integrator_run.build()
-
-    assert callable(device_func)
-    assert single_integrator_run._loop is not None
-    assert single_integrator_run._compiled_loop is not None
-    assert single_integrator_run._loop_cache_valid is True
-
-    # Test that build() returns the compiled function
-    assert device_func is single_integrator_run._compiled_loop
-
-    # Test that subsequent calls to build() return the same cached version
-    device_func2 = single_integrator_run.device_function
-    assert device_func is device_func2  # Should be same object
-
-
-def test_cache_invalidation(single_integrator_run):
-    """Test that cache is properly invalidated when parameters change."""
-    # Build initial version
-    device_func1 = single_integrator_run.device_function
-    assert single_integrator_run._loop_cache_valid is True
-
-    # Update parameters should invalidate cache
-    single_integrator_run.update(dt_min=0.005)
-    assert single_integrator_run._loop_cache_valid is False
-
-    # Rebuilding should create new version
-    device_func2 = single_integrator_run.device_function
-    assert single_integrator_run._loop_cache_valid is True
-
-    # Should be different functions due to different parameters
-    assert device_func1 is not device_func2
-
-
-def test_parameter_updates_compile_settings_object(single_integrator_run):
-    """Test that parameter updates correctly modify the compile_settings object."""
-    original_dt_min = single_integrator_run.dt_min
-    original_atol = single_integrator_run.atol if hasattr(single_integrator_run, "atol") else None
-
-    # Update parameters
-    single_integrator_run.update(dt_min=0.005, atol=1e-8)
-
-    # Check that compile_settings object was updated
-    assert single_integrator_run.dt_min == 0.005
-    if hasattr(single_integrator_run, "atol"):
-        assert single_integrator_run.atol == 1e-8
-    assert single_integrator_run.dt_min != original_dt_min
-    if original_atol is not None and hasattr(single_integrator_run, "atol"):
-        assert single_integrator_run.atol != original_atol
-
-
-def test_update_cache_invalidation(single_integrator_run, system):
-    """Test that parameters are correctly routed to appropriate components."""
-    # Test system parameter routing
-    original_cache_valid = single_integrator_run.cache_valid
-    single_integrator_run.update(c1=42.0)  # Assuming c1 is a system parameter
-
-    # Should invalidate cache when system is updated
-    assert (
-        single_integrator_run.cache_valid != original_cache_valid
-        or not original_cache_valid
-    )
-
-    # Test output function parameter routing
-    single_integrator_run.update(output_types=["state", "time"])
-
-    # Should invalidate cache
-    assert single_integrator_run._loop_cache_valid is False
-
-
-def test_algorithm_change(single_integrator_run):
-    """Test that algorithm can be changed and integrator is recreated."""
-    # Build initial version
-    single_integrator_run.build()
-    initial_algo = single_integrator_run._algo_step
-
-    # Change algorithm
-    single_integrator_run.update(algorithm="backwards_euler")
-
-    # Should have new instance
-    assert single_integrator_run._algo_step is not initial_algo
-
-    # Algorithm key should be updated
-    assert single_integrator_run.algorithm_key == "backwards_euler"
-
-
-def test_cache_valid_property(single_integrator_run):
-    """Test that cache_valid property correctly tracks component states."""
-    # Initially should be false (nothing built)
-    assert single_integrator_run.cache_valid is False
-
-    # After building, should be true
-    single_integrator_run.build()
-    assert single_integrator_run.cache_valid is True
-
-    # After updating parameters, should be false
-    single_integrator_run.update(dt_min=0.005)
-    assert single_integrator_run.cache_valid is False
-
-
-def test_shared_memory_bytes(single_integrator_run):
-    """Test that shared_memory_bytes property works correctly."""
-    # Ensure everything is built
-    single_integrator_run.build()
-
-    # Get shared memory requirement
-    shared_mem = single_integrator_run.shared_memory_bytes
-    assert isinstance(shared_mem, int)
-    assert shared_mem >= 0
-
-
-def test_error_handling_unrecognized_parameters(single_integrator_run):
-    """Test error handling for unrecognized parameters."""
-    # Test invalid parameter that no component recognizes
-    with pytest.raises(KeyError, match="Unrecognized parameters"):
-        single_integrator_run.update(invalid_param_name=42)
-
-
-def test_error_handling_invalid_algorithm(single_integrator_run):
-    """Test error handling for invalid algorithm."""
-    # Test invalid algorithm
-    with pytest.raises(KeyError):
-        single_integrator_run.update(algorithm="invalid_algorithm")
-
-
-def test_empty_update_call(single_integrator_run):
-    """Test that empty update calls are handled gracefully."""
-    # Should not raise an error
-    single_integrator_run.update()
-
-    # Should not affect cache validity if nothing was built
-    original_cache_valid = single_integrator_run.cache_valid
-    single_integrator_run.update()
-    assert single_integrator_run.cache_valid == original_cache_valid
-
-
-def test_device_function_property_builds_automatically(single_integrator_run):
-    """device_function property builds lazily when accessed."""
-    # Initially cache should be invalid
-    assert single_integrator_run.cache_valid is False
-
-    # Accessing device_function should automatically build
-    device_func = single_integrator_run.device_function
-
-    # Should now be valid and callable
-    assert single_integrator_run.cache_valid is True
-    assert callable(device_func)
-    assert device_func is single_integrator_run._compiled_loop
+    assert run.local_memory_elements == expected_local

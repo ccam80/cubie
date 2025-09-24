@@ -372,7 +372,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                     new_algo_key,
                     n=self.system_sizes.states,
                     fixed_step=not self._step_controller.is_adaptive,
-                    dxdt_function=self._system.dxdt,
+                    dxdt_function=self._system.dxdt_function,
                     solver_function_getter=self._system.get_solver_helper,
                 )
                 _algo_step.update(old_settings, silent=True)
@@ -386,11 +386,13 @@ class SingleIntegratorRunCore(CUDAFactory):
                                                       silent=True)
         step_recognized = self._algo_step.update(updates_dict, silent=True)
         system_recognized = self._system.update(updates_dict, silent=True)
+        loop_recognized = self._loop.update(updates_dict, silent=True)
 
         recognized |= output_recognized
         recognized |= ctrl_recognized
         recognized |= step_recognized
         recognized |= system_recognized
+        recognized |= loop_recognized
 
         #Recalculate settings derived from changes in children
         if system_recognized:
