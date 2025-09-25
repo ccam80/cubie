@@ -1,11 +1,7 @@
-from os import environ
 import pytest
 from cubie.memory.stream_groups import StreamGroups
 
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import FakeStream as Stream
-else:
-    from numba.cuda.cudadrv.driver import Stream
+from cubie.cuda_simsafe import Stream
 
 
 class DummyClass:

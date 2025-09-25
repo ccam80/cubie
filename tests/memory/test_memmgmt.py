@@ -1,25 +1,14 @@
-from os import environ
 import warnings
 from urllib import response
 
 import pytest
 from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
-
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import (
-        FakeNumbaCUDAMemoryManager as NumbaCUDAMemoryManager,
-    )
-    from cubie.cudasim_utils import FakeStream as Stream
-    from numba.cuda.simulator.cudadrv.devicearray import (
-        FakeCUDAArray as DeviceNDArrayBase,
-    )
-    from numba.cuda.simulator.cudadrv.devicearray import (
-        FakeCUDAArray as MappedNDArray,
-    )
-else:
-    from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
-    from numba.cuda.cudadrv.driver import Stream
-    from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase, MappedNDArray
+from cubie.cuda_simsafe import (
+    DeviceNDArrayBase,
+    MappedNDArray,
+    NumbaCUDAMemoryManager,
+    Stream,
+)
 
 from cubie.memory.mem_manager import (
     MemoryManager,
@@ -145,13 +134,6 @@ def mgr(fixed_mem_settings, mem_manager_settings):
             free = fixed_mem_settings["free"]
             total = fixed_mem_settings["total"]
             return free, total
-
-        if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-
-            def set_allocator(self, name: str = None):
-                pass
-
-            _allocator = None
 
     # Create an instance of the TestMemoryManager with the provided settings
     return TestMemoryManager(**mem_manager_settings)

@@ -11,13 +11,14 @@ Created on Tue May 27 17:45:03 2025
 @author: cca79
 """
 
-import os
 from typing import Optional
 from warnings import warn
 
 import numpy as np
 from numba import cuda, float64, float32
 from numba import int32, int16
+
+from cubie.cuda_simsafe import is_cudasim_enabled
 from numpy.typing import NDArray, ArrayLike
 
 from cubie.memory import default_memmgr
@@ -375,7 +376,7 @@ class BatchSolverKernel(CUDAFactory):
 
         # selectively chunk by chunk_size - depends on chunk_axis
         if (
-            os.environ.get("NUMBA_ENABLE_CUDASIM") != "1"
+            not is_cudasim_enabled()
             and self.compile_settings.profileCUDA
         ): # pragma: no cover
             cuda.profile_start()
@@ -412,7 +413,7 @@ class BatchSolverKernel(CUDAFactory):
             self.output_arrays.finalise(indices)
 
         if (
-            os.environ.get("NUMBA_ENABLE_CUDASIM") != "1"
+            not is_cudasim_enabled()
             and self.compile_settings.profileCUDA
         ): # pragma: no cover
             cuda.profile_stop()

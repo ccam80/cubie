@@ -8,7 +8,6 @@ different processes/stream groups. All requests for allocation made through
 this interface are "chunked" to fit alotted memory.
 """
 
-from os import environ
 from typing import Optional, Callable, Union, Dict
 from warnings import warn
 import contextlib
@@ -21,28 +20,16 @@ from attrs import Factory
 import numpy as np
 from math import prod
 
+from cubie.cuda_simsafe import (
+    BaseCUDAMemoryManager,
+    NumbaCUDAMemoryManager,
+    current_mem_info,
+    set_cuda_memory_manager,
+)
 from cubie.memory.cupy_emm import current_cupy_stream
 from cubie.memory.stream_groups import StreamGroups
 from cubie.memory.array_requests import ArrayRequest, ArrayResponse
 from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
-
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import (
-        FakeNumbaCUDAMemoryManager as NumbaCUDAMemoryManager,
-    )
-    from cubie.cudasim_utils import (
-        FakeBaseCUDAMemoryManager as BaseCUDAMemoryManager,
-    )
-    from cubie.cudasim_utils import fake_get_memory_info as current_mem_info
-    from cubie.cudasim_utils import fake_set_manager as set_cuda_memory_manager
-else:
-    from numba.cuda.cudadrv.driver import NumbaCUDAMemoryManager
-    from numba.cuda import BaseCUDAMemoryManager
-
-    def current_mem_info():
-        return cuda.current_context().get_memory_info()
-
-    from numba.cuda import set_memory_manager as set_cuda_memory_manager
 
 
 MIN_AUTOPOOL_SIZE = 0.05

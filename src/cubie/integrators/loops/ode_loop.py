@@ -12,8 +12,8 @@ import numpy as np
 from numba import cuda, int32
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie.cudasim_utils import from_dtype as simsafe_dtype
-from cubie.cudasim_utils import activemask, all_sync
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
+from cubie.cuda_simsafe import activemask, all_sync
 from cubie._utils import PrecisionDtype
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      LoopSharedIndices,

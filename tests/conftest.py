@@ -68,7 +68,7 @@ def system_override(request):
     if hasattr(request, "param"):
         if request.param:
             return request.param
-    return "linear"
+    return "three_chamber"
 
 
 @pytest.fixture(scope="function")

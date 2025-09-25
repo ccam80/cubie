@@ -82,16 +82,17 @@ class BatchResult:
 
 
 @pytest.fixture(scope="function")
-def batch_results(
+def cpu_batch_results(
     batch_input_arrays,
     cpu_loop_runner,
     system,
     solver_settings,
     precision,
-) -> list[BatchResult]:
+) -> BatchResult:
     """Compute CPU reference outputs for each run in the requested batch."""
 
     initial_sets, parameter_sets = batch_input_arrays
+    num_sets = initial_sets.shape[0]
     samples = max(
         1,
         int(
@@ -124,4 +125,23 @@ def batch_results(
                 status=int(loop_result["status"]),
             )
         )
-    return results
+
+    state_stack = np.stack([r.state for r in results], axis=1)
+    observables_stack = np.stack([r.observables for r in results], axis=1)
+    state_summaries_stack = np.stack(
+        [r.state_summaries for r in results], axis=1
+    )
+    observable_summaries_stack = np.stack(
+        [r.observable_summaries for r in results], axis=1
+    )
+    status_or = 0
+    for r in results:
+        status_or |= r.status
+
+    return BatchResult(
+        state=state_stack,
+        observables=observables_stack,
+        state_summaries=state_summaries_stack,
+        observable_summaries=observable_summaries_stack,
+        status=status_or,
+    )

@@ -19,7 +19,7 @@ from attrs import define, field
 from cubie.CUDAFactory import CUDAFactory
 from cubie._utils import getype_validator, precision_converter, \
     precision_validator
-from cubie.cudasim_utils import from_dtype as simsafe_dtype
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible step controller parameters across all controller types
 ALL_STEP_CONTROLLER_PARAMETERS = {

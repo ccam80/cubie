@@ -12,7 +12,7 @@ from numba import cuda, int32, from_dtype
 import numpy as np
 
 from cubie._utils import PrecisionDtype
-from cubie.cudasim_utils import activemask, all_sync
+from cubie.cuda_simsafe import activemask, all_sync
 
 
 def linear_solver_factory(

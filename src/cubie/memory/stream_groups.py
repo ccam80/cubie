@@ -5,16 +5,12 @@ This module provides functionality to group instances together and assign them
 to shared CUDA streams for coordinated memory operations and kernel execution.
 """
 
-from os import environ
 from typing import Optional, Union
 from numba import cuda
 import attrs
 import attrs.validators as val
 
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import FakeStream as Stream
-else:
-    from numba.cuda.cudadrv.driver import Stream
+from cubie.cuda_simsafe import Stream
 
 
 @attrs.define

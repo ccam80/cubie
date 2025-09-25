@@ -17,7 +17,7 @@ from cubie._utils import (
     precision_validator,
 )
 from cubie.CUDAFactory import CUDAFactory
-from cubie.cudasim_utils import from_dtype as simsafe_dtype
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible algorithm step parameters across all algorithm types
 ALL_ALGORITHM_STEP_PARAMETERS = {

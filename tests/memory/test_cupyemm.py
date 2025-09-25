@@ -2,7 +2,7 @@ import pytest
 from os import environ
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import (
+    from cubie.cuda_simsafe import (
         FakeNumbaCUDAMemoryManager as NumbaCUDAMemoryManager,
     )
 else:

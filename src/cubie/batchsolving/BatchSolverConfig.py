@@ -9,7 +9,7 @@ import numba
 from numpy import float32
 
 from cubie._utils import getype_validator
-from cubie.cudasim_utils import from_dtype as simsafe_dtype
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @attrs.define

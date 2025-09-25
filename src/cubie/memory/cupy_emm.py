@@ -9,27 +9,16 @@ the async allocator.
 
 from contextlib import contextmanager
 import logging
-from os import environ
 
 from numba import cuda
 import ctypes
 
-# no cover: start
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import FakeGetIpcHandleMixin as GetIpcHandleMixin
-    from cubie.cudasim_utils import (
-        FakeHostOnlyCUDAManager as HostOnlyCUDAMemoryManager,
-    )
-    from cubie.cudasim_utils import FakeMemoryPointer as MemoryPointer
-    from cubie.cudasim_utils import FakeMemoryInfo as MemoryInfo
-# no cover: end
-else:
-    from numba.cuda import (
-        GetIpcHandleMixin,
-        HostOnlyCUDAMemoryManager,
-        MemoryPointer,
-        MemoryInfo,
-    )
+from cubie.cuda_simsafe import (
+    GetIpcHandleMixin,
+    HostOnlyCUDAMemoryManager,
+    MemoryPointer,
+    MemoryInfo,
+)
 
 
 logger = logging.getLogger(__name__)

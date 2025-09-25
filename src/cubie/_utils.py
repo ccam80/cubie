@@ -3,10 +3,9 @@
 This module provides general-purpose helpers for array slicing, dictionary
 updates and CUDA utilities that are shared across the code base.
 """
-import os
 from functools import wraps
 from time import time
-from typing import Callable, Union
+from typing import Union
 from warnings import warn
 
 import numpy as np
@@ -16,7 +15,8 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
-from attrs import Attribute, fields, has, validators
+from attrs import fields, has, validators, Attribute
+from cubie.cuda_simsafe import is_devfunc
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
@@ -368,29 +368,6 @@ def get_readonly_view(array):
     view = array.view()
     view.flags.writeable = False
     return view
-
-def is_devfunc(func: Callable):
-    """Test whether a callable is a Numba-generated CUDA device function.
-
-    Parameters
-    ----------
-    func: Callable
-        The function to inspect.
-
-    Returns
-    -------
-    bool
-        Whether the function is a Numba CUDA device function.
-    """
-    is_device = False
-    if os.environ.get("NUMBA_ENABLE_CUDASIM", False):
-        if hasattr(func, '_device'):
-            return func._device
-    elif hasattr(func, 'targetoptions'):
-        if func.targetoptions.get("device", False):
-            is_device = True
-    return is_device
-
 
 def is_device_validator(instance, attribute, value):
     """Validate that a value is a Numba CUDA device function."""

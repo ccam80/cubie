@@ -13,7 +13,7 @@ from numpy import float32
 
 from cubie._utils import (PrecisionDtype, getype_validator, gttype_validator,
                           is_device_validator, precision_validator)
-from cubie.cudasim_utils import from_dtype as simsafe_dtype
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
 
 valid_opt_slice = validators.optional(validators.instance_of(slice))

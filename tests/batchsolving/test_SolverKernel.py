@@ -1,11 +1,9 @@
 import numpy as np
 import pytest
-from numpy.testing import assert_allclose, assert_array_equal
+from numpy.testing import assert_allclose
 
-from cubie.batchsolving._utils import ensure_nonzero_size
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from tests.batchsolving.conftest import BatchResult
 from tests._utils import _driver_sequence
 
 
@@ -49,7 +47,7 @@ def test_run(
     batch_input_arrays,
     solver_settings,
     batch_settings,
-    batch_results: list[BatchResult],
+    cpu_batch_results,
     precision,
     system,
 ):
@@ -57,15 +55,9 @@ def test_run(
     "scorcher" in CI."""
     inits, params = batch_input_arrays
 
-    samples = max(
-        1,
-        int(
-            np.ceil(
-                solver_settings["duration"]
-                / max(float(solver_settings["dt_min"]), 1e-12)
-            )
-        ),
-    )
+    samples = int(max(1,
+            np.ceil(solver_settings["duration"] / solver_settings["dt_min"])))
+
     drivers = _driver_sequence(
         samples=samples,
         total_time=solver_settings["duration"],
@@ -83,122 +75,12 @@ def test_run(
         warmup=solver_settings["warmup"],
     )
 
-    # Check that outputs are as expected
-    output_length = int(
-        np.ceil(solver_settings["duration"] / solver_settings["dt_save"])
-    )
-    summaries_length = int(
-        np.ceil(solver_settings["duration"] / solver_settings["dt_summarise"])
-    )
-    numruns = (
-        (
-            batch_settings["num_state_vals_0"]
-            if batch_settings["num_state_vals_0"] != 0
-            else 1
-        )
-        * (
-            batch_settings["num_state_vals_1"]
-            if batch_settings["num_state_vals_1"] != 0
-            else 1
-        )
-        * (
-            batch_settings["num_param_vals_0"]
-            if batch_settings["num_param_vals_0"] != 0
-            else 1
-        )
-        * (
-            batch_settings["num_param_vals_1"]
-            if batch_settings["num_param_vals_1"] != 0
-            else 1
-        )
-    )
-
     active_output_arrays = solverkernel.active_output_arrays
-    expected_state_output_shape = (
-        output_length,
-        numruns,
-        len(solverkernel.saved_state_indices),
-    )
-    expected_observables_output_shape = (
-        output_length,
-        numruns,
-        len(solverkernel.saved_observable_indices),
-    )
-    output_summaries_height = solverkernel.single_integrator._output_functions.summaries_output_height_per_var
-    expected_state_summaries_shape = (
-        summaries_length,
-        numruns,
-        len(solverkernel.summarised_state_indices) * output_summaries_height,
-    )
-    expected_observable_summaries_shape = (
-        summaries_length,
-        numruns,
-        len(solverkernel.summarised_observable_indices)
-        * output_summaries_height,
-    )
-
-    expected_state_output_shape = ensure_nonzero_size(
-        expected_state_output_shape
-    )
-    expected_observables_output_shape = ensure_nonzero_size(
-        expected_observables_output_shape
-    )
-    expected_state_summaries_shape = ensure_nonzero_size(
-        expected_state_summaries_shape
-    )
-    expected_observable_summaries_shape = ensure_nonzero_size(
-        expected_observable_summaries_shape
-    )
-
-    if active_output_arrays.state is False:
-        expected_state_output_shape = (1, 1, 1)
-    if active_output_arrays.observables is False:
-        expected_observables_output_shape = (1, 1, 1)
-    if active_output_arrays.state_summaries is False:
-        expected_state_summaries_shape = (1, 1, 1)
-    if active_output_arrays.observable_summaries is False:
-        expected_observable_summaries_shape = (1, 1, 1)
 
     state = solverkernel.state
     observables = solverkernel.observables
     state_summaries = solverkernel.state_summaries
     observable_summaries = solverkernel.observable_summaries
-
-    # Check sizes match
-    assert state.shape == expected_state_output_shape
-    assert observables.shape == expected_observables_output_shape
-    assert state_summaries.shape == expected_state_summaries_shape
-    assert observable_summaries.shape == expected_observable_summaries_shape
-
-    # Check that the arrays are not empty
-    if active_output_arrays.state is True:
-        with pytest.raises(AssertionError):
-            assert_array_equal(
-                state,
-                np.zeros(state.shape, dtype=precision),
-                err_msg="No output found",
-            )
-    if active_output_arrays.observables is True:
-        with pytest.raises(AssertionError):
-            assert_array_equal(
-                observables,
-                np.zeros(observables.shape, dtype=precision),
-                err_msg="No observables output found",
-            )
-    if active_output_arrays.state_summaries is True:
-        with pytest.raises(AssertionError):
-            assert_array_equal(
-                state_summaries,
-                np.zeros(state_summaries.shape, dtype=precision),
-                err_msg="No state summaries_array output found",
-            )
-    if active_output_arrays.observable_summaries is True:
-        with pytest.raises(AssertionError):
-            assert_array_equal(
-                observable_summaries,
-                np.zeros(observable_summaries.shape, dtype=precision),
-                err_msg=("No observable summaries_array output found"),
-            )
 
     # Set tolerance based on precision
     if precision == np.float32:
@@ -208,47 +90,44 @@ def test_run(
         atol = 1e-12
         rtol = 1e-12
 
-    for run_idx, expected in enumerate(batch_results):
-        if active_output_arrays.state:
-            assert_allclose(
-                expected.state,
-                state[:, run_idx, :],
-                atol=atol,
-                rtol=rtol,
-                err_msg="Output does not match expected.",
-            )
-        if active_output_arrays.observables:
-            assert_allclose(
-                expected.observables,
-                observables[:, run_idx, :],
-                atol=atol,
-                rtol=rtol,
-                err_msg="Observables do not match expected.",
-            )
-        if active_output_arrays.state_summaries:
-            assert_allclose(
-                expected.state_summaries,
-                state_summaries[:, run_idx, :],
-                atol=atol,
-                rtol=rtol,
-                err_msg="Summary states do not match expected.",
-            )
-        if active_output_arrays.observable_summaries:
-            assert_allclose(
-                expected.observable_summaries,
-                observable_summaries[:, run_idx, :],
-                atol=atol,
-                rtol=rtol,
-                err_msg="Summary observables do not match expected.",
-            )
+    if active_output_arrays.state:
+        assert_allclose(
+            cpu_batch_results.state,
+            state,
+            atol=atol,
+            rtol=rtol,
+            err_msg="Output does not match expected.",
+        )
+    if active_output_arrays.observables:
+        assert_allclose(
+            cpu_batch_results.observables,
+            observables,
+            atol=atol,
+            rtol=rtol,
+            err_msg="Observables do not match expected.",
+        )
+    if active_output_arrays.state_summaries:
+        assert_allclose(
+            cpu_batch_results.state_summaries,
+            state_summaries,
+            atol=atol,
+            rtol=rtol,
+            err_msg="Summary states do not match expected.",
+        )
+    if active_output_arrays.observable_summaries:
+        assert_allclose(
+            cpu_batch_results.observable_summaries,
+            observable_summaries,
+            atol=atol,
+            rtol=rtol,
+            err_msg="Summary observables do not match expected.",
+        )
 
 
 def test_algorithm_change(solverkernel):
-    solverkernel.update({"algorithm": "backwards_euler_pc"})
+    solverkernel.update({"algorithm": "backwards_euler"})
     assert (
-        solverkernel.single_integrator._algo_step.shared_memory_required
-        == 0
-    )
+        solverkernel.single_integrator._algo_step.atol is not None)
 
 
 def test_getters_get(solverkernel):

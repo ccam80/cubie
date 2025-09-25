@@ -6,7 +6,7 @@ from numpy import float32
 
 import numba
 
-from cubie.cudasim_utils import from_dtype as simsafe_dtype
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie._utils import precision_converter, precision_validator
 from cubie.odesystems.SystemValues import SystemValues
 

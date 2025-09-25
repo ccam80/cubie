@@ -5,19 +5,13 @@ This module provides data structures for requesting and managing GPU memory
 allocations with specific shapes, data types, and memory location requirements.
 """
 
-from os import environ
 from typing import Optional
 
 import attrs
 import attrs.validators as val
 import numpy as np
 
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from numba.cuda.simulator.cudadrv.devicearray import (
-        FakeCUDAArray as DeviceNDArrayBase,
-    )
-else:
-    from numba.cuda.cudadrv.devicearray import DeviceNDArrayBase
+from cubie.cuda_simsafe import DeviceNDArrayBase
 
 
 @attrs.define
