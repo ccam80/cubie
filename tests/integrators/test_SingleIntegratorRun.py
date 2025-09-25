@@ -7,33 +7,10 @@ from typing import Dict
 import numpy as np
 import pytest
 
-from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from tests._utils import assert_integration_outputs, run_device_loop
 
 
-@pytest.fixture(scope="function")
-def single_integrator_run(system, solver_settings):
-    """Instantiate :class:`SingleIntegratorRun` with test fixtures."""
 
-    return SingleIntegratorRun(
-        system=system,
-        algorithm=solver_settings["algorithm"],
-        dt_min=solver_settings["dt_min"],
-        dt_max=solver_settings["dt_max"],
-        fixed_step_size=solver_settings["dt_min"],
-        dt_save=solver_settings["dt_save"],
-        dt_summarise=solver_settings["dt_summarise"],
-        atol=solver_settings["atol"],
-        rtol=solver_settings["rtol"],
-        saved_state_indices=solver_settings["saved_state_indices"],
-        saved_observable_indices=solver_settings["saved_observable_indices"],
-        summarised_state_indices=solver_settings["summarised_state_indices"],
-        summarised_observable_indices=solver_settings[
-            "summarised_observable_indices"
-        ],
-        output_types=solver_settings["output_types"],
-        step_controller_kind=solver_settings["step_controller"],
-    )
 
 
 def _compare_scalar(actual, expected):
@@ -87,8 +64,8 @@ def _settings_to_dict(settings_source):
         ),
         (
             {
-                "algorithm": "euler",
-                "step_controller": "fixed",
+                "algorithm": "crank_nicolson",
+                "step_controller": "gustafsson",
                 "dt_min": 0.02,
                 "dt_max": 0.02,
                 "saved_state_indices": [0],
@@ -341,6 +318,7 @@ class TestSingleIntegratorRun:
             initial_state=initial_state,
             output_functions=run._output_functions,
             solver_config=solver_settings,
+            localmem_required=run.local_memory_elements
         )
 
         assert device_outputs.status == cpu_reference["status"]

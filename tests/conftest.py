@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 from pytest import MonkeyPatch
 
+from cubie import SingleIntegratorRun
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms import get_algorithm_step
@@ -361,8 +362,8 @@ def loop(
             n_observables=loop_buffer_sizes.observables,
             n_parameters=loop_buffer_sizes.parameters,
             n_drivers=loop_buffer_sizes.drivers,
-            n_state_summaries=loop_buffer_sizes.state_summaries,
-            n_observable_summaries=loop_buffer_sizes.observable_summaries
+            state_summaries_buffer_height=loop_buffer_sizes.state_summaries,
+            observable_summaries_buffer_height=loop_buffer_sizes.observable_summaries
     )
     local_indices = LoopLocalIndices.from_sizes(
             loop_buffer_sizes.state,
@@ -384,6 +385,29 @@ def loop(
                    dt_max=step_controller.dt_max,
                    is_adaptive=step_controller.is_adaptive)
 
+@pytest.fixture(scope="function")
+def single_integrator_run(system, solver_settings):
+    """Instantiate :class:`SingleIntegratorRun` with test fixtures."""
+
+    return SingleIntegratorRun(
+        system=system,
+        algorithm=solver_settings["algorithm"],
+        dt_min=solver_settings["dt_min"],
+        dt_max=solver_settings["dt_max"],
+        fixed_step_size=solver_settings["dt_min"],
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        atol=solver_settings["atol"],
+        rtol=solver_settings["rtol"],
+        saved_state_indices=solver_settings["saved_state_indices"],
+        saved_observable_indices=solver_settings["saved_observable_indices"],
+        summarised_state_indices=solver_settings["summarised_state_indices"],
+        summarised_observable_indices=solver_settings[
+            "summarised_observable_indices"
+        ],
+        output_types=solver_settings["output_types"],
+        step_controller_kind=solver_settings["step_controller"],
+    )
 
 @pytest.fixture(scope='function')
 def cpu_system(system):
@@ -580,6 +604,7 @@ def cpu_loop_outputs(
 def device_loop_outputs(
     loop,
     system,
+    single_integrator_run,
     initial_state,
     solver_settings,
     step_controller_settings,
@@ -593,4 +618,5 @@ def device_loop_outputs(
         initial_state=initial_state,
         output_functions=output_functions,
         solver_config=solver_settings,
+        localmem_required=single_integrator_run.local_memory_elements
     )

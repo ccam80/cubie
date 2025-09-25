@@ -697,8 +697,11 @@ def run_reference_loop(
         dt = min(controller.dt, end_time - t)
         dt = min(dt, next_save_time-t)
 
-        drivers_now = sampler.sample(save_index)
-        drivers_next = sampler.sample(save_index + 1)
+        driver_sample = sampler.sample(save_index)
+        # Mirror the device loop where the shared driver buffer holds the
+        # values associated with the upcoming save index for the entire step.
+        drivers_now = driver_sample
+        drivers_next = driver_sample
 
         # Pass max_iters from implicit_step_settings to step functions
 

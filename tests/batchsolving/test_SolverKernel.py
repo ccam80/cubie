@@ -32,7 +32,6 @@ def test_kernel_builds(solverkernel):
                 ],
             },
             {},
-        marks=pytest.mark.nocudasim
         ),
         # ("three_chamber",
         #  {'duration': 10.0, 'output_types':["state", "observables", "mean", "max"]},
@@ -97,7 +96,8 @@ def test_run(
             state,
             atol=atol,
             rtol=rtol,
-            err_msg="Output does not match expected.",
+            err_msg="State Output does not match expected: device = \n."
+                f"{state}, \ncpu = \n{cpu_batch_results.state}",
         )
     if active_output_arrays.observables:
         assert_allclose(
@@ -126,7 +126,7 @@ def test_run(
 
 
 def test_algorithm_change(solverkernel):
-    solverkernel.update({"algorithm": "backwards_euler",
+    solverkernel.update({"algorithm": "crank_nicolson",
                          "step_controller_kind": "pid"})
     assert (
         solverkernel.single_integrator._step_controller.atol is not None)

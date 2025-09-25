@@ -340,6 +340,7 @@ def run_device_loop(
     initial_state: Array,
     output_functions: OutputFunctions,
     solver_config: Mapping[str, float],
+    localmem_required: int = 0,
 ) -> LoopRunResult:
     """Execute ``loop`` on the CUDA simulator and return host-side outputs."""
 
@@ -399,8 +400,6 @@ def run_device_loop(
     shared_elements = loop.shared_memory_elements
     shared_bytes = np.dtype(precision).itemsize * shared_elements
 
-    local_req = max(1, loop.local_memory_elements)
-
     loop_fn = loop.device_function
     numba_precision = from_dtype(precision)
 
@@ -420,7 +419,7 @@ def run_device_loop(
             return
 
         shared = cuda.shared.array(0, dtype=numba_precision)
-        local = cuda.local.array(local_req, dtype=numba_precision)
+        local = cuda.local.array(localmem_required, dtype=numba_precision)
         status_arr[0] = loop_fn(
             init_vec,
             params_vec,

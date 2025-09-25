@@ -140,27 +140,24 @@ class SingleIntegratorRunCore(CUDAFactory):
         )
 
         fixed = not self._step_controller.is_adaptive
-        self._algo_step = self.instantiate_step_object(
-            algorithm,
-            n=system.sizes.states,
-            fixed_step=fixed,
-            dxdt_function=self._system.dxdt_function,
-            get_solver_helper_fn=self._system.get_solver_helper,
-            step_size=fixed_step_size,
-            **(algorithm_parameters or {}),
-        )
+        self._algo_step = self.instantiate_step_object(algorithm,
+                                                       n=system.sizes.states,
+                                                       dxdt_function=self._system.dxdt_function,
+                                                       get_solver_helper_fn=self._system.get_solver_helper,
+                                                       step_size=fixed_step_size,
+                                                       **(
+                                                                   algorithm_parameters or {}))
 
         if self._step_controller.is_adaptive:
             self._step_controller.update(algorithm_order=self._algo_step.order)
+
 
         self._loop = self.instantiate_loop(
                 n_states=system_sizes.states,
                 n_parameters=system_sizes.parameters,
                 n_observables=system_sizes.observables,
                 n_drivers=system_sizes.drivers,
-                n_state_summaries=self._output_functions.n_summarised_states,
-                n_observable_summaries=self._output_functions
-                .n_summarised_observables,
+
                 controller_local_elements=self._step_controller
                 .local_memory_elements,
                 algorithm_local_elements=self._algo_step
@@ -171,6 +168,10 @@ class SingleIntegratorRunCore(CUDAFactory):
                 dt0=self._step_controller.dt0,
                 dt_min=self._step_controller.dt_min,
                 dt_max=self._step_controller.dt_max,
+                state_summaries_buffer_height= self._output_functions
+                .state_summaries_buffer_height,
+                observable_summaries_buffer_height= self._output_functions
+                .observable_summaries_buffer_height,
                 is_adaptive=self._step_controller.is_adaptive,
         )
 
@@ -195,7 +196,6 @@ class SingleIntegratorRunCore(CUDAFactory):
         self,
         kind: str = "euler",
         n: int = 1,
-        fixed_step: bool = False,
         dxdt_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         step_size: float = 1e-3,
@@ -210,8 +210,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             :func:`cubie.integrators.algorithms.get_algorithm_step`.
         n
             Number of state variables supplied to the algorithm constructor.
-        fixed_step
-            Whether the paired controller enforces a fixed step size.
         dxdt_function
             Device function computing the derivative of the ODE system.
         get_solver_helper_fn
@@ -305,8 +303,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         n_parameters: int,
         n_observables: int,
         n_drivers: int,
-        n_state_summaries: int,
-        n_observable_summaries: int,
+        state_summaries_buffer_height: int,
+        observable_summaries_buffer_height: int,
         controller_local_elements: int,
         algorithm_local_elements: int,
         compile_flags: OutputCompileFlags,
@@ -363,8 +361,9 @@ class SingleIntegratorRunCore(CUDAFactory):
                 n_observables=n_parameters,
                 n_parameters=n_observables,
                 n_drivers=n_drivers,
-                n_state_summaries=n_state_summaries,
-                n_observable_summaries=n_observable_summaries
+                state_summaries_buffer_height=state_summaries_buffer_height,
+                observable_summaries_buffer_height
+                =observable_summaries_buffer_height
         )
         local_indices = LoopLocalIndices.from_sizes(
                 n_states=n_states,
@@ -448,13 +447,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             new_algo_key = updates_dict["algorithm"].lower()
             if new_algo_key != self.algorithm_key:
                 old_settings = self._algo_step.settings_dict
-                _algo_step = self.instantiate_step_object(
-                    new_algo_key,
-                    n=self.system_sizes.states,
-                    fixed_step=not self._step_controller.is_adaptive,
-                    dxdt_function=self._system.dxdt_function,
-                    get_solver_helper_fn=self._system.get_solver_helper,
-                )
+                _algo_step = self.instantiate_step_object(new_algo_key,
+                                                          n=self.system_sizes.states,
+                                                          dxdt_function=self._system.dxdt_function,
+                                                          get_solver_helper_fn=self._system.get_solver_helper)
                 _algo_step.update(old_settings, silent=True)
                 self._algo_step = _algo_step
             recognized.add("algorithm")
@@ -506,9 +502,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             n_observables=system_sizes.parameters,
             n_parameters=system_sizes.observables,
             n_drivers=system_sizes.drivers,
-            n_state_summaries=self._output_functions.n_summarised_states,
-            n_observable_summaries=self._output_functions
-            .n_summarised_observables,
+            state_summaries_buffer_height=self._output_functions
+            .state_summaries_buffer_height,
+            observable_summaries_buffer_height=self._output_functions
+            .observable_summaries_buffer_height,
         )
         local_indices = LoopLocalIndices.from_sizes(
                 n_states=system_sizes.states,

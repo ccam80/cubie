@@ -235,8 +235,8 @@ class LoopSharedIndices:
                    n_observables: int,
                    n_parameters: int,
                    n_drivers: int,
-                   n_state_summaries: int,
-                   n_observable_summaries: int,
+                   state_summaries_buffer_height: int,
+                   observable_summaries_buffer_height: int,
                    ) -> "LoopSharedIndices":
         """Build index slices from component sizes.
 
@@ -250,10 +250,10 @@ class LoopSharedIndices:
             Number of parameter elements.
         n_drivers
             Number of driver elements.
-        n_state_summaries
-            Number of state summary elements.
-        n_observable_summaries
-            Number of observable summary elements.
+        state_summaries_buffer_height
+            Number of state summary buffer elements.
+        observable_summaries_buffer_height
+            Number of observable summary buffer elements.
 
         Returns
         -------
@@ -268,8 +268,9 @@ class LoopSharedIndices:
         parameters_start_index = observables_start_index + n_observables
         drivers_start_index = parameters_start_index + n_parameters
         state_summ_start_index = drivers_start_index + n_drivers
-        obs_summ_start_index = state_summ_start_index + n_state_summaries
-        end_index = obs_summ_start_index + n_observable_summaries
+        obs_summ_start_index = (state_summ_start_index +
+                                state_summaries_buffer_height)
+        end_index = obs_summ_start_index + observable_summaries_buffer_height
 
         return cls(
             state=slice(state_start_idx, state_proposal_start_idx),

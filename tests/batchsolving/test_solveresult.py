@@ -333,7 +333,7 @@ class TestSolveResultFromSolver:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "duration": 0.05}],
+          "duration": 0.5}],
         indirect=True,
     )
     def test_full_result_matches_cpu_outputs(
@@ -363,14 +363,14 @@ class TestSolveResultFromSolver:
 
         if state_columns:
             np.testing.assert_allclose(
-                time_domain[:, state_columns],
+                time_domain[:, :, state_columns],
                 cpu_batch_results.state,
                 atol=atol,
                 rtol=rtol,
             )
         if observable_columns:
             np.testing.assert_allclose(
-                time_domain[:, observable_columns],
+                time_domain[:, :, observable_columns],
                 cpu_batch_results.observables,
                 atol=atol,
                 rtol=rtol,

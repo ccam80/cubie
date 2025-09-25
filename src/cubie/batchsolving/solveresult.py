@@ -555,7 +555,7 @@ class SolveResult:
             time_domain_legend[i] = f"{label}"
             offset = i
 
+        offset += 1
         for i, label in enumerate(obs_labels):
-            offset += 1
             time_domain_legend[offset + i] = label
         return time_domain_legend

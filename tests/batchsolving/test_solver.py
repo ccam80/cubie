@@ -317,7 +317,7 @@ def test_update_basic(solver_instance):
 
 def test_update_with_kwargs(solver_instance):
     """Test update with keyword arguments."""
-    original_dt = solver_instance.kernel.single_integrator.dt0w
+    original_dt = solver_instance.kernel.single_integrator.dt0
 
     updated_keys = solver_instance.update({}, dt=1e-8)
 
