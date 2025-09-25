@@ -241,9 +241,10 @@ class BaseODE(CUDAFactory):
         set of str:
             All labels that were recognized (and therefore updated)
         """
-        if updates_dict is None:
-            updates_dict = {}
-        if kwargs:
+if updates_dict is None:
+    updates_dict = {}
+        updates_dict = updates_dict.copy()
+if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
             return set()

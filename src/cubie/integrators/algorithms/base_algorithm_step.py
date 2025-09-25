@@ -153,9 +153,10 @@ class BaseAlgorithmStep(CUDAFactory):
         KeyError
             Raised when an unknown key is provided while ``silent`` is False.
         """
-        if updates_dict is None:
-            updates_dict = {}
-        if kwargs:
+if updates_dict is None:
+    updates_dict = {}
+        updates_dict = updates_dict.copy()
+if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
             return set()

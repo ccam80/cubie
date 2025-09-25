@@ -147,9 +147,10 @@ class OutputFunctions(CUDAFactory):
         when silent=True is used to suppress warnings about keys not found in
         this component.
         """
-        if updates_dict is None:
-            updates_dict = {}
-        if kwargs:
+if updates_dict is None:
+    updates_dict = {}
+        updates_dict = updates_dict.copy()
+if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
             return []
