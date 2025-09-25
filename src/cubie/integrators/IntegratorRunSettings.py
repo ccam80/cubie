@@ -1,23 +1,22 @@
 """Runtime configuration settings for numerical integration algorithms.
 
-This module provides the :class:`IntegratorRunSettings` class which manages
-timing, tolerance, and controller configuration for ODE integration runs.
-It performs light dependency injection by instantiating algorithm step
-objects and step-size controllers used by the modular IVP loop.
+This module provides :class:`IntegratorRunSettings`, an attrs-based
+container that centralises precision, algorithm, and controller
+configuration for the CUDA IVP loop orchestrators.
 """
 
 import attrs
 import numba
 from numpy import float32
 
-from cubie._utils import precision_converter, precision_validator
+from cubie._utils import PrecisionDtype, precision_converter, precision_validator
 
 
 @attrs.define
 class IntegratorRunSettings:
-    """Container for runtime/timing settings grouped for IVP loops.
+    """Container for runtime and controller settings used by IVP loops.
 
-    Parameters
+    Attributes
     ----------
     precision
         Numerical precision used for timing comparisons.
@@ -27,7 +26,7 @@ class IntegratorRunSettings:
         Name of the step-size controller.
     """
 
-    precision: type = attrs.field(
+    precision: PrecisionDtype = attrs.field(
         default=float32,
         converter=precision_converter,
         validator=precision_validator,

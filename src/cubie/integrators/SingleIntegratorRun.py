@@ -2,23 +2,34 @@
 
 This module exposes :class:`SingleIntegratorRun`, a thin wrapper around
 :class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
-that provides convenient property access to compile-time configuration,
-loop objects, algorithm steps, step controllers, and output functions.
-The core class retains all construction and update logic while this module
-focuses purely on presenting read-only accessors.
+that presents compiled loop artifacts, controllers, and algorithm steps as
+read-only properties for downstream consumers.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 import numpy as np
 
 from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
+from cubie.odesystems.ODEData import SystemSizes
+
+
+if TYPE_CHECKING:  # pragma: no cover - type checking import only
+    from cubie.odesystems.baseODE import BaseODE
 
 
 class SingleIntegratorRun(SingleIntegratorRunCore):
-    """Expose aggregated read-only properties for integrator runs."""
+    """Expose aggregated read-only properties for integrator runs.
+
+    Notes
+    -----
+    Instantiation, updates, and compilation are provided by
+    :class:`SingleIntegratorRunCore`. This subclass intentionally limits
+    itself to property-based access so that front-end utilities can inspect
+    compiled CUDA components without mutating internal state.
+    """
 
     # ------------------------------------------------------------------
     # Compile settings
@@ -138,25 +149,16 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self._step_controller.is_adaptive
 
     @property
-    def system(self):
+    def system(self) -> BaseODE:
         """Return the underlying ODE system."""
 
         return self._system
 
     @property
-    def system_sizes(self):
+    def system_sizes(self) -> SystemSizes:
         """Return the size descriptor for the ODE system."""
 
         return self._system.sizes
-
-    @property
-    def settings_dict(self) -> Dict[str, Dict[str, Any]]:
-        """Return child settings grouped by component."""
-
-        return {
-            "algorithm": dict(self._algo_step.settings_dict),
-            "controller": dict(self._step_controller.settings_dict),
-        }
 
     @property
     def save_summaries_func(self) -> Callable:

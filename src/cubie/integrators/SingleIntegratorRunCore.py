@@ -2,15 +2,18 @@
 
 This module provides the :class:`SingleIntegratorRunCore` class which
 coordinates the modular integrator loop
-(:class:`~cubie.integrators.loops.ode_loop.IVPLoop`) and its
-dependencies. It performs dependency injection for the algorithm step,
-step-size controller, and output handlers before exposing the compiled
-device loop for execution.
+(:class:`~cubie.integrators.loops.ode_loop.IVPLoop`) and its dependencies.
+
+Notes
+-----
+Dependency injection of the algorithm step, controller, and output
+handlers occurs during initialisation so that the compiled CUDA loop can
+be rebuilt when any component is reconfigured.
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Union, Callable
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -26,46 +29,73 @@ from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.integrators.step_control import get_controller
 
 
+if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
+    from cubie.integrators.algorithms.base_algorithm_step import (
+        BaseAlgorithmStep,
+    )
+    from cubie.integrators.step_control.base_step_controller import (
+        BaseStepController,
+    )
+    from cubie.odesystems.baseODE import BaseODE
+
+
 class SingleIntegratorRunCore(CUDAFactory):
     """Coordinate a single ODE integration loop and its dependencies.
 
     Parameters
     ----------
-    system : BaseODE
-        The ODE system to integrate.
-    algorithm : str, default="euler"
-        Name of the algorithm step implementation.
-    dt_min, dt_max : float, default (0.01, 0.1)
-        Minimum and maximum step size targets forwarded to the controller.
-    dt_save : float, default=0.1
-        Cadence for saving state and observable outputs.
-    dt_summarise : float, default=1.0
-        Cadence for summary calculations.
-    atol, rtol : float, default=1e-6
-        Error tolerances for adaptive methods.
-    saved_state_indices, saved_observable_indices : ArrayLike, optional
-        Indices of states/observables to save during integration.
-    summarised_state_indices, summarised_observable_indices :
-        ArrayLike, optional
-        Indices of states/observables to include in summary calculations.
-    output_types : list[str], optional
-        Output modes requested from the loop.
-    step_controller_kind : str, optional
-        Optional override for the controller type (default ``"fixed"``).
-    algorithm_parameters : dict[str, Any], optional
-        Additional keyword arguments forwarded to the algorithm step
-        constructor.
-    step_controller_parameters : dict[str, Any], optional
-        Additional keyword arguments forwarded to the controller constructor.
+    system
+        ODE system whose device functions drive the integration.
+    algorithm
+        Name of the algorithm step implementation. Defaults to ``"euler"``.
+    dt_min
+        Minimum step size forwarded to the controller. Defaults to ``0.01``.
+    dt_max
+        Maximum step size forwarded to the controller. Defaults to ``0.1``.
+    fixed_step_size
+        Step size supplied to fixed-step algorithms. Defaults to ``0.01``.
+    dt_save
+        Interval used when saving full state trajectories. Defaults to
+        ``0.1``.
+    dt_summarise
+        Interval used when saving summary metrics. Defaults to ``1.0``.
+    atol
+        Absolute tolerance supplied to adaptive controllers. Defaults to
+        ``1e-6``.
+    rtol
+        Relative tolerance supplied to adaptive controllers. Defaults to
+        ``1e-6``.
+    saved_state_indices
+        Indices of state variables saved by the output handler.
+    saved_observable_indices
+        Indices of observables saved by the output handler.
+    summarised_state_indices
+        Indices of state variables summarised by the output handler.
+    summarised_observable_indices
+        Indices of observables summarised by the output handler.
+    output_types
+        Output modes requested from the output handler.
+    step_controller_kind
+        Controller family used to manage step sizes. Defaults to
+        ``"fixed"``.
+    algorithm_parameters
+        Additional keyword arguments forwarded to the algorithm factory.
+    step_controller_parameters
+        Additional keyword arguments forwarded to the controller factory.
+
+    Returns
+    -------
+    None
+        Initialises the integration loop and associated components.
     """
 
     def __init__(
         self,
-        system,
+        system: BaseODE,
         algorithm: str = "euler",
         dt_min: float = 0.01,
         dt_max: float = 0.1,
-        fixed_step_size:float = 0.01,
+        fixed_step_size: float = 0.01,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
         atol: float = 1e-6,
@@ -144,53 +174,63 @@ class SingleIntegratorRunCore(CUDAFactory):
                 is_adaptive=self._step_controller.is_adaptive,
         )
 
-    def check_compatibility(self):
+    def check_compatibility(self) -> None:
+        """Validate that algorithm and controller step modes are aligned.
+
+        Raises
+        ------
+        ValueError
+            Raised when an adaptive controller is paired with a fixed-step
+            algorithm.
+        """
+
         if (not self._algo_step.is_adaptive and
                 self._step_controller.is_adaptive):
-            raise ValueError("Adaptive step controller cannot be used with "
-                             "fixed-step algorithm.")
+            raise ValueError(
+                "Adaptive step controller cannot be used with fixed-step "
+                "algorithm.",
+            )
 
-    def instantiate_step_object(self,
-                                kind: str = 'euler',
-                                n: int = 1,
-                                fixed_step: bool = False,
-                                dxdt_function: Optional[Callable] = None,
-                                get_solver_helper_fn: Optional[Callable]
-                                = None,
-                                step_size: float = 1e-3,
-                                **kwargs):
+    def instantiate_step_object(
+        self,
+        kind: str = "euler",
+        n: int = 1,
+        fixed_step: bool = False,
+        dxdt_function: Optional[Callable] = None,
+        get_solver_helper_fn: Optional[Callable] = None,
+        step_size: float = 1e-3,
+        **kwargs: Any,
+    ) -> BaseAlgorithmStep:
         """Instantiate the algorithm step.
 
         Parameters
         ----------
-        kind : str, default='euler'
-            The algorithm to use.
-        n : int, default=1
-            System size; number of states
-        fixed_step: bool, default=False
-            True if the step controller used is fixed-step.
-        dxdt_function : Device function
-            The device function which calculates the derivative.
-        get_solver_helper_fn : Callable
-            The :method:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE
-            .get_solver_gelper` factory method which returns a nonlinear
-            solver and observables function.
-        step_size : float, default=1e-3
-            Step-size for fixed-stepping algorithm
+        kind
+            Algorithm identifier recognised by
+            :func:`cubie.integrators.algorithms.get_algorithm_step`.
+        n
+            Number of state variables supplied to the algorithm constructor.
+        fixed_step
+            Whether the paired controller enforces a fixed step size.
+        dxdt_function
+            Device function computing the derivative of the ODE system.
+        get_solver_helper_fn
+            Factory returning linear solver helpers for implicit algorithms.
+        step_size
+            Step size supplied to fixed-step algorithms.
+        **kwargs
+            Additional configuration forwarded to the algorithm factory.
 
-        kwargs
-        ------
-        Individual algorithm step parameters. These vary by algorithm. See:
-            :class:`~cubie.integrators.algorithms.euler
-            .ExplicitEulerStep`,
-            :class:`~cubie.integrators.algorithms.backwards_euler
-            .BackwardsEulerStep`,
-            :class:`~cubie.integrators.algorithms.crank_nicolson
-            .CrankNicolsonStep`,
-            :class:`~cubie.integrators.algorithms
-            .backwards_euler_predict_correct.BackwardsEulerPCStep`,
+        Returns
+        -------
+        BaseAlgorithmStep
+            Instantiated algorithm step configured for the current system.
 
-            """
+        Notes
+        -----
+        Supported identifiers include ``"euler"``, ``"backwards_euler"``,
+        ``"backwards_euler_pc"``, and ``"crank_nicolson"``.
+        """
         if kind.lower() in ["euler"]: # fixed step algorithms
             kwargs = {"dt": step_size}
         algorithm = get_algorithm_step(kind,
@@ -201,51 +241,48 @@ class SingleIntegratorRunCore(CUDAFactory):
                                   **kwargs)
         return algorithm
 
-    def instantiate_controller(self,
-                               kind: str = 'fixed',
-                               order: int = 1,
-                               dt_min: float = 1e-3,
-                               dt_max: float = 1e-1,
-                               atol: Union[float, np.ndarray] = 1e-6,
-                               rtol: Union[float, np.ndarray] = 1e-6,
-                               fixed_step_size:float = 0.01,
-                               **kwargs):
+    def instantiate_controller(
+        self,
+        kind: str = "fixed",
+        order: int = 1,
+        dt_min: float = 1e-3,
+        dt_max: float = 1e-1,
+        atol: Union[float, np.ndarray] = 1e-6,
+        rtol: Union[float, np.ndarray] = 1e-6,
+        fixed_step_size: float = 0.01,
+        **kwargs: Any,
+    ) -> BaseStepController:
         """Instantiate the step controller.
 
         Parameters
         ----------
-        kind : str, default='fixed'
-            One of "fixed", "i", "pi", "pid", or "gustafsson". Selects the
-            type of step controller to intantiate.
-        order : int, default=1
-            order of the algorithm method - sets controller characteristics.
-        dt_min : float, optional, default=1e-3
-            The minimum step size for an adaptive controller.
-        dt_max : float, optional, default=1e-1
-            The maximum step size for an adaptive controller.
-        atol : float or np.ndarray, optional, default=1e-6
-            Absolute tolerance - either a scalar for all values, or a vector
-            of a tolerance for each state variable
-        rtol : float or np.ndarray, optional, default=1e-6
-            Relative tolerance - either a scalar for all values, or a vector
-            of a tolerance for each state variable
-        fixed_step_size : float, optional, default=0.01
-            The fixed step size for a fixed controller.
-        Kwargs
-        ------
-        kwargs : keyword arguments
-            Additional parameters to pass to the controller constructor for
-            advanced customisation. See:
-            :class:`~.adaptive_I_controller.AdaptiveIController`,
-            :class:`~.adaptive_PI_controller.AdaptivePIController`,
-            :class:`~.adaptive_PID_controller.AdaptivePIDController`,
-            :class:`~.gustafsson_controller.GustafssonController`, and
-            :class:`~.fixed_step_controller.FixedStepController` for
-            details.
+        kind
+            Controller identifier accepted by
+            :func:`cubie.integrators.step_control.get_controller`.
+        order
+            Order of the paired algorithm used for adaptive controllers.
+        dt_min
+            Minimum permitted step size for adaptive controllers.
+        dt_max
+            Maximum permitted step size for adaptive controllers.
+        atol
+            Absolute tolerance forwarded to adaptive controllers.
+        rtol
+            Relative tolerance forwarded to adaptive controllers.
+        fixed_step_size
+            Step size supplied to fixed controllers.
+        **kwargs
+            Additional configuration forwarded to the controller factory.
 
-            Returns:
-            BaseStepController
-                The step controller instance
+        Returns
+        -------
+        BaseStepController
+            Instantiated controller configured for the integration run.
+
+        Notes
+        -----
+        Supported identifiers include ``"fixed"``, ``"i"``, ``"pi"``,
+        ``"pid"``, and ``"gustafsson"``.
         """
         if kind == 'fixed':
             controller = get_controller(kind,
@@ -262,24 +299,65 @@ class SingleIntegratorRunCore(CUDAFactory):
                     **kwargs)
         return controller
 
-    def instantiate_loop(self,
-                         n_states: int,
-                         n_parameters: int,
-                         n_observables: int,
-                         n_drivers: int,
-                         n_state_summaries: int,
-                         n_observable_summaries: int,
-                         controller_local_elements: int,
-                         algorithm_local_elements: int,
-                         compile_flags: OutputCompileFlags,
-                         dt_save: float,
-                         dt_summarise: float,
-                         dt0: float,
-                         dt_min: float,
-                         dt_max: float,
-                         is_adaptive: bool,
-                         ):
-        """Instantiate the integrator loop."""
+    def instantiate_loop(
+        self,
+        n_states: int,
+        n_parameters: int,
+        n_observables: int,
+        n_drivers: int,
+        n_state_summaries: int,
+        n_observable_summaries: int,
+        controller_local_elements: int,
+        algorithm_local_elements: int,
+        compile_flags: OutputCompileFlags,
+        dt_save: float,
+        dt_summarise: float,
+        dt0: float,
+        dt_min: float,
+        dt_max: float,
+        is_adaptive: bool,
+    ) -> IVPLoop:
+        """Instantiate the integrator loop.
+
+        Parameters
+        ----------
+        n_states
+            Number of state variables in the system.
+        n_parameters
+            Number of persistent parameters available to the loop.
+        n_observables
+            Number of observables emitted by the system.
+        n_drivers
+            Number of external driver signals consumed by the loop.
+        n_state_summaries
+            Number of state summary metrics produced by outputs.
+        n_observable_summaries
+            Number of observable summary metrics produced by outputs.
+        controller_local_elements
+            Persistent local memory elements required by the controller.
+        algorithm_local_elements
+            Persistent local memory elements required by the algorithm.
+        compile_flags
+            Output function compile flags generated by
+            :class:`cubie.outputhandling.OutputFunctions`.
+        dt_save
+            Loop interval for saving states.
+        dt_summarise
+            Loop interval for saving summary metrics.
+        dt0
+            Initial step size selected by the controller.
+        dt_min
+            Minimum allowed step size.
+        dt_max
+            Maximum allowed step size.
+        is_adaptive
+            Whether the controller performs adaptive stepping.
+
+        Returns
+        -------
+        IVPLoop
+            Configured loop instance ready for CUDA compilation.
+        """
         shared_indices = LoopSharedIndices.from_sizes(
                 n_states=n_states,
                 n_observables=n_parameters,
@@ -306,41 +384,40 @@ class SingleIntegratorRunCore(CUDAFactory):
                        is_adaptive=is_adaptive )
         return loop
 
-    def update(self, updates_dict=None, silent=False, **kwargs):
-        """
-        Update parameters across all components.
-
-        This method sends all parameters to all child components with
-        silent=True to avoid spurious warnings, then checks if any parameters
-        were not recognized by any component.
+    def update(
+        self,
+        updates_dict: Optional[Dict[str, Any]] = None,
+        silent: bool = False,
+        **kwargs: Any,
+    ) -> set[str]:
+        """Update parameters across all components.
 
         Parameters
         ----------
-        updates_dict : dict, optional
+        updates_dict
             Dictionary of parameters to update.
-        silent : bool, default=False
-            If True, suppress warnings about unrecognized parameters.
+        silent
+            If ``True``, suppress warnings about unrecognised parameters.
         **kwargs
-            Parameter updates to apply as keyword arguments.
+            Additional updates provided as keyword arguments.
 
         Returns
         -------
-        set
-            Set of parameter names that were recognized and updated.
+        set[str]
+            Names of parameters that were recognised and applied.
 
         Raises
         ------
         KeyError
-            If parameters are not recognized by any component and silent=False.
+            Raised when unrecognised parameters remain and ``silent`` is
+            ``False``.
 
         Notes
         -----
-        If the algorithm or step controller kind is updated, the respective
-        child is reinstantiated with the new kind, and previous settings are
-        provided via the child's update method. This means that any settings in
-        the new child that aren't in the old child will be ignored. If there are
-        settings included in the update dict, these will be set in the new
-        child.
+        When algorithm or controller kinds change, new instances are
+        created and primed with settings from their predecessors before
+        applying ``updates_dict``. Parameters present only on the new
+        instance are ignored unless explicitly provided in the update.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -453,7 +530,13 @@ class SingleIntegratorRunCore(CUDAFactory):
         return recognized
 
     def build(self) -> Callable:
-        """Instantiate the step controller, algorithm step, and loop."""
+        """Instantiate the step controller, algorithm step, and loop.
+
+        Returns
+        -------
+        Callable
+            Compiled CUDA loop callable ready for execution on device.
+        """
 
         # Lowest level - check for changes in dxdt_fn, get_solver_helper_fn
         dxdt_fn = self._system.dxdt_function

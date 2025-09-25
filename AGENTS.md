@@ -33,14 +33,25 @@ in calls to __init__. Attrs handles both internally.
 ##### src/cubie/batchsolving
 ###### src/cubie/batchsolving/arrays
 ##### src/cubie/integrators
+- Package root highlights ``SingleIntegratorRun`` and
+  ``IntegratorReturnCodes``. Support modules such as
+  ``IntegratorRunSettings`` and ``SingleIntegratorRunCore`` live beside
+  the subpackages and are imported directly when needed.
+- Subdirectories provide algorithm factories, CUDA loop builders,
+  matrix-free solver helpers, and adaptive/fixed controllers. Their public
+  objects are surfaced through the package namespace for convenience, but
+  solver status enums remain in ``matrix_free_solvers``.
+- Implicit steps call into ``matrix_free_solvers`` for Newton--Krylov
+  helpers, loops pull compile flags from ``cubie.outputhandling``, and
+  controllers coordinate with algorithm instances via shared settings.
 ###### src/cubie/integrators/algorithms
 - Hosts explicit Euler and implicit Newton–Krylov-based step factories that
   share ``BaseStepConfig`` precision handling and ``StepCache`` outputs.
-- All step functions share a common signature and return a status code 
+- All step functions share a common signature and return a status code
   indicating success or failure.
 - Implicit algorithms depend on ``cubie.integrators.matrix_free_solvers``
   helpers surfaced through ``get_solver_helper_fn`` closures.
-- Public API exposes ``get_algorithm_step``, ``ExplicitStepConfig``, 
+- Public API exposes ``get_algorithm_step``, ``ExplicitStepConfig``,
   ``ImplicitStepConfig``, ``ExplicitEulerStep``, ``BackwardsEulerStep``,
   ``BackwardsEulerPCStep``, and ``CrankNicolsonStep``
 ###### src/cubie/integrators/loops
