@@ -34,16 +34,17 @@ in calls to __init__. Attrs handles both internally.
 ###### src/cubie/batchsolving/arrays
 ##### src/cubie/integrators
 ###### src/cubie/integrators/algorithms
-Labelled:
-- Hosts explicit Euler and implicit Newton–Krylov step factories that
+- Hosts explicit Euler and implicit Newton–Krylov-based step factories that
   share ``BaseStepConfig`` precision handling and ``StepCache`` outputs.
+- All step functions share a common signature and return a status code 
+  indicating success or failure.
 - Implicit algorithms depend on ``cubie.integrators.matrix_free_solvers``
   helpers surfaced through ``get_solver_helper_fn`` closures.
-- Keep numpydoc docstrings aligned with precision casting rules and
-  expose autosummary entries for configs and exported factory classes.
+- Public API exposes ``get_algorithm_step``, ``ExplicitStepConfig``, 
+  ``ImplicitStepConfig``, ``ExplicitEulerStep``, ``BackwardsEulerStep``,
+  ``BackwardsEulerPCStep``, and ``CrankNicolsonStep``
 ###### src/cubie/integrators/loops
 ###### src/cubie/integrators/matrix_free_solvers
-Labelled:
 - CUDA device solver factories that return matrix-free linear and
   Newton--Krylov iterations built with :mod:`numba.cuda`.
 - Relies on warp-vote helpers for convergence checks and expects
@@ -53,6 +54,12 @@ Labelled:
   ``newton_krylov_solver_factory``, and ``SolverRetCodes`` status codes.
 
 ###### src/cubie/integrators/step_control
+- CUDA device step control factories that return step control
+  functions built with :mod:`numba.cuda`.
+- fixed-step controller does nothing; adaptive step controllers return a 
+  function that takes a step size and returns a new proposed step size.
+- Public API exposes: ``AdaptiveIController``, ``AdaptivePIController``, ``AdaptivePIDController``,
+  ``GustafssonController``, ``FixedStepController``, and ``get_controller``.
 ##### src/cubie/memory
 ##### src/cubie/odesystems
 ###### src/cubie/odesystems/symbolic
@@ -61,12 +68,5 @@ Labelled:
 ###### src/cubie/outputhandling/summarymetrics
 #### src/cubie.egg-info
 
-## Labelled
 
 ### src/cubie/integrators/step_control
-Controllers share attrs-based configuration classes paired with CUDAFactory
-builders that JIT Numba CUDA device functions. Adaptive controllers depend on
-precision-controlled tolerance vectors rather than external error-norm helpers
-and respect precision choices surfaced by the configuration. Keep docstrings
-numpydoc-style with explicit parameter and return sections, and ensure module
-documentation highlights the fixed and adaptive controller hierarchy.
