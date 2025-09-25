@@ -80,6 +80,15 @@ in calls to __init__. Attrs handles both internally.
 - Public API exposes: ``AdaptiveIController``, ``AdaptivePIController``, ``AdaptivePIDController``,
   ``GustafssonController``, ``FixedStepController``, and ``get_controller``.
 ##### src/cubie/memory
+GPU memory subsystem. ``mem_manager`` exposes the ``MemoryManager`` singleton
+and default instance that orchestrate chunked allocations, instance registry
+hooks, and stream grouping. ``array_requests`` defines request/response
+containers that describe shapes, precision factories, and chunk metadata for
+allocations. ``stream_groups`` groups host instances onto shared CUDA streams
+using :mod:`numba.cuda`. ``cupy_emm`` integrates optional CuPy memory pools via
+Numba's External Memory Manager interface and provides a context manager to
+adopt Numba streams inside CuPy. CuPy is optional; without it the package falls
+back to Numba's default allocator.
 ##### src/cubie/odesystems
 ###### src/cubie/odesystems/symbolic
 ###### src/cubie/odesystems/systems

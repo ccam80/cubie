@@ -1,8 +1,9 @@
-"""
-Array request and response data structures for memory management.
+"""Structured array allocation requests and responses for GPU memory.
 
-This module provides data structures for requesting and managing GPU memory
-allocations with specific shapes, data types, and memory location requirements.
+This module defines lightweight data containers that describe array allocation
+requirements and report allocation outcomes. Requests capture shape, precision,
+and memory placement details, while responses track allocated buffers and any
+chunking performed by the memory manager.
 """
 
 from typing import Optional
@@ -16,46 +17,44 @@ from cubie.cuda_simsafe import DeviceNDArrayBase
 
 @attrs.define
 class ArrayRequest:
-    """
-    Specification for requesting array allocation with shape, dtype, and memory location.
+    """Specification for requesting array allocation.
 
     Parameters
     ----------
-    shape : tuple of int, default (1, 1, 1)
-        The shape of the requested array.
-    dtype : numpy.dtype, default np.float64
-        The data type for the array elements.
-    memory : str, default "device"
-        Memory location type. Must be one of "device", "mapped", "pinned", or "managed".
-    stride_order : tuple of str or None, default None
-        The order of strides for the array dimensions. If None, will be set
-        automatically based on shape length.
-    unchunkable : bool, default False
-        If True, this array must not be chunked by the memory manager.
+    shape
+        Tuple describing the requested array shape. Defaults to ``(1, 1, 1)``.
+    dtype
+        NumPy precision constructor used to produce the allocation. Defaults to
+        :func:`numpy.float64`.
+    memory
+        Memory placement option. Must be one of ``"device"``, ``"mapped"``,
+        ``"pinned"``, or ``"managed"``.
+    stride_order
+        Optional tuple describing logical dimension labels in stride order. When
+        omitted, the initializer selects an order based on dimensionality.
+    unchunkable
+        Whether the memory manager is allowed to chunk the allocation.
 
     Attributes
     ----------
-    shape : tuple of int
-        The shape of the requested array.
-    dtype : numpy.dtype
-        The data type for the array elements.
-    memory : str
-        Memory location type.
-    stride_order : tuple of str or None
-        The order of strides for the array dimensions.
-    unchunkable : bool
-        Whether this array should be excluded from chunking.
-
-    Properties
-    ----------
-    size : int
-        Total size of the array in bytes.
+    shape
+        Tuple describing the requested array shape.
+    dtype
+        NumPy precision constructor used to produce the allocation.
+    memory
+        Memory placement option.
+    stride_order
+        Tuple describing logical dimension labels in stride order.
+    unchunkable
+        Flag indicating that chunking should be disabled.
 
     Notes
     -----
-    When stride_order is None, it will be automatically set during initialization:
-    - For 3D arrays: ("time", "run", "variable")
-    - For 2D arrays: ("variable", "run")
+    When ``stride_order`` is ``None``, it is set automatically during
+    initialization:
+
+    * For 3D arrays, ``("time", "run", "variable")`` is selected.
+    * For 2D arrays, ``("variable", "run")`` is selected.
     """
 
     shape: tuple[int, ...] = attrs.field(
@@ -78,8 +77,15 @@ class ArrayRequest:
     )
     unchunkable: bool = attrs.field(default=False, validator=val.instance_of(bool))
 
-    def __attrs_post_init__(self):
-        """Set cubie-native stride order if not set already."""
+    def __attrs_post_init__(self) -> None:
+        """
+        Set cubie-native stride order if not set already.
+
+        Returns
+        -------
+        None
+            ``None``.
+        """
         if self.stride_order is None:
             if len(self.shape) == 3:
                 self.stride_order = ("time", "run", "variable")
@@ -87,40 +93,32 @@ class ArrayRequest:
                 self.stride_order = ("variable", "run")
 
     @property
-    def size(self):
-        """
-        Calculate the total size of the array in bytes.
-
-        Returns
-        -------
-        int
-            Total size in bytes including element size and shape.
-        """
+    def size(self) -> int:
+        """Total size of the array in bytes."""
         return np.prod(self.shape, dtype=np.int64) * self.dtype().itemsize
 
 
 @attrs.define
 class ArrayResponse:
-    """
-    Result of an array allocation containing arrays and chunking information.
+    """Result of an array allocation containing buffers and chunking data.
 
     Parameters
     ----------
-    arr : dict of str to DeviceNDArrayBase, default empty dict
+    arr
         Dictionary mapping array labels to allocated device arrays.
-    chunks : int, default empty dict
-        Number of chunks the allocation was divided into.
-    chunk_axis : str, default "run"
-        The axis along which chunking was performed.
+    chunks
+        Mapping that records how many chunks each allocation was divided into.
+    chunk_axis
+        Axis label along which chunking was performed. Defaults to ``"run"``.
 
     Attributes
     ----------
-    arr : dict of str to DeviceNDArrayBase
+    arr
         Dictionary mapping array labels to allocated device arrays.
-    chunks : int
-        Number of chunks the allocation was divided into.
-    chunk_axis : str
-        The axis along which chunking was performed.
+    chunks
+        Mapping that records how many chunks each allocation was divided into.
+    chunk_axis
+        Axis label along which chunking was performed.
     """
 
     arr: dict[str, DeviceNDArrayBase] = attrs.field(
