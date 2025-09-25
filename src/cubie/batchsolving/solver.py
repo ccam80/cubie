@@ -345,10 +345,10 @@ class Solver:
         set
             Set of keys that were successfully updated.
         """
-if updates_dict is None:
-    updates_dict = {}
+        if updates_dict is None:
+            updates_dict = {}
         updates_dict = updates_dict.copy()
-if kwargs:
+        if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
             return set()
@@ -445,10 +445,10 @@ if kwargs:
         set
             Set of keys that were successfully updated.
         """
-if updates_dict is None:
-    updates_dict = {}
+        if updates_dict is None:
+            updates_dict = {}
         updates_dict = updates_dict.copy()
-if kwargs:
+        if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
             return set()
