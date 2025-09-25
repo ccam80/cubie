@@ -1,3 +1,5 @@
+"""Utility helpers for symbolic ODE construction."""
+
 import warnings
 from collections import defaultdict, deque
 from typing import Dict, Iterable, List, Optional, Tuple, Union
@@ -6,27 +8,33 @@ import sympy as sp
 
 
 def topological_sort(
-    assignments: Union[List[tuple], Dict[sp.Symbol, sp.Expr]],
+    assignments: Union[
+        List[Tuple[sp.Symbol, sp.Expr]],
+        Dict[sp.Symbol, sp.Expr],
+    ],
 ) -> List[Tuple[sp.Symbol, sp.Expr]]:
-    """
-    Returns a topologically sorted list of assignments from an unsorted input.
-
-    Uses `Kahn's algorithm <https://en.wikipedia.org/wiki/Topological_sorting>`
+    """Return assignments sorted by their dependency order.
 
     Parameters
     ----------
-        assignments: list of tuples or dict
-            (lhs_symbol, rhs_expr) assignment tuples or dict of
-            {lhs_symbol:rhs_expression}
+    assignments
+        Either an iterable of ``(symbol, expression)`` pairs or a mapping from
+        each symbol to its defining expression.
 
     Returns
     -------
-        list
-            (lhs, rhs) assignment tuples in dependency order
+    list[tuple[sympy.Symbol, sympy.Expr]]
+        Assignments ordered such that dependencies are defined before use.
 
     Raises
     ------
-        ValueError: If there is a circular depenency in the assignments
+    ValueError
+        Raised when a circular dependency prevents topological sorting.
+
+    Notes
+    -----
+    Uses Kahn's algorithm for topological sorting. Refer to the Wikipedia
+    article on topological sorting for additional background.
     """
     # Build symbol to expression mapping
     if isinstance(assignments, list):
@@ -49,8 +57,9 @@ def topological_sort(
             graph[dep_sym].add(sym)
 
     # Start with all symbols without dependencies
-    queue = deque([sym for sym, degree in incoming_edges.items()
-                   if degree == 0])
+    queue = deque(
+        [sym for sym, degree in incoming_edges.items() if degree == 0]
+    )
     result = []
 
     # Remove incoming edges for fully defined dependencies until none remain
@@ -67,36 +76,43 @@ def topological_sort(
 
     if len(result) != len(assignments):
         remaining = all_assignees - {sym for sym, _ in result}
-        raise ValueError(f"Circular dependency detected. "
-                         f"Remaining symbols: {remaining}")
+        raise ValueError(
+            "Circular dependency detected. Remaining symbols: "
+            f"{remaining}"
+        )
 
     return result
 
-def cse_and_stack(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-                  symbol: Optional[str] = None,
-                  ) -> List[Tuple[sp.Symbol, sp.Expr]]:
-    """Performs CSE and returns a list of provided and cse expressions.
+
+def cse_and_stack(
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    symbol: Optional[str] = None,
+) -> List[Tuple[sp.Symbol, sp.Expr]]:
+    """Perform common subexpression elimination and stack the results.
 
     Parameters
     ----------
-    equations: iterable of (sp.Symbol, sp.Expr)
-        A list of (lhs, rhs) tuples.
-    symbol: str, optional
-        The desired prefix for newly created cse symbols.
+    equations
+        ``(symbol, expression)`` pairs that define the system.
+    symbol
+        Prefix to use for the generated common-subexpression symbols. Defaults
+        to ``"_cse"`` when not provided.
 
     Returns
     -------
-    list of tuples of (sp.Symbol, sp.Expr)
-        CSE expressions and provided expressions in terms of CSEs, in the same
-        format as provided expressions.
+    list[tuple[sympy.Symbol, sympy.Expr]]
+        Combined list of original expressions rewritten in terms of CSE
+        symbols followed by the generated common subexpressions.
     """
     if symbol is None:
         symbol = "_cse"
-    expr_labels = list(lhs for lhs, _ in equations)
+    expr_labels = [lhs for lhs, _ in equations]
     all_rhs = (rhs for _, rhs in equations)
     while any(str(label).startswith(symbol) for label in expr_labels):
-        warnings.warn(f"CSE symbol {symbol} is already in use, it has been "
-                      f"prepended with an underscore to _{symbol}")
+        warnings.warn(
+            f"CSE symbol {symbol} is already in use; it has been "
+            f"prepended with an underscore to _{symbol}"
+        )
         symbol = f"_{symbol}"
 
     cse_exprs, reduced_exprs = sp.cse(
@@ -108,34 +124,29 @@ def cse_and_stack(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
 
 def hash_system_definition(
     dxdt: Union[str, Iterable[str]],
-    constants: Optional[Union[Dict[str, float], Iterable[str]]] = None
+    constants: Optional[Union[Dict[str, float], Iterable[str]]] = None,
 ) -> str:
-    """Generate a comprehensive hash of the system definition.
-
-    Combines the dxdt equations and constant values into a single hash to
-    properly detect when system definitions have changed and require rebuilding.
+    """Generate a hash that captures equations and constant definitions.
 
     Parameters
     ----------
-    dxdt : str or iterable of str
-        The string representation of the dxdt function.
-    constants : dict, iterable of str, or None
-        The constants definition. If dict, maps constant names to values.
-        If iterable, assumes default values. If None, no constants.
+    dxdt
+        Representation of the system right-hand sides. Accepts either a single
+        string or an iterable of equation strings.
+    constants
+        Mapping or iterable describing constant names and values. Iterables are
+        interpreted as constant names using their default values.
 
     Returns
     -------
     str
-        Hash string representing the complete system definition.
+        Deterministic hash string that reflects both equations and constants.
 
     Notes
     -----
-    The hash includes:
-    1. Normalized dxdt equations (whitespace removed)
-    2. Sorted constant names and values (if provided)
-
-    This ensures that changes to either equations or constant values will
-    result in different hashes, triggering appropriate rebuilds.
+    The hash concatenates normalised differential equations with the sorted
+    constant name-value pairs. Any change to either component produces a new
+    hash so cached artifacts can be refreshed.
     """
     # Process dxdt equations
     if isinstance(dxdt, (list, tuple)):

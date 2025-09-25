@@ -1,5 +1,4 @@
-"""Symbolic ODE system built from :mod:`sympy` expressions.
-"""
+"""Symbolic ODE system built from :mod:`sympy` expressions."""
 
 from typing import Callable, Iterable, Optional, Set, Union
 
@@ -19,41 +18,96 @@ from cubie.odesystems.symbolic.solver_helpers import (
 from cubie.odesystems.symbolic.parser import IndexedBases, parse_input
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
+from cubie._utils import PrecisionDtype
 
 
 def create_ODE_system(
     dxdt: Union[str, Iterable[str]],
-    states: Optional[Union[dict, Iterable[str]]] = None,
+    states: Optional[Union[dict[str, float], Iterable[str]]] = None,
     observables: Optional[Iterable[str]] = None,
-    parameters: Optional[Union[dict, Iterable[str]]] = None,
-    constants: Optional[Union[dict, Iterable[str]]] = None,
+    parameters: Optional[Union[dict[str, float], Iterable[str]]] = None,
+    constants: Optional[Union[dict[str, float], Iterable[str]]] = None,
     drivers: Optional[Iterable[str]] = None,
     user_functions: Optional[dict[str, Callable]] = None,
     name: Optional[str] = None,
-    precision: np.dtype = np.float32,
+    precision: PrecisionDtype = np.float32,
     strict: bool = False,
-):
-    """Create an ODE system from SymPy expressions."""
-    SymbODE = SymbolicODE.create(dxdt=dxdt,
-                                 states=states,
-                                 observables=observables,
-                                 parameters=parameters,
-                                 constants=constants,
-                                 drivers=drivers,
-                                 user_functions=user_functions,
-                                 name=name,
-                                 precision=precision,
-                                 strict=strict)
-    return SymbODE
+) -> "SymbolicODE":
+    """Create a :class:`SymbolicODE` from SymPy definitions.
+
+    Parameters
+    ----------
+    dxdt
+        System equations defined as either a single string or an iterable of
+        equation strings in ``lhs = rhs`` form.
+    states
+        State labels either as an iterable or as a mapping to default initial
+        values.
+    observables
+        Observable variable labels to expose from the generated system.
+    parameters
+        Parameter labels either as an iterable or as a mapping to default
+        values.
+    constants
+        Constant labels either as an iterable or as a mapping to default
+        values.
+    drivers
+        External driver variable labels required at runtime.
+    user_functions
+        Custom callables referenced within ``dxdt`` expressions.
+    name
+        Identifier used for generated files. Defaults to the hash of the system
+        definition.
+    precision
+        Target floating-point precision used when compiling the system.
+    strict
+        When ``True`` require every symbol to be explicitly categorised.
+
+    Returns
+    -------
+    SymbolicODE
+        Fully constructed symbolic system ready for compilation.
+    """
+    symbolic_ode = SymbolicODE.create(
+        dxdt=dxdt,
+        states=states,
+        observables=observables,
+        parameters=parameters,
+        constants=constants,
+        drivers=drivers,
+        user_functions=user_functions,
+        name=name,
+        precision=precision,
+        strict=strict,
+    )
+    return symbolic_ode
 
 class SymbolicODE(BaseODE):
-    """Create an ODE system from SymPy expressions.
+    """Symbolic representation of an ODE system.
 
-    Parameters are provided as SymPy symbols.  The differential equations are
-    provided as a list of (lhs, rhs) tuples objects where the left hand side
-    is a differential or auxiliary/observable symbol and the right hand side
-    is an expression composed of states, parameters, constants and previously
-    defined auxiliaries/observables.
+    Parameters are provided as SymPy symbols and the differential equations are
+    supplied as ``(lhs, rhs)`` tuples where the left-hand side is a derivative
+    or observable symbol. Right-hand sides combine states, parameters,
+    constants, and intermediate observables.
+
+    Parameters
+    ----------
+    equations
+        Ordered symbolic equations describing the system dynamics.
+    all_indexed_bases
+        Indexed base collections providing access to state, parameter,
+        constant, and observable metadata.
+    all_symbols
+        Mapping from symbol names to their :class:`sympy.Symbol` instances.
+    precision
+        Target floating-point precision used for generated kernels.
+    fn_hash
+        Precomputed system hash. When omitted it is derived from the equations
+        and constants.
+    user_functions
+        Runtime callables referenced within the symbolic expressions.
+    name
+        Identifier used for generated modules.
     """
 
     def __init__(
@@ -61,11 +115,37 @@ class SymbolicODE(BaseODE):
         equations: Iterable[tuple[sp.Symbol, sp.Expr]],
         all_indexed_bases: IndexedBases,
         all_symbols: Optional[dict[str, sp.Symbol]] = None,
-        precision=np.float64,
+        precision: PrecisionDtype = np.float64,
         fn_hash: Optional[int] = None,
         user_functions: Optional[dict[str, Callable]] = None,
-        name: str = None,
+        name: Optional[str] = None,
     ):
+        """Initialise the symbolic system instance.
+
+        Parameters
+        ----------
+        equations
+            Ordered symbolic equations describing the system dynamics.
+        all_indexed_bases
+            Indexed base collections providing access to state, parameter,
+            constant, and observable metadata.
+        all_symbols
+            Mapping from symbol names to their :class:`sympy.Symbol` instances.
+        precision
+            Target floating-point precision used for generated kernels.
+        fn_hash
+            Precomputed system hash. When omitted it is derived from the
+            equations and constants.
+        user_functions
+            Runtime callables referenced within the symbolic expressions.
+        name
+            Identifier used for generated modules.
+
+        Returns
+        -------
+        None
+            ``None``.
+        """
         if all_symbols is None:
             all_symbols = all_indexed_bases.all_symbols
         self.all_symbols = all_symbols
@@ -98,17 +178,54 @@ class SymbolicODE(BaseODE):
         )
 
     @classmethod
-    def create(cls,
-              dxdt: Union[str, Iterable[str]],
-              states: Optional[Union[dict,Iterable[str]]] = None,
-              observables: Optional[Iterable[str]] = None,
-              parameters: Optional[Union[dict,Iterable[str]]] = None,
-              constants: Optional[Union[dict,Iterable[str]]] = None,
-              drivers: Optional[Iterable[str]] = None,
-              user_functions: Optional[Optional[dict[str, Callable]]] = None,
-              name: Optional[str] = None,
-              precision: np.dtype = np.float32,
-              strict=False):
+    def create(
+        cls,
+        dxdt: Union[str, Iterable[str]],
+        states: Optional[Union[dict[str, float], Iterable[str]]] = None,
+        observables: Optional[Iterable[str]] = None,
+        parameters: Optional[Union[dict[str, float], Iterable[str]]] = None,
+        constants: Optional[Union[dict[str, float], Iterable[str]]] = None,
+        drivers: Optional[Iterable[str]] = None,
+        user_functions: Optional[dict[str, Callable]] = None,
+        name: Optional[str] = None,
+        precision: PrecisionDtype = np.float32,
+        strict: bool = False,
+    ) -> "SymbolicODE":
+        """Parse user inputs and instantiate a :class:`SymbolicODE`.
+
+        Parameters
+        ----------
+        dxdt
+            System equations defined as either a single string or an iterable
+            of equation strings in ``lhs = rhs`` form.
+        states
+            State labels either as an iterable or as a mapping to default
+            initial values.
+        observables
+            Observable variable labels to expose from the generated system.
+        parameters
+            Parameter labels either as an iterable or as a mapping to default
+            values.
+        constants
+            Constant labels either as an iterable or as a mapping to default
+            values.
+        drivers
+            External driver variable labels required at runtime.
+        user_functions
+            Custom callables referenced within ``dxdt`` expressions.
+        name
+            Identifier used for generated files. Defaults to the hash of the
+            system definition.
+        precision
+            Target floating-point precision used when compiling the system.
+        strict
+            When ``True`` require every symbol to be explicitly categorised.
+
+        Returns
+        -------
+        SymbolicODE
+            Fully constructed symbolic system ready for compilation.
+        """
 
         sys_components = parse_input(
                 states = states,
@@ -130,8 +247,14 @@ class SymbolicODE(BaseODE):
                    precision=precision)
 
 
-    def build(self):
-        """Compile the ``dxdt`` function and populate the cache."""
+    def build(self) -> ODECache:
+        """Compile the ``dxdt`` factory and refresh the cache.
+
+        Returns
+        -------
+        ODECache
+            Cache populated with the compiled ``dxdt`` callable.
+        """
         numba_precision = self.numba_precision
         constants = self.constants.values_dict
         new_hash = hash_system_definition(
@@ -152,78 +275,81 @@ class SymbolicODE(BaseODE):
         return self._cache
 
 
-    def set_constants(self, updates_dict=None, silent=False, **kwargs
-                      ) -> Set[str]:
-        """Update the constants of the system.
+    def set_constants(
+        self,
+        updates_dict: Optional[dict[str, float]] = None,
+        silent: bool = False,
+        **kwargs: float,
+    ) -> Set[str]:
+        """Update constant values in-place.
 
         Parameters
         ----------
-            updates_dict : dict of strings, floats
-                A dictionary mapping constant names to their new values.
-            silent : bool
-                If True, suppress warnings about keys not found, default False.
-            **kwargs: key-value pairs
-                Additional constant updates in key=value form, overrides
-                updates_dict.
+        updates_dict
+            Mapping from constant names to replacement values.
+        silent
+            When ``True`` suppress warnings for unknown labels.
+        **kwargs
+            Additional constant overrides supplied as keyword arguments.
 
         Returns
         -------
-        set of str:
-            All labels that were recognized (and therefore updated)
+        set[str]
+            Labels that were recognised and updated.
 
         Notes
         -----
-        First silently updates the constants in the indexed base map, then
-        calls the base ODE class's set constants method.
+        Constants are first updated in the indexed base map before delegating
+        to :meth:`BaseODE.set_constants` for cache management.
         """
-
         self.indices.update_constants(updates_dict, **kwargs)
         recognized = super().set_constants(updates_dict,
                                  silent=silent)
         return recognized
 
-    def get_solver_helper(self,
-                          func_type: str,
-                          beta: float = 1.0,
-                          gamma: float = 1.0,
-                          preconditioner_order: int = 1,
-                          mass: Optional[Union[np.ndarray, sp.Matrix]] = None):
+    def get_solver_helper(
+        self,
+        func_type: str,
+        beta: float = 1.0,
+        gamma: float = 1.0,
+        preconditioner_order: int = 1,
+        mass: Optional[Union[np.ndarray, sp.Matrix]] = None,
+    ) -> Callable:
         """Return a generated solver helper device function.
 
         Solvers use a linear operator, preconditioner, and residual function.
-        The operator which they apply is parameterised to be general to a
-        variety of numerical integration algorithms. The operator is of the
-        form (beta*M + a_ij*h*gamma*J)(v). M, beta and gamma are
-        configurable in the factory; a_ij and h are set at runtime.
-        Preconditioners and residual functions use a subset of these
+        The operator is parameterised as
+        ``(beta * M + a_ij * h * gamma * J)(v)`` where ``M`` is an optional
+        mass matrix, ``J`` is the Jacobian, and ``a_ij`` and ``h`` are supplied
+        at runtime. Preconditioners and residual functions use subsets of these
         parameters.
 
         Parameters
         ----------
-        func_type : str
-            Identifier for the requested helper. Accepted keys are
-            ``"linear_operator"``, ``"neumann_preconditioner"``,
-            ``"end_residual"``, and ``"stage_residual"``.
-        beta : float, optional
-            Shift parameter for the linear operator. Defaults to 1.0
-        gamma : float, optional
-            Weight of the Jacobian term in the linear operator. Defaults
-            to 1.0
-        preconditioner_order : int, optional
-            Polynomial order of the preconditioner. Defaults to 1. Unused in
-            generating the linear operator
-        mass : np.ndarray or sp.Matrix, optional
-            Mass matrix for the linear operator. Defaults to Identity
+        func_type
+            Helper identifier. Supported values are ``"linear_operator"``,
+            ``"neumann_preconditioner"``, ``"end_residual"``, and
+            ``"stage_residual"``.
+        beta
+            Shift parameter for the linear operator.
+        gamma
+            Weight applied to the Jacobian term in the linear operator.
+        preconditioner_order
+            Polynomial order of the Neumann preconditioner.
+        mass
+            Mass matrix applied by the linear operator. When omitted the
+            identity matrix is assumed.
 
         Returns
         -------
-        callable
-            CUDA device function corresponding to ``func_name``.
+        Callable
+            CUDA device function implementing the requested helper.
 
         Raises
         ------
-        KeyError
-            If ``func_name`` is not recognised.
+        NotImplementedError
+            Raised when ``func_type`` does not correspond to a supported
+            helper.
         """
         try:
             return self.get_cached_output(func_type)

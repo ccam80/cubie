@@ -94,6 +94,12 @@ back to Numba's default allocator.
 ###### src/cubie/odesystems/systems
 ##### src/cubie/outputhandling
 ###### src/cubie/outputhandling/summarymetrics
+Summary metric registry plus CUDA implementations. ``__init__`` instantiates
+``SummaryMetrics`` and imports the built-in ``mean``, ``max``, ``rms``, and
+``peaks`` modules so their classes register themselves. ``metrics`` defines the
+registry, decorator, and cache helpers, relying on :class:`cubie.CUDAFactory`
+and :mod:`numba.cuda` to compile device update/save callables. Each metric file
+returns callable pairs that the registry hands to output-handling loops.
 #### src/cubie.egg-info
 
 

@@ -17,58 +17,35 @@ from cubie.outputhandling.summarymetrics.metrics import (
 
 @register_metric(summary_metrics)
 class Mean(SummaryMetric):
-    """
-    Summary metric to calculate the arithmetic mean of a variable.
-
-    This metric computes the mean value over a summary period by maintaining
-    a running sum in the buffer and dividing by the number of samples when
-    saving the final result.
+    """Summary metric that calculates the arithmetic mean of a variable.
 
     Notes
     -----
     The metric uses a single buffer slot per variable to accumulate the sum
-    of values. The mean is calculated by dividing this sum by the number
-    of integration steps in the summary period.
+    of values and divides by the number of integration steps when the results
+    are saved.
     """
 
-    def __init__(self):
-        """
-        Initialize the Mean summary metric.
-
-        Creates CUDA device functions for updating running sums and
-        calculating mean values, and configures the metric with appropriate
-        buffer and output sizes.
-        """
+    def __init__(self) -> None:
+        """Initialise the Mean summary metric with fixed buffer sizes."""
         super().__init__(
             name="mean",
             buffer_size=1,
             output_size=1,
         )
 
-    def build(self):
-        """
-        Generate CUDA device functions for mean value calculation.
-
-        Creates optimized CUDA device functions with fixed signatures for
-        updating running sums and calculating final mean values.
+    def build(self) -> MetricFuncCache:
+        """Generate CUDA device functions for mean value calculation.
 
         Returns
         -------
-        MetricFuncCache[update: callable, save: callable]
-            Cache object containing update and save functions for CUDA
-            execution. Both functions must be compiled with @cuda.jit
-            decorators.
+        MetricFuncCache
+            Cache containing the device update and save callbacks.
 
         Notes
         -----
-        The generated functions have the following signatures:
-
-        update(value, buffer, current_index, customisable_variable):
-            Adds the new value to the running sum.
-
-        save(buffer, output_array, summarise_every, customisable_variable):
-            Calculates mean by dividing sum by number of steps and resets
-            buffer.
+        The update callback accumulates the running sum while the save
+        callback divides by ``summarise_every`` and resets the buffer.
         """
 
         # no cover: start
@@ -86,25 +63,22 @@ class Mean(SummaryMetric):
             current_index,
             customisable_variable,
         ):
-            """
-            Update running sum with new value.
+            """Update the running sum with a new value.
 
             Parameters
             ----------
-            value : float
-                New value to add to the running sum.
-            buffer : array-like
-                Buffer location containing the running sum.
-            current_index : int
-                Current integration step index (unused for mean calculation).
-            customisable_variable : int
-                Extra parameter for metric-specific calculations (unused for
-                mean).
+            value
+                float. New value to add to the running sum.
+            buffer
+                device array. Location containing the running sum.
+            current_index
+                int. Current integration step index (unused for mean).
+            customisable_variable
+                int. Metric parameter placeholder (unused for mean).
 
             Notes
             -----
-            Adds the new value to buffer[0] in-place to maintain the running
-            sum. Requires 1 buffer memory slot per variable.
+            Adds the new value to ``buffer[0]`` to maintain the running sum.
             """
             buffer[0] += value
 
@@ -122,28 +96,23 @@ class Mean(SummaryMetric):
             summarise_every,
             customisable_variable,
         ):
-            """
-            Calculate mean from running sum and reset buffer.
+            """Calculate the mean and reset the buffer.
 
             Parameters
             ----------
-            buffer : array-like
-                Buffer containing the running sum of values.
-            output_array : array-like
-                Output array location for saving the mean value.
-            summarise_every : int
-                Number of algorithms between saves, used as divisor for mean
-                calculation.
-            customisable_variable : int
-                Extra parameter for metric-specific calculations (unused for
-                mean).
+            buffer
+                device array. Location containing the running sum of values.
+            output_array
+                device array. Location for saving the mean value.
+            summarise_every
+                int. Number of integration steps contributing to each summary.
+            customisable_variable
+                int. Metric parameter placeholder (unused for mean).
 
             Notes
             -----
-            Calculates the mean by dividing the running sum by the number of
-            integration algorithms (summarise_every) and saves to output_array[0].
-            Resets buffer[0] to 0.0 for the next summary period  Requires 1
-            output memory slot per variable.
+            Divides the accumulated sum by ``summarise_every`` and saves the
+            result to ``output_array[0]`` before resetting ``buffer[0]``.
             """
             output_array[0] = buffer[0] / summarise_every
             buffer[0] = 0.0

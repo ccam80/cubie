@@ -1,5 +1,7 @@
+"""SymPy printer utilities that emit CUDA-friendly Python code snippets."""
+
 import re
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import sympy as sp
 from sympy.printing.pycode import PythonCodePrinter
@@ -66,29 +68,52 @@ CUDA_FUNCTIONS: Dict[str, str] = {
     'isfinite': 'math.isfinite',
 }
 
-
 class CUDAPrinter(PythonCodePrinter):
-    """SymPy printer for CUDA code generation with symbol substitutions and optimizations."""
+    """SymPy printer that maps expressions to CUDA-compatible source strings."""
 
-    def __init__(self, symbol_map: Optional[Dict] = None, *args, **kwargs):
-        """
-        Initialize CUDA printer.
+    def __init__(
+        self,
+        symbol_map: Optional[Dict[sp.Symbol, Any]] = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Initialise a CUDA-aware code printer.
 
-        Args:
-            symbol_map: Dictionary mapping Symbol instances to IndexedBase references
+        Parameters
+        ----------
+        symbol_map
+            Optional mapping from scalar symbols to indexed array references or
+            other replacement nodes.
+        args
+            Positional arguments forwarded to :class:`PythonCodePrinter`.
+        kwargs
+            Keyword arguments forwarded to :class:`PythonCodePrinter`.
         """
         super().__init__(*args, **kwargs)
-        self.symbol_map: Dict = symbol_map or {}
+        self.symbol_map: Dict[sp.Symbol, Any] = symbol_map or {}
         self.cuda_functions: Dict[str, str] = CUDA_FUNCTIONS
         # User function alias mapping: underscored symbolic name -> original printable name
         self.func_aliases: Dict[str, str] = {}
-        if isinstance(self.symbol_map, dict) and '__function_aliases__' in self.symbol_map:
-            aliases = self.symbol_map.get('__function_aliases__')
+        if isinstance(self.symbol_map, dict) and "__function_aliases__" in self.symbol_map:
+            aliases = self.symbol_map.get("__function_aliases__")
             if isinstance(aliases, dict):
                 self.func_aliases = aliases
 
-    def doprint(self, expr, **kwargs):
-        """Main printing method that applies all transformations."""
+    def doprint(self, expr: sp.Expr, **kwargs: Any) -> str:
+        """Return the CUDA-oriented source string for ``expr``.
+
+        Parameters
+        ----------
+        expr
+            SymPy expression to print.
+        **kwargs
+            Additional keyword arguments passed to :meth:`PythonCodePrinter.doprint`.
+
+        Returns
+        -------
+        str
+            CUDA-compatible code representation of ``expr``.
+        """
         assign_to = kwargs.get("assign_to", None)
         # Force outer assignment for Piecewise to avoid assignments inside ternaries
         if assign_to is not None and isinstance(expr, sp.Piecewise):
@@ -101,18 +126,41 @@ class CUDAPrinter(PythonCodePrinter):
         # result = self._ifelse_to_selp(result)
         return result
 
-    def _print_Symbol(self, expr):
-        """Print Symbol, applying symbol-to-IndexedBase mapping if available."""
+    def _print_Symbol(self, expr: sp.Symbol) -> str:
+        """Print a symbol, applying array substitutions when configured.
+
+        Parameters
+        ----------
+        expr
+            Symbol to render.
+
+        Returns
+        -------
+        str
+            Printed representation that respects the configured substitutions.
+        """
         if expr in self.symbol_map:
             return self._print(self.symbol_map[expr])
         return super()._print_Symbol(expr)
 
-    def _print_Piecewise(self, expr: sp.Piecewise):
-        """Always render Piecewise as a pure expression (nested ternaries).
+    def _print_Piecewise(self, expr: sp.Piecewise) -> str:
+        """Render a ``Piecewise`` expression as nested ternaries.
 
+        Parameters
+        ----------
+        expr
+            Piecewise expression to render.
+
+        Returns
+        -------
+        str
+            Nested ternary representation of ``expr``.
+
+        Notes
+        -----
         This avoids generating assignments inside conditional expressions when
-        ``assign_to`` is provided to ``doprint``. The outer assignment will be
-        handled by ``doprint`` itself ("lhs = <expr>").
+        ``assign_to`` is supplied to :meth:`doprint`. The outer assignment is
+        handled by :meth:`doprint` itself (``"lhs = <expr>"``).
         """
         # expr.args is a tuple of (expr_i, cond_i). The last cond may be True.
         pieces = list(expr.args)
@@ -127,36 +175,94 @@ class CUDAPrinter(PythonCodePrinter):
             rendered = f"({val} if {cond} else ({rendered}))"
         return rendered
 
-    def _replace_powers_with_multiplication(self, expr_str):
-        """Replace **2 and **3 with explicit multiplications for efficiency."""
+    def _replace_powers_with_multiplication(self, expr_str: str) -> str:
+        """Replace square and cube powers with explicit multiplications.
+
+        Parameters
+        ----------
+        expr_str
+            Source string to rewrite.
+
+        Returns
+        -------
+        str
+            Source string with ``x**2`` and ``x**3`` rewritten.
+        """
         expr_str = self._replace_square_powers(expr_str)
         expr_str = self._replace_cube_powers(expr_str)
         return expr_str
 
-    def _replace_square_powers(self, expr_str):
-        """Replace x**2 with x*x, handling spaces around the ** operator."""
+    def _replace_square_powers(self, expr_str: str) -> str:
+        """Replace ``x**2`` with ``x*x`` while preserving spacing.
+
+        Parameters
+        ----------
+        expr_str
+            Source string to rewrite.
+
+        Returns
+        -------
+        str
+            Source string with ``x**2`` rewritten.
+        """
         return re.sub(r"(\w+(?:\[[^]]+])*)\s*\*\*\s*2\b", r"\1*\1", expr_str)
 
-    def _replace_cube_powers(self, expr_str):
-        """Replace x**3 with x*x*x, handling spaces around the ** operator."""
+    def _replace_cube_powers(self, expr_str: str) -> str:
+        """Replace ``x**3`` with ``x*x*x`` while preserving spacing.
+
+        Parameters
+        ----------
+        expr_str
+            Source string to rewrite.
+
+        Returns
+        -------
+        str
+            Source string with ``x**3`` rewritten.
+        """
         return re.sub(r'(\w+(?:\[[^]]+])*)\s*\*\*\s*3\b', r'\1*\1*\1',
                       expr_str)
 
-    def _ifelse_to_selp(self, expr_str):
-        """Replace if-else statements with select statements."""
+    def _ifelse_to_selp(self, expr_str: str) -> str:
+        """Replace conditional expressions with ``cuda.selp`` calls.
+
+        Parameters
+        ----------
+        expr_str
+            Source string to rewrite.
+
+        Returns
+        -------
+        str
+            Source string with ternaries replaced by ``cuda.selp`` calls.
+        """
         return re.sub(
             r"\s+(.+?)\sif\s+(.+?)\s+else\s+(.+)",
             r"cuda.selp(\2, \1, \3)",
             expr_str,
         )
 
-    def _print_Function(self, expr):
-        """Print Function, applying CUDA function mapping and user alias mapping.
+    def _print_Function(self, expr: sp.Function) -> str:
+        """Print a function call with CUDA-specific substitutions.
 
-        Precedence:
-        - If this is a known CUDA-mapped SymPy function, use CUDA_FUNCTIONS mapping.
-        - Else if this is a user-defined function (underscored in SymPy), map back to original name via aliases.
-        - Else print as a plain function call "name(arg1, ...)" to avoid strict errors.
+        Parameters
+        ----------
+        expr
+            Function expression to render.
+
+        Returns
+        -------
+        str
+            Printed representation that accounts for CUDA-specific mappings.
+
+        Notes
+        -----
+        Lookup precedence is:
+
+        1. Known CUDA-mapped SymPy functions supplied in ``CUDA_FUNCTIONS``.
+        2. User-defined functions recorded in ``__function_aliases__``.
+        3. Derivative helper functions prefixed with ``"d_"``.
+        4. Fallback to the SymPy function name.
         """
         func_name = expr.func.__name__
 
@@ -181,47 +287,56 @@ class CUDAPrinter(PythonCodePrinter):
         args = [self._print(arg) for arg in expr.args]
         return f"{func_name}({', '.join(args)})"
 
-    # TODO: Singularity skips from Chaste codegen, piecewise blend if required
+# TODO: Singularity skips from Chaste codegen, piecewise blend if required
 
 
-def print_cuda(expr: sp.Expr,
-               symbol_map: Optional[Dict] = None,
-               **kwargs):
-    """
-    Convenience function to print SymPy expressions as CUDA-optimized code.
+def print_cuda(
+    expr: sp.Expr,
+    symbol_map: Optional[Dict[sp.Symbol, Any]] = None,
+    **kwargs: Any,
+) -> str:
+    """Return a CUDA-oriented source string for a SymPy expression.
 
-    Args:
-        expr: SymPy expression to print
-        symbol_map: Dictionary mapping Symbol instances to IndexedBase references
-        **kwargs: Additional arguments passed to the printer
+    Parameters
+    ----------
+    expr
+        SymPy expression to print.
+    symbol_map
+        Optional symbol replacement mapping used when constructing the printer.
+    **kwargs
+        Additional keyword arguments forwarded to :class:`CUDAPrinter`.
 
-    Returns:
-        String representation of the expression optimized for CUDA
+    Returns
+    -------
+    str
+        CUDA-compatible code representation of ``expr``.
     """
     printer = CUDAPrinter(symbol_map=symbol_map, **kwargs)
     return printer.doprint(expr)
 
-def print_cuda_multiple(exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
-                        symbol_map=None,
-                        **kwargs):
-    """
-    Convenience function to print SymPy expressions as CUDA-optimized code.
+def print_cuda_multiple(
+    exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    symbol_map: Optional[Dict[sp.Symbol, Any]] = None,
+    **kwargs: Any,
+) -> List[str]:
+    """Return CUDA-friendly source strings for assignment-style expressions.
 
     Parameters
     ----------
-        exprs: iterable of tuples of (sp.Symbol, sp.Expr)
-            Iterable of symbol, expression pairs for "symbol = expression"
-            assignments
-        symbol_map: dict of sp.Symbol to IndexedBase or str
-            Dictionary mapping algebraic symbols to their array or variable
-            names
-        **kwargs: Additional arguments passed to the printer
+    exprs
+        Iterable of ``(assign_to, expression)`` pairs to print.
+    symbol_map
+        Optional symbol replacement mapping used when constructing the printer.
+    **kwargs
+        Additional keyword arguments forwarded to :class:`CUDAPrinter`.
 
-    Returns:
-        String representation of the expression optimized for CUDA
+    Returns
+    -------
+    List[str]
+        CUDA-compatible code representation for each assignment.
     """
     printer = CUDAPrinter(symbol_map=symbol_map, **kwargs)
-    lines = []
+    lines: List[str] = []
     for assign_to, expr in exprs:
         line = printer.doprint(expr, assign_to=assign_to)
         lines.append(line)

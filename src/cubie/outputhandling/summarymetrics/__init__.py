@@ -1,14 +1,17 @@
-"""Summary metrics.
+"""Summary metric registry and built-in CUDA reductions.
 
-This module provides a collection of summary metrics for calculating
-statistics during integration."""
+The module instantiates the registry that coordinates summary metric device
+functions and imports the included implementations so they self-register.
+Third-party metrics should use :func:`register_metric` to add themselves when
+their module is imported.
+"""
 
 from cubie.outputhandling.summarymetrics.metrics import (
     SummaryMetrics,
     register_metric,
 )
 
-summary_metrics = SummaryMetrics()
+summary_metrics: SummaryMetrics = SummaryMetrics()
 
 # Import each metric once, to register it with the summary_metrics object.
 from cubie.outputhandling.summarymetrics import mean  # noqa

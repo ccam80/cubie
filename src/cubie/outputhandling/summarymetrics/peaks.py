@@ -17,62 +17,36 @@ from cubie.outputhandling.summarymetrics.metrics import (
 
 @register_metric(summary_metrics)
 class Peaks(SummaryMetric):
-    """
-    Summary metric to detect and record peak locations in a variable.
-
-    This metric identifies local maxima by tracking when a value is greater
-    than both its predecessor and successor values. It records the time
-    indices where peaks occur, up to a configurable maximum number.
+    """Summary metric that records the indices of detected peaks.
 
     Notes
     -----
-    The metric uses a parameterized buffer size that depends on the maximum
-    number of peaks to detect. The buffer stores: previous value,
-    previous-previous value, peak counter, and the time indices of detected
-    peaks.
-
-    The peak detection algorithm requires at least 2 previous values and
-    assumes no natural 0.0 values in the data (uses 0.0 as initialization
-    marker).
+    The buffer stores the two previous values, a peak counter, and slots for
+    the recorded peak indices. The algorithm assumes ``0.0`` does not occur in
+    valid data so it can serve as an initial sentinel.
     """
 
-    def __init__(self):
-        """
-        Initialize the Peaks summary metric.
-
-        Creates CUDA device functions for peak detection and result saving,
-        and configures the metric with parameterized buffer and output sizes
-        based on the maximum number of peaks to detect.
-        """
+    def __init__(self) -> None:
+        """Initialise the Peaks summary metric with parameterised sizes."""
         super().__init__(
             name="peaks",
             buffer_size=lambda n: 3 + n,
             output_size=lambda n: n,
         )
 
-    def build(self):
-        """
-        Generate CUDA device functions for peak detection.
-
-        Creates optimized CUDA device functions with fixed signatures for
-        detecting peaks during integration and saving peak time indices.
+    def build(self) -> MetricFuncCache:
+        """Generate CUDA device functions for peak detection.
 
         Returns
         -------
-        MetricFuncCache[update: callable, save: callable]
-            Cache object containing update and save functions for CUDA
-            execution. Both functions must be compiled with @cuda.jit
-            decorators.
+        MetricFuncCache
+            Cache containing the device update and save callbacks.
 
         Notes
         -----
-        The generated functions have the following signatures:
-
-        update(value, buffer, current_index, customisable_variable):
-            Detects peaks by comparing current value with previous values.
-
-        save(buffer, output_array, summarise_every, customisable_variable):
-            Saves detected peak time indices to output and resets buffer.
+        The update callback compares the current value against stored history
+        to identify peaks, while the save callback copies stored indices and
+        resets the buffer for the next period.
         """
 
         # no cover: start
@@ -90,28 +64,24 @@ class Peaks(SummaryMetric):
             current_index,
             customisable_variable,
         ):
-            """
-            Update peak detection with new value.
+            """Update peak detection with a new value.
 
             Parameters
             ----------
-            value : float
-                New value to analyze for peak detection.
-            buffer : array-like
-                Buffer containing: [prev_value, prev_prev_value, peak_count,
-                peak_times...].
-            current_index : int
-                Current integration step index, used for recording peak times.
-            customisable_variable : int
-                Maximum number of peaks to detect (n_peaks parameter).
+            value
+                float. New value to analyse for peak detection.
+            buffer
+                device array. Layout ``[prev, prev_prev, counter, times...]``.
+            current_index
+                int. Current integration step index, used to record peaks.
+            customisable_variable
+                int. Maximum number of peaks to detect.
 
             Notes
             -----
-            Detects peaks by checking if previous value is greater than both
-            the current value and the value before that. Records the time index
-            of detected peaks in buffer positions 3 onwards. Requires at least
-            2 previous values and assumes no natural 0.0 values in the data.
-            Buffer layout: [prev, prev_prev, peak_counter, peak_times...]
+            Detects peaks when the prior value exceeds both the current and
+            second-prior values. Peak indices are stored from ``buffer[3]``
+            onward.
             """
             npeaks = customisable_variable
             prev = buffer[0]
@@ -144,26 +114,23 @@ class Peaks(SummaryMetric):
             summarise_every,
             customisable_variable,
         ):
-            """
-            Save detected peak time indices and reset buffer.
+            """Save detected peak time indices and reset the buffer.
 
             Parameters
             ----------
-            buffer : array-like
-                Buffer containing detected peak time indices.
-            output_array : array-like
-                Output array for saving peak time indices.
-            summarise_every : int
-                Number of algorithms between saves (unused for peak detection).
-            customisable_variable : int
-                Maximum number of peaks to detect (n_peaks parameter).
+            buffer
+                device array. Buffer containing detected peak time indices.
+            output_array
+                device array. Output array for saving peak time indices.
+            summarise_every
+                int. Number of steps between saves (unused for peak detection).
+            customisable_variable
+                int. Maximum number of peaks to detect.
 
             Notes
             -----
-            Copies peak time indices from buffer positions 3 onwards to the
-            output array, then resets the peak storage and counter for the
-            next summary period. Output size equals the maximum number of
-            peaks that can be detected.
+            Copies peak indices from ``buffer[3:]`` to the output array then
+            clears the storage for the next summary interval.
             """
             n_peaks = customisable_variable
             for p in range(n_peaks):
