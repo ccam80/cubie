@@ -19,6 +19,7 @@ from cubie.cuda_simsafe import (
     HostOnlyCUDAMemoryManager,
     MemoryPointer,
     MemoryInfo,
+    Stream
 )
 
 
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 def _numba_stream_ptr(
-    nb_stream: Optional[cuda.cudadrv.driver.Stream],
+    nb_stream: Optional[Stream],
 ) -> Optional[int]:
     """
     Extract a ``CUstream`` pointer from a Numba stream wrapper.
@@ -84,7 +85,7 @@ class current_cupy_stream:
     active manager is not CuPy-based, the context operates as a no-op.
     """
 
-    def __init__(self, nb_stream: cuda.cudadrv.driver.Stream) -> None:
+    def __init__(self, nb_stream: Stream) -> None:
         try:
             import cupy as cp
         except ImportError: # pragma: no cover
@@ -178,7 +179,7 @@ class CuPyNumbaManager(GetIpcHandleMixin, HostOnlyCUDAMemoryManager):
     allocator.
     """
 
-    def __init__(self, context: cuda.cudadrv.driver.Context) -> None:
+    def __init__(self, context) -> None:
         try:
             import cupy as cp
         except ImportError:
@@ -363,7 +364,7 @@ class CuPyAsyncNumbaManager(CuPyNumbaManager):
     memory operations.
     """
 
-    def __init__(self, context: cuda.cudadrv.driver.Context) -> None:
+    def __init__(self, context) -> None:
         super().__init__(context=context)
 
     def initialize(self) -> None:
@@ -419,7 +420,7 @@ class CuPySyncNumbaManager(CuPyNumbaManager):
     memory operations.
     """
 
-    def __init__(self, context: cuda.cudadrv.driver.Context) -> None:
+    def __init__(self, context):
         super().__init__(context=context)
 
     def initialize(self) -> None:

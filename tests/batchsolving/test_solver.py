@@ -315,20 +315,16 @@ def test_update_basic(solver_instance):
     assert solver_instance.kernel.duration != original_duration
 
 
-@pytest.mark.parametrize("solver_settings_override",
-                         [{"algorithm": "backwards_euler",
-                           "step_controller": 'pid'}],
-                         indirect=True)
 def test_update_with_kwargs(solver_instance):
     """Test update with keyword arguments."""
-    original_atol = solver_instance.kernel.atol
+    original_dt = solver_instance.kernel.single_integrator.dt0w
 
-    updated_keys = solver_instance.update({}, atol=1e-8)
+    updated_keys = solver_instance.update({}, dt=1e-8)
 
-    assert "atol" in updated_keys
-    assert solver_instance.kernel.atol == 1e-8
-    assert solver_instance.kernel.atol != original_atol
-
+    assert "dt" in updated_keys
+    assert solver_instance.kernel.single_integrator.dt0 == pytest.approx(1e-8)
+    assert (solver_instance.kernel.single_integrator.dt0 !=
+            pytest.approx(original_dt))
 
 def test_update_unrecognized_keys(solver_instance):
     """Test that update raises KeyError for unrecognized keys."""

@@ -445,12 +445,12 @@ class DriverSampler:
 
     def __init__(self, drivers: Array, base_dt: float, precision: np.dtype) -> None:
         if drivers.size == 0:
-            self._drivers = np.zeros((0, 1), dtype=precision)
+            self._drivers = np.zeros((0, 0), dtype=precision)
         else:
             if drivers.ndim != 2:
-                raise ValueError("forcing_vectors must have shape (n_drivers, n_samples)")
-            self._drivers = drivers.astype(precision)
-        self._samples = self._drivers.shape[1]
+                raise ValueError("forcing_vectors must have shape (n_samples, n_drivers)")
+            self._drivers = drivers.astype(precision, copy=True)
+        self._samples = self._drivers.shape[0]
 
     def sample(self, save_index: int) -> Array:
         """Return the driver values associated with ``save_index``."""
@@ -461,7 +461,7 @@ class DriverSampler:
         index = int(save_index)
         if self._samples > 0:
             index %= self._samples
-        return self._drivers[:, index]
+        return self._drivers[index, :]
 
 class CPUAdaptiveController:
     """Simple adaptive step controller mirroring GPU heuristics."""

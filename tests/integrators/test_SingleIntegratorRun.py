@@ -353,7 +353,7 @@ class TestSingleIntegratorRun:
         )
 
 
-@pytest.mark.parametrize("system_override", "linear", indirect=True)
+@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_update_routes_to_children(single_integrator_run, solver_settings, system):
     """All components receive updates and report the new configuration."""
 
