@@ -267,10 +267,10 @@ class TestSolveResultFromSolver:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-            ({
+            [{
             "output_types": ["state", "observables", "time", "mean", "rms"],
             "duration": 0.05,
-        }),
+        }],
         indirect=True,
     )
     @pytest.mark.parametrize("system_override", ["linear"], indirect=True)

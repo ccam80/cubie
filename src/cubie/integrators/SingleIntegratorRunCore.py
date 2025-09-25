@@ -439,6 +439,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                         new_step_controller_kind,
                 )
                 _step_controller.update(old_settings, silent=True)
+                self._step_controller = _step_controller
             recognized.add("step_controller_kind")
 
         if "algorithm" in updates_dict.keys():

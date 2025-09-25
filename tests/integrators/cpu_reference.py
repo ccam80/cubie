@@ -145,9 +145,11 @@ class CPUODESystem():
             state: Array,
             params: Array,
             drivers: Array,
+            observables: Array,
             computed_values: dict
         ) -> dict:
-        """Get current values for all symbols."""
+        """Get current values for all symbols.
+        """
         drivers = _ensure_array(drivers, self.precision)
 
         values = {}
@@ -168,7 +170,14 @@ class CPUODESystem():
         for symbol, index in self._driver_index.items():
             values[symbol] = float(drivers[index])
 
-        # Add computed intermediate values
+        # Add already-computed observables (may be partially filled during RHS sweep)
+        if observables is not None and len(self._observable_index) > 0:
+            for symbol, index in self._observable_index.items():
+                # Only insert if we have a slot (array sized to n_observables)
+                if index < len(observables):
+                    values[symbol] = float(observables[index])
+
+        # Add computed intermediate values (auxiliaries / previously evaluated equations)
         values.update(computed_values)
 
         return values
@@ -200,8 +209,8 @@ class CPUODESystem():
         for i, (compiled_fn, lhs, expr_symbols) in enumerate(zip(
             self._compiled_equations, self._equation_targets, self._equation_symbols
         )):
-            # Get current symbol values including any computed intermediates
-            symbol_values = self._get_symbol_values(state, params, drivers, computed_values)
+            # Get current symbol values including any computed intermediates & observables so far
+            symbol_values = self._get_symbol_values(state, params, drivers, observables, computed_values)
 
             # Prepare arguments for this specific function
             if expr_symbols:
@@ -225,7 +234,12 @@ class CPUODESystem():
         if not self._compiled_jacobian:
             return np.zeros((self.n_states, self.n_states), dtype=self.precision)
 
-        symbol_values = self._get_symbol_values(state, params, drivers, {})
+        # Precompute observables (and auxiliary expressions) so that any
+        # derivative expressions depending on them receive correct numeric values.
+        # We discard dxdt here; only need observables array.
+        _, observables = self.rhs(state, params, drivers)
+
+        symbol_values = self._get_symbol_values(state, params, drivers, observables, {})
         jac_rows = len(self._compiled_jacobian)
         jac_cols = len(self._compiled_jacobian[0]) if jac_rows > 0 else 0
         jacobian = np.zeros((jac_rows, jac_cols), dtype=self.precision)
@@ -233,6 +247,7 @@ class CPUODESystem():
         for i, (row, row_symbols) in enumerate(zip(self._compiled_jacobian, self._jacobian_symbols)):
             for j, (compiled_entry, expr_symbols) in enumerate(zip(row, row_symbols)):
                 if expr_symbols:
+                    # Refresh symbol values only if needed (observables already reflect state)
                     args = self._prepare_args(expr_symbols, symbol_values)
                     jacobian[i, j] = float(compiled_entry(*args))
                 else:
@@ -426,7 +441,7 @@ def backward_euler_predict_correct_step(
 
 
 class DriverSampler:
-    """Utility translating forcing vectors to values at arbitrary times."""
+    """Utility mapping loop save indices to driver samples."""
 
     def __init__(self, drivers: Array, base_dt: float, precision: np.dtype) -> None:
         if drivers.size == 0:
@@ -435,13 +450,17 @@ class DriverSampler:
             if drivers.ndim != 2:
                 raise ValueError("forcing_vectors must have shape (n_drivers, n_samples)")
             self._drivers = drivers.astype(precision)
-        self._base_dt = float(base_dt)
         self._samples = self._drivers.shape[1]
 
-    def sample(self, time: float) -> Array:
+    def sample(self, save_index: int) -> Array:
+        """Return the driver values associated with ``save_index``."""
+
         if self._drivers.size == 0:
             return np.zeros(0, dtype=self._drivers.dtype)
-        index = int(np.floor(time / self._base_dt)) % self._samples
+
+        index = int(save_index)
+        if self._samples > 0:
+            index %= self._samples
         return self._drivers[:, index]
 
 class CPUAdaptiveController:
@@ -646,6 +665,9 @@ def run_reference_loop(
     controller.dt = controller_settings.get("dt", dt_min)
 
     sampler = DriverSampler(forcing_vectors, dt_save, precision)
+    save_index = 0
+    if warmup <= 0.0 and dt_save > 0.0:
+        save_index = 1
 
     saved_state_indices = _ensure_array(
         solver_settings["saved_state_indices"], np.int32)
@@ -675,8 +697,8 @@ def run_reference_loop(
         dt = min(controller.dt, end_time - t)
         dt = min(dt, next_save_time-t)
 
-        drivers_now = sampler.sample(t)
-        drivers_next = sampler.sample(t + dt)
+        drivers_now = sampler.sample(save_index)
+        drivers_next = sampler.sample(save_index + 1)
 
         # Pass max_iters from implicit_step_settings to step functions
 
@@ -715,6 +737,7 @@ def run_reference_loop(
                 observable_history.append(result.observables.copy())
                 time_history.append(next_save_time - warmup)
                 next_save_time += dt_save
+                save_index += 1
 
     # ------------------------------------------------------------------
     # Convert histories to arrays matching device layout

@@ -127,7 +127,7 @@ class ArrayResponse:
         default=attrs.Factory(dict), validator=val.instance_of(dict)
     )
     chunks: int = attrs.field(
-        default=attrs.Factory(dict),
+        default=1,
     )
     chunk_axis: str = attrs.field(
         default="run", validator=val.in_(["run", "variable", "time"])
