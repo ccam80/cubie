@@ -1,12 +1,7 @@
-"""Base class for inner "step" logic of a numerical integration algorithm.
+"""Base classes and shared configuration for integration step factories."""
 
-This module provides the BaseAlgorithmStep class, which serves as the base
-class for all inner "step" loops for numerical integration algorithms. It
-includes the interface for implementing the inner loop logic only,
-returning an integer code that indicates the success or failure of the step."""
-
-from abc import abstractmethod, ABC
-from typing import Callable, Optional
+from abc import ABC, abstractmethod
+from typing import Callable, Dict, Optional, Set
 import warnings
 
 import attrs
@@ -14,7 +9,13 @@ import numpy as np
 from attrs import validators
 import numba
 
-from cubie._utils import is_device_validator, getype_validator
+from cubie._utils import (
+    PrecisionDtype,
+    getype_validator,
+    is_device_validator,
+    precision_converter,
+    precision_validator,
+)
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
 
@@ -29,92 +30,128 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'max_linear_iters', 'linear_correction_type', 'nonlinear_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks'
 }
-
-
 @attrs.define
 class BaseStepConfig(ABC):
-    """Configuration settings for a single integration step.
+    """Configuration shared by explicit and implicit integration steps.
+
+    Parameters
+    ----------
+    precision
+        Numerical precision to apply to device buffers. Supported values are
+        ``float16``, ``float32``, and ``float64``.
+    n
+        Number of state entries advanced by each step call.
+    dxdt_function
+        Device function that evaluates the system right-hand side.
+    get_solver_helper_fn
+        Optional callable that returns device helpers required by the
+        nonlinear solver construction.
     """
-    precision: type = attrs.field(
+
+    precision: PrecisionDtype = attrs.field(
         default=np.float32,
-        validator=attrs.validators.in_([np.float16, np.float32, np.float64])
+        converter=precision_converter,
+        validator=precision_validator,
     )
-    n: int = attrs.field(
-        default=1,
-        validator=getype_validator(int, 1)
-    )
+    n: int = attrs.field(default=1, validator=getype_validator(int, 1))
     dxdt_function: Optional[Callable] = attrs.field(
         default=None,
-        validator=validators.optional(is_device_validator)
+        validator=validators.optional(is_device_validator),
     )
     get_solver_helper_fn: Optional[Callable] = attrs.field(
         default=None,
-            validator=validators.optional(validators.is_callable())
+        validator=validators.optional(validators.is_callable()),
     )
-
 
     @property
     def numba_precision(self) -> type:
-        """Returns numba precision type."""
-        return numba.from_dtype(self.precision)
+        """Return the Numba dtype associated with ``precision``."""
+
+        return numba.from_dtype(np.dtype(self.precision))
 
     @property
     def simsafe_precision(self) -> type:
-        """Returns simulator safe precision."""
-        return simsafe_dtype(self.precision)
+        """Return the CUDA-simulator-safe dtype for ``precision``."""
+
+        return simsafe_dtype(np.dtype(self.precision))
 
     @property
-    def settings_dict(self) -> dict:
-        """Returns settings as a dictionary."""
-        return {'n': self.n,
-                'precision': self.precision}
+    def settings_dict(self) -> Dict[str, object]:
+        """Return a mutable view of the configuration state."""
+
+        return {"n": self.n, "precision": self.precision}
 
 @attrs.define
 class StepCache:
+    """Container for compiled device helpers used by an algorithm step.
+
+    Parameters
+    ----------
+    step
+        Device function that advances the integration state.
+    nonlinear_solver
+        Optional device function used by implicit methods to perform
+        nonlinear solves.
+    """
+
     step: Callable = attrs.field(validator=is_device_validator)
     nonlinear_solver: Optional[Callable] = attrs.field(
-           default=None,
-           validator=validators.optional(is_device_validator),
+        default=None,
+        validator=validators.optional(is_device_validator),
     )
 
 class BaseAlgorithmStep(CUDAFactory):
-    """
-    Base class for inner "step" logic of a numerical integration algorithm.
+    """Base class implementing cache and configuration handling for steps.
 
-    This class provides default update behaviour and properties for a
-    unified interface and inherits build and cache logic from CUDAFactory.
-
-    Algorithm algorithms handle the "inner" logic of an ODE integration,
-    estimating state at some future time given current state and parameters.
-    All algorithms should return an integer code indicating success or failure.
+    The class exposes properties and an ``update`` helper shared by concrete
+    explicit and implicit algorithms. Concrete subclasses implement
+    ``build`` to compile device helpers and provide metadata about resource
+    usage.
     """
 
-    def __init__(self,
-                 config: BaseStepConfig):
-        super().__init__()
-        self.setup_compile_settings(config)
-
-    def update(self, updates_dict=None, silent=False, **kwargs):
-        """
-        Pass updates to compile settings through the CUDAFactory interface.
-
-        This method will invalidate the cache if an update is successful.
-        Use silent=True when doing bulk updates with other component parameters
-        to suppress warnings about unrecognized keys.
+    def __init__(self, config: BaseStepConfig) -> None:
+        """Initialise the algorithm step with its configuration.
 
         Parameters
         ----------
-        updates_dict : dict, optional
-            Dictionary of parameters to update.
-        silent : bool, default=False
-            If True, suppress warnings about unrecognized parameters.
+        config
+            Configuration describing the algorithm step.
+
+        Returns
+        -------
+        None
+            This constructor updates internal configuration state.
+        """
+
+        super().__init__()
+        self.setup_compile_settings(config)
+
+    def update(
+        self,
+        updates_dict: Optional[Dict[str, object]] = None,
+        silent: bool = False,
+        **kwargs: object,
+    ) -> Set[str]:
+        """Apply configuration updates and invalidate caches when needed.
+
+        Parameters
+        ----------
+        updates_dict
+            Mapping of configuration keys to their new values.
+        silent
+            When ``True``, suppress warnings about inapplicable keys.
         **kwargs
-            Parameter updates to apply as keyword arguments.
+            Additional configuration updates supplied inline.
 
         Returns
         -------
         set
-            Set of parameter names that were recognized and updated.
+            Set of configuration keys that were recognized and updated.
+
+        Raises
+        ------
+        KeyError
+            Raised when an unknown key is provided while ``silent`` is False.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -153,26 +190,26 @@ class BaseAlgorithmStep(CUDAFactory):
         return recognised
 
     @property
-    def precision(self) -> type:
-        """Return the numerical precision associated with the step."""
+    def precision(self) -> PrecisionDtype:
+        """Return the configured numerical precision."""
 
         return self.compile_settings.precision
 
     @property
     def numba_precision(self) -> type:
-        """Return the Numba compatible precision for this step."""
+        """Return the Numba dtype used by compiled device helpers."""
 
         return self.compile_settings.numba_precision
 
     @property
     def simsafe_precision(self) -> type:
-        """Return the simulator-safe precision for this step."""
+        """Return the CUDA-simulator-safe dtype for the step."""
 
         return self.compile_settings.simsafe_precision
 
     @property
     def n(self) -> int:
-        """Return the number of state variables handled by the step."""
+        """Return the number of state variables advanced per step."""
 
         return self.compile_settings.n
 
@@ -194,19 +231,19 @@ class BaseAlgorithmStep(CUDAFactory):
     @property
     @abstractmethod
     def shared_memory_required(self) -> int:
-        """Number of precision elements of shared memory needed."""
+        """Return the precision-entry count of shared memory required."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def local_scratch_required(self) -> int:
-        """How many elements of temporary local memory are required."""
+        """Return the precision-entry count of local scratch required."""
         raise NotImplementedError
 
     @property
     @abstractmethod
     def persistent_local_required(self) -> int:
-        """Number of local elements that must persist between calls"""
+        """Return the persistent local precision-entry requirement."""
         raise NotImplementedError
 
     @property
@@ -217,38 +254,38 @@ class BaseAlgorithmStep(CUDAFactory):
     @property
     @abstractmethod
     def order(self) -> int:
-        """Order of the algorithm."""
+        """Return the classical order of accuracy of the algorithm."""
         raise NotImplementedError
 
     @property
     def step_function(self) -> Callable:
-        """Get the step function.""
-
-        This function performs a single integration step, returning an
-        integer code indicating success or failure.
-
-        Returns
-        -------
-        Callable
-            Device function that performs a single integration step.
-        """
+        """Return the cached device function that advances the solution."""
         return self.get_cached_output("step")
 
     @property
     def nonlinear_solver_function(self) -> Callable:
-        """Get the nonlinear solver function."""
+        """Return the cached nonlinear solver helper."""
         return self.get_cached_output("nonlinear_solver")
 
     @property
-    def settings_dict(self) -> dict:
-        """Returns settings as a dictionary."""
+    def settings_dict(self) -> Dict[str, object]:
+        """Return the configuration dictionary for the algorithm step."""
         return self.compile_settings.settings_dict
 
     @property
-    def dxdt_function(self):
+    def dxdt_function(self) -> Optional[Callable]:
+        """Return the compiled device derivative function."""
         return self.compile_settings.dxdt_function
 
 
     @property
-    def get_solver_helper_fn(self):
+    def get_solver_helper_fn(self) -> Optional[Callable]:
+        """Return the helper factory used to build solver device functions.
+
+        Returns
+        -------
+        Callable or None
+            Callable that yields device helpers for solver construction when
+            available.
+        """
         return self.compile_settings.get_solver_helper_fn

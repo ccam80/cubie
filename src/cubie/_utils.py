@@ -16,7 +16,7 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
-from attrs import fields, has, validators
+from attrs import Attribute, fields, has, validators
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
@@ -34,6 +34,30 @@ ALLOWED_PRECISIONS = {
     np.dtype(np.float32),
     np.dtype(np.float64),
 }
+
+
+def precision_converter(value: PrecisionDtype) -> type[np.floating]:
+    """Return a canonical NumPy scalar type for precision configuration."""
+
+    dtype = np.dtype(value)
+    if dtype not in ALLOWED_PRECISIONS:
+        raise ValueError(
+            "precision must be one of float16, float32, or float64",
+        )
+    return dtype.type
+
+
+def precision_validator(
+    _: object,
+    __: Attribute,
+    value: PrecisionDtype,
+) -> None:
+    """Validate that ``value`` resolves to a supported precision."""
+
+    if np.dtype(value) not in ALLOWED_PRECISIONS:
+        raise ValueError(
+            "precision must be one of float16, float32, or float64",
+        )
 
 
 def slice_variable_dimension(slices, indices, ndim):

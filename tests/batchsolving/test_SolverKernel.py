@@ -246,7 +246,7 @@ def test_run(
 def test_algorithm_change(solverkernel):
     solverkernel.update({"algorithm": "backwards_euler_pc"})
     assert (
-        solverkernel.single_integrator._integrator_instance.shared_memory_required
+        solverkernel.single_integrator._loop.shared_memory_required
         == 0
     )
 

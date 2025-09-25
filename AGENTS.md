@@ -34,6 +34,13 @@ in calls to __init__. Attrs handles both internally.
 ###### src/cubie/batchsolving/arrays
 ##### src/cubie/integrators
 ###### src/cubie/integrators/algorithms
+Labelled:
+- Hosts explicit Euler and implicit Newton–Krylov step factories that
+  share ``BaseStepConfig`` precision handling and ``StepCache`` outputs.
+- Implicit algorithms depend on ``cubie.integrators.matrix_free_solvers``
+  helpers surfaced through ``get_solver_helper_fn`` closures.
+- Keep numpydoc docstrings aligned with precision casting rules and
+  expose autosummary entries for configs and exported factory classes.
 ###### src/cubie/integrators/loops
 ###### src/cubie/integrators/matrix_free_solvers
 Labelled:

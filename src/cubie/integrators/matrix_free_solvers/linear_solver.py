@@ -11,7 +11,7 @@ from typing import Callable, Optional
 from numba import cuda, int32, from_dtype
 import numpy as np
 
-from cubie._utils import ALLOWED_PRECISIONS, PrecisionDtype
+from cubie._utils import PrecisionDtype
 from cubie.cudasim_utils import activemask, all_sync
 
 
@@ -70,8 +70,6 @@ def linear_solver_factory(
     preconditioned = 1 if preconditioner is not None else 0
 
     precision_dtype = np.dtype(precision)
-    if precision_dtype not in ALLOWED_PRECISIONS:
-        raise ValueError("precision must be float16, float32, or float64.")
     precision_scalar = from_dtype(precision_dtype)
     typed_zero = precision_scalar(0.0)
     tol_squared = tolerance * tolerance

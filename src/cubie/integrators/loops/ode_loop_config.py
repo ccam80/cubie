@@ -10,10 +10,10 @@ from typing import Optional, Callable
 
 from attrs import define, field, validators
 import numba
-from numpy import float32, float16, float64
+from numpy import float32
 
 from cubie._utils import (is_device_validator, getype_validator,
-                          gttype_validator)
+                          gttype_validator, precision_validator)
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
 
@@ -232,8 +232,7 @@ class ODELoopConfig:
 
     precision: type = field(
         default=float32,
-        validator=validators.in_([float32, float64, float16]),
-        )
+        validator=precision_validator)
     compile_flags: OutputCompileFlags = field(
         default=OutputCompileFlags(),
         validator=validators.instance_of(OutputCompileFlags),

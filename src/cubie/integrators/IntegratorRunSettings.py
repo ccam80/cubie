@@ -6,83 +6,11 @@ It performs light dependency injection by instantiating algorithm step
 objects and step-size controllers used by the modular IVP loop.
 """
 
-from __future__ import annotations
-
-from typing import Dict
-
 import attrs
-from attrs import setters
 import numba
-import numpy as np
 from numpy import float32
 
-# from cubie.integrators.algorithms.LoopStepConfig import LoopStepConfig
-
-
-_ALGORITHM_ALIASES: Dict[str, str] = {
-    "euler": "euler",
-    "euler": "euler",
-    "explicit": "euler",
-    "backward_euler": "backwards_euler",
-    "backwards_euler": "backwards_euler",
-    "crank_nicolson": "crank_nicolson",
-}
-
-_CONTROLLER_ALIASES: Dict[str, str] = {
-    "fixed": "fixed",
-    "i": "i",
-    "pi": "pi",
-    "pid": "pid",
-    "gustafsson": "gustafsson",
-}
-
-_KNOWN_ALGORITHM_KEYS: set[str] = {
-    "dt",
-    "linsolve_tolerance",
-    "max_linear_iters",
-    "linear_correction_type",
-    "nonlinear_tolerance",
-    "max_newton_iters",
-    "newton_damping",
-    "newton_max_backtracks",
-    "norm_type",
-    "preconditioner_order",
-}
-
-_KNOWN_CONTROLLER_KEYS: set[str] = {
-    "algorithm_order",
-    "atol",
-    "dt",
-    "dt_max",
-    "dt_min",
-    "kd",
-    "ki",
-    "kp",
-    "max_gain",
-    "min_gain",
-    "norm",
-    "norm_kwargs",
-    "order",
-    "rtol",
-}
-
-
-def _normalise_algorithm(name: str) -> str:
-    """Return the canonical algorithm identifier."""
-
-    try:
-        return _ALGORITHM_ALIASES[name.lower()]
-    except KeyError as exc:  # pragma: no cover - defensive
-        raise KeyError(f"Unknown integrator algorithm '{name}'.") from exc
-
-
-def _normalise_controller(kind: str) -> str:
-    """Return the canonical controller identifier."""
-
-    try:
-        return _CONTROLLER_ALIASES[kind.lower()]
-    except KeyError as exc:  # pragma: no cover - defensive
-        raise KeyError(f"Unknown step controller '{kind}'.") from exc
+from cubie._utils import precision_converter, precision_validator
 
 
 @attrs.define
@@ -101,25 +29,18 @@ class IntegratorRunSettings:
 
     precision: type = attrs.field(
         default=float32,
-        validator=attrs.validators.in_([np.float32, np.float64, np.float16]),
+        converter=precision_converter,
+        validator=precision_validator,
     )
     algorithm: str = attrs.field(
         default="euler",
-        converter=_normalise_algorithm,
-        on_setattr=setters.convert,
+        validator=attrs.validators.instance_of(str),
     )
     step_controller_kind: str = attrs.field(
         default="fixed",
-        converter=_normalise_controller,
-        on_setattr=setters.convert,
+        validator=attrs.validators.instance_of(str),
     )
 
-    def __attrs_post_init__(self) -> None:
-        """Validate configuration after initialisation."""
-
-    # ------------------------------------------------------------------
-    # Derived properties
-    # ------------------------------------------------------------------
     @property
     def numba_precision(self) -> type:
         """Return the Numba-compatible precision."""

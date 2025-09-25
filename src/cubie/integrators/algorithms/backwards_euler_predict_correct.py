@@ -1,23 +1,44 @@
-from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
+"""Backward Euler step with an explicit predictor and implicit corrector."""
+
+from typing import Callable
+
 from numba import cuda
 
+from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
 
 
 class BackwardsEulerPCStep(BackwardsEulerStep):
-    """Backwards Euler with a predictor-corrector approach.
+    """Backward Euler with a predictor-corrector refinement."""
 
-    This method uses an explicit Euler step to predict the next state,
-    then refines this prediction using the implicit Backwards Euler method.
-    """
+    def build_step(
+        self,
+        solver_fn: Callable,
+        dxdt_fn: Callable,
+        obs_fn: Callable,
+        numba_precision: type,
+        n: int,
+    ) -> StepCache:  # pragma: no cover - cuda code
+        """Build the device function for the predictor-corrector scheme.
 
-    def build_step(self,
-                   solver_fn,
-                   dxdt_fn,
-                   obs_fn,
-                   numba_precision,
-                   n):  # pragma: no cover - complex
-        """Build the device function for a backward Euler step."""
+        Parameters
+        ----------
+        solver_fn
+            Device nonlinear solver produced by the implicit helper chain.
+        dxdt_fn
+            Device derivative function for the ODE system.
+        obs_fn
+            Device observable computation helper.
+        numba_precision
+            Numba precision corresponding to the configured precision.
+        n
+            Dimension of the state vector.
+
+        Returns
+        -------
+        StepCache
+            Container holding the compiled predictor-corrector step.
+        """
 
         a_ij = numba_precision(1.0)
 
@@ -49,7 +70,37 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             shared,
             persistent_local,
         ):
-            # Only difference to backwards euler is here:
+            """Advance the state using an explicit predictor and implicit corrector.
+
+            Parameters
+            ----------
+            state
+                Device array storing the current state.
+            proposed_state
+                Device array receiving the updated state.
+            work_buffer
+                Device array used as temporary storage for derivatives.
+            parameters
+                Device array of static model parameters.
+            drivers
+                Device array of time-dependent drivers.
+            observables
+                Device array receiving observable outputs.
+            error
+                Device array capturing solver diagnostics.
+            dt_scalar
+                Scalar containing the proposed step size.
+            shared
+                Device array used for shared memory (unused here).
+            persistent_local
+                Device array for persistent local storage (unused here).
+
+            Returns
+            -------
+            int
+                Status code returned by the nonlinear solver.
+            """
+
             dxdt_fn(state, parameters, drivers, observables, work_buffer)
             for i in range(n):
                 proposed_state[i] = state[i] + dt_scalar * work_buffer[i]
@@ -67,7 +118,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 work_buffer,
                 resid,
                 z,
-                error, # fixed-step loop doesn't use error, reuse as scratch
+                error,  # fixed-step loop reuses error as scratch
             )
 
             obs_fn(proposed_state, parameters, drivers, observables)

@@ -3,7 +3,6 @@ from os import environ
 
 import pytest
 import numpy as np
-from numpy.testing import assert_array_equal, assert_allclose
 from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
@@ -174,19 +173,21 @@ def test_output_properties(solver_instance):
     assert isinstance(solver_instance.output_stride_order, Iterable)
 
 
-def test_solve_info_property(solver_instance, solver_settings):
+def test_solve_info_property(precision, solver_instance, solver_settings):
     """Test that solve_info returns a valid SolveSpec."""
     solve_info = solver_instance.solve_info
     assert isinstance(solve_info, SolveSpec)
-    assert solve_info.dt_min == solver_settings["dt_min"]
-    assert solve_info.dt_max == solver_settings["dt_max"]
-    assert solve_info.dt_save == solver_settings["dt_save"]
-    assert solve_info.dt_summarise == solver_settings["dt_summarise"]
-    assert solve_info.atol == solver_settings["atol"]
-    assert solve_info.rtol == solver_settings["rtol"]
-    assert solve_info.algorithm == solver_settings["algorithm"]
-    assert solve_info.output_types == solver_settings["output_types"]
-    assert solve_info.precision == solver_settings["precision"]
+    assert solve_info.dt_min == pytest.approx(solver_settings["dt_min"])
+    assert solve_info.dt_max == pytest.approx(solver_settings["dt_max"])
+    assert solve_info.dt_save == pytest.approx(solver_settings["dt_save"])
+    assert solve_info.dt_summarise == pytest.approx(solver_settings[
+                                                        "dt_summarise"])
+    assert solve_info.atol == pytest.approx(solver_settings["atol"])
+    assert solve_info.rtol == pytest.approx(solver_settings["rtol"])
+    assert solve_info.algorithm == pytest.approx(solver_settings["algorithm"])
+    assert solve_info.output_types ==  pytest.approx(solver_settings[
+                                                         "output_types"])
+    assert solve_info.precision ==  pytest.approx(solver_settings["precision"])
 
     # Test that solver kernel properties are correctly exposed
     assert solve_info.duration == solver_instance.kernel.duration
@@ -312,6 +313,9 @@ def test_update_basic(solver_instance):
     assert solver_instance.kernel.duration != original_duration
 
 
+@pytest.mark.parametrize("solver_settings_override",
+                         [{"algorithm": "backwards_euler"}],
+                         indirect=True)
 def test_update_with_kwargs(solver_instance):
     """Test update with keyword arguments."""
     original_atol = solver_instance.kernel.atol
@@ -444,7 +448,7 @@ def test_solve_ivp_function(
 
 def test_solver_with_different_algorithms(system, solver_settings):
     """Test solver with different algorithms."""
-    algorithms = ["euler", "generic"]
+    algorithms = ["euler", "backwards_euler_pc"]
 
     for algorithm in algorithms:
         solver = Solver(

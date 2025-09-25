@@ -1,6 +1,6 @@
-"""Algorithm step implementations."""
+"""Factories for explicit and implicit algorithm step implementations."""
 
-from typing import Optional, Callable
+from typing import Any
 
 from .base_algorithm_step import BaseStepConfig, BaseAlgorithmStep
 from .ode_explicitstep import ExplicitStepConfig, ODEExplicitStep
@@ -21,17 +21,36 @@ __all__ = [
     "CrankNicolsonStep",
 ]
 
-def get_algorithm_step(name,
-                       **kwargs) -> BaseAlgorithmStep:
-    """Return an algorith step instance based on ``name`` with parameters
-    given by kwargs"""
+
+def get_algorithm_step(name: str, **kwargs: Any) -> BaseAlgorithmStep:
+    """Instantiate an algorithm step implementation.
+
+    Parameters
+    ----------
+    name
+        Identifier for the desired algorithm implementation. Supported
+        values are ``"euler"``, ``"backwards_euler"``,
+        ``"backwards_euler_pc"``, and ``"crank_nicolson"``.
+    **kwargs
+        Configuration parameters forwarded to the selected step class.
+
+    Returns
+    -------
+    BaseAlgorithmStep
+        Instance of the requested algorithm step implementation.
+
+    Raises
+    ------
+    ValueError
+        Raised when ``name`` does not match a known algorithm identifier.
+    """
+
     if name == "euler":
         return ExplicitEulerStep(**kwargs)
-    elif name == "backwards_euler":
+    if name == "backwards_euler":
         return BackwardsEulerStep(**kwargs)
-    elif name == "backwards_euler_pc":
+    if name == "backwards_euler_pc":
         return BackwardsEulerPCStep(**kwargs)
-    elif name == "crank_nicolson":
+    if name == "crank_nicolson":
         return CrankNicolsonStep(**kwargs)
-    else:
-        raise ValueError(f"Unknown algorithm '{name}'.")
+    raise ValueError(f"Unknown algorithm '{name}'.")

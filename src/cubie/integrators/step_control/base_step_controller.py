@@ -13,11 +13,12 @@ from typing import Callable, Optional
 import warnings
 
 import numba
-from numpy import float32, float16, float64
-from attrs import define, field, validators
+from numpy import float32
+from attrs import define, field
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie._utils import getype_validator
+from cubie._utils import getype_validator, precision_converter, \
+    precision_validator
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
 
 # Define all possible step controller parameters across all controller types
@@ -51,7 +52,8 @@ class BaseStepControllerConfig(ABC):
 
     precision: type = field(
         default=float32,
-        validator=validators.in_([float16, float32, float64]),
+        converter=precision_converter,
+        validator=precision_validator,
     )
     n: int = field(default=1, validator=getype_validator(int, 0))
 
@@ -64,7 +66,6 @@ class BaseStepControllerConfig(ABC):
     @property
     def simsafe_precision(self) -> type:
         """Return the simulator compatible precision object."""
-
         return simsafe_dtype(self.precision)
 
     @property

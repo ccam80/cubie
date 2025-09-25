@@ -7,7 +7,7 @@ from numpy import float32
 import numba
 
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
-
+from cubie._utils import precision_converter, precision_validator
 from cubie.odesystems.SystemValues import SystemValues
 
 
@@ -89,7 +89,9 @@ class ODEData:
         ),
     )
     precision: type = attrs.field(
-        validator=attrs.validators.instance_of(type), default=float32
+        converter=precision_converter,
+        validator=precision_validator,
+        default=float32
     )
     num_drivers: int = attrs.field(
         validator=attrs.validators.instance_of(int), default=1

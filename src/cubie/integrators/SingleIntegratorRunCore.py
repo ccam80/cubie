@@ -115,7 +115,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             n=system.sizes.states,
             fixed_step=fixed,
             dxdt_function=self._system.dxdt_function,
-            solver_function_getter=self._system.get_solver_helper,
+            get_solver_helper_fn=self._system.get_solver_helper,
             step_size=fixed_step_size,
             **(algorithm_parameters or {}),
         )
@@ -155,7 +155,8 @@ class SingleIntegratorRunCore(CUDAFactory):
                                 n: int = 1,
                                 fixed_step: bool = False,
                                 dxdt_function: Optional[Callable] = None,
-                                solver_function_getter: Optional[Callable] = None,
+                                get_solver_helper_fn: Optional[Callable]
+                                = None,
                                 step_size: float = 1e-3,
                                 **kwargs):
         """Instantiate the algorithm step.
@@ -170,7 +171,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             True if the step controller used is fixed-step.
         dxdt_function : Device function
             The device function which calculates the derivative.
-        solver_function_getter : Callable
+        get_solver_helper_fn : Callable
             The :method:`~cubie.odesystems.symbolic.symbolicODE.SymbolicODE
             .get_solver_gelper` factory method which returns a nonlinear
             solver and observables function.
@@ -190,13 +191,13 @@ class SingleIntegratorRunCore(CUDAFactory):
             .backwards_euler_predict_correct.BackwardsEulerPCStep`,
 
             """
-        if fixed_step:
-            kwargs["dt"] = step_size
+        if kind.lower() in ["euler"]: # fixed step algorithms
+            kwargs = {"dt": step_size}
         algorithm = get_algorithm_step(kind,
                                   precision=self.precision,
                                   n=n,
                                   dxdt_function=dxdt_function,
-                                  solver_function_getter=solver_function_getter,
+                                  get_solver_helper_fn=get_solver_helper_fn,
                                   **kwargs)
         return algorithm
 
@@ -372,7 +373,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                     n=self.system_sizes.states,
                     fixed_step=not self._step_controller.is_adaptive,
                     dxdt_function=self._system.dxdt_function,
-                    solver_function_getter=self._system.get_solver_helper,
+                    get_solver_helper_fn=self._system.get_solver_helper,
                 )
                 _algo_step.update(old_settings, silent=True)
                 self._algo_step = _algo_step
