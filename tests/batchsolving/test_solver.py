@@ -173,21 +173,23 @@ def test_output_properties(solver_instance):
     assert isinstance(solver_instance.output_stride_order, Iterable)
 
 
+
 def test_solve_info_property(precision, solver_instance, solver_settings):
     """Test that solve_info returns a valid SolveSpec."""
     solve_info = solver_instance.solve_info
     assert isinstance(solve_info, SolveSpec)
     assert solve_info.dt_min == pytest.approx(solver_settings["dt_min"])
-    assert solve_info.dt_max == pytest.approx(solver_settings["dt_max"])
+    if solver_instance.kernel.single_integrator.is_adaptive:
+        assert solve_info.dt_max == pytest.approx(solver_settings["dt_max"])
+        assert solve_info.atol == pytest.approx(solver_settings["atol"])
+        assert solve_info.rtol == pytest.approx(solver_settings["rtol"])
     assert solve_info.dt_save == pytest.approx(solver_settings["dt_save"])
     assert solve_info.dt_summarise == pytest.approx(solver_settings[
                                                         "dt_summarise"])
-    assert solve_info.atol == pytest.approx(solver_settings["atol"])
-    assert solve_info.rtol == pytest.approx(solver_settings["rtol"])
-    assert solve_info.algorithm == pytest.approx(solver_settings["algorithm"])
-    assert solve_info.output_types ==  pytest.approx(solver_settings[
-                                                         "output_types"])
-    assert solve_info.precision ==  pytest.approx(solver_settings["precision"])
+
+    assert solve_info.algorithm == solver_settings["algorithm"]
+    assert solve_info.output_types ==  solver_settings["output_types"]
+    assert solve_info.precision ==  solver_settings["precision"]
 
     # Test that solver kernel properties are correctly exposed
     assert solve_info.duration == solver_instance.kernel.duration

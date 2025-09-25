@@ -1,14 +1,9 @@
-"""
-Base class for integration algorithm Loops.
+"""Outer integration loops for running CUDA-based ODE solvers.
 
-This module provides the IVPLoop class, which serves as
-the base class for all ODE integration loops. This class provides default
-update behaviour and properties for a unified interface and inherits build
-and cache logic from CUDAFactory.
-
-Integration loops handle the "outer" logic of an ODE integration, organising
-algorithms and saving output, and call an algorithm-specific step function to do the
-mathy end of the integration.
+The :class:`IVPLoop` orchestrates an integration by coordinating device step
+functions, output collectors, and adaptive controllers. The loop owns buffer
+layout metadata and feeds the appropriate slices into each device call so that
+compiled kernels only need to focus on algorithmic updates.
 """
 from math import ceil
 from typing import Callable, Optional
@@ -19,52 +14,53 @@ from numba import cuda, int32
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
 from cubie.cudasim_utils import activemask, all_sync
-from cubie.integrators.loops.ode_loop_config import (LoopSharedIndices,
-                                                     ODELoopConfig,
-                                                     LoopLocalIndices)
+from cubie._utils import PrecisionDtype
+from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
+                                                     LoopSharedIndices,
+                                                     ODELoopConfig)
 from cubie.outputhandling import OutputCompileFlags
 
 
 class IVPLoop(CUDAFactory):
-    """
-    Stepping loop for ODE solving algorithms.
-
-    This class handles building and caching of the loop device function, which
-    is incorporated into a CUDA kernel for GPU execution. The "meat" of the
-    integration is completed in a step function, which contains the
-    integration algorithm. This loop just assigns some memory, calls the
-    step, calls a step-size controller to accept/reject the step, and calls
-    output/save functions when appropriate. No subclasses are expected.
+    """Factory for CUDA device loops that advance an IVP integration.
 
     Parameters
     ----------
-    precision : type
-        Numerical precision type for computations.
-    buffer_sizes : LoopBufferSizes
-        Configuration object specifying buffer sizes.
-    compile_flags : LoopStepConfig
-        Configuration object for loop step parameters.
-    save_state_func : CUDA device function
-        Function for saving state values during integration.
-    update_summaries_func : CUDA device function
-        Function for updating summary statistics.
-    save_summaries_func : CUDA device function
-        Function for saving summary statistics.
-    step_controller_fn : device function
-        A device function that adjusts the timestep and accepts or rejects a
-        step. Signature [TODO]
-    step_fn : device function
-        A device function that executes a single step of the algorithm.
-        Signature: [TODO]
-
-    Notes
-    -----
-
+    precision
+        Precision used for state and observable updates.
+    shared_indices
+        Buffer layout describing slices of shared memory arrays.
+    local_indices
+        Buffer layout describing slices of persistent local memory.
+    compile_flags
+        Output configuration that drives save and summary behaviour.
+    dt_save
+        Interval between accepted saves.
+    dt_summarise
+        Interval between summary accumulations.
+    dt0
+        Initial timestep applied before controller feedback.
+    dt_min
+        Minimum allowable timestep.
+    dt_max
+        Maximum allowable timestep.
+    is_adaptive
+        Whether an adaptive controller is used.
+    save_state_func
+        Device function that writes state and observable snapshots.
+    update_summaries_func
+        Device function that accumulates summary statistics.
+    save_summaries_func
+        Device function that commits summary statistics to output buffers.
+    step_controller_fn
+        Device function that updates the timestep and accept flag.
+    step_fn
+        Device function that advances the solution by one tentative step.
     """
 
     def __init__(
         self,
-        precision: type,
+        precision: PrecisionDtype,
         shared_indices: LoopSharedIndices,
         local_indices: LoopLocalIndices,
         compile_flags: OutputCompileFlags,
@@ -101,36 +97,30 @@ class IVPLoop(CUDAFactory):
         )
         self.setup_compile_settings(config)
 
-    # @property
-    # def is_adaptive(self):
-    #     """Returns whether the loop is adaptive-step"""
-    #     return self.step_controller.is_adaptive
-
     @property
-    def precision(self):
-        """Returns numerical precision for system"""
+    def precision(self) -> PrecisionDtype:
+        """Return the numerical precision used for the loop."""
         return self.compile_settings.precision
 
     @property
-    def numba_precision(self):
+    def numba_precision(self) -> type:
         """Return the Numba compatible precision for the loop."""
 
         return self.compile_settings.numba_precision
 
     @property
-    def simsafe_precision(self):
+    def simsafe_precision(self) -> type:
         """Return the simulator safe precision for the loop."""
 
         return self.compile_settings.simsafe_precision
 
-    def build(self):
-        """
-        Build the integrator loop, unpacking config for local scope.
+    def build(self) -> Callable:
+        """Compile the CUDA device loop.
 
         Returns
         -------
-        callable
-            The compiled integrator loop device function.
+        Callable
+            Compiled device function that executes the integration loop.
         """
         config = self.compile_settings
 
@@ -201,6 +191,40 @@ class IVPLoop(CUDAFactory):
             settling_time,
             t0=precision(0.0),
         ):
+            """Advance an integration using a compiled CUDA device loop.
+
+            Parameters
+            ----------
+            initial_states
+                Device array containing the initial state vector.
+            parameters
+                Device array containing static parameters.
+            drivers
+                Device array with driver samples aligned to save times.
+            shared_scratch
+                Device array providing shared-memory work buffers.
+            persistent_local
+                Device array providing persistent local memory buffers.
+            state_output
+                Device array storing accepted state snapshots.
+            observables_output
+                Device array storing accepted observable snapshots.
+            state_summaries_output
+                Device array storing aggregated state summaries.
+            observable_summaries_output
+                Device array storing aggregated observable summaries.
+            duration
+                Total integration duration.
+            settling_time
+                Lead-in time before samples are collected.
+            t0
+                Initial integration time.
+
+            Returns
+            -------
+            int
+                Status code aggregating errors and iteration counts.
+            """
             t = precision(t0)
             t_end = precision(settling_time + duration)
 
@@ -367,7 +391,9 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.dt_save
 
     @property
-    def dt_summarise(self):
+    def dt_summarise(self) -> float:
+        """Return the summary interval."""
+
         return self.compile_settings.dt_summarise
 
     @property
@@ -458,25 +484,22 @@ class IVPLoop(CUDAFactory):
 
         return self.compile_settings.is_adaptive
 
-    def update(self,
-               updates_dict : Optional[dict] = None,
-               silent: bool = False,
-               **kwargs):
-        """
-        Pass updates to compile settings through the CUDAFactory interface.
-
-        This method will invalidate the cache if an update is successful.
-        Use silent=True when doing bulk updates with other component parameters
-        to suppress warnings about unrecognized keys.
+    def update(
+        self,
+        updates_dict: Optional[dict[str, object]] = None,
+        silent: bool = False,
+        **kwargs: object,
+    ) -> set[str]:
+        """Update compile settings through the CUDAFactory interface.
 
         Parameters
         ----------
         updates_dict
-            Dictionary of parameters to update.
+            Mapping of configuration names to replacement values.
         silent
-            If True, suppress warnings about unrecognized parameters.
+            When True, suppress warnings about unrecognized parameters.
         **kwargs
-            Parameter updates to apply as keyword arguments.
+            Additional configuration updates applied as keyword arguments.
 
         Returns
         -------

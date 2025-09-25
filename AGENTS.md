@@ -44,6 +44,14 @@ in calls to __init__. Attrs handles both internally.
   ``ImplicitStepConfig``, ``ExplicitEulerStep``, ``BackwardsEulerStep``,
   ``BackwardsEulerPCStep``, and ``CrankNicolsonStep``
 ###### src/cubie/integrators/loops
+- Houses the :class:`IVPLoop` factory that compiles CUDA device loops via
+  :class:`cubie.CUDAFactory`.
+- Keeps ``LoopSharedIndices``, ``LoopLocalIndices``, and ``ODELoopConfig`` in
+  ``ode_loop_config`` to describe shared and persistent buffer layouts plus
+  loop metadata without re-exporting them from the package root.
+- Depends on ``cubie.integrators.algorithms`` and
+  ``cubie.integrators.step_control`` for device callbacks and on
+  ``cubie.outputhandling`` for save and summary flag configuration.
 ###### src/cubie/integrators/matrix_free_solvers
 - CUDA device solver factories that return matrix-free linear and
   Newton--Krylov iterations built with :mod:`numba.cuda`.

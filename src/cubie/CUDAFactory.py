@@ -150,9 +150,9 @@ class CUDAFactory(ABC):
         KeyError
             If an unrecognised parameter is supplied and ``silent`` is ``False``.
         """
-        STATUS_MASK
+        if updates_dict is None:
             updates_dict = {}
-                updates_dict = updates_dict.copy()
+        updates_dict = updates_dict.copy()
         if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:

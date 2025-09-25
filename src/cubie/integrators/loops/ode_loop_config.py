@@ -1,19 +1,18 @@
-"""
-Integrator configuration management with validation and adapter patterns.
+"""Configuration helpers for CUDA-based integration loops.
 
-This module provides the IntegratorLoopSettings class for managing compile-critical
-settings for integrator loops, including timing parameters, buffer sizes, and
-function references. It uses validation and adapter patterns to ensure
-configuration consistency.
+The objects defined here capture shared and local buffer layouts alongside
+compile-critical metadata such as precision, save cadence, and device
+callbacks. They centralise validation so that loop factories receive
+consistent, ready-to-compile settings.
 """
-from typing import Optional, Callable
+from typing import Callable, MutableMapping, Optional, Union
 
 from attrs import define, field, validators
 import numba
 from numpy import float32
 
-from cubie._utils import (is_device_validator, getype_validator,
-                          gttype_validator, precision_validator)
+from cubie._utils import (PrecisionDtype, getype_validator, gttype_validator,
+                          is_device_validator, precision_validator)
 from cubie.cudasim_utils import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
 
@@ -21,7 +20,27 @@ valid_opt_slice = validators.optional(validators.instance_of(slice))
 
 @define
 class LoopLocalIndices:
-    """Index slices for persistent local memory used by the loop."""
+    """Index layout for persistent local memory buffers.
+
+    Attributes
+    ----------
+    dt
+        Slice pointing to the timestep storage element.
+    accept
+        Slice pointing to the acceptance flag storage element.
+    error
+        Slice covering the local error estimate buffer.
+    controller
+        Slice covering scratch space reserved for the controller state.
+    algorithm
+        Slice covering scratch space reserved for the algorithm state.
+    loop_end
+        Offset of the end of loop-managed storage.
+    total_end
+        Offset of the end of the persistent local buffer.
+    all
+        Slice that spans the entire persistent local buffer.
+    """
 
     dt: Optional[slice] = field(default=None, validator=valid_opt_slice)
     accept: Optional[slice] = field(default=None, validator=valid_opt_slice)
@@ -40,7 +59,13 @@ class LoopLocalIndices:
 
     @classmethod
     def empty(cls) -> "LoopLocalIndices":
-        """Return an empty local-memory layout."""
+        """Build an empty local-memory layout.
+
+        Returns
+        -------
+        LoopLocalIndices
+            Layout with zero-length slices for all buffers.
+        """
 
         zero = slice(0, 0)
         return cls(
@@ -58,7 +83,22 @@ class LoopLocalIndices:
     def from_sizes(
         cls, n_states: int, controller_len: int, algorithm_len: int
     ) -> "LoopLocalIndices":
-        """Build index slices from component memory requirements."""
+        """Build index slices from component memory requirements.
+
+        Parameters
+        ----------
+        n_states
+            Number of state entries requiring error storage.
+        controller_len
+            Number of persistent elements reserved for the controller.
+        algorithm_len
+            Number of persistent elements reserved for the algorithm.
+
+        Returns
+        -------
+        LoopLocalIndices
+            Layout sized to cover the requested buffer lengths.
+        """
 
         n_states = max(int(n_states), 0)
         controller_len = max(int(controller_len), 0)
@@ -96,8 +136,33 @@ class LoopLocalIndices:
 
 @define
 class LoopSharedIndices:
-    """General container for array indices used in integrator loops. Each
-    attribute is a slice, for indexing arrays directly"""
+    """Slice container describing shared-memory buffer layouts.
+
+    Attributes
+    ----------
+    dxdt
+        Slice covering derivative work buffers.
+    state
+        Slice covering the primary state buffer.
+    proposed_state
+        Slice covering the proposed state buffer.
+    observables
+        Slice covering observable work buffers.
+    parameters
+        Slice covering parameter storage.
+    drivers
+        Slice covering driver storage.
+    state_summaries
+        Slice covering aggregated state summaries.
+    observable_summaries
+        Slice covering aggregated observable summaries.
+    local_end
+        Offset of the end of loop-managed shared memory.
+    scratch
+        Slice covering any remaining shared-memory scratch space.
+    all
+        Slice that spans the full shared-memory buffer.
+    """
 
     dxdt: Optional[slice] = field(
             default=None,
@@ -144,7 +209,18 @@ class LoopSharedIndices:
             validator=valid_opt_slice
     )
 
-    def from_dict(self, indices_dict):
+    def from_dict(
+        self,
+        indices_dict: MutableMapping[str, Union[slice, tuple[int, ...]]],
+    ) -> None:
+        """Load indices from a mapping.
+
+        Parameters
+        ----------
+        indices_dict
+            Mapping of attribute names to slices or ``slice`` constructor
+            arguments.
+        """
         for key, value in indices_dict.items():
             if isinstance(value, slice):
                 setattr(self, key, value)
@@ -162,6 +238,28 @@ class LoopSharedIndices:
                    n_state_summaries: int,
                    n_observable_summaries: int,
                    ) -> "LoopSharedIndices":
+        """Build index slices from component sizes.
+
+        Parameters
+        ----------
+        n_states
+            Number of state elements.
+        n_observables
+            Number of observable elements.
+        n_parameters
+            Number of parameter elements.
+        n_drivers
+            Number of driver elements.
+        n_state_summaries
+            Number of state summary elements.
+        n_observable_summaries
+            Number of observable summary elements.
+
+        Returns
+        -------
+        LoopSharedIndices
+            Layout sized to cover the requested shared-memory partitions.
+        """
 
         state_start_idx = 0
         state_proposal_start_idx = state_start_idx + n_states
@@ -200,7 +298,7 @@ class LoopSharedIndices:
 
     @property
     def n_parameters(self) -> int:
-        """Return the number of proposed states."""
+        """Return the number of parameters."""
         return int(self.parameters.stop - self.parameters.start)
 
     @property
@@ -211,26 +309,50 @@ class LoopSharedIndices:
 
 @define
 class ODELoopConfig:
-    """
-    Compile-critical settings for an integrator loop.
+    """Compile-critical settings for an integrator loop.
 
-    This class manages configuration settings that are critical for compiling
-    integrator loops, including timing parameters, buffer sizes, precision,
-    and function references. The integrator loop is not the source of truth
-    for these settings, so minimal setters are provided. Instead, there are
-    update_from methods which extract relevant settings from other objects.
-
+    Attributes
+    ----------
+    shared_buffer_indices
+        Shared-memory layout describing scratch buffers and outputs.
+    local_indices
+        Persistent local-memory layout describing private buffers.
+    precision
+        Precision used for all loop-managed computations.
+    compile_flags
+        Output configuration governing save and summary cadence.
+    _dt_save
+        Interval between accepted saves.
+    _dt_summarise
+        Interval between summary accumulations.
+    save_state_fn
+        Device function that records state and observable snapshots.
+    update_summaries_fn
+        Device function that accumulates summary statistics.
+    save_summaries_fn
+        Device function that writes summary statistics to output buffers.
+    step_controller_fn
+        Device function that updates the timestep and acceptance flag.
+    step_fn
+        Device function that advances the solution by one tentative step.
+    _dt0
+        Initial timestep prior to controller feedback.
+    _dt_min
+        Minimum allowable timestep.
+    _dt_max
+        Maximum allowable timestep.
+    is_adaptive
+        Whether the loop operates with an adaptive controller.
     """
 
     shared_buffer_indices: LoopSharedIndices = field(
         validator=validators.instance_of(LoopSharedIndices)
     )
     local_indices: LoopLocalIndices = field(
-            validator=validators.instance_of(LoopLocalIndices)
+        validator=validators.instance_of(LoopLocalIndices)
     )
 
-
-    precision: type = field(
+    precision: PrecisionDtype = field(
         default=float32,
         validator=precision_validator)
     compile_flags: OutputCompileFlags = field(
@@ -246,24 +368,24 @@ class ODELoopConfig:
         validator=gttype_validator(float, 0)
     )
     save_state_fn: Optional[Callable] = field(
-            default=None,
-            validator=validators.optional(is_device_validator)
+        default=None,
+        validator=validators.optional(is_device_validator)
     )
-    update_summaries_fn: Callable = field(
-            default=None,
-            validator=validators.optional(is_device_validator)
+    update_summaries_fn: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator)
     )
-    save_summaries_fn: Callable = field(
-            default=None,
-            validator=validators.optional(is_device_validator)
+    save_summaries_fn: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator)
     )
-    step_controller_fn: Callable = field(
-            default=None,
-            validator=validators.optional(is_device_validator)
+    step_controller_fn: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator)
     )
-    step_fn: Callable = field(
-            default=None,
-            validator=validators.optional(is_device_validator)
+    step_fn: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator)
     )
     _dt0: Optional[float] = field(
         default=0.01,
@@ -288,22 +410,22 @@ class ODELoopConfig:
 
     @property
     def numba_precision(self) -> type:
-        """Returns numba precision type."""
+        """Return the Numba precision type."""
         return numba.from_dtype(self.precision)
 
     @property
     def simsafe_precision(self) -> type:
-        """Returns simulator safe precision."""
+        """Return the simulator safe precision."""
         return simsafe_dtype(self.precision)
 
     @property
     def dt_save(self) -> float:
-        """Returns output save interval."""
+        """Return the output save interval."""
         return self.precision(self._dt_save)
 
     @property
     def dt_summarise(self) -> float:
-        """Returns summary interval."""
+        """Return the summary interval."""
         return self.precision(self._dt_summarise)
 
     @property
