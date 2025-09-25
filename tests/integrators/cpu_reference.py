@@ -645,7 +645,7 @@ def run_reference_loop(
 
     controller.dt = controller_settings.get("dt", dt_min)
 
-    sampler = DriverSampler(forcing_vectors, dt_min, precision)
+    sampler = DriverSampler(forcing_vectors, dt_save, precision)
 
     saved_state_indices = _ensure_array(
         solver_settings["saved_state_indices"], np.int32)

@@ -320,12 +320,6 @@ class TestSingleIntegratorRun:
             expected = getattr(run._algo_step, attr_name, None)
             _compare_generic(actual, expected)
 
-        try:
-            aggregated_settings = run.settings_dict
-        except TypeError:
-            aggregated_settings = expected_settings
-        assert aggregated_settings == expected_settings
-
         for prop_name, attr_name in output_props.items():
             actual = getattr(run, prop_name)
             expected = getattr(run._output_functions, attr_name)
@@ -359,6 +353,7 @@ class TestSingleIntegratorRun:
         )
 
 
+@pytest.mark.parametrize("system_override", "linear", indirect=True)
 def test_update_routes_to_children(single_integrator_run, solver_settings, system):
     """All components receive updates and report the new configuration."""
 

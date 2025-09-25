@@ -51,12 +51,13 @@ def test_run(
     precision,
     system,
 ):
-    """Big integration tet. Runs a batch integratino and checks outputs match expected. Expensive, don't run
+    """Big integration tet. Runs a batch integration and checks outputs
+    match expected. Expensive, don't run
     "scorcher" in CI."""
     inits, params = batch_input_arrays
 
     samples = int(max(1,
-            np.ceil(solver_settings["duration"] / solver_settings["dt_min"])))
+            np.ceil(solver_settings["duration"] / solver_settings["dt_save"])))
 
     drivers = _driver_sequence(
         samples=samples,
@@ -125,9 +126,10 @@ def test_run(
 
 
 def test_algorithm_change(solverkernel):
-    solverkernel.update({"algorithm": "backwards_euler"})
+    solverkernel.update({"algorithm": "backwards_euler",
+                         "step_controller_kind": "pid"})
     assert (
-        solverkernel.single_integrator._algo_step.atol is not None)
+        solverkernel.single_integrator._step_controller.atol is not None)
 
 
 def test_getters_get(solverkernel):
@@ -232,8 +234,8 @@ def test_all_lower_plumbing(system, solverkernel):
         "BatchSolverConfig mismatch"
     )
     assert (
-        freshsolver.single_integrator.config
-        == solverkernel.single_integrator.config
+        freshsolver.single_integrator.compile_settings
+        == solverkernel.single_integrator.compile_settings
     ), "IntegratorRunSettings mismatch"
     assert (
         freshsolver.single_integrator._output_functions.compile_settings

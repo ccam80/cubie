@@ -488,19 +488,16 @@ def cpu_loop_runner(
         parameters=None,
         forcing_vectors=None,
     ):
-
-        solver_config = dict(solver_settings)
-        driver_matrix: np.ndarray
         if forcing_vectors is None:
             samples = int(
                 np.ceil(
-                    solver_config["duration"] / max(solver_config["dt_save"], 1e-12)
+                    solver_settings["duration"] / max(solver_settings["dt_save"], 1e-12)
                 )
             )
             samples = max(samples, 1)
             driver_matrix = _driver_sequence(
                 samples=samples,
-                total_time=solver_config["duration"],
+                total_time=solver_settings["duration"],
                 n_drivers=system.num_drivers,
                 precision=precision,
             )
@@ -535,7 +532,7 @@ def cpu_loop_runner(
         return run_reference_loop(
             evaluator=cpu_system,
             inputs=inputs,
-            solver_settings=solver_config,
+            solver_settings=solver_settings,
             implicit_step_settings=implicit_step_settings,
             controller=cpu_step_controller,
             output_functions=output_functions,

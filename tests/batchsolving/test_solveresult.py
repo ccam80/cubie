@@ -4,7 +4,6 @@ import pytest
 
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
-from tests.batchsolving.conftest import BatchResult
 from tests._utils import _driver_sequence
 
 
@@ -28,7 +27,7 @@ def solver_with_arrays(
         int(
             np.ceil(
                 solver_settings["duration"]
-                / max(float(solver_settings["dt_min"]), 1e-12)
+                / max(float(solver_settings["dt_save"]), 1e-12)
             )
         ),
     )
@@ -268,10 +267,13 @@ class TestSolveResultFromSolver:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "duration": 0.05}],
+            ({
+            "output_types": ["state", "observables", "time", "mean", "rms"],
+            "duration": 0.05,
+        }),
         indirect=True,
     )
+    @pytest.mark.parametrize("system_override", ["linear"], indirect=True)
     def test_time_domain_legend_from_solver(self, solver_with_arrays):
         """Test time domain legend creation from real solver."""
         legend = SolveResult.time_domain_legend_from_solver(solver_with_arrays)
@@ -337,7 +339,7 @@ class TestSolveResultFromSolver:
     def test_full_result_matches_cpu_outputs(
         self,
         solver_with_arrays,
-        batch_results: list[BatchResult],
+        cpu_batch_results,
         precision,
     ) -> None:
         """Ensure ``SolveResult`` values match CPU reference integrations."""
@@ -359,21 +361,20 @@ class TestSolveResultFromSolver:
         else:
             atol = rtol = 1e-12
 
-        for run_idx, expected in enumerate(batch_results):
-            if state_columns:
-                np.testing.assert_allclose(
-                    time_domain[:, run_idx][:, state_columns],
-                    expected.state,
-                    atol=atol,
-                    rtol=rtol,
-                )
-            if observable_columns:
-                np.testing.assert_allclose(
-                    time_domain[:, run_idx][:, observable_columns],
-                    expected.observables,
-                    atol=atol,
-                    rtol=rtol,
-                )
+        if state_columns:
+            np.testing.assert_allclose(
+                time_domain[:, state_columns],
+                cpu_batch_results.state,
+                atol=atol,
+                rtol=rtol,
+            )
+        if observable_columns:
+            np.testing.assert_allclose(
+                time_domain[:, observable_columns],
+                cpu_batch_results.observables,
+                atol=atol,
+                rtol=rtol,
+            )
 
         if result.summaries_array.size:
             summary_axes = tuple(
@@ -394,21 +395,20 @@ class TestSolveResultFromSolver:
                 if label.split()[0] in observable_prefixes
             ]
 
-            for run_idx, expected in enumerate(batch_results):
-                if state_summary_columns:
-                    np.testing.assert_allclose(
-                        summaries[:, run_idx][:, state_summary_columns],
-                        expected.state_summaries,
-                        atol=atol,
-                        rtol=rtol,
-                    )
-                if observable_summary_columns:
-                    np.testing.assert_allclose(
-                        summaries[:, run_idx][:, observable_summary_columns],
-                        expected.observable_summaries,
-                        atol=atol,
-                        rtol=rtol,
-                    )
+            if state_summary_columns:
+                np.testing.assert_allclose(
+                    summaries[:, state_summary_columns],
+                    cpu_batch_results.state_summaries,
+                    atol=atol,
+                    rtol=rtol,
+                )
+            if observable_summary_columns:
+                np.testing.assert_allclose(
+                    summaries[:, observable_summary_columns],
+                    cpu_batch_results.observable_summaries,
+                    atol=atol,
+                    rtol=rtol,
+                )
 
 
 class TestSolveResultProperties:

@@ -93,15 +93,8 @@ def cpu_batch_results(
 
     initial_sets, parameter_sets = batch_input_arrays
     num_sets = initial_sets.shape[0]
-    samples = max(
-        1,
-        int(
-            np.ceil(
-                solver_settings["duration"]
-                / max(float(solver_settings["dt_min"]), 1e-12)
-            )
-        ),
-    )
+    samples = int(np.ceil(solver_settings["duration"]
+                    / (float(solver_settings["dt_save"]))))
     driver_matrix = _driver_sequence(
         samples=samples,
         total_time=solver_settings["duration"],

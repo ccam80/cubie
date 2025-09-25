@@ -114,6 +114,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
         return 2
 
+    @property
     def settings_dict(self) -> dict[str, object]:
         """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict

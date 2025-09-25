@@ -316,7 +316,8 @@ def test_update_basic(solver_instance):
 
 
 @pytest.mark.parametrize("solver_settings_override",
-                         [{"algorithm": "backwards_euler"}],
+                         [{"algorithm": "backwards_euler",
+                           "step_controller": 'pid'}],
                          indirect=True)
 def test_update_with_kwargs(solver_instance):
     """Test update with keyword arguments."""

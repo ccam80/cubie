@@ -283,6 +283,7 @@ class BatchSolverKernel(CUDAFactory):
         stream=None,
         warmup=0.0,
         chunk_axis="run",
+        t0=0.0
     ):
         """
         Execute the solver kernel for batch integration.
@@ -334,15 +335,21 @@ class BatchSolverKernel(CUDAFactory):
         if chunk_axis == "run":
             chunkruns = int(np.ceil(numruns / chunks))
             chunk_duration = duration  # Each chunk processes full duration
+            chunk_warmup = warmup
+            chunk_t0 = t0
             chunksize = chunkruns
         elif chunk_axis == "time":
             # Divide duration by number of chunks to maintain total sample count
             chunk_duration = duration / chunks
             chunkruns = numruns
             chunksize = int(np.ceil(self.output_length / chunks))
+            chunk_warmup = warmup
+            chunk_t0 = t0
         else:
             chunk_duration = duration
             chunkruns = numruns
+            chunk_warmup = warmup
+            chunk_t0 = t0
             chunksize = None
             chunks = 1
 
@@ -387,7 +394,9 @@ class BatchSolverKernel(CUDAFactory):
             self.output_arrays.initialise(indices)
 
             # Apply warmup only to the first chunk
-            chunk_warmup = warmup if i == 0 else 0.0
+            if (chunk_axis == "time") and (i != 0):
+                chunk_warmup = 0.0
+                chunk_t0 = i * chunk_duration
 
             self.device_function[
                 BLOCKSPERGRID,
@@ -404,7 +413,7 @@ class BatchSolverKernel(CUDAFactory):
                 self.output_arrays.device_observable_summaries,
                 chunk_duration,
                 chunk_warmup,
-                self.precision(0.0),
+                chunk_t0,
                 numruns,
             )
             self.memory_manager.sync_stream(self)

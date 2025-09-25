@@ -39,9 +39,15 @@ class GustafssonStepControlConfig(AdaptiveStepControlConfig):
     @property
     def max_newton_iters(self) -> int:
         """Return the maximum number of Newton iterations considered."""
-
         return int(self._max_newton_iters)
 
+    @property
+    def settings_dict(self) -> dict[str, object]:
+        """Return the configuration as a dictionary."""
+        settings_dict = super().settings_dict
+        settings_dict.update({'gamma': self.gamma,
+                              'max_newton_iters': self.max_newton_iters})
+        return settings_dict
 
 class GustafssonController(BaseAdaptiveStepController):
     """Adaptive controller using Gustafsson acceleration."""

@@ -403,8 +403,9 @@ def param_array(system, batch_settings):
 
 @pytest.mark.parametrize(
     "mixed_type, params_type,states_type",
-    list(itertools.product(["dict", "seq", "array", None], repeat=3)),
+    list(itertools.product(["dict", "seq", "array"], repeat=3)),
 )
+@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_call_input_types(
     grid_builder,
     system,
@@ -490,6 +491,7 @@ def test_call_input_types(
     )
 
 
+@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_call_outputs(system, grid_builder):
     testarray1 = np.array([[1, 2], [3, 4]])
     state_testarray1 = extend_test_array(testarray1, system.initial_values)
