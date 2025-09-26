@@ -1,4 +1,4 @@
-"""Matrix-free preconditioned linear solver factories.
+"""Matrix-free preconditioned linear solver.
 
 This module builds CUDA device functions that implement steepest-descent or
 minimal-residual iterations without forming Jacobian matrices explicitly.
@@ -12,7 +12,7 @@ from numba import cuda, int32, from_dtype
 import numpy as np
 
 from cubie._utils import PrecisionDtype
-from cubie.cuda_simsafe import activemask, all_sync
+from cubie.cuda_simsafe import activemask, all_sync, selp
 
 
 def linear_solver_factory(
@@ -155,12 +155,12 @@ def linear_solver_factory(
                     numerator += ti * rhs[i]
                     denominator += ti * ti
 
-            alpha = cuda.selp(
+            alpha = selp(
                 denominator != typed_zero,
                 numerator / denominator,
                 typed_zero,
             )
-            alpha_effective = cuda.selp(converged, 0.0, alpha)
+            alpha_effective = selp(converged, 0.0, alpha)
 
             acc = typed_zero
             for i in range(n):
@@ -176,4 +176,3 @@ def linear_solver_factory(
 
     # no cover: end
     return linear_solver
-

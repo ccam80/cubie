@@ -224,7 +224,7 @@ class CUDAPrinter(PythonCodePrinter):
                       expr_str)
 
     def _ifelse_to_selp(self, expr_str: str) -> str:
-        """Replace conditional expressions with ``cuda.selp`` calls.
+        """Replace conditional expressions with ``selp`` calls.
 
         Parameters
         ----------
@@ -234,11 +234,11 @@ class CUDAPrinter(PythonCodePrinter):
         Returns
         -------
         str
-            Source string with ternaries replaced by ``cuda.selp`` calls.
+            Source string with ternaries replaced by ``selp`` calls.
         """
         return re.sub(
             r"\s+(.+?)\sif\s+(.+?)\s+else\s+(.+)",
-            r"cuda.selp(\2, \1, \3)",
+            r"selp(\2, \1, \3)",
             expr_str,
         )
 

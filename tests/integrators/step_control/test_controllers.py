@@ -44,7 +44,7 @@ def _run_device_step(
     dt = np.asarray([dt0], dtype=precision)
     accept = np.zeros(1, dtype=np.int32)
     temp = np.asarray(local_mem, dtype=precision) if local_mem is not None else np.empty(0, dtype=precision)
-    niters = np.asarray([1], dtype=np.int32)
+    niters = np.int32(1)
 
     @cuda.jit
     def kernel(dt_val, state_val, state_prev_val, err_val, niters_val, accept_val, temp_val):

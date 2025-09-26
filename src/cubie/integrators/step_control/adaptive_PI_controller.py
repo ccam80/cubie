@@ -5,8 +5,9 @@ from typing import Callable, Optional, Union
 from numba import cuda, int32
 import numpy as np
 from numpy._typing import ArrayLike
-from attrs import field, define, validators
+from attrs import field, define
 
+from cubie._utils import gttype_validator
 from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig, BaseAdaptiveStepController
 )
@@ -23,11 +24,11 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
     """
     _kp: float = field(
         default=0.075,
-        validator=validators.instance_of(float),
+        validator=gttype_validator(float, 0.0),
     )
     _ki: float = field(
         default=0.175,
-        validator=validators.instance_of(float),
+        validator=gttype_validator(float, 0.0),
     )
 
     @property

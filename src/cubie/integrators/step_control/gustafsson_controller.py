@@ -195,7 +195,7 @@ class GustafssonController(BaseAdaptiveStepController):
                 Previous state vector.
             error : device array
                 Estimated local error vector.
-            niters : device array
+            niters : int32
                 Iteration counters from the integrator loop.
             accept_out : device array
                 Output flag indicating acceptance of the step.
@@ -221,8 +221,7 @@ class GustafssonController(BaseAdaptiveStepController):
             accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
 
-            niters_step = niters[0]
-            denom = precision(niters_step + 2 * max_newton_iters)
+            denom = precision(niters + 2 * max_newton_iters)
             tmp = gain_numerator / denom
             fac = gamma if gamma < tmp else tmp
             gain_basic = precision(safety * fac * (nrm2 ** expo))

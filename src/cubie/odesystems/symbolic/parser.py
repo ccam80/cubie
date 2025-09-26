@@ -510,7 +510,7 @@ def _rhs_pass(
     tuple
         Parsed expressions, callable mapping, and any inferred symbols.
     """
-    expressions: List[Tuple[sp.Symbol, sp.Expr]] = []
+    expressions = []
     # Detect all calls as before for erroring on unknown names and for returning funcs
     funcs = _process_calls(lines, user_funcs)
 
@@ -523,7 +523,7 @@ def _rhs_pass(
     # Expose mapping for the printer via special key in all_symbols (copied by caller)
     local_dict = all_symbols.copy()
     local_dict.update(parse_locals)
-    new_symbols: List[sp.Symbol] = []
+    new_symbols = []
     for raw_line, line in zip(lines, sanitized_lines):
         lhs, rhs = [p.strip() for p in line.split("=", 1)]
         rhs_expr = _sanitise_input_math(rhs)
@@ -551,11 +551,7 @@ def _rhs_pass(
         # Attempt to inline non-device functions that can accept SymPy args
         rhs_expr = _inline_nondevice_calls(rhs_expr, user_funcs or {}, rename)
 
-        lhs_symbol = local_dict.get(
-            lhs,
-            all_symbols[lhs] if lhs in all_symbols else sp.Symbol(lhs, real=True),
-        )
-        expressions.append((lhs_symbol, rhs_expr))
+        expressions.append([local_dict.get(lhs, all_symbols[lhs] if lhs in all_symbols else sp.Symbol(lhs, real=True)), rhs_expr])
 
     # Return expressions along with funcs mapping (original names)
     return expressions, funcs, new_symbols

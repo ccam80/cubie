@@ -69,7 +69,7 @@ def system_override(request):
     if hasattr(request, "param"):
         if request.param:
             return request.param
-    return "three_chamber"
+    return "nonlinear"
 
 
 @pytest.fixture(scope="function")
@@ -94,6 +94,8 @@ def system(request, system_override, precision):
         return build_three_state_very_stiff_system(precision)
     if model_type == "large":
         return build_large_nonlinear_system(precision)
+    if isinstance(model_type, object):
+        return model_type
 
     raise ValueError(f"Unknown model type: {model_type}")
 
@@ -109,14 +111,14 @@ def solver_settings(solver_settings_override, precision):
     """Create LoopStepConfig with default solver configuration."""
     defaults = {
         "algorithm": "euler",
-        "duration": 1.0,
-        "warmup": 0.0,
-        "dt_min": 0.01,
-        "dt_max": 1.0,
-        "dt_save": 0.1,
-        "dt_summarise": 0.2,
-        "atol": 1e-6,
-        "rtol": 1e-6,
+        "duration": precision(1.0),
+        "warmup": precision(0.0),
+        "dt_min": precision(0.01),
+        "dt_max": precision(1.0),
+        "dt_save": precision(0.1),
+        "dt_summarise": precision(0.2),
+        "atol": precision(1e-6),
+        "rtol": precision(1e-6),
         "saved_state_indices": [0, 1],
         "saved_observable_indices": [0, 1],
         "summarised_state_indices": [0, 1],
@@ -134,8 +136,21 @@ def solver_settings(solver_settings_override, precision):
 
     if solver_settings_override:
         # Update defaults with any overrides provided
+        float_keys = {
+            "duration",
+            "warmup",
+            "dt_min",
+            "dt_max",
+            "dt_save",
+            "dt_summarise",
+            "atol",
+            "rtol",
+        }
         for key, value in solver_settings_override.items():
-            defaults[key] = value
+            if key in float_keys:
+                defaults[key] = precision(value)
+            else:
+                defaults[key] = value
 
     return defaults
 
@@ -179,22 +194,28 @@ def step_controller_settings(
     solver_settings, system, step_controller_settings_override
 ):
     """Base configuration used to instantiate loop step controllers."""
+    precision = solver_settings["precision"]
 
     defaults = {
         "kind": solver_settings["step_controller"].lower(),
-        "dt": solver_settings["dt_min"],
-        "dt_min": solver_settings["dt_min"],
-        "dt_max": solver_settings["dt_max"],
-        "atol": solver_settings["atol"],
-        "rtol": solver_settings["rtol"],
+        "dt": precision(solver_settings["dt_min"]),
+        "dt_min": precision(solver_settings["dt_min"]),
+        "dt_max": precision(solver_settings["dt_max"]),
+        "atol": precision(solver_settings["atol"]),
+        "rtol": precision(solver_settings["rtol"]),
         "order": 1,
         "n": system.sizes.states,
-        "kp": 0.6,
-        "ki": 0.4,
-        "kd": 0.1,
+        "kp": precision(0.6),
+        "ki": precision(0.4),
+        "kd": precision(0.1),
     }
     overrides = {**step_controller_settings_override}
-    defaults.update(overrides)
+    float_keys = {"dt", "dt_min", "dt_max", "atol", "rtol", "kp", "ki", "kd"}
+    for key, value in overrides.items():
+        if key in float_keys:
+            defaults[key] = precision(value)
+        else:
+            defaults[key] = value
     return defaults
 
 
@@ -202,7 +223,7 @@ def step_controller_settings(
 # OBJECT FIXTURES
 # ========================================
 
-@pytest.fixture(scope="function", autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def codegen_dir():
     """Redirect code generation to a temporary directory for the whole session.
 
@@ -534,7 +555,7 @@ def cpu_loop_runner(
             if drivers_first_dim != system.num_drivers and (
                 drivers_second_dim == system.num_drivers
             ):
-                driver_matrix = driver_matrix.T
+                driver_matrix = driver_matrix
 
         initial_vec = (
             np.asarray(initial_values, dtype=precision).copy()

@@ -11,7 +11,7 @@ from numba import cuda, int32, from_dtype
 import numpy as np
 
 from cubie._utils import ALLOWED_PRECISIONS, PrecisionDtype
-from cubie.cuda_simsafe import activemask, all_sync
+from cubie.cuda_simsafe import activemask, all_sync, selp
 
 
 def newton_krylov_solver_factory(
@@ -203,12 +203,12 @@ def newton_krylov_solver_factory(
                     found_step = found_step or accept
 
                     for i in range(n):
-                        residual[i] = cuda.selp(
+                        residual[i] = selp(
                             accept,
                             -residual[i],
                             residual[i],
                         )
-                    norm2_prev = cuda.selp(accept, norm2_new, norm2_prev)
+                    norm2_prev = selp(accept, norm2_new, norm2_prev)
 
                 if all_sync(mask, found_step or status >= 0):
                     break
@@ -226,4 +226,3 @@ def newton_krylov_solver_factory(
 
     # no cover: end
     return newton_krylov_solver
-

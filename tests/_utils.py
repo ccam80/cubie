@@ -470,72 +470,87 @@ def assert_integration_outputs(
     atol: float,
 ) -> None:
     """Compare state, summary, and time outputs between CPU and device."""
-
+    if isinstance(reference, dict):
+        reference = LoopRunResult(**reference)
     flags = output_functions.compile_flags
 
     state_ref, time_ref = extract_state_and_time(
-        reference["state"], output_functions
+        reference.state, output_functions
     )
     state_dev, time_dev = extract_state_and_time(
         device.state,
         output_functions,
     )
-    observables_ref = reference["observables"]
+    observables_ref = reference.observables
     observables_dev = device.observables
 
     if flags.save_state:
-        assert_allclose(state_dev,
-                        state_ref,
-                        rtol=rtol,
-                        atol=atol,
-                        err_msg="state")
+        assert_allclose(
+            state_dev,
+            state_ref,
+            rtol=rtol,
+            atol=atol,
+            err_msg="state mismatch.\n"
+            f"device: {state_dev}\nreference: {state_ref}",
+        )
 
     if output_functions.save_time:
         assert_allclose(
-                time_dev,
-                time_ref,
-                rtol=rtol,
-                atol=atol,
-                err_msg="time")
+            time_dev,
+            time_ref,
+            rtol=rtol,
+            atol=atol,
+            err_msg="time mismatch.\n"
+            f"device: {time_dev}\nreference: {time_ref}",
+        )
 
     if flags.save_observables:
         assert_allclose(
-                observables_dev,
-                observables_ref,
-                rtol=rtol,
-                atol=atol,
-                err_msg="observables")
-
-    if flags.summarise_observables:
-        assert_allclose(
-            device.state_summaries,
-            reference["state_summaries"],
+            observables_dev,
+            observables_ref,
             rtol=rtol,
             atol=atol,
-            err_msg="observables",
+            err_msg="observables mismatch.\n"
+            f"device: {observables_dev}\n"
+            f"reference: {observables_ref}",
         )
+
+    if flags.summarise_state:
+        assert_allclose(
+            device.state_summaries,
+            reference.state_summaries,
+            rtol=rtol,
+            atol=atol,
+            err_msg="observables_summary mismatch.\n"
+                    f"device: {device.state_summaries}\n"
+                    f"reference: {reference.state_summaries}")
 
     if flags.summarise_observables:
         assert_allclose(
             device.observable_summaries,
-            reference["observable_summaries"],
+            reference.observable_summaries,
             rtol=rtol,
             atol=atol,
-            err_msg="observables",
+            err_msg="state_summary mismatch.\n"
+            f"device: {device.observable_summaries}\n"
+            f"reference: {reference.observable_summaries}",
         )
 
 
 def extract_state_and_time(
-    state_output: Array,
-    output_functions: OutputFunctions
+    state_output: Array, output_functions: OutputFunctions
 ) -> tuple[Array, Optional[Array]]:
     """Split state output into state variables and optional time column."""
-
+    n_state_columns = output_functions.n_saved_states
     if not output_functions.save_time:
         return state_output, None
-    n_state_columns = output_functions.n_saved_states
-    state_values = state_output[:, :n_state_columns]
-    time_values = state_output[:, n_state_columns : n_state_columns + 1]
+    if state_output.ndim == 2:
+        state_values = state_output[:, :n_state_columns]
+        time_values = state_output[:, n_state_columns : n_state_columns + 1]
+    else:
+        state_values = state_output[:, :, n_state_columns]
+        time_values = state_output[:, :, n_state_columns : n_state_columns + 1]
+
     return state_values, time_values
 
 

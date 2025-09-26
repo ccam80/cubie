@@ -44,16 +44,20 @@ def batch_settings(batch_settings_override) -> dict:
 
 
 @pytest.fixture(scope="function")
-def batch_request(system, batch_settings) -> dict[str, Array]:
+def batch_request(system, batch_settings, precision) -> dict[str, Array]:
     """Build a request dictionary describing the batch sweep."""
 
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
     return {
-        state_names[0]: np.linspace(0.1, 1.0, batch_settings["num_state_vals_0"]),
-        state_names[1]: np.linspace(0.1, 1.0, batch_settings["num_state_vals_1"]),
-        param_names[0]: np.linspace(0.1, 1.0, batch_settings["num_param_vals_0"]),
-        param_names[1]: np.linspace(0.1, 1.0, batch_settings["num_param_vals_1"]),
+        state_names[0]: np.linspace(0.1, 1.0, batch_settings[
+            "num_state_vals_0"], dtype=precision),
+        state_names[1]: np.linspace(0.1, 1.0, batch_settings[
+            "num_state_vals_1"], dtype=precision),
+        param_names[0]: np.linspace(0.1, 1.0, batch_settings[
+            "num_param_vals_0"], dtype=precision),
+        param_names[1]: np.linspace(0.1, 1.0, batch_settings[
+            "num_param_vals_1"], dtype=precision),
     }
 
 
@@ -92,9 +96,8 @@ def cpu_batch_results(
     """Compute CPU reference outputs for each run in the requested batch."""
 
     initial_sets, parameter_sets = batch_input_arrays
-    num_sets = initial_sets.shape[0]
     samples = int(np.ceil(solver_settings["duration"]
-                    / (float(solver_settings["dt_save"]))))
+                    / (solver_settings["dt_save"])))
     driver_matrix = _driver_sequence(
         samples=samples,
         total_time=solver_settings["duration"],

@@ -1,12 +1,10 @@
 import numpy as np
 import pytest
-from numpy.testing import assert_allclose
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from tests._utils import _driver_sequence
-
-
+from tests._utils import _driver_sequence, assert_integration_outputs, \
+    LoopRunResult
 
 
 def test_kernel_builds(solverkernel):
@@ -22,8 +20,10 @@ def test_kernel_builds(solverkernel):
             "three_chamber",
             {
                 "duration": 1.0,
+                "dt_min": 0.0025,
                 "output_types": [
                     "state",
+                    "time",
                     "observables",
                     "mean",
                     "max",
@@ -49,8 +49,9 @@ def test_run(
     cpu_batch_results,
     precision,
     system,
+    output_functions,
 ):
-    """Big integration tet. Runs a batch integration and checks outputs
+    """Big integration test. Runs a batch integration and checks outputs
     match expected. Expensive, don't run
     "scorcher" in CI."""
     inits, params = batch_input_arrays
@@ -81,7 +82,11 @@ def test_run(
     observables = solverkernel.observables
     state_summaries = solverkernel.state_summaries
     observable_summaries = solverkernel.observable_summaries
-
+    device = LoopRunResult(state=state,
+                           observables=observables,
+                           state_summaries=state_summaries,
+                           observable_summaries=observable_summaries,
+                           status=0) # propagate this up when refactoring solverkernel
     # Set tolerance based on precision
     if precision == np.float32:
         atol = 1e-5
@@ -90,39 +95,44 @@ def test_run(
         atol = 1e-12
         rtol = 1e-12
 
-    if active_output_arrays.state:
-        assert_allclose(
-            cpu_batch_results.state,
-            state,
-            atol=atol,
-            rtol=rtol,
-            err_msg="State Output does not match expected: device = \n."
-                f"{state}, \ncpu = \n{cpu_batch_results.state}",
-        )
-    if active_output_arrays.observables:
-        assert_allclose(
-            cpu_batch_results.observables,
-            observables,
-            atol=atol,
-            rtol=rtol,
-            err_msg="Observables do not match expected.",
-        )
-    if active_output_arrays.state_summaries:
-        assert_allclose(
-            cpu_batch_results.state_summaries,
-            state_summaries,
-            atol=atol,
-            rtol=rtol,
-            err_msg="Summary states do not match expected.",
-        )
-    if active_output_arrays.observable_summaries:
-        assert_allclose(
-            cpu_batch_results.observable_summaries,
-            observable_summaries,
-            atol=atol,
-            rtol=rtol,
-            err_msg="Summary observables do not match expected.",
-        )
+    assert_integration_outputs(device,
+                               cpu_batch_results,
+                               output_functions,
+                               atol=atol,
+                               rtol=rtol)
+    # if active_output_arrays.state:
+    #     assert_allclose(
+    #         cpu_batch_results.state,
+    #         state,
+    #         atol=atol,
+    #         rtol=rtol,
+    #         err_msg="State Output does not match expected: device = \n."
+    #             f"{state}, \ncpu = \n{cpu_batch_results.state}",
+    #     )
+    # if active_output_arrays.observables:
+    #     assert_allclose(
+    #         cpu_batch_results.observables,
+    #         observables,
+    #         atol=atol,
+    #         rtol=rtol,
+    #         err_msg="Observables do not match expected.",
+    #     )
+    # if active_output_arrays.state_summaries:
+    #     assert_allclose(
+    #         cpu_batch_results.state_summaries,
+    #         state_summaries,
+    #         atol=atol,
+    #         rtol=rtol,
+    #         err_msg="Summary states do not match expected.",
+    #     )
+    # if active_output_arrays.observable_summaries:
+    #     assert_allclose(
+    #         cpu_batch_results.observable_summaries,
+    #         observable_summaries,
+    #         atol=atol,
+    #         rtol=rtol,
+    #         err_msg="Summary observables do not match expected.",
+    #     )
 
 
 def test_algorithm_change(solverkernel):

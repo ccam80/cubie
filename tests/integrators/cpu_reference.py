@@ -107,7 +107,7 @@ class CPUODESystem():
                 compiled_fn = sp.lambdify(expr_symbols, rhs, modules=['numpy'])
             else:
                 # Handle constant expressions
-                compiled_fn = lambda: float(rhs)
+                compiled_fn = lambda: self.precision(rhs)
 
             self._compiled_equations.append(compiled_fn)
             self._equation_targets.append(lhs)
@@ -128,7 +128,7 @@ class CPUODESystem():
                     if expr_syms:
                         compiled_entry = sp.lambdify(expr_syms, expr, modules=['numpy'])
                     else:
-                        compiled_entry = lambda: float(expr)
+                        compiled_entry = self.precision(expr)
                     row_entries.append(compiled_entry)
                     row_symbols.append(expr_syms)
                 jacobian_entries.append(row_entries)
@@ -156,26 +156,26 @@ class CPUODESystem():
 
         # Add state values
         for symbol, index in self._state_index.items():
-            values[symbol] = float(state[index])
+            values[symbol] = self.precision(state[index])
 
         # Add parameter values
         for symbol, index in self._parameter_index.items():
-            values[symbol] = float(params[index])
+            values[symbol] = self.precision(params[index])
 
         # Add constant values
         for symbol, index in self._constant_index.items():
-            values[symbol] = float(self.system.constants.values_array[index])
+            values[symbol] = self.precision(self.system.constants.values_array[index])
 
         # Add driver values
         for symbol, index in self._driver_index.items():
-            values[symbol] = float(drivers[index])
+            values[symbol] = self.precision(drivers[index])
 
         # Add already-computed observables (may be partially filled during RHS sweep)
         if observables is not None and len(self._observable_index) > 0:
             for symbol, index in self._observable_index.items():
                 # Only insert if we have a slot (array sized to n_observables)
                 if index < len(observables):
-                    values[symbol] = float(observables[index])
+                    values[symbol] = self.precision(observables[index])
 
         # Add computed intermediate values (auxiliaries / previously evaluated equations)
         values.update(computed_values)
@@ -215,10 +215,10 @@ class CPUODESystem():
             # Prepare arguments for this specific function
             if expr_symbols:
                 args = self._prepare_args(expr_symbols, symbol_values)
-                value = float(compiled_fn(*args))
+                value = self.precision(compiled_fn(*args))
             else:
                 # Constant expression
-                value = float(compiled_fn())
+                value = self.precision(compiled_fn())
 
             computed_values[lhs] = value
 
@@ -249,9 +249,9 @@ class CPUODESystem():
                 if expr_symbols:
                     # Refresh symbol values only if needed (observables already reflect state)
                     args = self._prepare_args(expr_symbols, symbol_values)
-                    jacobian[i, j] = float(compiled_entry(*args))
+                    jacobian[i, j] = self.precision((compiled_entry(*args)))
                 else:
-                    jacobian[i, j] = float(compiled_entry())
+                    jacobian[i, j] = compiled_entry
         return jacobian
 @dataclass
 class StepResult:
@@ -379,12 +379,12 @@ def crank_nicolson_step(
 
     def residual(candidate: Array) -> Array:
         f_candidate, _ = evaluator.rhs(candidate, params, drivers_next)
-        return candidate - state - 0.5 * dt * (f_now + f_candidate)
+        return candidate - state - precision(0.5) * dt * (f_now + f_candidate)
 
     def jacobian(candidate: Array) -> Array:
         jac = evaluator.jacobian(candidate, params, drivers_next)
         identity = np.eye(jac.shape[0], dtype=precision)
-        return identity - 0.5 * dt * jac
+        return identity - precision(0.5) * dt * jac
 
     guess = state.astype(precision, copy=True)
     next_state, converged, niters = _newton_solve(
@@ -395,7 +395,6 @@ def crank_nicolson_step(
             tol,
             max_iters,
     )
-    next_state, converged, niters = _newton_solve(residual, jacobian, guess, precision, tol, max_iters)
     _, observables = evaluator.rhs(next_state, params, drivers_next)
 
     # Embedded backward Euler step for the error estimate
@@ -481,30 +480,34 @@ class CPUAdaptiveController:
         gamma: float = 0.9,
         max_newton_iters: int = 4,
     ) -> None:
+
         self.kind = kind.lower()
-        self.dt_min = float(dt_min)
-        self.dt_max = float(dt_max)
-        self.dt = float(dt_min)
-        self.atol = float(atol)
-        self.rtol = float(rtol)
+        self.dt_min = precision(dt_min)
+        self.dt_max = precision(dt_max)
+        self.dt = precision(dt_min)
+        self.atol = precision(atol)
+        self.rtol = precision(rtol)
         self.order = max(int(order), 1)
         self.precision = precision
-        self.safety = 0.9
-        self.min_gain = 0.2
-        self.max_gain = 2.0
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
-        self.gamma = float(gamma)
+        self.safety = precision(0.9)
+        self.min_gain = precision(0.2)
+        self.max_gain = precision(2.0)
+        self.kp = precision(kp)
+        self.ki = precision(ki)
+        self.kd = precision(kd)
+        self.gamma = precision(gamma)
         self.max_newton_iters = int(max_newton_iters)
-        self._history: list[float] = [0.0, 0.0]
-        self._dt_history: list[float] = [0.0, 0.0]
+        zero = precision(0.0)
+        self._history: list[precision] = [zero, zero]
+        self._dt_history: list[precision] = [zero, zero]
         self._step_count = 0
         self._convergence_failed = False
         self._rejections_at_dt_min = 0
-        self._prev_nrm2 = 0.0
-        self._prev_inv_nrm2 = 0.0
-        self._prev_dt = 0.0
+        self._prev_nrm2 = zero
+        self._prev_inv_nrm2 = zero
+        self._prev_dt = zero
+        self._dt_floor = precision(1e-30)
+        self._gain_cap = precision(1e4)
 
     @property
     def is_adaptive(self) -> bool:
@@ -519,7 +522,7 @@ class CPUAdaptiveController:
             norm = nrm2 / len(error)
         if not np.isfinite(norm):
             norm = 1e5 #Arbitrarily big
-        return float(norm)
+        return self.precision(norm)
 
     def propose_dt(self, error_estimate: float, accept: bool, niters: int = 0) -> None:
         self._step_count += 1
@@ -531,14 +534,14 @@ class CPUAdaptiveController:
         # Save current dt before computing new gain (needed for gustafsson)
         current_dt = self.dt
         gain = self._gain(error_estimate, accept, niters, current_dt)
-        unclamped_dt = current_dt * gain
+        unclamped_dt = self.precision(current_dt * gain)
 
         # Clamp
         new_dt = min(self.dt_max, max(self.dt_min, unclamped_dt))
         self.dt = new_dt
 
         # Track dt floor rejections
-        if (not accept) and (new_dt <= self.dt_min + 1e-30):
+        if (not accept) and (new_dt <= self.dt_min + self._dt_floor):
             self._rejections_at_dt_min += 1
             if self._rejections_at_dt_min >= 8:
                 self._convergence_failed = True
@@ -546,32 +549,43 @@ class CPUAdaptiveController:
             self._rejections_at_dt_min = 0
 
         # Update histories (store nrm2 capped like device code)
-        capped = min(error_estimate, 1e4) if error_estimate > 0 else 0.0
+        zero = self.precision(0.0)
+        capped = (
+            min(error_estimate, self._gain_cap) if error_estimate > zero else zero
+        )
         self._prev_nrm2 = capped
         self._prev_dt = current_dt  # previous accepted/attempted dt used for next gustafsson
 
     def _gain(self, error_estimate: float, accept: bool, niters: int, current_dt: float) -> float:
+        precision = self.precision
+        one = precision(1.0)
+        two = precision(2.0)
+
         if error_estimate <= 0.0:
             return self.max_gain
 
         if self.kind == "i":
             # Device: safety * (nrm2 ** (1.0 / (2 * (order + 1))))
-            exponent = 1.0 / (2.0 * (self.order + 1.0))
+            exponent = one / (two * (self.order + one))
             gain = self.safety * (error_estimate ** exponent)
 
         elif self.kind == "pi":
-            kp_exp = (self.kp / (self.order + 1.0)) / 2.0
-            ki_exp = (self.ki / (self.order + 1.0)) / 2.0
+            kp_exp = (self.kp / (self.order + one)) / two
+            ki_exp = (self.ki / (self.order + one)) / two
             prev = self._prev_nrm2 if self._prev_nrm2 > 0.0 else error_estimate
             gain = self.safety * (error_estimate ** kp_exp) * (prev ** ki_exp)
 
         elif self.kind == "pid":
             # Device-aligned: gain = safety * (nrm2**kp) * (prev_nrm2**ki) * ((nrm2/prev_nrm2)**kd)
             prev_nrm2 = self._prev_nrm2 if self._prev_nrm2 > 0.0 else error_estimate
-            prev_inv = self._prev_inv_nrm2 if self._prev_inv_nrm2 > 0.0 else (1.0 / error_estimate)
-            kp_exp = self.kp / (2.0 * (self.order + 1.0))
-            ki_exp = self.ki / (2.0 * (self.order + 1.0))
-            kd_exp = self.kd / (2.0 * (self.order + 1.0))
+            prev_inv = (
+                self._prev_inv_nrm2
+                if self._prev_inv_nrm2 > 0.0
+                else (one / error_estimate)
+            )
+            kp_exp = self.kp / (two * (self.order + one))
+            ki_exp = self.ki / (two * (self.order + one))
+            kd_exp = self.kd / (two * (self.order + one))
             ratio_term = error_estimate * prev_inv  # nrm2 / prev_nrm2
             gain = (
                 self.safety
@@ -581,23 +595,29 @@ class CPUAdaptiveController:
             )
 
         elif self.kind == "gustafsson":
-            expo = 1.0 / (2.0 * (self.order + 1.0))
+            expo = one / (two * (self.order + one))
             M = self.max_newton_iters
             nit = max(1, niters)  # ensure positive
-            fac = min(self.gamma, ((1 + 2 * M) * self.gamma) / (nit + 2 * M))
+            fac = min(self.gamma, ((one + two * M) * self.gamma) / (
+                    nit + two * M))
             gain_basic = self.safety * fac * (error_estimate ** expo)
             use_gus = accept and (self._prev_dt > 0.0) and (self._prev_nrm2 > 0.0)
             if use_gus:
                 ratio = (error_estimate * error_estimate) / self._prev_nrm2
-                gain_gus = self.safety * (current_dt / self._prev_dt) * (ratio ** expo) * self.gamma
+                gain_gus = (
+                    self.safety
+                    * (current_dt / self._prev_dt)
+                    * (ratio ** expo)
+                    * self.gamma
+                )
                 gain = gain_gus if gain_gus < gain_basic else gain_basic
             else:
                 gain = gain_basic
         else:
-            gain = 1.0
+            gain = one
 
         gain = min(self.max_gain, max(self.min_gain, gain))
-        return gain
+        return precision(gain)
 
 
 def get_ref_step_fn(
@@ -647,26 +667,27 @@ def run_reference_loop(
     params = inputs["parameters"].astype(precision, copy=True)
     forcing_vectors = inputs["drivers"].astype(precision, copy=False)
 
-    dt_min = float(solver_settings["dt_min"])
-    dt_max = float(solver_settings["dt_max"])
-    duration = float(solver_settings["duration"])
-    warmup = float(solver_settings["warmup"])
-    dt_save = float(solver_settings["dt_save"])
-    dt_summarise = float(solver_settings["dt_summarise"])
+    dt_min = precision(solver_settings["dt_min"])
+    dt_max = precision(solver_settings["dt_max"])
+    duration = precision(solver_settings["duration"])
+    warmup = precision(solver_settings["warmup"])
+    dt_save = precision(solver_settings["dt_save"])
+    dt_summarise = precision(solver_settings["dt_summarise"])
     controller_settings = step_controller_settings or {"kind": "fixed"}
     status_flags = 0
     last_step_status = 0
-    
+    zero = precision(0.0)
+
     step_fn = get_ref_step_fn(solver_settings["algorithm"])
 
     # Store the tolerance for explicit passing to step functions
     # nonlinear_tol = implicit_step_settings["nonlinear_tolerance"]
 
-    controller.dt = controller_settings.get("dt", dt_min)
+    controller.dt = precision(controller_settings.get("dt", dt_min))
 
     sampler = DriverSampler(forcing_vectors, dt_save, precision)
     save_index = 0
-    if warmup <= 0.0 and dt_save > 0.0:
+    if warmup <= zero and dt_save > zero:
         save_index = 1
 
     saved_state_indices = _ensure_array(
@@ -684,18 +705,21 @@ def run_reference_loop(
     max_save_samples = int(np.ceil(duration / dt_save))
 
     state_history = [initial_state.copy()]
-    observable_history = [np.zeros(len(saved_observable_indices),
-                                  dtype=precision)]
-    time_history: list[float] = [0,]
+    observable_history = [
+        np.zeros(len(saved_observable_indices), dtype=precision)
+    ]
+    time_history: list[float] = [precision(0.0)]
     state = initial_state.copy()
-    t = 0.0
-    end_time = warmup + duration
-    next_save_time = warmup + dt_save if dt_save > 0 else end_time + 1.0
-    max_iters = implicit_step_settings.get('max_iterations', 25)
+    t = precision(0.0)
+    end_time = precision(warmup + duration)
+    next_save_time = (
+        warmup + dt_save if dt_save > zero else end_time + precision(1.0)
+    )
+    max_iters = int(implicit_step_settings.get('max_iterations', 25))
 
-    while t < end_time - 1e-12:
+    while t < end_time - precision(1e-12):
         dt = min(controller.dt, end_time - t)
-        dt = min(dt, next_save_time-t)
+        dt = min(dt, next_save_time - t)
 
         driver_sample = sampler.sample(save_index)
         # Mirror the device loop where the shared driver buffer holds the
@@ -735,26 +759,28 @@ def run_reference_loop(
         last_step_status = step_status
 
         if t >= warmup and len(state_history) < max_save_samples:
-            if t + 1e-12 >= next_save_time:
+            if t + precision(1e-12) >= next_save_time:
                 state_history.append(state.copy())
                 observable_history.append(result.observables.copy())
-                time_history.append(next_save_time - warmup)
+                time_history.append(precision(next_save_time - warmup))
                 next_save_time += dt_save
                 save_index += 1
 
     # ------------------------------------------------------------------
     # Convert histories to arrays matching device layout
     # ------------------------------------------------------------------
+
     state_output = _collect_saved_outputs(
         state_history,
         saved_state_indices,
         precision,
     )
+    if save_time:
+        state_output = np.column_stack((state_output, np.asarray(time_history)))
     assert controller._convergence_failed is False, \
         ("Integration failed: CPU solver did not converge, try decreasing "
          "dt_min")
-    if save_time:
-        times = np.asarray(time_history, dtype=precision)
+
 
     observables_output = _collect_saved_outputs(
         observable_history,
@@ -790,8 +816,7 @@ def run_reference_loop(
             output_functions.summaries_output_height_per_var,
             precision,
         )
-    upper_bits = last_step_status & ~STATUS_MASK
-    final_status = upper_bits | (status_flags & STATUS_MASK)
+    final_status = (status_flags & STATUS_MASK)
 
     return {
         "state": state_output,

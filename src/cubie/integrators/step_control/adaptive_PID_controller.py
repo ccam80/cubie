@@ -5,8 +5,9 @@ from typing import Callable, Optional, Union
 import numpy as np
 from numba import cuda, int32
 from numpy._typing import ArrayLike
-from attrs import define, field, validators
+from attrs import define, field
 
+from cubie._utils import gttype_validator
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
@@ -19,7 +20,7 @@ class PIDStepControlConfig(PIStepControlConfig):
     """Configuration for a proportional–integral–derivative controller."""
 
     _kd: float = field(
-        default=0.0, validator=validators.instance_of(float)
+        default=0.0, validator=gttype_validator(float, 0.0)
     )
 
     @property

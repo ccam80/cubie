@@ -13,7 +13,7 @@ from numba import cuda, int32
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
-from cubie.cuda_simsafe import activemask, all_sync
+from cubie.cuda_simsafe import activemask, all_sync, selp
 from cubie._utils import PrecisionDtype
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      LoopSharedIndices,
@@ -303,8 +303,8 @@ class IVPLoop(CUDAFactory):
                             step_counter = int32(0)
                     else:
                         do_save = (t + dt[0]  +equality_breaker) >= next_save
-                        dt_eff = cuda.selp(do_save, next_save - t, dt[0])
-                        status |= cuda.selp(dt_eff <= precision(0.0),
+                        dt_eff = selp(do_save, next_save - t, dt[0])
+                        status |= selp(dt_eff <= precision(0.0),
                                             int32(16), int32(0))
 
                     step_status = step_fn(
@@ -336,16 +336,16 @@ class IVPLoop(CUDAFactory):
                         accept = accept_step[0] != int32(0)
 
                     t_proposal = t + dt_eff
-                    t = cuda.selp(accept, t_proposal, t)
+                    t = selp(accept, t_proposal, t)
 
                     for i in range(n_states):
                         newv = state_proposal_buffer[i]
                         oldv = state_buffer[i]
-                        state_buffer[i] = cuda.selp(accept, newv, oldv)
+                        state_buffer[i] = selp(accept, newv, oldv)
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = accept and do_save
-                    next_save = cuda.selp(
+                    next_save = selp(
                         do_save, next_save + dt_save, next_save
                     )
 

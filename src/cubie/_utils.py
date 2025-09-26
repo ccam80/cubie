@@ -16,7 +16,7 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float64,
 )
 from attrs import fields, has, validators, Attribute
-from cubie.cuda_simsafe import is_devfunc
+from cubie.cuda_simsafe import is_devfunc, selp
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
@@ -233,8 +233,6 @@ def timing(_func=None, *, nruns=1):
     return decorator if _func is None else decorator(_func)
 
 
-
-
 def clamp_factory(precision):
     precision = from_dtype(precision)
 
@@ -244,8 +242,8 @@ def clamp_factory(precision):
         inline=True,
     )
     def clamp(value, minimum, maximum):
-        clamped_high = cuda.selp(value > maximum, maximum, value)
-        clamped = cuda.selp(clamped_high < minimum, minimum, clamped_high)
+        clamped_high = selp(value > maximum, maximum, value)
+        clamped = selp(clamped_high < minimum, minimum, clamped_high)
         return clamped
 
     return clamp
@@ -369,6 +367,7 @@ def get_readonly_view(array):
     view.flags.writeable = False
     return view
 
+
 def is_device_validator(instance, attribute, value):
     """Validate that a value is a Numba CUDA device function."""
     if not is_devfunc(value):
@@ -376,6 +375,7 @@ def is_device_validator(instance, attribute, value):
             f"{attribute} must be a Numba CUDA device function,"
             f"got {type(value)}."
         )
+
 
 def float_array_validator(instance, attribute, value):
     """Validate that a value is a Numba CUDA device function."""

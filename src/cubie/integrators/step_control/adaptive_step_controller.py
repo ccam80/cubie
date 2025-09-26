@@ -43,7 +43,7 @@ def tol_converter(
         Raised when ``value`` cannot be broadcast to the expected shape.
     """
 
-    if isinstance(value, float):
+    if np.isscalar(value):
         tol = np.asarray([value] * self_.n, dtype=self_.precision)
     else:
         tol = np.asarray(value, dtype=self_.precision)

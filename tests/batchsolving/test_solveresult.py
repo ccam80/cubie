@@ -364,7 +364,7 @@ class TestSolveResultFromSolver:
         if state_columns:
             np.testing.assert_allclose(
                 time_domain[:, :, state_columns],
-                cpu_batch_results.state,
+                cpu_batch_results.state[:, :, state_columns],
                 atol=atol,
                 rtol=rtol,
             )

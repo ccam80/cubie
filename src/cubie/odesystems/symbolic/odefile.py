@@ -18,6 +18,7 @@ HEADER = ("\n# This file was generated automatically by Cubie. Don't make "
           "the sympy input which you used to define the file.\n"
           "from numba import cuda\n"
           "import math\n"
+          "from cubie.cuda_simsafe import *\n"
           "\n")
 
 class ODEFile:

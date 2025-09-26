@@ -183,6 +183,9 @@ def is_devfunc(func: Callable[..., Any]) -> bool:
 
 
 if CUDA_SIMULATION:
+    @cuda.jit(device=True, inline=True)
+    def selp(pred, true_value, false_value):
+        return true_value if pred else false_value
 
     @cuda.jit(device=True, inline=True)
     def activemask():
@@ -191,7 +194,11 @@ if CUDA_SIMULATION:
     @cuda.jit(device=True, inline=True)
     def all_sync(mask, predicate):
         return predicate
+
 else:  # pragma: no cover - relies on GPU runtime
+    @cuda.jit(device=True, inline=True)
+    def selp(pred, true_value, false_value):
+        return cuda.selp(pred, true_value, false_value)
 
     @cuda.jit(device=True, inline=True)
     def activemask():
@@ -234,4 +241,5 @@ __all__ = [
     "is_cuda_array",
     "is_cudasim_enabled",
     "set_cuda_memory_manager",
+    "selp"
 ]
