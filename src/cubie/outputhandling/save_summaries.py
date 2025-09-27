@@ -22,7 +22,7 @@ from typing import Callable, Sequence
 from numba import cuda
 from numpy.typing import ArrayLike
 
-from cubie.outputhandling import summary_metrics
+from cubie.outputhandling.summarymetrics import summary_metrics
 from .output_sizes import SummariesBufferSizes
 
 

@@ -15,7 +15,7 @@ import numpy as np
 from numpy import array_equal
 from numpy.typing import NDArray
 
-from cubie.outputhandling import summary_metrics
+from cubie.outputhandling.summarymetrics import summary_metrics
 
 
 def _indices_validator(

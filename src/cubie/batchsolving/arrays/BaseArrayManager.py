@@ -17,10 +17,11 @@ import numpy as np
 from numba.core.types import NoneType
 from numpy import float32
 from numpy.typing import NDArray
+
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import MemoryManager
 from cubie.memory.mem_manager import ArrayRequest, ArrayResponse
-from cubie.outputhandling import ArraySizingClass
+from cubie.outputhandling.output_sizes import ArraySizingClass
 
 
 @attrs.define(slots=False)
