@@ -388,9 +388,9 @@ def test_algorithm(
     # Run a short loop to ensure step works in that context
     assert device_loop_outputs.status == 0
     assert_integration_outputs(
-        cpu_loop_outputs,
-        device_loop_outputs,
-        output_functions,
+        reference=cpu_loop_outputs,
+        device=device_loop_outputs,
+        output_functions=output_functions,
         rtol=tolerances["rtol"],
         atol=tolerances["atol"],
     )

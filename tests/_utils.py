@@ -19,6 +19,8 @@ Array = NDArray[np.floating]
 def calculate_expected_summaries(
     state,
     observables,
+    summarised_state_indices,
+    summarised_observable_indices,
     summarise_every,
     output_types,
     summary_height_per_variable,
@@ -39,7 +41,8 @@ def calculate_expected_summaries(
     - expected_state_summaries: 2D array of shape (summary_samples, n_saved_states * summary_size_per_state)
     - expected_obs_summaries: 2D array of shape (summary_samples, n_saved_observables * summary_size_per_state)
     """
-
+    state = state[:,summarised_state_indices]
+    observables = observables[:,summarised_observable_indices]
     n_saved_states = state.shape[1]
     n_saved_observables = observables.shape[1]
     saved_samples = state.shape[0]

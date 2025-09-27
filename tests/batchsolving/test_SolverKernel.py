@@ -95,9 +95,9 @@ def test_run(
         atol = 1e-12
         rtol = 1e-12
 
-    assert_integration_outputs(device,
-                               cpu_batch_results,
-                               output_functions,
+    assert_integration_outputs(device=device,
+                               reference=cpu_batch_results,
+                               output_functions=output_functions,
                                atol=atol,
                                rtol=rtol)
     # if active_output_arrays.state:

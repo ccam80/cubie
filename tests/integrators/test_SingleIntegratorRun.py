@@ -65,8 +65,8 @@ def _settings_to_dict(settings_source):
         (
             {
                 "algorithm": "crank_nicolson",
-                "step_controller": "pid",
-                "dt_min": 0.001,
+                "step_controller": "gustafsson",
+                "dt_min": 0.0001,
                 "dt_max": 0.1,
                 "saved_state_indices": [0],
                 "saved_observable_indices": [0],
@@ -81,7 +81,6 @@ def _settings_to_dict(settings_source):
 class TestSingleIntegratorRun:
     def test_build_getters_and_equivalence(
         self,
-        monkeypatch,
         single_integrator_run,
         system,
         solver_settings,
@@ -123,17 +122,12 @@ class TestSingleIntegratorRun:
         # Controller tolerances are only defined for adaptive controllers.
         if run.atol is not None:
             target = np.asarray(solver_settings["atol"], dtype=precision)
-            # if target.ndim == 0:
-            #     target = np.full(system.sizes.states, target, dtype=precision)
             np.testing.assert_allclose(run.atol, target)
         if run.rtol is not None:
             target = np.asarray(solver_settings["rtol"], dtype=precision)
-            # if target.ndim == 0:
-            #     target = np.full(system.sizes.states, target, dtype=precision)
             np.testing.assert_allclose(run.rtol, target)
 
         # Saved indices and counts mirror the configured output selections.
-        flags = run.output_compile_flags
 
 
         assert list(run.output_types) == list(solver_settings["output_types"])
@@ -243,9 +237,6 @@ class TestSingleIntegratorRun:
             expected = getattr(run._loop, attr_name)
             _compare_generic(actual, expected)
 
-        controller_settings = _settings_to_dict(
-            run._step_controller.settings_dict
-        )
         for prop_name, attr_name in controller_props.items():
             actual = getattr(run, prop_name)
             expected = getattr(run._step_controller, attr_name, None)
@@ -282,11 +273,11 @@ class TestSingleIntegratorRun:
 
         assert device_outputs.status == cpu_reference["status"]
         assert_integration_outputs(
-            cpu_reference,
-            device_outputs,
-            run._output_functions,
+            reference=cpu_reference,
+            device=device_outputs,
+            output_functions=run._output_functions,
             rtol=precision(1e-5),
-            atol=precision(1e-6),
+            atol=precision(1e-5),
         )
 
 

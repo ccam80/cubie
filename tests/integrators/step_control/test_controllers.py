@@ -6,7 +6,7 @@ from numba import cuda
 @pytest.fixture(scope='function')
 def step_setup(request, precision, system):
     n = system.sizes.states
-    setup_dict = {'dt0': 0.01,
+    setup_dict = {'dt0': 0.05,
                   'error': np.asarray([0.01]*system.sizes.states,
                                     dtype=precision),
                   'state': np.ones(n, dtype=precision),
@@ -86,9 +86,12 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
         controller._prev_dt = float(provided_local[0])
         controller._prev_nrm2 = float(provided_local[1])
 
+
+    accept = controller.propose_dt(prev_state=state_prev,
+                          new_state=state,
+                          error_vector=error_vec,
+                          niters=1)
     errornorm = controller.error_norm(state_prev, state, error_vec)
-    accept = True
-    controller.propose_dt(errornorm, accept, niters=1)
 
     if kind == 'i':
         out_local = np.zeros(0, dtype=precision)
@@ -170,6 +173,7 @@ class TestControllers:
         indirect=True,
     )
     def test_matches_cpu(self, step_controller, step_controller_settings, step_setup, cpu_step_results, device_step_results):
+
         assert device_step_results.dt == pytest.approx(cpu_step_results.dt, abs=1e-6, rel=1e-6)
         valid_localmem = step_controller.local_memory_elements
         assert np.allclose(device_step_results.local_mem[:valid_localmem], cpu_step_results.local_mem[:valid_localmem], rtol=1e-6, atol=1e-6)

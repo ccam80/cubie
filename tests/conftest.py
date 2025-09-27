@@ -475,7 +475,7 @@ def cpu_step_controller(precision, step_controller_settings):
 
     controller = CPUAdaptiveController(
         kind=step_controller_settings["kind"].lower(),
-        dt_min=step_controller_settings["dt"],
+        dt_min=step_controller_settings["dt_min"],
         dt_max=step_controller_settings["dt_max"],
         atol=step_controller_settings["atol"],
         rtol=step_controller_settings["rtol"],
