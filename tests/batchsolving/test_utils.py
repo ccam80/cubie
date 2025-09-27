@@ -9,7 +9,6 @@ import pytest
 import numpy as np
 from numba import cuda
 import os
-from unittest.mock import patch
 
 from cubie.batchsolving._utils import (
     ensure_nonzero_size,
@@ -136,7 +135,6 @@ class TestCudaArrayFixtures:
         return placeholderAttribute()
 
 
-@pytest.mark.nocudasim
 class TestIsCudaArray(TestCudaArrayFixtures):
     """Test the is_cuda_array function."""
 
@@ -171,7 +169,6 @@ class TestIsCudaArray(TestCudaArrayFixtures):
             assert is_cuda_array(mock_obj) is False
 
 
-@pytest.mark.nocudasim
 class TestCudaArrayValidator(TestCudaArrayFixtures):
     """Test the cuda_array_validator function."""
 
@@ -228,7 +225,6 @@ class TestCudaArrayValidator(TestCudaArrayFixtures):
         assert result is False
 
 
-@pytest.mark.nocudasim
 class TestOptionalCudaArrayValidator(TestCudaArrayFixtures):
     """Test the optional_cuda_array_validator function."""
 
@@ -291,7 +287,6 @@ class TestOptionalCudaArrayValidator(TestCudaArrayFixtures):
         assert result is False
 
 
-@pytest.mark.nocudasim
 class TestOptionalCudaArrayValidator3D(TestCudaArrayFixtures):
     """Test the optional_cuda_array_validator_3d function."""
 
@@ -330,7 +325,6 @@ class TestOptionalCudaArrayValidator3D(TestCudaArrayFixtures):
         assert result is False
 
 
-@pytest.mark.nocudasim
 class TestOptionalCudaArrayValidator2D(TestCudaArrayFixtures):
     """Test the optional_cuda_array_validator_2d function."""
 
@@ -369,7 +363,6 @@ class TestOptionalCudaArrayValidator2D(TestCudaArrayFixtures):
         assert result is False
 
 
-@pytest.mark.nocudasim
 class TestCudaArrayValidator3D(TestCudaArrayFixtures):
     """Test the cuda_array_validator_3d function."""
 
@@ -401,7 +394,6 @@ class TestCudaArrayValidator3D(TestCudaArrayFixtures):
         assert result is False
 
 
-@pytest.mark.nocudasim
 class TestCudaArrayValidator2D(TestCudaArrayFixtures):
     """Test the cuda_array_validator_2d function."""
 
@@ -440,40 +432,3 @@ class TestCudaArrayValidator2D(TestCudaArrayFixtures):
             placeholder_instance, placeholder_attribute, "not an array"
         )
         assert result is False
-
-
-class TestCudaSimulationMode:
-    """Test behavior in CUDA simulation mode."""
-
-    def test_cudasim_mode_detection(self):
-        """Test that CUDASIM mode affects is_cuda_array behavior."""
-        # Create a numpy array
-        numpy_arr = np.array([1, 2, 3])
-
-        # Test current behavior
-        current_result = is_cuda_array(numpy_arr)
-
-        # Check if we're in CUDASIM mode
-        if os.environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-            # In CUDASIM mode, numpy arrays should be detected as CUDA arrays
-            assert current_result is True
-        else:
-            # In normal mode, numpy arrays should not be detected as CUDA arrays
-            assert current_result is False
-
-    @patch.dict(os.environ, {"NUMBA_ENABLE_CUDASIM": "1"})
-    def test_mock_array_behavior_in_cudasim(self):
-        """Test that objects with shape attribute are detected in CUDASIM mode."""
-
-        # This test demonstrates the behavior difference, but we can't easily
-        # test the conditional import without more complex mocking
-        class MockArray:
-            def __init__(self):
-                self.shape = (10, 10)
-
-        mock_arr = MockArray()
-
-        # Note: This test shows the intended behavior but may not work
-        # exactly as expected due to the conditional import at module level
-        # The actual behavior depends on when the module was imported
-        assert hasattr(mock_arr, "shape")

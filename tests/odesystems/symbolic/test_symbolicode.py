@@ -108,11 +108,9 @@ def built_simple_nonstrict(simple_ode_nonstrict):
     simple_ode_nonstrict.build()
     return simple_ode_nonstrict
 
-@pytest.mark.nocudasim
 def test_simple_strict_builds(built_simple_strict):
     assert callable(built_simple_strict.get_solver_helper("linear_operator"))
 
-@pytest.mark.nocudasim
 def test_simple_nonstrict_builds(built_simple_nonstrict):
     assert callable(built_simple_nonstrict.get_solver_helper(
             "linear_operator"))

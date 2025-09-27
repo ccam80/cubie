@@ -155,7 +155,6 @@ def noise_tester_32(sigmas, precision):
     return noise_array.copy_to_host()
 
 
-@pytest.mark.nocudasim
 @pytest.mark.parametrize("precision", [float64])
 def test_get_noise_64(precision):
     """Test get_noise_64 CUDA device function."""
@@ -174,7 +173,6 @@ def test_get_noise_64(precision):
     assert result_zero[1] != 0.0  # Should be non-zero
 
 
-@pytest.mark.nocudasim
 @pytest.mark.parametrize("precision", [float32])
 def test_get_noise_32(precision):
     """Test get_noise_32 CUDA device function."""
@@ -377,7 +375,6 @@ def test_get_readonly_view():
     assert original[0] == 10
 
 
-@pytest.mark.nocudasim
 def test_is_devfnc():
     """Test is_devfnc function."""
 
