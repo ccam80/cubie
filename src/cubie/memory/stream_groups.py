@@ -1,45 +1,45 @@
-"""
-Stream group management for organizing instances and CUDA streams.
+"""Stream group management for coordinating CUDA work queues.
 
-This module provides functionality to group instances together and assign them
-to shared CUDA streams for coordinated memory operations and kernel execution.
+This module groups host-side objects and identifiers under shared CUDA streams
+so that related kernels, transfers, and memory operations execute together. The
+default group always exists and receives a fresh stream after CUDA context
+resets.
 """
 
-from os import environ
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from numba import cuda
 import attrs
 import attrs.validators as val
 
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import FakeStream as Stream
-else:
-    from numba.cuda.cudadrv.driver import Stream
+from cubie.cuda_simsafe import Stream
 
 
 @attrs.define
 class StreamGroups:
-    """
-    Container for organizing instances into groups with shared CUDA streams.
+    """Container for organizing instances into groups with shared streams.
 
     Parameters
     ----------
-    groups : dict of str to list of int, optional
-        Dictionary mapping group names to lists of instance IDs.
-    streams : dict of str to Stream or int, optional
-        Dictionary mapping group names to CUDA streams.
+    groups
+        Dictionary mapping group names to lists of instance identifiers. When
+        omitted, an empty mapping is created and populated with the "default"
+        group.
+    streams
+        Dictionary mapping group names to CUDA streams. When omitted, each
+        group receives a new stream from :func:`numba.cuda.stream` and the
+        "default" group is backed by :func:`numba.cuda.default_stream`.
 
     Attributes
     ----------
-    groups : dict of str to list of int
-        Dictionary mapping group names to lists of instance IDs.
-    streams : dict of str to Stream or int
+    groups
+        Dictionary mapping group names to lists of instance identifiers.
+    streams
         Dictionary mapping group names to CUDA streams.
 
     Notes
     -----
     Each group has an associated CUDA stream that all instances in the group
-    share for coordinated operations. The 'default' group is created
+    share for coordinated operations. The "default" group is created
     automatically.
     """
 
@@ -51,23 +51,35 @@ class StreamGroups:
         default=attrs.Factory(dict), validator=val.instance_of(dict)
     )
 
-    def __attrs_post_init__(self):
-        """Initialize default group and stream if not provided."""
+    def __attrs_post_init__(self) -> None:
+        """
+        Initialize default group and stream if not provided.
+
+        Returns
+        -------
+        None
+            ``None``.
+        """
         if self.groups is None:
             self.groups = {"default": []}
         if self.streams is None:
             self.streams = {"default": cuda.default_stream()}
 
-    def add_instance(self, instance, group):
+    def add_instance(self, instance: Any, group: str) -> None:
         """
         Add an instance to a stream group.
 
         Parameters
         ----------
-        instance : object or int
-            The instance to add to the group, or its ID.
-        group : str
-            Name of the group to add the instance to.
+        instance
+            Host object or integer identifier to register with a stream group.
+        group
+            Name of the destination group.
+
+        Returns
+        -------
+        None
+            ``None``.
 
         Raises
         ------
@@ -76,8 +88,7 @@ class StreamGroups:
 
         Notes
         -----
-        If the group doesn't exist, it will be created with a new CUDA
-        stream.
+        If the group does not exist, it is created with a new CUDA stream.
         """
         if isinstance(instance, int):
             instance_id = instance
@@ -92,14 +103,14 @@ class StreamGroups:
             self.streams[group] = cuda.stream()
         self.groups[group].append(instance_id)
 
-    def get_group(self, instance):
+    def get_group(self, instance: Any) -> str:
         """
         Get the stream group associated with an instance.
 
         Parameters
         ----------
-        instance : object or int
-            The instance to find the group for, or its ID.
+        instance
+            Host object or integer identifier whose group is requested.
 
         Returns
         -------
@@ -124,14 +135,14 @@ class StreamGroups:
         except IndexError:
             raise ValueError("Instance not in any stream groups")
 
-    def get_stream(self, instance):
+    def get_stream(self, instance: Any) -> Union[Stream, int]:
         """
         Get the CUDA stream associated with an instance.
 
         Parameters
         ----------
-        instance : object or int
-            The instance to get the stream for, or its ID.
+        instance
+            Host object or integer identifier whose stream is requested.
 
         Returns
         -------
@@ -140,41 +151,45 @@ class StreamGroups:
         """
         return self.streams[self.get_group(instance)]
 
-    def get_instances_in_group(self, group):
+    def get_instances_in_group(self, group: str) -> list[int]:
         """
         Get all instances in a stream group.
 
         Parameters
         ----------
-        group : str
-            Name of the group to get instances for.
+        group
+            Name of the group to inspect.
 
         Returns
         -------
         list of int
-            List of instance IDs in the group, or empty list if group
-            doesn't exist.
+            List of instance identifiers associated with the group, or an empty
+            list when the group has not been created.
         """
         if group not in self.groups:
             return []
 
         return self.groups[group]
 
-    def change_group(self, instance, new_group):
+    def change_group(self, instance: Any, new_group: str) -> None:
         """
         Move an instance to another stream group.
 
         Parameters
         ----------
-        instance : object or int
-            The instance to move, or its ID.
-        new_group : str
-            Name of the group to move the instance to.
+        instance
+            Host object or integer identifier to move.
+        new_group
+            Name of the destination group.
+
+        Returns
+        -------
+        None
+            ``None``.
 
         Notes
         -----
-        If the new group doesn't exist, it will be created with a new CUDA
-        stream.
+        If the new group does not exist, it is created with a new CUDA stream.
         """
         if isinstance(instance, int):
             instance_id = instance
@@ -191,9 +206,14 @@ class StreamGroups:
             self.streams[new_group] = cuda.stream()
         self.groups[new_group].append(instance_id)
 
-    def reinit_streams(self):
+    def reinit_streams(self) -> None:
         """
         Reinitialize all streams after a context reset.
+
+        Returns
+        -------
+        None
+            ``None``.
 
         Notes
         -----

@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from cubie.memory.array_requests import ArrayRequest, ArrayResponse
+from cubie.memory.array_requests import ArrayRequest
 from cubie.memory.mem_manager import MemoryManager
 
 
@@ -57,7 +57,6 @@ class TestArrayRequests:
         )
         assert req1.stride_order is None
 
-    @pytest.mark.nocudasim
     @pytest.mark.parametrize(
         "array_request_override",
         [

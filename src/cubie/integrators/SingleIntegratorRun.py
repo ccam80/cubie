@@ -1,592 +1,695 @@
-"""
-Single integrator run coordination for CUDA-based ODE solving.
+"""High-level property aggregation for single integrator runs.
 
-This module provides the SingleIntegratorRun class which coordinates the
-low-level CUDA machinery to create device functions for running individual
-ODE integration runs. It handles dependency injection to integrator loop
-algorithms and manages light-weight caching to ensure changes in subfunctions
-are properly communicated.
+This module exposes :class:`SingleIntegratorRun`, a thin wrapper around
+:class:`~cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore`
+that presents compiled loop artifacts, controllers, and algorithm steps as
+read-only properties for downstream consumers.
 """
 
-from typing import Optional
+from __future__ import annotations
 
-from numpy.typing import ArrayLike
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
-from cubie._utils import in_attr
-from cubie.integrators.algorithms import ImplementedAlgorithms
-from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
-from cubie.outputhandling.output_functions import OutputFunctions
-from cubie.outputhandling.output_sizes import LoopBufferSizes
+import numpy as np
+
+from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
 from cubie.odesystems.ODEData import SystemSizes
 
 
-class SingleIntegratorRun:
-    """
-    Coordinates low-level CUDA machinery for single ODE integration runs.
+if TYPE_CHECKING:  # pragma: no cover - type checking import only
+    from cubie.odesystems.baseODE import BaseODE
 
-    This class presents the interface to lower-level CUDA code and performs
-    dependency injection to integrator loop algorithms. It contains light-weight
-    cache management to ensure that changes in one subfunction are communicated
-    to others, but does not inherit from CUDAFactory as it performs a different
-    role than other factory classes.
 
-    Parameters
-    ----------
-    system : BaseODE object
-        The ODE system to integrate.
-    algorithm : str, default='euler'
-        Name of the integration algorithm to use.
-    dt_min : float, default=0.01
-        Minimum time step size.
-    dt_max : float, default=0.1
-        Maximum time step size.
-    dt_save : float, default=0.1
-        Time interval between saved outputs.
-    dt_summarise : float, default=1.0
-        Time interval between summary calculations.
-    atol : float, default=1e-6
-        Absolute tolerance for integration.
-    rtol : float, default=1e-6
-        Relative tolerance for integration.
-    saved_state_indices : ArrayLike, optional
-        Indices of states to save during integration.
-    saved_observable_indices : ArrayLike, optional
-        Indices of observables to save during integration.
-    summarised_state_indices : ArrayLike, optional
-        Indices of states to summarise during integration.
-    summarised_observable_indices : ArrayLike, optional
-        Indices of observables to summarise during integration.
-    output_types : list of str or tuple of str, optional
-        Types of outputs to generate.
+class SingleIntegratorRun(SingleIntegratorRunCore):
+    """Expose aggregated read-only properties for integrator runs.
 
     Notes
     -----
-    This class handles modifications that invalidate the currently compiled
-    loop, including:
-
-    - Changes to system constants (compiled-in parameters)
-    - Changes to loop outputs (adding/removing output types, summary types)
-    - Changes to algorithm parameters (step size, tolerances, algorithm type)
-
-    The class maintains a list of currently implemented algorithms accessible
-    through the ImplementedAlgorithms registry. Additional algorithms can be
-    added by subclassing GenericIntegratorAlgorithm.
-
-    This class is not typically exposed to users directly - the user-facing
-    API is through the Solver class which handles batching and memory management.
-
-    All device functions maintain a local cache of their output functions
-    and compile-sensitive attributes, and will invalidate and rebuild if any
-    of these are updated.
-
-    See Also
-    --------
-    IntegratorRunSettings : Runtime configuration settings
-    ImplementedAlgorithms : Registry of available integration algorithms
+    Instantiation, updates, and compilation are provided by
+    :class:`SingleIntegratorRunCore`. This subclass intentionally limits
+    itself to property-based access so that front-end utilities can inspect
+    compiled CUDA components without mutating internal state.
     """
 
-    def __init__(
-        self,
-        system,
-        algorithm: str = "euler",
-        dt_min: float = 0.01,
-        dt_max: float = 0.1,
-        dt_save: float = 0.1,
-        dt_summarise: float = 1.0,
-        atol: float = 1e-6,
-        rtol: float = 1e-6,
-        saved_state_indices: Optional[ArrayLike] = None,
-        saved_observable_indices: Optional[ArrayLike] = None,
-        summarised_state_indices: Optional[ArrayLike] = None,
-        summarised_observable_indices: Optional[ArrayLike] = None,
-        output_types: list[str] = None,
-    ):
-        # Store the system
-        self._system = system
-        system_sizes = system.sizes
+    # ------------------------------------------------------------------
+    # Compile settings
+    # ------------------------------------------------------------------
+    @property
+    def precision(self) -> type:
+        """Return the numerical precision configured for the run."""
 
-        # Initialize output functions with shapes from system
-        self._output_functions = OutputFunctions(
-            max_states=system_sizes.states,
-            max_observables=system_sizes.observables,
-            output_types=output_types,
-            saved_state_indices=saved_state_indices,
-            saved_observable_indices=saved_observable_indices,
-            summarised_state_indices=summarised_state_indices,
-            summarised_observable_indices=summarised_observable_indices,
+        return self.compile_settings.precision
+
+    @property
+    def numba_precision(self) -> type:
+        """Return the Numba compatible precision for the run."""
+
+        return self.compile_settings.numba_precision
+
+    @property
+    def algorithm(self) -> str:
+        """Return the configured algorithm identifier."""
+
+        return self.compile_settings.algorithm
+
+    @property
+    def algorithm_key(self) -> str:
+        """Return the canonical algorithm identifier."""
+
+        return self.compile_settings.algorithm
+
+    @property
+    def step_controller_kind(self) -> str:
+        """Return the configured step-controller identifier."""
+
+        return self.compile_settings.step_controller_kind
+
+    # ------------------------------------------------------------------
+    # Aggregated memory usage
+    # ------------------------------------------------------------------
+    @property
+    def shared_memory_elements(self) -> int:
+        """Return total shared-memory elements required by the loop."""
+
+        loop_shared = (
+            self._loop.shared_memory_elements
+            if hasattr(self._loop, "shared_memory_elements")
+            else 0
         )
-
-        compile_settings = IntegratorRunSettings(
-            dt_min=dt_min,
-            dt_max=dt_max,
-            dt_save=dt_save,
-            dt_summarise=dt_summarise,
-            atol=atol,
-            rtol=rtol,
-            output_types=output_types,
+        algorithm_shared = (
+            self._algo_step.shared_memory_required
+            if hasattr(self._algo_step, "shared_memory_required")
+            else 0
         )
-
-        self.config = compile_settings
-
-        # Instantiate algorithm with info from system and output functions
-        self.algorithm_key = algorithm.lower()
-        algorithm = ImplementedAlgorithms[self.algorithm_key]
-        self._integrator_instance = algorithm.from_single_integrator_run(self)
-
-        self._compiled_loop = None
-        self._loop_cache_valid = False
+        return loop_shared + algorithm_shared
 
     @property
-    def loop_buffer_sizes(self):
-        """
-        Get buffer sizes required for the integration loop.
+    def shared_memory_bytes(self) -> int:
+        """Return total shared-memory usage in bytes."""
 
-        Returns
-        -------
-        LoopBufferSizes
-            Buffer size configuration for the integration loop.
-        """
-        return LoopBufferSizes.from_system_and_output_fns(
-            self._system, self._output_functions
+        element_count = self.shared_memory_elements
+        itemsize = np.dtype(self.precision).itemsize
+        return element_count * itemsize
+
+    @property
+    def local_memory_elements(self) -> int:
+        """Return total persistent local-memory requirement."""
+
+        loop = (
+            self._loop.local_memory_elements
+            if hasattr(self._loop, "local_memory_elements")
+            else 0
         )
-
-    @property
-    def output_array_heights(self):
-        """
-        Get the heights of output arrays.
-
-        Returns
-        -------
-        OutputArrayHeights
-            Output array height configuration from the OutputFunctions object.
-        """
-        return self._output_functions.output_array_heights
-
-    @property
-    def summaries_buffer_sizes(self):
-        """
-        Get buffer sizes for summary calculations.
-
-        Returns
-        -------
-        SummaryBufferSizes
-            Summary buffer size configuration from the OutputFunctions object.
-        """
-        return self._output_functions.summaries_buffer_sizes
-
-    def update(self, updates_dict=None, silent=False, **kwargs):
-        """
-        Update parameters across all components.
-
-        This method sends all parameters to all child components with
-        silent=True to avoid spurious warnings, then checks if any parameters
-        were not recognized by any component.
-
-        Parameters
-        ----------
-        updates_dict : dict, optional
-            Dictionary of parameters to update.
-        silent : bool, default=False
-            If True, suppress warnings about unrecognized parameters.
-        **kwargs
-            Parameter updates to apply as keyword arguments.
-
-        Returns
-        -------
-        set
-            Set of parameter names that were recognized and updated.
-
-        Raises
-        ------
-        KeyError
-            If parameters are not recognized by any component and silent=False.
-        """
-        if updates_dict == None:
-            updates_dict = {}
-        if kwargs:
-            updates_dict.update(kwargs)
-        if updates_dict == {}:
-            return set()
-
-        all_unrecognized = set(updates_dict.keys())
-        recognized = set()
-
-        # Update anything held in the config object (step sizes, etc)
-        for key, value in updates_dict.items():
-            if in_attr(key, self.config):
-                setattr(self.config, key, value)
-                recognized.add(key)
-
-        if "algorithm" in updates_dict.keys():
-            # If the algorithm is being updated, we need to reset the
-            # integrator instance
-            self.algorithm_key = updates_dict["algorithm"].lower()
-            algorithm = ImplementedAlgorithms[self.algorithm_key]
-            self._integrator_instance = algorithm.from_single_integrator_run(
-                self
-            )
-            recognized.add("algorithm")
-
-        recognized |= self._system.update(updates_dict, silent=True)
-        recognized |= self._output_functions.update(updates_dict, silent=True)
-
-        cached_loop_updates = {
-            "dxdt_function": self.dxdt_function,
-            "save_state_func": self.save_state_func,
-            "update_summaries_func": self.update_summaries_func,
-            "save_summaries_func": self.save_summaries_func,
-            "buffer_sizes": self.loop_buffer_sizes,
-            "loop_step_config": self.loop_step_config,
-            "precision": self.precision,
-            "compile_flags": self.compile_flags,
-        }
-
-        recognized |= self._integrator_instance.update(
-            cached_loop_updates, silent=True
+        algorithm = (
+            self._algo_step.persistent_local_required
+            if hasattr(self._algo_step, "persistent_local_required")
+            else 0
         )
-        all_unrecognized -= recognized
-
-        if all_unrecognized:
-            if not silent:
-                raise KeyError(
-                    f"The following updates were not recognized by any "
-                    f"component:"
-                    f" {all_unrecognized}",
-                )
-
-        self.config.validate_settings()
-        self._invalidate_cache()
-        return recognized
-
-    def _invalidate_cache(self):
-        """
-        Invalidate the compiled loop cache.
-
-        Marks the current compiled loop as invalid, forcing a rebuild
-        on the next access.
-        """
-        self._loop_cache_valid = False
-        self._compiled_loop = None
-
-    def build(self):
-        """
-        Build the complete integrator loop.
-
-        Compiles the integrator loop device function and updates the cache.
-
-        Returns
-        -------
-        CUDA device function
-            The compiled loop device function.
-        """
-
-        # Update with latest function references
-
-        self._compiled_loop = self._integrator_instance.device_function
-        self._loop_cache_valid = True
-
-        return self._compiled_loop
+        controller = (
+            self._step_controller.local_memory_elements
+            if hasattr(self._step_controller, "local_memory_elements")
+            else 0
+        )
+        return loop + algorithm + controller
 
     @property
-    def device_function(self):
-        """
-        Get the compiled loop function, building if necessary.
+    def compiled_loop_function(self) -> Callable:
+        """Return the compiled loop function."""
 
-        Returns
-        -------
-        CUDA device function
-            The compiled CUDA device function for the integration loop.
-        """
-        if not self._loop_cache_valid or self._compiled_loop is None:
-            self.build()
-        return self._compiled_loop
+        return self.device_function
 
     @property
-    def cache_valid(self):
-        """
-        Check if the compiled loop is current.
+    def threads_per_loop(self) -> int:
+        """Return the number of CUDA threads required per system."""
 
-        Returns
-        -------
-        bool
-            True if the cached loop is valid, False otherwise.
-        """
-        return self._loop_cache_valid
+        return self.threads_per_step
 
     @property
-    def shared_memory_elements(self):
-        """
-        Get the number of shared memory elements required for integration.
+    def dt0(self) -> float:
+        """Return the starting step size from the controller."""
 
-        Returns
-        -------
-        int
-            Number of elements of shared memory required for a single
-            integrator run.
-        """
-        if not self.cache_valid:
-            self.build()
-        loop_memory = self._integrator_instance.shared_memory_required
-        summary_buffers = self._output_functions.total_summary_buffer_size
-        total_elements = loop_memory + summary_buffers
-
-        return total_elements
+        return self._step_controller.dt0
 
     @property
-    def shared_memory_bytes(self):
-        """
-        Get the number of bytes of dynamic shared memory required.
+    def dt_min(self) -> float:
+        """Return the minimum allowable step size."""
 
-        Returns
-        -------
-        int
-            Number of bytes of dynamic shared memory required for a single
-            integrator run.
-        """
-        if not self.cache_valid:
-            self.build()
-        datasize = self.precision(0.0).nbytes
-        return self.shared_memory_elements * datasize
-
-    # Reach through this interface class to get lower level features:
-    @property
-    def precision(self):
-        """
-        Get the numerical precision type from the system.
-
-        Returns
-        -------
-        type
-            Numerical precision type (e.g., float32, float64) from the
-            child BaseODE object.
-        """
-        return self._system.precision
+        return self._step_controller.dt_min
 
     @property
-    def threads_per_loop(self):
-        """
-        Get the number of threads required by the loop algorithm.
+    def dt_max(self) -> float:
+        """Return the maximum allowable step size."""
 
-        Returns
-        -------
-        int
-            Number of threads per loop from the child GenericIntegratorAlgorithm
-            object.
-        """
-        return self._integrator_instance.threads_per_loop
+        return self._step_controller.dt_max
 
     @property
-    def dxdt_function(self):
-        """
-        Get the derivative function from the system.
+    def is_adaptive(self) -> bool:
+        """Return whether adaptive stepping is active."""
 
-        Returns
-        -------
-        callable
-            The dxdt function from the child BaseODE object.
-        """
-        return self._system.dxdt_function
+        return self._step_controller.is_adaptive
 
     @property
-    def save_state_func(self):
-        """
-        Get the state saving function.
+    def system(self) -> BaseODE:
+        """Return the underlying ODE system."""
 
-        Returns
-        -------
-        callable
-            State saving function from the child OutputFunctions object.
-        """
-        return self._output_functions.save_state_func
-
-    @property
-    def update_summaries_func(self):
-        """
-        Get the summary update function.
-
-        Returns
-        -------
-        callable
-            Summary update function from the child OutputFunctions object.
-        """
-        return self._output_functions.update_summaries_func
-
-    @property
-    def save_summaries_func(self):
-        """
-        Get the summary saving function.
-
-        Returns
-        -------
-        callable
-            Summary saving function from the child OutputFunctions object.
-        """
-        return self._output_functions.save_summary_metrics_func
-
-    @property
-    def loop_step_config(self):
-        """
-        Get the loop step configuration.
-
-        Returns
-        -------
-        LoopStepConfig
-            Step configuration object for the integration loop.
-        """
-        return self.config.loop_step_config
-
-    @property
-    def fixed_step_size(self):
-        """
-        Get the fixed step size for integration.
-
-        Returns
-        -------
-        float
-            Fixed step size from the child GenericIntegratorAlgorithm object.
-        """
-        return self._integrator_instance.fixed_step_size
-
-    @property
-    def dt_save(self):
-        """
-        Get the time step size for saving states and observables.
-
-        Returns
-        -------
-        float
-            Time interval between saved outputs.
-        """
-        return self.config.dt_save
-
-    @property
-    def dt_summarise(self):
-        """
-        Get the time step size for summarising states and observables.
-
-        Returns
-        -------
-        float
-            Time interval between summary calculations.
-        """
-        return self.config.dt_summarise
+        return self._system
 
     @property
     def system_sizes(self) -> SystemSizes:
-        """
-        Get the system size information.
+        """Return the size descriptor for the ODE system."""
 
-        Returns
-        -------
-        SystemSizes
-            Size information from the child BaseODE object.
-        """
         return self._system.sizes
 
     @property
-    def compile_flags(self):
-        """
-        Get the compilation flags for output functions.
+    def save_summaries_func(self) -> Callable:
+        """Return the summary saving function from the output handlers."""
 
-        Returns
-        -------
-        object
-            Compilation flags from the child OutputFunctions object.
-        """
-        return self._output_functions.compile_flags
+        return self.save_summary_metrics_func
 
     @property
-    def output_types(self):
-        """
-        Get the configured output types.
+    def dxdt_function(self) -> Callable:
+        """Return the derivative function used by the integration step."""
 
-        Returns
-        -------
-        list
-            List of output types from the child OutputFunctions object.
-        """
+        return self._algo_step.dxdt_function
+
+
+    # ------------------------------------------------------------------
+    # Loop properties
+    # ------------------------------------------------------------------
+    @property
+    def dt_save(self) -> float:
+        """Return the loop save interval."""
+
+        return self._loop.dt_save
+
+    @property
+    def dt_summarise(self) -> float:
+        """Return the loop summary interval."""
+
+        return self._loop.dt_summarise
+
+    @property
+    def shared_buffer_indices(self) -> Any:
+        """Return the shared buffer index layout."""
+
+        return self._loop.shared_buffer_indices
+
+    @property
+    def buffer_indices(self) -> Any:
+        """Return shared buffer indices."""
+
+        return self._loop.buffer_indices
+
+    @property
+    def local_indices(self) -> Any:
+        """Return loop local-memory indices."""
+
+        return self._loop.local_indices
+
+    @property
+    def shared_memory_elements_loop(self) -> int:
+        """Return the loop contribution to shared memory."""
+
+        return self._loop.shared_memory_elements
+
+    @property
+    def local_memory_elements_loop(self) -> int:
+        """Return the loop contribution to local memory."""
+
+        return self._loop.local_memory_elements
+
+    @property
+    def compile_flags(self) -> Any:
+        """Return loop compile flags."""
+
+        return self._loop.compile_flags
+
+    @property
+    def save_state_fn(self) -> Callable:
+        """Return the loop state-save function."""
+
+        return self._loop.save_state_fn
+
+    @property
+    def update_summaries_fn(self) -> Callable:
+        """Return the loop summary-update function."""
+
+        return self._loop.update_summaries_fn
+
+    @property
+    def save_summaries_fn(self) -> Callable:
+        """Return the loop summary-save function."""
+
+        return self._loop.save_summaries_fn
+
+    @property
+    def control_device_function(self) -> Callable:
+        """Return the compiled controller device function."""
+
+        return self._loop.step_controller_fn
+
+    @property
+    def compiled_loop_step_function(self) -> Callable:
+        """Return the compiled algorithm step function."""
+
+        return self._loop.step_fn
+
+    # ------------------------------------------------------------------
+    # Step controller properties
+    # ------------------------------------------------------------------
+    @property
+    def local_memory_elements_controller(self) -> int:
+        """Return the controller contribution to local memory."""
+
+        return self._step_controller.local_memory_elements
+
+    @property
+    def min_gain(self) -> Optional[float]:
+        """Return the minimum step size gain."""
+
+        controller = self._step_controller
+        return controller.min_gain if hasattr(controller, "min_gain") else None
+
+    @property
+    def max_gain(self) -> Optional[float]:
+        """Return the maximum step size gain."""
+
+        controller = self._step_controller
+        return controller.max_gain if hasattr(controller, "max_gain") else None
+
+    @property
+    def safety(self) -> Optional[float]:
+        """Return the controller safety factor."""
+
+        controller = self._step_controller
+        return controller.safety if hasattr(controller, "safety") else None
+
+    @property
+    def algorithm_order(self) -> Optional[int]:
+        """Return the algorithm order assumed by the controller."""
+
+        controller = self._step_controller
+        if hasattr(controller, "algorithm_order"):
+            return controller.algorithm_order
+        return None
+
+    @property
+    def atol(self) -> Optional[Any]:
+        """Return the absolute tolerance array."""
+
+        controller = self._step_controller
+        return controller.atol if hasattr(controller, "atol") else None
+
+    @property
+    def rtol(self) -> Optional[Any]:
+        """Return the relative tolerance array."""
+
+        controller = self._step_controller
+        return controller.rtol if hasattr(controller, "rtol") else None
+
+    @property
+    def kp(self) -> Optional[float]:
+        """Return the proportional gain."""
+
+        controller = self._step_controller
+        return controller.kp if hasattr(controller, "kp") else None
+
+    @property
+    def ki(self) -> Optional[float]:
+        """Return the integral gain."""
+
+        controller = self._step_controller
+        return controller.ki if hasattr(controller, "ki") else None
+
+    @property
+    def kd(self) -> Optional[float]:
+        """Return the derivative gain."""
+
+        controller = self._step_controller
+        return controller.kd if hasattr(controller, "kd") else None
+
+    @property
+    def gamma(self) -> Optional[float]:
+        """Return the Gustafsson damping factor."""
+
+        controller = self._step_controller
+        return controller.gamma if hasattr(controller, "gamma") else None
+
+    @property
+    def max_newton_iters(self) -> Optional[int]:
+        """Return the maximum Newton iterations used by the controller."""
+
+        controller = self._step_controller
+        if hasattr(controller, "max_newton_iters"):
+            return controller.max_newton_iters
+        return None
+
+    @property
+    def fixed_step_size(self) -> Optional[float]:
+        """Return the fixed step size for fixed controllers."""
+
+        controller = self._step_controller
+        return controller.dt if hasattr(controller, "dt") else None
+
+    @property
+    def control_settings(self) -> Dict[str, Any]:
+        """Return the controller settings dictionary."""
+
+        return dict(self._step_controller.settings_dict)
+
+    # ------------------------------------------------------------------
+    # Algorithm step properties
+    # ------------------------------------------------------------------
+    @property
+    def threads_per_step(self) -> int:
+        """Return the number of threads required by the step function."""
+
+        return self._algo_step.threads_per_step
+
+    @property
+    def uses_multiple_stages(self) -> bool:
+        """Return whether the algorithm uses multiple stages."""
+
+        return self._algo_step.is_multistage
+
+    @property
+    def adapts_step(self) -> bool:
+        """Return whether the algorithm inherently adapts its step."""
+
+        return self._algo_step.is_adaptive
+
+    @property
+    def shared_memory_required_step(self) -> int:
+        """Return algorithm shared-memory requirements."""
+
+        return self._algo_step.shared_memory_required
+
+    @property
+    def local_scratch_required_step(self) -> int:
+        """Return scratch local-memory requirements for the algorithm."""
+
+        return self._algo_step.local_scratch_required
+
+    @property
+    def local_memory_required_step(self) -> int:
+        """Return persistent local-memory requirements for the algorithm."""
+
+        return self._algo_step.persistent_local_required
+
+    @property
+    def implicit_step(self) -> bool:
+        """Return whether the algorithm is implicit."""
+
+        return self._algo_step.is_implicit
+
+    @property
+    def order(self) -> int:
+        """Return the algorithm order."""
+
+        return self._algo_step.order
+
+    @property
+    def integration_step_function(self) -> Callable:
+        """Return the compiled step function."""
+
+        return self._algo_step.step_function
+
+    @property
+    def nonlinear_solver_function(self) -> Callable:
+        """Return the compiled nonlinear solver function."""
+
+        return self._algo_step.nonlinear_solver_function
+
+    @property
+    def state_count(self) -> int:
+        """Return the algorithm state count."""
+
+        return self._algo_step.n
+
+    @property
+    def solver_helper(self) -> Callable:
+        """Return the solver helper factory used by the algorithm."""
+
+        return self._algo_step.get_solver_helper_fn
+
+    @property
+    def beta_coefficient(self) -> Optional[Any]:
+        """Return the implicit beta coefficient."""
+
+        step = self._algo_step
+        return step.beta if hasattr(step, "beta") else None
+
+    @property
+    def gamma_coefficient(self) -> Optional[Any]:
+        """Return the implicit gamma coefficient."""
+
+        step = self._algo_step
+        return step.gamma if hasattr(step, "gamma") else None
+
+    @property
+    def mass_matrix(self) -> Optional[Any]:
+        """Return the implicit mass matrix."""
+
+        step = self._algo_step
+        return step.mass_matrix if hasattr(step, "mass_matrix") else None
+
+    @property
+    def preconditioner_order(self) -> Optional[int]:
+        """Return the implicit preconditioner order."""
+
+        step = self._algo_step
+        return (
+            step.preconditioner_order
+            if hasattr(step, "preconditioner_order")
+            else None
+        )
+
+    @property
+    def linear_solver_tolerance(self) -> Optional[float]:
+        """Return the linear solve tolerance."""
+
+        step = self._algo_step
+        return (
+            step.linsolve_tolerance
+            if hasattr(step, "linsolve_tolerance")
+            else None
+        )
+
+    @property
+    def max_linear_iterations(self) -> Optional[int]:
+        """Return the maximum linear iterations."""
+
+        step = self._algo_step
+        return step.max_linear_iters if hasattr(step, "max_linear_iters") else None
+
+    @property
+    def linear_correction_type(self) -> Optional[Any]:
+        """Return the linear correction strategy."""
+
+        step = self._algo_step
+        return (
+            step.linear_correction_type
+            if hasattr(step, "linear_correction_type")
+            else None
+        )
+
+    @property
+    def nonlinear_tolerance(self) -> Optional[float]:
+        """Return the nonlinear solve tolerance."""
+
+        step = self._algo_step
+        return (
+            step.nonlinear_tolerance
+            if hasattr(step, "nonlinear_tolerance")
+            else None
+        )
+
+    @property
+    def newton_iterations_limit(self) -> Optional[int]:
+        """Return the maximum Newton iterations for the step."""
+
+        step = self._algo_step
+        return (
+            step.max_newton_iters
+            if hasattr(step, "max_newton_iters")
+            else None
+        )
+
+    @property
+    def newton_damping(self) -> Optional[float]:
+        """Return the Newton damping factor."""
+
+        step = self._algo_step
+        return (
+            step.newton_damping
+            if hasattr(step, "newton_damping")
+            else None
+        )
+
+    @property
+    def newton_max_backtracks(self) -> Optional[int]:
+        """Return the maximum Newton backtracking steps."""
+
+        step = self._algo_step
+        return (
+            step.newton_max_backtracks
+            if hasattr(step, "newton_max_backtracks")
+            else None
+        )
+
+    @property
+    def integration_step_size(self) -> Optional[float]:
+        """Return the fixed step size for explicit steps."""
+
+        step = self._algo_step
+        return step.dt if hasattr(step, "dt") else None
+
+    # ------------------------------------------------------------------
+    # Output function properties
+    # ------------------------------------------------------------------
+    @property
+    def save_state_func(self) -> Callable:
+        """Return the compiled state saving function."""
+
+        return self._output_functions.save_state_func
+
+    @property
+    def update_summaries_func(self) -> Callable:
+        """Return the compiled summary update function."""
+
+        return self._output_functions.update_summaries_func
+
+    @property
+    def save_summary_metrics_func(self) -> Callable:
+        """Return the compiled summary saving function."""
+
+        return self._output_functions.save_summary_metrics_func
+
+    @property
+    def output_types(self) -> Any:
+        """Return the configured output types."""
+
         return self._output_functions.output_types
 
     @property
-    def summary_legend_per_variable(self):
-        """
-        Get the summary legend for each variable.
+    def output_compile_flags(self) -> Any:
+        """Return the output compile flags."""
 
-        Returns
-        -------
-        object
-            Summary legend mapping from the child OutputFunctions object.
-        """
-        return self._output_functions.summary_legend_per_variable
+        return self._output_functions.compile_flags
 
     @property
-    def saved_state_indices(self):
-        """
-        Get indices of states to save.
+    def save_time(self) -> bool:
+        """Return whether time saving is enabled."""
 
-        Returns
-        -------
-        ArrayLike
-            Indices of states to save from the child OutputFunctions object.
-        """
-        return self._output_functions.saved_state_indices
-
-    @property
-    def saved_observable_indices(self):
-        """
-        Get indices of observables to save.
-
-        Returns
-        -------
-        ArrayLike
-            Indices of observables to save from the child OutputFunctions object.
-        """
-        return self._output_functions.saved_observable_indices
-
-    @property
-    def summarised_state_indices(self):
-        """
-        Get indices of states to summarise.
-
-        Returns
-        -------
-        ArrayLike
-            Indices of states to summarise from the child OutputFunctions object.
-        """
-        return self._output_functions.summarised_state_indices
-
-    @property
-    def summarised_observable_indices(self):
-        """
-        Get indices of observables to summarise.
-
-        Returns
-        -------
-        ArrayLike
-            Indices of observables to summarise from the child OutputFunctions object.
-        """
-        return self._output_functions.summarised_observable_indices
-
-    @property
-    def save_time(self):
-        """
-        Get whether time values should be saved.
-
-        Returns
-        -------
-        bool
-            True if time should be saved, from the child OutputFunctions object.
-        """
         return self._output_functions.save_time
 
     @property
-    def system(self):
-        """
-        Get the ODE system object.
+    def saved_state_indices(self) -> Any:
+        """Return the saved state indices."""
 
-        Returns
-        -------
-        object
-            The child BaseODE system object.
-        """
-        return self._system
+        return self._output_functions.saved_state_indices
+
+    @property
+    def saved_observable_indices(self) -> Any:
+        """Return the saved observable indices."""
+
+        return self._output_functions.saved_observable_indices
+
+    @property
+    def summarised_state_indices(self) -> Any:
+        """Return the summarised state indices."""
+
+        return self._output_functions.summarised_state_indices
+
+    @property
+    def summarised_observable_indices(self) -> Any:
+        """Return the summarised observable indices."""
+
+        return self._output_functions.summarised_observable_indices
+
+    @property
+    def n_saved_states(self) -> int:
+        """Return the number of saved states."""
+
+        return self._output_functions.n_saved_states
+
+    @property
+    def n_saved_observables(self) -> int:
+        """Return the number of saved observables."""
+
+        return self._output_functions.n_saved_observables
+
+    @property
+    def state_summaries_output_height(self) -> int:
+        """Return the state summary output height."""
+
+        return self._output_functions.state_summaries_output_height
+
+    @property
+    def observable_summaries_output_height(self) -> int:
+        """Return the observable summary output height."""
+
+        return self._output_functions.observable_summaries_output_height
+
+    @property
+    def summary_buffer_height_per_variable(self) -> int:
+        """Return the summary buffer height per variable."""
+
+        return self._output_functions.summaries_buffer_height_per_var
+
+    @property
+    def state_summaries_buffer_height(self) -> int:
+        """Return the total state summary buffer height."""
+
+        return self._output_functions.state_summaries_buffer_height
+
+    @property
+    def observable_summaries_buffer_height(self) -> int:
+        """Return the total observable summary buffer height."""
+
+        return self._output_functions.observable_summaries_buffer_height
+
+    @property
+    def total_summary_buffer_size(self) -> int:
+        """Return the total summary buffer size."""
+
+        return self._output_functions.total_summary_buffer_size
+
+    @property
+    def summary_output_height_per_variable(self) -> int:
+        """Return the summary output height per variable."""
+
+        return self._output_functions.summaries_output_height_per_var
+
+    @property
+    def n_summarised_states(self) -> int:
+        """Return the number of summarised states."""
+
+        return self._output_functions.n_summarised_states
+
+    @property
+    def n_summarised_observables(self) -> int:
+        """Return the number of summarised observables."""
+
+        return self._output_functions.n_summarised_observables
+
+    @property
+    def summaries_buffer_sizes(self) -> Any:
+        """Return the summary buffer size descriptor."""
+
+        return self._output_functions.summaries_buffer_sizes
+
+    @property
+    def output_array_heights(self) -> Any:
+        """Return the output array height descriptor."""
+
+        return self._output_functions.output_array_heights
+
+    @property
+    def summary_legend_per_variable(self) -> Any:
+        """Return the summary legend per variable."""
+
+        return self._output_functions.summary_legend_per_variable
+
+
+__all__ = ["SingleIntegratorRun"]

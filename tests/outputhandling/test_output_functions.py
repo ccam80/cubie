@@ -219,6 +219,8 @@ def expected_summaries(
     state_summaries, observable_summaries = calculate_expected_summaries(
         state_output,
         observables_output,
+        output_test_settings['saved_state_indices'],
+        output_test_settings['saved_observable_indices'],
         summarise_every,
         output_types,
         summary_height_per_variable,

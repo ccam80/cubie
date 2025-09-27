@@ -6,15 +6,8 @@ operations, including containers for storing arrays and managers for handling
 memory allocation and data transfer between host and device.
 """
 
-from os import environ
-
 import attrs
 import attrs.validators as val
-
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    pass
-else:
-    pass
 
 from numpy.typing import NDArray
 from typing import Optional, TYPE_CHECKING

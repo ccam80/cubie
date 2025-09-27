@@ -16,12 +16,13 @@ def test_from_system(interface):
 
 
 @pytest.mark.parametrize(
-    "updates",
+    "updates, system_override",
     [
-        {"x0": 42.0},
-        {"p0": 3.14},
-        {"x0": 1.23, "p1": 4.56},
+        ({"x0": 42.0}, "linear"),
+        ({"p0": 3.14}, "linear"),
+        ({"x0": 1.23, "p1": 4.56}, "linear"),
     ],
+    indirect=["system_override"]
 )
 def test_update(interface, updates):
     interface.update(updates)

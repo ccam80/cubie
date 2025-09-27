@@ -1,24 +1,34 @@
-"""Utilities for symbolic Jacobian computation.
+"""Utilities for symbolic Jacobian and JVP construction.
 
 Adapted from :mod:`chaste_codegen._jacobian` under the MIT licence.
 """
 
-from typing import Dict, Iterable, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import sympy as sp
 from sympy import IndexedBase
 
-from cubie.odesystems.symbolic.sym_utils import (
-    cse_and_stack,
-    topological_sort,
-)
+from cubie.odesystems.symbolic.sym_utils import cse_and_stack, topological_sort
 
-_cache: dict = {}
+CacheValue = Dict[str, Union[sp.Matrix, List[Tuple[sp.Symbol, sp.Expr]]]]
+CacheKey = Tuple[
+    Tuple[Tuple[sp.Symbol, sp.Expr], ...],
+    Tuple[Tuple[sp.Symbol, int], ...],
+    Tuple[Tuple[sp.Symbol, int], ...],
+    bool,
+]
+
+_cache: Dict[CacheKey, CacheValue] = {}
+
 
 def get_cache_counts() -> Dict[str, int]:
-    """Return counts of cached items by kind (jac, jvp).
+    """Return counts of cached Jacobian and JVP artifacts.
 
-    Used in testing."""
+    Returns
+    -------
+    Dict[str, int]
+        Numbers of cached ``"jac"`` and ``"jvp"`` entries.
+    """
     counts: Dict[str, int] = {"jac": 0, "jvp": 0}
     for value in _cache.values():
         # New scheme: value is a dict possibly containing both kinds
@@ -39,13 +49,36 @@ def get_cache_counts() -> Dict[str, int]:
     return counts
 
 
-def get_cache_key(equations,
-                  input_order: Dict[sp.Symbol, int],
-                  output_order: Dict[sp.Symbol, int],
-                  cse: bool):
-    """Generate the cache key from equations, orders and cse flag.
+def get_cache_key(
+    equations: Union[Iterable[Tuple[sp.Symbol, sp.Expr]], Dict[sp.Symbol, sp.Expr]],
+    input_order: Dict[sp.Symbol, int],
+    output_order: Dict[sp.Symbol, int],
+    cse: bool,
+) -> CacheKey:
+    """Generate the cache key from equations, orders, and the CSE flag.
 
-    This single key is shared across all built artifacts (e.g. jac, jvp).
+    Parameters
+    ----------
+    equations
+        Equations expressed as ``(symbol, expression)`` pairs or a mapping of
+        symbols to expressions.
+    input_order
+        Mapping from each input symbol to its position in the input vector.
+    output_order
+        Mapping from each output symbol to its position in the output vector.
+    cse
+        Indicates whether common-subexpression elimination is enabled for the
+        cached entry.
+
+    Returns
+    -------
+    CacheKey
+        Hashable representation of the computation inputs.
+
+    Notes
+    -----
+    This single key is shared across all built artifacts, including both the
+    Jacobian matrix and the JVP assignment list.
     """
     # Convert equations to a hashable form
     if isinstance(equations, dict):
@@ -59,8 +92,8 @@ def get_cache_key(equations,
     return (eq_tuple, input_tuple, output_tuple, bool(cse))
 
 
-def clear_cache():
-    """Clear the unified symbolic cache (kept for API compatibility)."""
+def clear_cache() -> None:
+    """Clear the unified symbolic cache."""
     _cache.clear()
 
 
@@ -71,23 +104,27 @@ def generate_jacobian(equations: Union[
                       output_order: Dict[sp.Symbol, int],
                       use_cache: bool = True,
                       cache_cse: bool = True,
-                      ):
+                      ) -> sp.Matrix:
     """Return the symbolic Jacobian matrix for the given equations.
 
     Parameters
     ----------
-    equations : Union[List[Tuple[sp.Symbol, sp.Expr]], Dict[sp.Symbol, sp.Expr]]
-        The full set of intermediate(auxiliary) and derivative equations.
-    input_order : Dict[sp.Symbol, int]
-        A dict mapping input symbols to their index in the input vector.
-    output_order : List[sp.Symbol]
-        A dict mapping output symbols to their index in the output vector.
-    use_cache : bool, optional
-        Whether to use caching for the Jacobian computation. Default is True.
+    equations
+        Full set of intermediate and derivative equations.
+    input_order
+        Mapping from each input symbol to its position in the input vector.
+    output_order
+        Mapping from each output symbol to its position in the output vector.
+    use_cache
+        Whether to reuse cached Jacobian computations when available.
+    cache_cse
+        Use the common-subexpression elimination form when creating cache keys.
 
     Returns
     -------
-    sp.Matrix: The symbolic Jacobian matrix.
+    sp.Matrix
+        Symbolic Jacobian matrix ordered according to ``output_order`` and
+        ``input_order``.
     """
     if isinstance(equations, dict):
         eq_list = list(equations.items())
@@ -161,24 +198,29 @@ def generate_jacobian(equations: Union[
     return J
 
 
-def _prune_unused_assignments(expressions: Iterable[Tuple[sp.Symbol,
-sp.Expr]],
-                              outputsym_str: str = "jvp"):
-    """Remove assignments not required to compute final JVP outputs.
-
-    The function assumes that the list is topologically sorted and that output
-    assignments have LHS symbols whose names start with ``"jvp["``. It preserves
-    the relative order of kept assignments.
+def _prune_unused_assignments(
+    expressions: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    outputsym_str: str = "jvp",
+) -> List[Tuple[sp.Symbol, sp.Expr]]:
+    """Remove assignments that do not contribute to the final JVP outputs.
 
     Parameters
     ----------
-    expressions : Iterable[Tuple[sp.Symbol, sp.Expr]]
-        A topologically sorted list of (lhs, rhs) assignments.
+    expressions
+        Topologically sorted assignments ``(lhs, rhs)``.
+    outputsym_str
+        Prefix identifying JVP output symbols.
 
     Returns
     -------
-        list of tuples of (sp.Symbol, sp.Expr)
-        The pruned list of assignments.
+    List[Tuple[sp.Symbol, sp.Expr]]
+        Pruned assignments that are required to compute the JVP outputs.
+
+    Notes
+    -----
+    The function assumes that the list is topologically sorted and that output
+    assignments have left-hand-side symbols whose names start with
+    ``"jvp["``. It preserves the relative order of kept assignments.
     """
     exprs = list(expressions)
     if not exprs:
@@ -209,19 +251,43 @@ sp.Expr]],
     return kept
 
 
-def generate_analytical_jvp(equations: Union[
-                              Iterable[Tuple[sp.Symbol, sp.Expr]],
-                              Dict[sp.Symbol, sp.Expr]],
-                         input_order: Dict[sp.Symbol, int],
-                         output_order: Dict[sp.Symbol, int],
-                         observables: Iterable[sp.Symbol] = None,
-                         cse=True,
-                              ):
-    """Return symbolic expressions for the Jacobian-vector product."""
+def generate_analytical_jvp(
+    equations: Union[Iterable[Tuple[sp.Symbol, sp.Expr]], Dict[sp.Symbol, sp.Expr]],
+    input_order: Dict[sp.Symbol, int],
+    output_order: Dict[sp.Symbol, int],
+    observables: Optional[Iterable[sp.Symbol]] = None,
+    cse: bool = True,
+) -> List[Tuple[sp.Symbol, sp.Expr]]:
+    """Return symbolic assignments for the Jacobian-vector product (JVP).
+
+    Parameters
+    ----------
+    equations
+        System equations including intermediates and outputs.
+    input_order
+        Mapping from each input symbol to its position in the input vector.
+    output_order
+        Mapping from each output symbol to its position in the output vector.
+    observables
+        Symbols to treat as auxiliary variables when constructing the JVP.
+    cse
+        Apply common-subexpression elimination before producing assignments.
+
+    Returns
+    -------
+    List[Tuple[sp.Symbol, sp.Expr]]
+        Symbolic assignments that compute the JVP for each output entry.
+
+    Notes
+    -----
+    Cached results are reused when possible and shared with the Jacobian cache
+    through the key generated by :func:`get_cache_key`.
+    """
 
     if isinstance(equations, dict):
         eq_list = list(equations.items())
-    else: # convert a generator if present
+    else:
+        # Convert a generator if present.
         eq_list = list(equations)
 
     # Cache key before any mutation of inputs
@@ -235,13 +301,19 @@ def generate_analytical_jvp(equations: Union[
 
     # Swap out observables for auxiliary variables
     if observables is not None:
-        obs_subs = dict(zip(observables,sp.numbered_symbols("aux_", start=1)))
+        obs_subs = dict(zip(observables, sp.numbered_symbols("aux_", start=1)))
     else:
         obs_subs = {}
 
     equations = [(lhs.subs(obs_subs), rhs.subs(obs_subs)) for lhs, rhs in
                   eq_list]
-    jac = generate_jacobian(equations, input_order, output_order, use_cache=True, cache_cse=cse)
+    jac = generate_jacobian(
+        equations,
+        input_order,
+        output_order,
+        use_cache=True,
+        cache_cse=cse,
+    )
 
     prod_exprs = []
     j_symbols: Dict[Tuple[int, int], sp.Symbol] = {}

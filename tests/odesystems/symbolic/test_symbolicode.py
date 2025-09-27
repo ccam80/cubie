@@ -108,11 +108,9 @@ def built_simple_nonstrict(simple_ode_nonstrict):
     simple_ode_nonstrict.build()
     return simple_ode_nonstrict
 
-@pytest.mark.nocudasim
 def test_simple_strict_builds(built_simple_strict):
     assert callable(built_simple_strict.get_solver_helper("linear_operator"))
 
-@pytest.mark.nocudasim
 def test_simple_nonstrict_builds(built_simple_nonstrict):
     assert callable(built_simple_nonstrict.get_solver_helper(
             "linear_operator"))
@@ -123,3 +121,12 @@ def test_solver_helper_cached(built_simple_strict):
     assert callable(func1)
     func2 = built_simple_strict.get_solver_helper("linear_operator")
     assert func1 is func2
+
+
+def test_observables_helper_available(built_simple_strict):
+    """Symbolic systems should expose an observables-only helper."""
+
+    func = built_simple_strict.get_solver_helper("observables")
+    assert callable(func)
+    cached = built_simple_strict.get_solver_helper("observables")
+    assert func is cached

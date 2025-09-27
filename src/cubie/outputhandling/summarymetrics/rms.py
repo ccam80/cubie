@@ -18,57 +18,34 @@ from cubie.outputhandling.summarymetrics.metrics import (
 
 @register_metric(summary_metrics)
 class RMS(SummaryMetric):
-    """
-    Summary metric to calculate the root mean square (RMS) of a variable.
-
-    This metric computes the RMS value over a summary period by maintaining
-    a running sum of squares in the buffer and calculating the square root
-    of the mean when saving the final result.
+    """Summary metric that calculates the root mean square of a variable.
 
     Notes
     -----
-    The metric uses a single buffer slot per variable to accumulate the sum
-    of squared values. The RMS is calculated as sqrt(sum_of_squares / n_samples).
+    The metric keeps a running sum of squares in a single buffer slot and
+    evaluates ``sqrt(sum_of_squares / summarise_every)`` when saving results.
     """
 
-    def __init__(self):
-        """
-        Initialize the RMS summary metric.
-
-        Creates CUDA device functions for updating running sums of squares and
-        calculating RMS values, and configures the metric with appropriate
-        buffer and output sizes.
-        """
+    def __init__(self) -> None:
+        """Initialise the RMS summary metric with fixed buffer sizes."""
         super().__init__(
             name="rms",
             buffer_size=1,
             output_size=1,
         )
 
-    def build(self):
-        """
-        Generate CUDA device functions for RMS value calculation.
-
-        Creates optimized CUDA device functions with fixed signatures for
-        updating running sums of squares and calculating final RMS values.
+    def build(self) -> MetricFuncCache:
+        """Generate CUDA device functions for RMS value calculation.
 
         Returns
         -------
-        MetricFuncCache[update: callable, save: callable]
-            Cache object containing update and save functions for CUDA
-            execution. Both functions must be compiled with @cuda.jit
-            decorators.
+        MetricFuncCache
+            Cache containing the device update and save callbacks.
 
         Notes
         -----
-        The generated functions have the following signatures:
-
-        update(value, buffer, current_index, customisable_variable):
-            Adds the square of the new value to the running sum.
-
-        save(buffer, output_array, summarise_every, customisable_variable):
-            Calculates RMS by taking square root of mean of squares and
-            resets buffer.
+        The update callback accumulates the running sum of squares while the
+        save callback computes the RMS and clears the buffer.
         """
 
         # no cover: start
@@ -86,25 +63,23 @@ class RMS(SummaryMetric):
             current_index,
             customisable_variable,
         ):
-            """
-            Update running sum of squares with new value.
+            """Update the running sum of squares with a new value.
 
             Parameters
             ----------
-            value : float
-                New value to square and add to the running sum.
-            buffer : array-like
-                Buffer location containing the running sum of squares.
-            current_index : int
-                Current integration step index, used to reset sum at start.
-            customisable_variable : int
-                Extra parameter for metric-specific calculations (unused for RMS).
+            value
+                float. New value to square and add to the running sum.
+            buffer
+                device array. Storage containing the running sum of squares.
+            current_index
+                int. Current integration step index, used to reset the sum.
+            customisable_variable
+                int. Metric parameter placeholder (unused for RMS).
 
             Notes
             -----
-            Squares the new value and adds it to buffer[0] to maintain the
-            running sum of squares. Resets the sum if current_index is 0.
-            Requires 1 buffer memory slot per variable.
+            Resets ``buffer[0]`` on the first step of a period before adding
+            the squared value.
             """
             sum_of_squares = buffer[0]
             if current_index == 0:
@@ -126,29 +101,23 @@ class RMS(SummaryMetric):
             summarise_every,
             customisable_variable,
         ):
-            """
-            Calculate RMS from running sum of squares and reset buffer.
+            """Calculate the RMS from the running sum of squares.
 
             Parameters
             ----------
-            buffer : array-like
-                Buffer containing the running sum of squared values.
-            output_array : array-like
-                Output array location for saving the RMS value.
-            summarise_every : int
-                Number of steps between saves, used as divisor for mean
-                calculation.
-            customisable_variable : int
-                Extra parameter for metric-specific calculations (unused for
-                RMS).
+            buffer
+                device array. Buffer containing the running sum of squares.
+            output_array
+                device array. Output array location for saving the RMS value.
+            summarise_every
+                int. Number of steps contributing to each summary window.
+            customisable_variable
+                int. Metric parameter placeholder (unused for RMS).
 
             Notes
             -----
-            Calculates the RMS by taking the square root of the mean of
-            squares (sqrt(sum_of_squares / summarise_every)) and saves to
-            output_array[0]. Resets buffer[0] to 0.0 for the next summary
-            .
-            Requires 1 output memory slot per variable.
+            Saves ``sqrt(buffer[0] / summarise_every)`` to ``output_array[0]``
+            and resets ``buffer[0]`` for the next summary period.
             """
             output_array[0] = sqrt(buffer[0] / summarise_every)
             buffer[0] = 0.0

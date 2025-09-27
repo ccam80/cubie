@@ -6,9 +6,9 @@ size validation, CUDA array detection, and array validation functions for
 use with attrs-based classes.
 """
 
-from os import environ
 from typing import Union, Tuple
 
+from cubie.cuda_simsafe import is_cuda_array
 
 def ensure_nonzero_size(
     value: Union[int, Tuple[int, ...]],
@@ -48,30 +48,6 @@ def ensure_nonzero_size(
             return value
     else:
         return value
-
-
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-
-    def is_cuda_array(value):
-        """
-        Check if value is a CUDA array (simulation mode).
-
-        In CUDA simulation mode, any object with a 'shape' attribute
-        is considered a CUDA array.
-
-        Parameters
-        ----------
-        value : object
-            Object to check.
-
-        Returns
-        -------
-        bool
-            True if the value has a 'shape' attribute, False otherwise.
-        """
-        return hasattr(value, "shape")
-else:
-    from numba.cuda import is_cuda_array
 
 
 def cuda_array_validator(instance, attribute, value, dimensions=None):

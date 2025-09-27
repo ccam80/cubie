@@ -149,6 +149,7 @@ class OutputFunctions(CUDAFactory):
         """
         if updates_dict is None:
             updates_dict = {}
+        updates_dict = updates_dict.copy()
         if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
@@ -159,6 +160,7 @@ class OutputFunctions(CUDAFactory):
         recognised_params |= self.update_compile_settings(
             updates_dict, silent=True
         )
+        self.compile_settings.__attrs_post_init__() # call validation funcs
         unrecognised -= recognised_params
 
         if not silent and unrecognised:

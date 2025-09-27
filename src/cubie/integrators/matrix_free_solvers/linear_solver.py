@@ -1,185 +1,178 @@
-# python
 """Matrix-free preconditioned linear solver.
 
-
-Implementation notes
---------------------
-- Matrix-free: only operator_apply is required.
-- Low memory: keeps a few vectors and fuses simple passes to reduce traffic.
-- Preconditioner interface: preconditioner(state, parameters,
-  drivers, h, residual, z, scratch) writes z ≈ M^{-1} r; if None, z := r.
-  The solver passes a scratch vector that the preconditioner may overwrite;
-  this buffer is then reused by the solver internally.
-
-This module keeps function bodies small; each operation is factored into a helper.
+This module builds CUDA device functions that implement steepest-descent or
+minimal-residual iterations without forming Jacobian matrices explicitly.
+The helpers interact with the nonlinear solvers in :mod:`cubie.integrators`
+and expect caller-supplied operator and preconditioner callbacks.
 """
 
 from typing import Callable, Optional
 
-from numba import cuda, int32
+from numba import cuda, int32, from_dtype
+import numpy as np
+
+from cubie._utils import PrecisionDtype
+from cubie.cuda_simsafe import activemask, all_sync, selp
 
 
 def linear_solver_factory(
     operator_apply: Callable,
     n: int,
     preconditioner: Optional[Callable] = None,
-    correction_type: str = "steepest_descent",
+    correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
+    precision: PrecisionDtype = np.float64,
 ) -> Callable:
-    """Create a CUDA device function implementing preconditioned SD/MR.
+    """Create a CUDA device function implementing steepest-descent or MR.
 
     Parameters
     ----------
-    operator_apply : callable(state, parameters, drivers, h, in_vec, out_vec):
-        applies the linear operator F to 'in_vec', writing into 'out_vec'.
-        state, parameters, drivers, and h are input parameters that are used
-        to evaluate the Jacobian at the current guess.
-        Generally, this operator is of the form F = β M - γ h J, where:
-        - M is a mass matrix (Identity for standard ODEs)
-        - J is the system Jacobian
-        - h is the timestep
-        - β and γ are scalars (beta is a "shift" to improve conditioning in
-            e.g. Radau methods; and gamma is a stage parameter for e.g.
-            Rosenbrock or IRK methods).
-        In the simplest case ODE integrator, backward-Euler, F ≈ I − h J at
-        the current guess.
-        M, J, h, beta, gamma should all be compiled-in to the operator_apply
-        function.
-    n : int
-        length of the 1d residual/rhs vectors.
-    preconditioner : callable(state, parameters, drivers, h, residual, z,
-    jvp_scratch), optional, default=None
-        Preconditioner function that approximately solves M z = residual,
-        writing the result into z. The solver provides a scratch vector
-        (\"jvp_scratch\") which the preconditioner may use and overwrite.
-        If None, no preconditioning is applied and z is simply set to the residual.
-    correction_type : str
-        Type of line search to perform. These affect the calculation of the
-        correction step length alpha:
-        - "steepest_descent": choose alpha to eliminate the component of the
-            residual along the search direction z. This is effective when F is
-            close to symmetric and damped (e.g., diffusion-dominated, small h).
-        - "minimal residual": choose alpha to guarantee that the residual
-        norm decreases. Effective for strongly nonsymmetric or indefinite
-        problems, but can take longer to converge for simple systems.
-    tolerance : float
-        Target residual 2-norm for convergence.
-    max_iters : int
-        Maximum iteration count.
+    operator_apply
+        Callback that overwrites its output vector with ``F @ v``.
+    n
+        Length of the one-dimensional residual and search-direction vectors.
+    preconditioner
+        Approximate inverse preconditioner invoked as ``(state, parameters,
+        drivers, h, residual, z, scratch)``. ``scratch`` can be overwritten.
+        If ``None`` the identity preconditioner is used.
+    correction_type
+        Line-search strategy. Must be ``"steepest_descent"`` or
+        ``"minimal_residual"``.
+    tolerance
+        Target on the squared residual norm that signals convergence.
+    max_iters
+        Maximum number of iterations permitted.
+    precision
+        Floating-point precision used when building the device function.
 
     Returns
     -------
-    callable
-        CUDA device function with signature:
-        solver(state, parameters, drivers, h,
-             rhs, x, z, temp)
-        where "temp" is also passed as a scratch buffer to the preconditioner.
+    Callable
+        CUDA device function returning ``0`` on convergence and ``4`` when the
+        iteration limit is reached.
+
+    Notes
+    -----
+    The operator typically has the form ``F = β M - γ h J`` where ``M`` is the
+    mass matrix (often the identity), ``J`` is the Jacobian, ``h`` is the step
+    size, and ``β`` and ``γ`` are scalar parameters captured in the closure.
+    The solver maintains only vector workspaces and reuses the ``temp``
+    buffer as the scratch space expected by the optional preconditioner.
     """
-    # Setup compile-time flags to kill code branches
-    SD = 1 if correction_type == "steepest_descent" else 0
-    MR = 1 if correction_type == "minimal_residual" else 0
+
+    sd_flag = 1 if correction_type == "steepest_descent" else 0
+    mr_flag = 1 if correction_type == "minimal_residual" else 0
     if correction_type not in ("steepest_descent", "minimal_residual"):
         raise ValueError(
             "Correction type must be 'steepest_descent' or 'minimal_residual'."
         )
-    PC = 1 if preconditioner is not None else 0
+    preconditioned = 1 if preconditioner is not None else 0
+
+    precision_dtype = np.dtype(precision)
+    precision_scalar = from_dtype(precision_dtype)
+    typed_zero = precision_scalar(0.0)
+    tol_squared = tolerance * tolerance
 
     # no cover: start
     @cuda.jit(device=True)
     def linear_solver(
-        state, parameters, drivers, h,            # Operator context
-        rhs,                                      # in:rhs, out: residual
-        x,                                        # in: guess, out: solution
-        z,                                        # working vector (pre. dir.)
-        temp                                      # working vector (F z)
+        state,
+        parameters,
+        drivers,
+        h,
+        rhs,
+        x,
+        z,
+        temp,
     ):
-        """ Linear solver: precond. steepest descent or minimal residual.
+        """Run one preconditioned steepest-descent or minimal-residual solve.
 
+        Parameters
         ----------
-        state: array of floats
-            Input parameter for evaluating the Jacobian in the operator.
-        parameters: array of floats
-            Input parameter for evaluating the Jacobian in the operator.
-        drivers: array of floats
-            Input parameter for evaluating the Jacobian in the operator.
-        h: float
-            Step size - set by outer solver, used in operator_apply.
-        rhs: array of floats
-            Right-hand side of the linear system. Updated in place with
-            running residual; duplicate before calling to preserve rhs.
-        x: array of floats
-            On input: initial guess; on output: solution.
-        z: array of floats
-            Working array of size rhs.shape[0]. Holds preconditioned
-            direction z.
-        temp: array of floats
-            Working array of size rhs.shape[0]. Holds operator_apply results;
-            also passed as the scratch buffer to the preconditioner.
+        state
+            State vector forwarded to the operator and preconditioner.
+        parameters
+            Model parameters forwarded to the operator and preconditioner.
+        drivers
+            External drivers forwarded to the operator and preconditioner.
+        h
+            Step size used by the operator evaluation.
+        rhs
+            Right-hand side of the linear system. Overwritten with the current
+            residual.
+        x
+            Iterand provided as the initial guess and overwritten with the
+            final solution.
+        z
+            Working vector storing the preconditioned direction.
+        temp
+            Working vector storing the operator action.
+            Reused as scratch space for the preconditioner.
 
         Returns
         -------
         int
-            0 on success; 3 if max linear iterations exceeded.
+            ``0`` on convergence or ``4`` when the iteration limit is reached.
 
         Notes
         -----
-        - Preconditioning, steepest descent vs minimal residual, and operator
-          being applied are all configured in the factory.
-        - rhs is overwritten with the current residual and maintained in place.
-        - state, parameters, drivers are immutable inputs to operator_apply.
-        - Scratch space required: 2 vectors of size rhs.shape[0]. The solver
-          reuses its temporary vector ("temp") as the preconditioner scratch.
-
-
+        ``rhs`` is updated in place to hold the running residual, and ``temp``
+        is reused as the scratch vector passed to the preconditioner. The
+        iteration therefore keeps just two auxiliary vectors of length ``n``.
+        The operator, preconditioner behaviour, and correction strategy are
+        fixed by the factory closure, while ``state``, ``parameters``, and
+        ``drivers`` are treated as read-only context values.
         """
-        # Initial residual: r = rhs - F x
-        operator_apply(state, parameters, drivers, h, x, temp)
-        tol_squared = tolerance*tolerance
 
-        acc = 0.0
+        operator_apply(state, parameters, drivers, h, x, temp)
+        acc = typed_zero
         for i in range(n):
-            # z := M^{-1} r (or copy)
-            r = rhs[i] - temp[i]
-            rhs[i] = r
-            acc += r * r
-        if acc <= tol_squared:
-            return int32(0)
+            residual_value = rhs[i] - temp[i]
+            rhs[i] = residual_value
+            acc += residual_value * residual_value
+        mask = activemask()
+        converged = acc <= tol_squared
 
         for _ in range(max_iters):
-            if PC:
-                preconditioner(state, parameters, drivers, h, rhs,
-                               z, temp)
+            if preconditioned:
+                preconditioner(state, parameters, drivers, h, rhs, z, temp)
             else:
                 for i in range(n):
                     z[i] = rhs[i]
 
-            # v = F z and line-search dot products
             operator_apply(state, parameters, drivers, h, z, temp)
-            num = 0.0
-            den = 0.0
-            if SD:
+            numerator = typed_zero
+            denominator = typed_zero
+            if sd_flag:
                 for i in range(n):
                     zi = z[i]
-                    num += rhs[i] * zi  # (r·z)
-                    den += temp[i] * zi  # (Fz·z)
-            elif MR:
+                    numerator += rhs[i] * zi
+                    denominator += temp[i] * zi
+            elif mr_flag:
                 for i in range(n):
                     ti = temp[i]
-                    num += ti * rhs[i]      # (Fz·r)
-                    den += ti * ti               # (Fz·Fz)
+                    numerator += ti * rhs[i]
+                    denominator += ti * ti
 
-            alpha = cuda.selp(den != 0.0, num / den, 0.0)
-            # Check convergence (norm of updated residual)
-            acc = 0.0
+            alpha = selp(
+                denominator != typed_zero,
+                numerator / denominator,
+                typed_zero,
+            )
+            alpha_effective = selp(converged, 0.0, alpha)
+
+            acc = typed_zero
             for i in range(n):
-                x[i] += alpha * z[i]
-                rhs[i] -= alpha * temp[i]
-                ri = rhs[i]
-                acc += ri * ri
-            if acc <= tol_squared:
-                return int32(0)
+                x[i] += alpha_effective * z[i]
+                rhs[i] -= alpha_effective * temp[i]
+                residual_value = rhs[i]
+                acc += residual_value * residual_value
+            converged = converged or (acc <= tol_squared)
 
-        return int32(3)
+            if all_sync(mask, converged):
+                return int32(0)
+        return int32(4)
+
     # no cover: end
     return linear_solver

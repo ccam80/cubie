@@ -12,7 +12,7 @@ jobs:
   build:
     env:
         NUMBA_ENABLE_CUDASIM: "1"        # run Numba’s CPU simulator
-        NUMBA_CUDA_USE_NVIDIA_BINDING: "0"
+#        NUMBA_CUDA_USE_NVIDIA_BINDING: "0"
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

@@ -5,7 +5,11 @@ settings used when compiling and running the CUDA integration kernel.
 """
 
 import attrs
+import numba
 from numpy import float32
+
+from cubie._utils import getype_validator
+from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @attrs.define
@@ -34,8 +38,12 @@ class BatchSolverConfig:
         default=float32, validator=attrs.validators.instance_of(type)
     )
     algorithm: str = "euler"
-    duration: float = 1.0
-    warmup: float = 0.0
+    _duration: float = attrs.field(
+        default=1.0, validator=getype_validator(float, 0)
+    )
+    _warmup: float = attrs.field(
+        default=0.0, validator=getype_validator(float, 0)
+    )
     stream: int = attrs.field(
         default=0,
         validator=attrs.validators.optional(
@@ -45,3 +53,23 @@ class BatchSolverConfig:
         ),
     )
     profileCUDA: bool = False
+
+    @property
+    def numba_precision(self) -> type:
+        """Returns numba precision type."""
+        return numba.from_dtype(self.precision)
+
+    @property
+    def simsafe_precision(self) -> type:
+        """Returns simulator safe precision."""
+        return simsafe_dtype(self.precision)
+
+    @property
+    def duration(self) -> float:
+        """Returns integration duration."""
+        return self.precision(self._duration)
+
+    @property
+    def warmup(self) -> float:
+        """Returns warm-up duration."""
+        return self.precision(self._warmup)

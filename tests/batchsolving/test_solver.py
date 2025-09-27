@@ -3,7 +3,6 @@ from os import environ
 
 import pytest
 import numpy as np
-from numpy.testing import assert_array_equal, assert_allclose
 from cubie.batchsolving.solver import Solver, solve_ivp
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
@@ -174,19 +173,23 @@ def test_output_properties(solver_instance):
     assert isinstance(solver_instance.output_stride_order, Iterable)
 
 
-def test_solve_info_property(solver_instance, solver_settings):
+
+def test_solve_info_property(precision, solver_instance, solver_settings):
     """Test that solve_info returns a valid SolveSpec."""
     solve_info = solver_instance.solve_info
     assert isinstance(solve_info, SolveSpec)
-    assert solve_info.dt_min == solver_settings["dt_min"]
-    assert solve_info.dt_max == solver_settings["dt_max"]
-    assert solve_info.dt_save == solver_settings["dt_save"]
-    assert solve_info.dt_summarise == solver_settings["dt_summarise"]
-    assert solve_info.atol == solver_settings["atol"]
-    assert solve_info.rtol == solver_settings["rtol"]
+    assert solve_info.dt_min == pytest.approx(solver_settings["dt_min"])
+    if solver_instance.kernel.single_integrator.is_adaptive:
+        assert solve_info.dt_max == pytest.approx(solver_settings["dt_max"])
+        assert solve_info.atol == pytest.approx(solver_settings["atol"])
+        assert solve_info.rtol == pytest.approx(solver_settings["rtol"])
+    assert solve_info.dt_save == pytest.approx(solver_settings["dt_save"])
+    assert solve_info.dt_summarise == pytest.approx(solver_settings[
+                                                        "dt_summarise"])
+
     assert solve_info.algorithm == solver_settings["algorithm"]
-    assert solve_info.output_types == solver_settings["output_types"]
-    assert solve_info.precision == solver_settings["precision"]
+    assert solve_info.output_types ==  solver_settings["output_types"]
+    assert solve_info.precision ==  solver_settings["precision"]
 
     # Test that solver kernel properties are correctly exposed
     assert solve_info.duration == solver_instance.kernel.duration
@@ -208,8 +211,12 @@ def test_solve_info_property(solver_instance, solver_settings):
 
 @pytest.mark.parametrize(
     "system_override, solver_settings_override",
-    [({}, {}), ("ThreeChamber", {"duration": 0.5, "output_types": ["state"]})],
-    ids=["default_system", "threechamber_system"],
+    [
+        ({}, {}),
+        ("three_chamber", {"duration": 0.5, "output_types": ["state"]}),
+        ("stiff", {"duration": 0.2, "output_types": ["state"]}),
+    ],
+    ids=["default_system", "three_chamber_system", "stiff_system"],
     indirect=True,
 )
 def test_solve_basic(
@@ -310,14 +317,14 @@ def test_update_basic(solver_instance):
 
 def test_update_with_kwargs(solver_instance):
     """Test update with keyword arguments."""
-    original_atol = solver_instance.kernel.atol
+    original_dt = solver_instance.kernel.single_integrator.dt0
 
-    updated_keys = solver_instance.update({}, atol=1e-8)
+    updated_keys = solver_instance.update({}, dt=1e-8)
 
-    assert "atol" in updated_keys
-    assert solver_instance.kernel.atol == 1e-8
-    assert solver_instance.kernel.atol != original_atol
-
+    assert "dt" in updated_keys
+    assert solver_instance.kernel.single_integrator.dt0 == pytest.approx(1e-8)
+    assert (solver_instance.kernel.single_integrator.dt0 !=
+            pytest.approx(original_dt))
 
 def test_update_unrecognized_keys(solver_instance):
     """Test that update raises KeyError for unrecognized keys."""
@@ -440,7 +447,7 @@ def test_solve_ivp_function(
 
 def test_solver_with_different_algorithms(system, solver_settings):
     """Test solver with different algorithms."""
-    algorithms = ["euler", "generic"]
+    algorithms = ["euler", "backwards_euler_pc"]
 
     for algorithm in algorithms:
         solver = Solver(
@@ -504,7 +511,7 @@ def test_solver_output_types(system, solver_settings):
 
 
 @pytest.mark.parametrize(
-    "system_override", ["ThreeChamber", "Decays123"], indirect=True
+    "system_override", ["three_chamber", "stiff", "linear"], indirect=True
 )
 def test_solver_with_different_systems(solver_instance):
     """Test solver works with different system types."""

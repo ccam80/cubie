@@ -60,7 +60,6 @@ def solver_device(request, placeholder_operator):
         max_iters=32,
     )
 
-
 @pytest.mark.parametrize(
     "solver_device", ["steepest_descent", "minimal_residual"], indirect=True
 )
@@ -86,7 +85,6 @@ def test_linear_solver_placeholder(solver_device, solver_kernel, precision):
     kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp, flag)
     assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
     assert np.allclose(x_dev.copy_to_host(), expected, atol=1e-5)
-
 
 @pytest.mark.parametrize(
     "system_setup", ["linear", "coupled_linear"], indirect=True

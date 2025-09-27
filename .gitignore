@@ -57,3 +57,5 @@ scratch/
 src/scratch/
 Scratches/
 generated/
+/deprecation_jail/
+/scripts/

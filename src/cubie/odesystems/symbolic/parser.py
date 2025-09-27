@@ -1,7 +1,7 @@
-"""Parsing helpers for symbolic ODE definitions."""
+"""Parse symbolic ODE descriptions into structured SymPy objects."""
 
 import re
-from typing import Dict, Iterable, Optional, Tuple, Union
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 from warnings import warn
 
 import sympy as sp
@@ -79,18 +79,43 @@ KNOWN_FUNCTIONS = {
     'Piecewise': sp.Piecewise,
     'sign': sp.sign,
 }
+
+
 class EquationWarning(Warning):
-    pass
+    """Warning raised for recoverable issues in equation definitions."""
 
 _func_call_re = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
 
 # ---------------------------- Input cleaning ------------------------------- #
-def _sanitise_input_math(expr_str: str):
-    """Replace constructs that are logical in python but not in Sympy."""
+def _sanitise_input_math(expr_str: str) -> str:
+    """Convert Python conditional syntax into SymPy-compatible constructs.
+
+    Parameters
+    ----------
+    expr_str
+        Expression string to sanitise before parsing.
+
+    Returns
+    -------
+    str
+        SymPy-compatible expression string.
+    """
     expr_str = _replace_if(expr_str)
     return expr_str
 
-def _replace_if(expr_str: str):
+def _replace_if(expr_str: str) -> str:
+    """Recursively replace ternary conditionals with ``Piecewise`` blocks.
+
+    Parameters
+    ----------
+    expr_str
+        Expression string that may contain inline conditional expressions.
+
+    Returns
+    -------
+    str
+        Expression with ternary conditionals rewritten for SymPy parsing.
+    """
     match = re.search(r"(.+?) if (.+?) else (.+)", expr_str)
     if match:
         true_str = _replace_if(match.group(1).strip())
@@ -101,10 +126,24 @@ def _replace_if(expr_str: str):
 
 # ---------------------------- Function handling --------------------------- #
 
-def _rename_user_calls(lines: Iterable[str], user_functions: Dict[str, callable]):
-    """Return new lines with user function names suffixed with '_' for parsing.
+def _rename_user_calls(
+    lines: Iterable[str],
+    user_functions: Optional[Dict[str, Callable]] = None,
+) -> Tuple[List[str], Dict[str, str]]:
+    """Rename user-defined callables to avoid collisions with SymPy names.
 
-    Also returns a mapping of original->underscored names for later use.
+    Parameters
+    ----------
+    lines
+        Raw equation strings to inspect for function calls.
+    user_functions
+        Mapping of user-defined names to callables referenced in the
+        equations.
+
+    Returns
+    -------
+    tuple
+        Sanitised lines and a mapping from original names to suffixed names.
     """
     if not user_functions:
         return list(lines), {}
@@ -119,20 +158,35 @@ def _rename_user_calls(lines: Iterable[str], user_functions: Dict[str, callable]
     return renamed_lines, rename
 
 
-def _build_sympy_user_functions(user_functions: Dict[str, callable], rename: Dict[str, str], user_function_derivatives: Optional[Dict[str, callable]] = None):
-    """Create SymPy Function placeholders (or subclasses) for user functions.
+def _build_sympy_user_functions(
+    user_functions: Optional[Dict[str, Callable]],
+    rename: Dict[str, str],
+    user_function_derivatives: Optional[Dict[str, Callable]] = None,
+) -> Tuple[Dict[str, object], Dict[str, str], Dict[str, bool]]:
+    """Create SymPy ``Function`` placeholders for user-defined callables.
 
-    For device functions, create a dynamic SymPy Function subclass with fdiff
-    returning d_<name>(args..., argindex).
+    Parameters
+    ----------
+    user_functions
+        Mapping of user-provided callable names to their implementations.
+    rename
+        Mapping from original user function names to temporary suffixed names
+        used during parsing.
+    user_function_derivatives
+        Mapping from user function names to callables that evaluate analytic
+        derivatives.
 
     Returns
     -------
-    parse_locals: Dict[str, Any]
-        Names (underscored) to SymPy Function objects/classes for parse_expr.
-    alias_map: Dict[str, str]
-        Underscored name -> original printable name for the code printer.
-    is_device_map: Dict[str, bool]
-        Underscored name -> whether it was a device function.
+    tuple
+        Parsing locals, pretty-name aliases, and device-function flags.
+
+    Notes
+    -----
+    Device functions or user functions with derivative helpers are wrapped in
+    dynamic ``Function`` subclasses whose ``fdiff`` method yields symbolic
+    derivative placeholders so that downstream printers can emit gradient
+    kernels.
     """
     parse_locals: Dict[str, object] = {}
     alias_map: Dict[str, str] = {}
@@ -153,7 +207,8 @@ def _build_sympy_user_functions(user_functions: Dict[str, callable], rename: Dic
                 deriv_print_name = deriv_callable.__name__
             except Exception:
                 deriv_print_name = None
-        if dev:
+        should_wrap = dev or deriv_callable is not None
+        if should_wrap:
             # Build a dynamic Function subclass with name sym_name and fdiff
             # that generates <deriv_print_name or d_orig>(args..., argindex-1)
             def _make_class(sym_name=sym_name, orig_name=orig_name, deriv_print_name=deriv_print_name):
@@ -174,12 +229,26 @@ def _build_sympy_user_functions(user_functions: Dict[str, callable], rename: Dic
     return parse_locals, alias_map, is_device_map
 
 
-def _inline_nondevice_calls(expr: sp.Expr,
-                            user_functions: Dict[str, callable],
-                            rename: Dict[str, str]):
-    """Attempt to inline non-device user function calls if they can accept SymPy args.
+def _inline_nondevice_calls(
+    expr: sp.Expr,
+    user_functions: Dict[str, Callable],
+    rename: Dict[str, str],
+) -> sp.Expr:
+    """Inline callable results for non-device user functions when possible.
 
-    This replaces f_(args) with user_functions['f'](*args) when evaluation succeeds.
+    Parameters
+    ----------
+    expr
+        Expression potentially containing calls to user-defined functions.
+    user_functions
+        Mapping from user-provided function names to their implementations.
+    rename
+        Mapping from original user function names to suffixed parser names.
+
+    Returns
+    -------
+    sympy.Expr
+        Expression with inlineable calls replaced by their evaluated result.
     """
     if not user_functions:
         return expr
@@ -216,15 +285,30 @@ def _inline_nondevice_calls(expr: sp.Expr,
     return expr
 
 
-def _process_calls(equations_input: Iterable[str],
-                   user_functions: Optional[Dict[str, callable]] = None):
-    """ map known SymPy callables (e.g., 'exp') to Sympy functions """
+def _process_calls(
+    equations_input: Iterable[str],
+    user_functions: Optional[Dict[str, Callable]] = None,
+) -> Dict[str, Callable]:
+    """Resolve callable names referenced in the user equations.
+
+    Parameters
+    ----------
+    equations_input
+        Equations describing the system dynamics.
+    user_functions
+        Mapping from user-provided function names to callables.
+
+    Returns
+    -------
+    dict
+        Resolved callables keyed by their names as they appear in equations.
+    """
     calls = set()
     if user_functions is None:
         user_functions = {}
     for line in equations_input:
         calls |= set(_func_call_re.findall(line))
-    funcs = {}
+    funcs: Dict[str, Callable] = {}
     for name in calls:
         if name in user_functions:
             funcs[name] = user_functions[name]
@@ -240,12 +324,33 @@ def _process_calls(equations_input: Iterable[str],
     # Tests: user function overrides listed sympy function
     return funcs
 
-def _process_parameters(states,
-                        parameters,
-                        constants,
-                        observables,
-                        drivers):
-    """Process parameters and constants into indexed bases."""
+def _process_parameters(
+    states: Union[Dict[str, float], Iterable[str]],
+    parameters: Union[Dict[str, float], Iterable[str]],
+    constants: Union[Dict[str, float], Iterable[str]],
+    observables: Iterable[str],
+    drivers: Iterable[str],
+) -> IndexedBases:
+    """Convert user-specified symbols into ``IndexedBases`` structures.
+
+    Parameters
+    ----------
+    states
+        State symbols or mapping to initial values.
+    parameters
+        Parameter symbols or mapping to default values.
+    constants
+        Constant symbols or mapping to default values.
+    observables
+        Observable symbol names supplied by the user.
+    drivers
+        External driver symbol names.
+
+    Returns
+    -------
+    IndexedBases
+        Structured representation of all indexed symbol collections.
+    """
     indexed_bases = IndexedBases.from_user_inputs(states,
                                                   parameters,
                                                   constants,
@@ -255,34 +360,32 @@ def _process_parameters(states,
 
 
 def _lhs_pass(
-    lines,
+    lines: Sequence[str],
     indexed_bases: IndexedBases,
-    strict=True
-    ) -> dict[str, sp.Symbol]:
-    """ Process the left-hand-sides of all equations.
+    strict: bool = True,
+) -> Dict[str, sp.Symbol]:
+    """Validate left-hand sides and infer anonymous auxiliaries.
 
     Parameters
     ----------
-    lines: list of str
-        User-supplied list of equations that make up the dxdt function
-    indexed_bases: IndexedBases
-        The collection of maps from labels to indexed bases for the system
-        generated by '_process_parameters'.
-    strict: True
-        If False, unrecognised symbols are added automatically to states,
-        parameters, and observables as inferred from the equations.
+    lines
+        Equations supplied by the user.
+    indexed_bases
+        Indexed symbol collections constructed from user inputs.
+    strict
+        When ``False``, unrecognised symbols are inferred and added to the
+        relevant collections.
 
     Returns
     -------
-    Anonymous Auxiliaries: dict
-        Auxiliary(observable) variables that aren't defined in the
-        observables dictionary.
+    dict
+        Symbols for auxiliary observables introduced implicitly in equations.
 
     Notes
     -----
-    It is assumed that anonymous auxiliaries were included to make
-    model-writing easier, and they won't be saved, but we need to keep
-    track of the symbols for the Sympy math used in code generation.
+    Anonymous auxiliaries ease model authoring but are not persisted as
+    saved observables; tracking them ensures generated SymPy code remains
+    consistent with the equations.
     """
     anonymous_auxiliaries = {}
     assigned_obs = set()
@@ -380,28 +483,32 @@ def _lhs_pass(
 
     return anonymous_auxiliaries
 
-def _rhs_pass(lines: Iterable[str],
-              all_symbols: Dict[str, sp.Symbol],
-              user_funcs: Optional[Dict[str, callable]] = None,
-              user_function_derivatives: Optional[Dict[str, callable]] = None,
-              strict=True):
-    """Process expressions, checking symbols and finding callables.
+def _rhs_pass(
+    lines: Iterable[str],
+    all_symbols: Dict[str, sp.Symbol],
+    user_funcs: Optional[Dict[str, Callable]] = None,
+    user_function_derivatives: Optional[Dict[str, Callable]] = None,
+    strict: bool = True,
+) -> Tuple[List[Tuple[sp.Symbol, sp.Expr]], Dict[str, Callable], List[sp.Symbol]]:
+    """Parse right-hand sides, validating symbols and callable usage.
 
     Parameters
     ----------
-    lines: list of str
-        User-supplied list of equations that make up the dxdt function
-    all_symbols: dict
-        All symbols defined in the model, including anonymous auxiliaries.
-    strict: True
-        If False, unrecognised symbols are added automatically to states,
-        parameters, and observables as inferred from the equations.
+    lines
+        Equations supplied by the user.
+    all_symbols
+        Mapping from symbol names to SymPy symbols.
+    user_funcs
+        Optional mapping of user-provided callables referenced in equations.
+    user_function_derivatives
+        Optional mapping of user-provided derivative helpers.
+    strict
+        When ``False``, unknown symbols are inferred from expressions.
 
     Returns
     -------
-    tuple of tuples of (sp.Symbol, sp.Expr), dict
-    tuple of (lhs, rhs) expressions, dict of callable functions
-
+    tuple
+        Parsed expressions, callable mapping, and any inferred symbols.
     """
     expressions = []
     # Detect all calls as before for erroring on unknown names and for returning funcs
@@ -409,7 +516,9 @@ def _rhs_pass(lines: Iterable[str],
 
     # Prepare user function environment with underscore renaming to avoid collisions
     sanitized_lines, rename = _rename_user_calls(lines, user_funcs or {})
-    parse_locals, alias_map, dev_map = _build_sympy_user_functions(user_funcs or {}, rename, user_function_derivatives)
+    parse_locals, alias_map, dev_map = _build_sympy_user_functions(
+        user_funcs or {}, rename, user_function_derivatives
+    )
 
     # Expose mapping for the printer via special key in all_symbols (copied by caller)
     local_dict = all_symbols.copy()
@@ -430,11 +539,12 @@ def _rhs_pass(lines: Iterable[str],
                 raise ValueError(f"Undefined symbols in equation '{raw_line}'") from e
         else:
             rhs_expr = parse_expr(
-                    rhs_expr,
-                    local_dict=local_dict,
+                rhs_expr,
+                local_dict=local_dict,
             )
-            new_inputs = [sym for sym in rhs_expr.free_symbols if sym
-            not in local_dict.values()]
+            new_inputs = [
+                sym for sym in rhs_expr.free_symbols if sym not in local_dict.values()
+            ]
             for sym in new_inputs:
                 new_symbols.append(sym)
 
@@ -447,79 +557,66 @@ def _rhs_pass(lines: Iterable[str],
     return expressions, funcs, new_symbols
 
 def parse_input(
-        dxdt = Union[str, Iterable[str]],
-        states: Optional[Union[Dict, Iterable[str]]] = None,
-        observables: Optional[Iterable[str]] = None,
-        parameters: Optional[Union[Dict, Iterable[str]]] = None,
-        constants: Optional[Union[Dict, Iterable[str]]] = None,
-        drivers: Optional[Iterable[str]] = None,
-        user_functions: Optional[Dict[str, callable]] = None,
-        user_function_derivatives: Optional[Dict[str, callable]] = None,
-        strict=False
-) -> Tuple[IndexedBases,Dict[str,sp.Symbol],Dict[str,callable],list, str]:
-    """Process user input in the form of equations and symbols.
-
-    When strict is False, this function can accept a set of equations and
-    infer which variables are states and observables variables from the lhs of
-    equations, then assign all other variables to "parameters". When strict
-    is false, this function will check that all variables are in the correct
-    category based on use, and will throw an error if it can't reconcile them.
-    The only exception to this is auxiliary variables - an intermediate result
-    that is calculated from inputs and used in outputs but not otherwise
-    saved.
+    dxdt: Union[str, Iterable[str]],
+    states: Optional[Union[Dict[str, float], Iterable[str]]] = None,
+    observables: Optional[Iterable[str]] = None,
+    parameters: Optional[Union[Dict[str, float], Iterable[str]]] = None,
+    constants: Optional[Union[Dict[str, float], Iterable[str]]] = None,
+    drivers: Optional[Iterable[str]] = None,
+    user_functions: Optional[Dict[str, Callable]] = None,
+    user_function_derivatives: Optional[Dict[str, Callable]] = None,
+    strict: bool = False,
+) -> Tuple[
+    IndexedBases,
+    Dict[str, object],
+    Dict[str, Callable],
+    List[Tuple[sp.Symbol, sp.Expr]],
+    str,
+]:
+    """Process user equations and symbol metadata into structured components.
 
     Parameters
     ----------
-    dxdt: str or iterable of str
-        The equations that make up the system, either as a single string with
-        newlines separating equations, or as an iterable of strings.
-        Each equation must be of the form "lhs = rhs", where lhs is either
-        "d<state>" for state derivatives, or the name of an observable or
-        auxiliary variable.
-    states: dict or iterable of str, optional
-        The state variables of the system, either as a dictionary mapping
-        variable names to default initial values, or as an iterable of
-        variable names. If an iterable, all initial values will be set to
-        0.0 by default.
-    observables: iterable of str, optional
-        Auxiliary variables (assigned to, but never given in terms of a
-        derivative) which you might want to save or examine during the
-        simulation.
-    parameters: dict or iterable of str, optional
-        Input parameters of the system, either as a dictionary mapping labels
-        to default values, or as an iterable of variable names. If an
-        iterable, all parameters will be set to 0.0 by default.
-    constants: dict or iterable of str, optional
-        Like parameters, but these are values you do not want to modify
-        between batches. The more of your parameters are constant,
-        the faster the simulation will run.
-    drivers: iterable of str, optional
-        Terms that represent "driving" or "forcing" variables in your equation,
-        which will be expected as an input at runtime.
-    user_functions: dict of str, callable, optional
-        If you call a custom function inside your dxdt equations, include it in
-        this dictionary. The dictionary should key the string you use to
-        call the function in the equations to a callable of the function
-        itself.
+    dxdt
+        System equations, either as a newline-delimited string or iterable of
+        strings.
+    states
+        State variables provided as names or a mapping to initial values.
+    observables
+        Observable variable names whose trajectories should be saved.
+    parameters
+        Parameter names or mapping to default values.
+    constants
+        Constant names or mapping to default values that remain fixed across
+        runs.
+    drivers
+        Driver variable names supplied at runtime.
+    user_functions
+        Mapping of callable names used in equations to their implementations.
+    user_function_derivatives
+        Mapping of callable names to derivative helper functions.
+    strict
+        When ``False``, infer missing symbol declarations from equation usage.
 
     Returns
     -------
-    tuple of IndexedBases, dict of str, sp.Symbol, dict of str, callable,
-    dict of sp.Symbol, sp.Expr, int
-        - IndexedBases - the system-building indexed bases object,
-        which contains all of your symbols and their values and references.
-        - All symbols - a dictionary mapping all variable names to their
-        Sympy Symbol instances.
-        - funcs - a dictionary mapping all called functions to their callables
-        - fn_hash - the unique hash which describes your equations and
-        constants.
+    tuple
+        Indexed bases, combined symbol mapping, callable mapping, parsed
+        equations, and the system hash.
 
+    Notes
+    -----
+    When ``strict`` is ``False``, undeclared variables inferred from equation
+    usage are added automatically, except for anonymous auxiliaries that are
+    retained for intermediate computation but not persisted as observables.
     """
     if states is None:
         states = {}
         if strict:
-            raise ValueError("No state symbols were provided - if you want to"
-            "build a model from a set of equations alone, set strict=False")
+            raise ValueError(
+                "No state symbols were provided - if you want to build a model "
+                "from a set of equations alone, set strict=False"
+            )
     if observables is None:
         observables = []
     if parameters is None:
@@ -529,12 +626,13 @@ def parse_input(
     if drivers is None:
         drivers = []
 
-    """Parse a symbolic input of equations and string symbols."""
-    index_map = _process_parameters(states=states,
-                                    parameters=parameters,
-                                    constants=constants,
-                                    observables=observables,
-                                    drivers=drivers)
+    index_map = _process_parameters(
+        states=states,
+        parameters=parameters,
+        constants=constants,
+        observables=observables,
+        drivers=drivers,
+    )
 
     if isinstance(dxdt, str):
         lines = [
@@ -551,11 +649,13 @@ def parse_input(
     all_symbols = index_map.all_symbols.copy()
     all_symbols.update(anon_aux)
 
-    equation_map, funcs, new_params = _rhs_pass(lines=lines,
-                                      all_symbols=all_symbols,
-                                      user_funcs=user_functions,
-                                      user_function_derivatives=user_function_derivatives,
-                                      strict=strict)
+    equation_map, funcs, new_params = _rhs_pass(
+        lines=lines,
+        all_symbols=all_symbols,
+        user_funcs=user_functions,
+        user_function_derivatives=user_function_derivatives,
+        strict=strict,
+    )
 
     # Expose user functions in the returned symbols dict (original names)
     # and alias mapping for the printer under a special key
@@ -563,7 +663,13 @@ def parse_input(
         all_symbols.update({name: fn for name, fn in user_functions.items()})
         # Also expose derivative callables if provided
         if user_function_derivatives:
-            all_symbols.update({fn.__name__: fn for fn in user_function_derivatives.values() if callable(fn)})
+            all_symbols.update(
+                {
+                    fn.__name__: fn
+                    for fn in user_function_derivatives.values()
+                    if callable(fn)
+                }
+            )
         # Build alias map underscored -> original for the printer
         _, rename = _rename_user_calls(lines, user_functions or {})
         if rename:

@@ -404,7 +404,7 @@ def test_input_arrays_with_different_configs(
 
 @pytest.mark.parametrize(
     "system_override",
-    ["ThreeChamber", "Decays123"],
+    ["three_chamber", "stiff", "linear"],
     indirect=True,
 )
 def test_input_arrays_with_different_systems(

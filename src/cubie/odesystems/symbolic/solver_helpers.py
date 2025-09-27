@@ -1,11 +1,11 @@
-"""Code generation for the linear operator ``β·M·v − γ·h·J·v``.
+"""Code generation helpers for implicit solver linear operators and residuals.
 
 The mass matrix ``M`` is provided at code-generation time either as a NumPy
 array or a SymPy matrix. Its entries are embedded directly into the generated
 device routine to avoid extra passes or buffers.
 """
 
-from typing import Iterable, Tuple, Dict
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 import sympy as sp
 
 from cubie.odesystems.symbolic import cse_and_stack, topological_sort
@@ -39,8 +39,21 @@ OPERATOR_APPLY_TEMPLATE = (
 )
 
 
-def _split_jvp_expressions(exprs: Iterable[Tuple[sp.Symbol, sp.Expr]]):
-    """Split topologically-sorted (lhs, rhs) into auxiliaries and jvp terms."""
+def _split_jvp_expressions(
+    exprs: Iterable[Tuple[sp.Symbol, sp.Expr]]
+) -> Tuple[List[Tuple[sp.Symbol, sp.Expr]], Dict[int, sp.Expr]]:
+    """Split topologically sorted expressions into auxiliaries and JVP terms.
+
+    Parameters
+    ----------
+    exprs
+        Expression pairs ordered for evaluation.
+
+    Returns
+    -------
+    tuple of list and dict
+        Auxiliary assignments followed by the indexed JVP expressions.
+    """
     aux = []
     jvp_terms: Dict[int, sp.Expr] = {}
     for lhs, rhs in exprs:
@@ -57,7 +70,22 @@ def _build_body_from_jvp(
     index_map: IndexedBases,
     M: sp.Matrix,
 ) -> str:
-    """Return code body computing ``β·M·v − γ·h·Jv``."""
+    """Build the CUDA body computing ``β·M·v − γ·h·J·v``.
+
+    Parameters
+    ----------
+    jvp_exprs
+        Expressions yielding the Jacobian-vector product components.
+    index_map
+        Symbol indexing helpers produced by the parser.
+    M
+        Mass matrix to embed into the generated operator.
+
+    Returns
+    -------
+    str
+        Indented CUDA code statements implementing the operator body.
+    """
     aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
 
     n_out = len(index_map.dxdt.ref_map)
@@ -95,8 +123,28 @@ def generate_operator_apply_code_from_jvp(
     func_name: str = "operator_apply_factory",
     cse: bool = True,
 ) -> str:
-    """Emit code for the operator apply factory using precomputed JVP expressions.
+    """Emit the operator apply factory from precomputed JVP expressions.
 
+    Parameters
+    ----------
+    jvp_exprs
+        Topologically ordered Jacobian-vector product expressions.
+    index_map
+        Symbol indexing helpers produced by the parser.
+    M
+        Mass matrix to embed into the generated operator.
+    func_name
+        Name assigned to the emitted factory.
+    cse
+        Unused placeholder kept for signature stability.
+
+    Returns
+    -------
+    str
+        Source code for the linear operator factory.
+
+    Notes
+    -----
     The emitted factory expects ``constants`` as a mapping from names to values
     and embeds each constant as a standalone variable in the generated device
     function.
@@ -115,11 +163,31 @@ def generate_operator_apply_code_from_jvp(
 def generate_operator_apply_code(
     equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     index_map: IndexedBases,
-    M=None,
+    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "operator_apply_factory",
     cse: bool = True,
 ) -> str:
-    """High-level entry: build JVP expressions, then emit operator apply code."""
+    """Generate the linear operator factory from system equations.
+
+    Parameters
+    ----------
+    equations
+        Differential equation tuples defining ``dx/dt``.
+    index_map
+        Symbol indexing helpers produced by the parser.
+    M
+        Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
+        identity matrix when omitted.
+    func_name
+        Name assigned to the emitted factory.
+    cse
+        Apply common subexpression elimination before emission.
+
+    Returns
+    -------
+    str
+        Source code for the linear operator factory.
+    """
     if M is None:
         n = len(index_map.states.index_map)
         M_mat = sp.eye(n)
@@ -191,24 +259,23 @@ def generate_neumann_preconditioner_code(
     func_name: str = "neumann_preconditioner_factory",
     cse: bool = True,
 ) -> str:
-    """High-level entry for Neumann preconditioner code generation.
+    """Generate the Neumann preconditioner factory.
 
     Parameters
     ----------
-    equations : iterable of tuple
+    equations
         Differential equations defining the system.
-    index_map : IndexedBases
-        Mapping of symbolic arrays to CUDA references.
-    func_name : str, optional
-        Name of the emitted factory, default
-        ``"neumann_preconditioner_factory"``.
-    cse : bool, optional
-        Apply common-subexpression elimination, default ``True``.
+    index_map
+        Symbol indexing helpers produced by the parser.
+    func_name
+        Name assigned to the emitted factory.
+    cse
+        Apply common subexpression elimination before emission.
 
     Returns
     -------
     str
-        Source code for the factory function.
+        Source code for the Neumann preconditioner factory.
     """
     n_out = len(index_map.dxdt.ref_map)
     const_lines = [
@@ -276,15 +343,39 @@ RESIDUAL_TEMPLATE = (
 )
 
 
-def _build_residual_lines(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-                          index_map: IndexedBases,
-                          M: sp.Matrix,
-                          is_stage: bool,
-                          cse: bool = True) -> str:
-    """Return residual lines for the chosen residual mode.
+def _build_residual_lines(
+    equations: Union[
+        Iterable[Tuple[sp.Symbol, sp.Expr]], Dict[sp.Symbol, sp.Expr]
+    ],
+    index_map: IndexedBases,
+    M: sp.Matrix,
+    is_stage: bool,
+    cse: bool = True,
+) -> str:
+    """Construct CUDA code lines for the requested residual mode.
 
-    Converts dx variables to dx_ numbered symbols and observable symbols to aux_ symbols,
-    similar to JVP generation pattern.
+    Parameters
+    ----------
+    equations
+        Differential equation tuples or dictionary defining ``dx/dt``.
+    index_map
+        Symbol indexing helpers produced by the parser.
+    M
+        Mass matrix to embed into the generated residual.
+    is_stage
+        Flag selecting stage or end-state residual evaluation.
+    cse
+        Apply common subexpression elimination before emission.
+
+    Returns
+    -------
+    str
+        Indented CUDA code statements for the residual body.
+
+    Notes
+    -----
+    Derivative symbols are rewritten to ``dx_`` indices and observables to
+    ``aux_`` indices to mirror Jacobian-vector product emission.
     """
     if isinstance(equations, dict):
         eq_list = list(equations.items())
@@ -380,38 +471,36 @@ def _build_residual_lines(equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     return "\n".join("        " + ln for ln in lines)
 
 def generate_residual_code(
-        equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
-        index_map: IndexedBases,
-        M=None,
-        is_stage: bool = True,
-        func_name: str = "residual_factory",
-        cse: bool = True,
-    ) -> str:
-    """Emit code for the residual factory.
-
-    Generates CUDA device code for computing residuals in Newton-Krylov ODE integration.
-    The residual is computed as: beta * M @ v - gamma * h * (J @ eval_point)
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    is_stage: bool = True,
+    func_name: str = "residual_factory",
+    cse: bool = True,
+) -> str:
+    """Emit the residual factory for Newton--Krylov integration.
 
     Parameters
     ----------
-    equations : Iterable[Tuple[sp.Symbol, sp.Expr]]
-        The differential equations defining the system.
-    index_map : IndexedBases
-        Mapping of symbolic arrays to CUDA references.
-    M : array-like, optional
-        Mass matrix. If None, uses identity matrix.
-    is_stage : bool, optional
-        If True, generates stage residual (eval_point = base + a_ij * u).
-        If False, generates end-state residual (eval_point = u).
-    func_name : str, optional
-        Name of the generated factory function.
-    cse : bool, optional
-        Apply common subexpression elimination.
+    equations
+        Differential equation tuples defining ``dx/dt``.
+    index_map
+        Symbol indexing helpers produced by the parser.
+    M
+        Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
+        identity matrix when omitted.
+    is_stage
+        Generate the stage residual when ``True``; otherwise emit the
+        end-state residual.
+    func_name
+        Name assigned to the emitted factory.
+    cse
+        Apply common subexpression elimination before emission.
 
     Returns
     -------
     str
-        Generated CUDA device code for the residual factory.
+        Source code for the residual factory.
     """
     if M is None:
         n = len(index_map.states.index_map)
@@ -441,11 +530,31 @@ def generate_residual_code(
 def generate_residual_end_state_code(
     equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     index_map: IndexedBases,
-    M=None,
+    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "end_residual",
     cse: bool = True,
 ) -> str:
-    """Emit code for the end-state residual factory."""
+    """Generate the end-state residual factory.
+
+    Parameters
+    ----------
+    equations
+        Differential equation tuples defining ``dx/dt``.
+    index_map
+        Symbol indexing helpers produced by the parser.
+    M
+        Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
+        identity matrix when omitted.
+    func_name
+        Name assigned to the emitted factory.
+    cse
+        Apply common subexpression elimination before emission.
+
+    Returns
+    -------
+    str
+        Source code for the residual factory.
+    """
     return generate_residual_code(
         equations=equations,
         index_map=index_map,
@@ -459,11 +568,31 @@ def generate_residual_end_state_code(
 def generate_stage_residual_code(
     equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     index_map: IndexedBases,
-    M=None,
+    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "stage_residual",
     cse: bool = True,
 ) -> str:
-    """Emit code for the stage residual factory."""
+    """Generate the stage residual factory.
+
+    Parameters
+    ----------
+    equations
+        Differential equation tuples defining ``dx/dt``.
+    index_map
+        Symbol indexing helpers produced by the parser.
+    M
+        Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
+        identity matrix when omitted.
+    func_name
+        Name assigned to the emitted factory.
+    cse
+        Apply common subexpression elimination before emission.
+
+    Returns
+    -------
+    str
+        Source code for the residual factory.
+    """
     return generate_residual_code(
             equations=equations,
             index_map=index_map,

@@ -9,8 +9,7 @@ from numba.cuda.random import create_xoroshiro128p_states
 from numpy import float32, float64
 
 from cubie._utils import (
-    clamp_32,
-    clamp_64,
+    clamp_factory,
     get_noise_32,
     get_noise_64,
     get_readonly_view,
@@ -25,40 +24,90 @@ from cubie._utils import (
 )
 
 
-def clamp_tester(fn, value, clip_value, precision):
+def clamp_tester(fn, value, low_clip, high_clip, precision):
     out = cuda.device_array(1, dtype=precision)
     d_out = cuda.to_device(out)
 
     @cuda.jit()
-    def clamp_test_kernel(d_value, d_clip_value, dout):
-        dout[0] = fn(d_value, d_clip_value)
+    def clamp_test_kernel(d_value, d_low_clip, d_high_clip, dout):
+        dout[0] = fn(d_value, d_low_clip, d_high_clip)
 
-    clamp_test_kernel[1, 1](value, clip_value, d_out)
+    clamp_test_kernel[1, 1](value, low_clip, high_clip, d_out)
     n_out = d_out.copy_to_host()
     return n_out
 
 
 @pytest.mark.parametrize("precision", [float64])
 def test_clamp_kernel_float64(precision):
-    out = clamp_tester(clamp_64, precision(-2.0), precision(1.0), precision)
+    clamp_64 = clamp_factory(precision)
+    out = clamp_tester(
+        clamp_64,
+        precision(-2.0),
+        precision(-1.0),
+        precision(1.0),
+        precision,
+    )
     assert out[0] == -1.0
-    out = clamp_tester(clamp_64, precision(2.0), precision(1.0), precision)
+    out = clamp_tester(
+        clamp_64,
+        precision(2.0),
+        precision(-1.0),
+        precision(1.0),
+        precision,
+    )
     assert out[0] == 1.0
-    out = clamp_tester(clamp_64, precision(0.5), precision(1.0), precision)
+    out = clamp_tester(
+        clamp_64,
+        precision(0.5),
+        precision(-1.0),
+        precision(1.0),
+        precision,
+    )
     assert out[0] == 0.5
-    out = clamp_tester(clamp_64, precision(-0.5), precision(1.0), precision)
+    out = clamp_tester(
+        clamp_64,
+        precision(-0.5),
+        precision(-1.0),
+        precision(1.0),
+        precision,
+    )
     assert out[0] == -0.5
 
 
 @pytest.mark.parametrize("precision", [float32])
 def test_clamp_kernel_float32(precision):
-    out = clamp_tester(clamp_32, precision(-2.0), precision(1.0), precision)
+    clamp_32 = clamp_factory(precision)
+    out = clamp_tester(
+        clamp_32,
+        precision(-2.0),
+        precision(-1.0),
+        precision(1.0),
+        precision,
+    )
     assert out[0] == -1.0
-    out = clamp_tester(clamp_32, precision(2.0), precision(1.0), precision)
+    out = clamp_tester(
+        clamp_32,
+        precision(2.0),
+        precision(-1.0),
+        precision(1.0),
+        precision,
+    )
     assert out[0] == 1.0
-    out = clamp_tester(clamp_32, precision(0.5), precision(1.0), precision)
+    out = clamp_tester(
+        clamp_32,
+        precision(0.5),
+        precision(-1.0),
+        precision(1.0),
+        precision,
+    )
     assert out[0] == 0.5
-    out = clamp_tester(clamp_32, precision(-0.5), precision(1.0), precision)
+    out = clamp_tester(
+        clamp_32,
+        precision(-0.5),
+        precision(-1.0),
+        precision(1.0),
+        precision,
+    )
     assert out[0] == -0.5
 
 
@@ -106,7 +155,6 @@ def noise_tester_32(sigmas, precision):
     return noise_array.copy_to_host()
 
 
-@pytest.mark.nocudasim
 @pytest.mark.parametrize("precision", [float64])
 def test_get_noise_64(precision):
     """Test get_noise_64 CUDA device function."""
@@ -125,7 +173,6 @@ def test_get_noise_64(precision):
     assert result_zero[1] != 0.0  # Should be non-zero
 
 
-@pytest.mark.nocudasim
 @pytest.mark.parametrize("precision", [float32])
 def test_get_noise_32(precision):
     """Test get_noise_32 CUDA device function."""
@@ -328,7 +375,6 @@ def test_get_readonly_view():
     assert original[0] == 10
 
 
-@pytest.mark.nocudasim
 def test_is_devfnc():
     """Test is_devfnc function."""
 

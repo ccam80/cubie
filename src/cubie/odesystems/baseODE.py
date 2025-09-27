@@ -21,6 +21,9 @@ class ODECache:
     neumann_preconditioner: Optional[Union[Callable, int]] = attrs.field(
         default=-1
     )
+    end_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    stage_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    observables: Optional[Union[Callable, int]] = attrs.field(default=-1)
 
 
 class BaseODE(CUDAFactory):
@@ -240,6 +243,7 @@ class BaseODE(CUDAFactory):
         """
         if updates_dict is None:
             updates_dict = {}
+        updates_dict = updates_dict.copy()
         if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
@@ -393,6 +397,16 @@ class BaseODE(CUDAFactory):
         return self.compile_settings.precision
 
     @property
+    def numba_precision(self):
+        """Returns numba precision type."""
+        return self.compile_settings.numba_precision
+
+    @property
+    def simsafe_precision(self):
+        """Returns simulator safe precision."""
+        return self.compile_settings.simsafe_precision
+
+    @property
     def dxdt_function(self):
         """Get the compiled device function.
 
@@ -402,16 +416,6 @@ class BaseODE(CUDAFactory):
             The compiled CUDA device function.
         """
         return self.get_cached_output("dxdt")
-
-    @property
-    def operator_function(self):
-        """Return the compiled linear-operator device function."""
-        return self.get_solver_helper("operator")
-
-    @property
-    def neumann_preconditioner_function(self):
-        """Return the compiled Neumann preconditioner device function."""
-        return self.get_solver_helper("neumann")
 
     def get_solver_helper(self,
                           func_name: str,

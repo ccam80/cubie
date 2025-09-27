@@ -2,7 +2,7 @@ import pytest
 from os import environ
 
 if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    from cubie.cudasim_utils import (
+    from cubie.cuda_simsafe import (
         FakeNumbaCUDAMemoryManager as NumbaCUDAMemoryManager,
     )
 else:
@@ -146,6 +146,6 @@ def test_allocation(mgr):
     testarr = np.zeros((256), dtype=np.float32)
     d_testarr = cuda.device_array_like(testarr)
     d_testarr.copy_to_device(testarr)
-    test_kernel[1, 256, 0, 0](d_testarr)
-    d_testarr.copy_to_device(testarr)
-    assert not np.array_equal(testarr, np.zeros((256 * 256), dtype=np.float32))
+    test_kernel[256, 1, 0, 0](d_testarr)
+    testarr = d_testarr.copy_to_host()
+    assert not np.array_equal(testarr, np.zeros(256, dtype=np.float32))

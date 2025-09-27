@@ -3,10 +3,9 @@
 This module provides general-purpose helpers for array slicing, dictionary
 updates and CUDA utilities that are shared across the code base.
 """
-
 from functools import wraps
 from time import time
-from typing import Callable
+from typing import Union
 from warnings import warn
 
 import numpy as np
@@ -16,9 +15,49 @@ from numba.cuda.random import (
     xoroshiro128p_normal_float32,
     xoroshiro128p_normal_float64,
 )
-from attrs import fields, has
+from attrs import fields, has, validators, Attribute
+from cubie.cuda_simsafe import is_devfunc, selp
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
+
+PrecisionDtype = Union[
+    type[np.float16],
+    type[np.float32],
+    type[np.float64],
+    np.dtype[np.float16],
+    np.dtype[np.float32],
+    np.dtype[np.float64],
+]
+
+ALLOWED_PRECISIONS = {
+    np.dtype(np.float16),
+    np.dtype(np.float32),
+    np.dtype(np.float64),
+}
+
+
+def precision_converter(value: PrecisionDtype) -> type[np.floating]:
+    """Return a canonical NumPy scalar type for precision configuration."""
+
+    dtype = np.dtype(value)
+    if dtype not in ALLOWED_PRECISIONS:
+        raise ValueError(
+            "precision must be one of float16, float32, or float64",
+        )
+    return dtype.type
+
+
+def precision_validator(
+    _: object,
+    __: Attribute,
+    value: PrecisionDtype,
+) -> None:
+    """Validate that ``value`` resolves to a supported precision."""
+
+    if np.dtype(value) not in ALLOWED_PRECISIONS:
+        raise ValueError(
+            "precision must be one of float16, float32, or float64",
+        )
 
 
 def slice_variable_dimension(slices, indices, ndim):
@@ -194,76 +233,20 @@ def timing(_func=None, *, nruns=1):
     return decorator if _func is None else decorator(_func)
 
 
-@cuda.jit(
-    float64(
-        float64,
-        float64,
-    ),
-    device=True,
-    inline=True,
-)
-def clamp_64(
-    value,
-    clip_value,
-):
-    """Clamp a 64-bit float to ``[-clip_value, clip_value]``.
+def clamp_factory(precision):
+    precision = from_dtype(precision)
 
-    Parameters
-    ----------
-    value : float64
-        Value to clamp.
-    clip_value : float64
-        Maximum absolute value allowed.
+    @cuda.jit(
+        precision(precision, precision, precision),
+        device=True,
+        inline=True,
+    )
+    def clamp(value, minimum, maximum):
+        clamped_high = selp(value > maximum, maximum, value)
+        clamped = selp(clamped_high < minimum, minimum, clamped_high)
+        return clamped
 
-    Returns
-    -------
-    float64
-        Clamped value.
-    """
-    # no cover: start
-    if value <= clip_value and value >= -clip_value:
-        return value
-    elif value > clip_value:
-        return clip_value
-    else:
-        return -clip_value
-    # no cover: end
-
-
-@cuda.jit(
-    float32(
-        float32,
-        float32,
-    ),
-    device=True,
-    inline=True,
-)
-def clamp_32(
-    value,
-    clip_value,
-):
-    """Clamp a 32-bit float to ``[-clip_value, clip_value]``.
-
-    Parameters
-    ----------
-    value : float32
-        Value to clamp.
-    clip_value : float32
-        Maximum absolute value allowed.
-
-    Returns
-    -------
-    float32
-        Clamped value.
-    """
-    # no cover: start
-    if value <= clip_value and value >= -clip_value:
-        return value
-    elif value > clip_value:
-        return clip_value
-    else:
-        return -clip_value
-    # no cover: end
+    return clamp
 
 
 @cuda.jit(
@@ -384,21 +367,65 @@ def get_readonly_view(array):
     view.flags.writeable = False
     return view
 
-def is_devfunc(func: Callable):
-    """Test whether a callable is a Numba-generated CUDA device function.
 
-    Parameters
-    ----------
-    func: Callable
-        The function to inspect.
+def is_device_validator(instance, attribute, value):
+    """Validate that a value is a Numba CUDA device function."""
+    if not is_devfunc(value):
+        raise TypeError(
+            f"{attribute} must be a Numba CUDA device function,"
+            f"got {type(value)}."
+        )
 
-    Returns
-    -------
-    bool
-        Whether the function is a Numba CUDA device function.
-    """
-    is_device = False
-    if hasattr(func, 'targetoptions'):
-        if func.targetoptions.get('device', False):
-            is_device = True
-    return is_device
+
+def float_array_validator(instance, attribute, value):
+    """Validate that a value is a Numba CUDA device function."""
+    if isinstance(value, np.ndarray) and value.dtype.kind == 'f':
+        pass
+    else:
+        raise TypeError(f"{attribute} must be a numpy array of floats,"
+                        f"got {type(value)}.")
+
+def inrangetype_validator(dtype, min_, max_):
+    return validators.and_(
+        validators.instance_of(_expand_dtype(dtype)),
+        validators.ge(min_),
+        validators.le(max_)
+)
+
+# Helper: expand Python dtype to accept corresponding NumPy scalar hierarchy
+# e.g. float -> (float, np.floating), int -> (int, np.integer)
+# Unknown types are returned unchanged.
+
+def _expand_dtype(dtype):
+    if dtype is float:
+        return (float, np.floating)
+    if dtype is int:
+        return (int, np.integer)
+    return dtype
+
+def lttype_validator(dtype, max_):
+    return validators.and_(
+        validators.instance_of(_expand_dtype(dtype)),
+        validators.lt(max_)
+    )
+
+
+def gttype_validator(dtype, min_):
+    # Accept both built-in and NumPy scalar types
+    return validators.and_(
+        validators.instance_of(_expand_dtype(dtype)),
+        validators.gt(min_)
+    )
+
+def letype_validator(dtype, max_):
+    return validators.and_(
+        validators.instance_of(_expand_dtype(dtype)),
+        validators.le(max_)
+    )
+
+
+def getype_validator(dtype, min_):
+    return validators.and_(
+        validators.instance_of(_expand_dtype(dtype)),
+        validators.ge(min_)
+    )

@@ -116,8 +116,8 @@ class TestSummariesBufferSizes:
         assert nonzero_sizes.per_variable == 5
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [{"output_functions": ["time", "state", "observables", "mean"]}],
+        "solver_settings_override",
+        [{"output_types": ["time", "state", "observables", "mean"]}],
         indirect=True,
     )
     def test_from_output_fns_default(self, output_functions):
@@ -131,8 +131,8 @@ class TestSummariesBufferSizes:
         )
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [{"output_functions": ["time", "state", "observables", "mean"]}],
+        "solver_settings_override",
+        [{"output_types": ["time", "state", "observables", "mean"]}],
         indirect=True,
     )
     def test_explicit_vs_from_output_fns(self, output_functions):
@@ -214,8 +214,8 @@ class TestLoopBufferSizes:
         assert nonzero_sizes.drivers == 1
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [{"output_functions": ["time", "state", "observables", "mean"]}],
+        "solver_settings_override",
+        [{"output_types": ["time", "state", "observables", "mean"]}],
         indirect=True,
     )
     def test_from_system_and_output_fns_default(
@@ -241,8 +241,8 @@ class TestLoopBufferSizes:
         assert sizes.drivers == system.sizes.drivers
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [{"output_functions": ["time", "state", "observables", "mean"]}],
+        "solver_settings_override",
+        [{"output_types": ["time", "state", "observables", "mean"]}],
         indirect=True,
     )
     def test_explicit_vs_from_system_and_output_fns(
@@ -327,8 +327,8 @@ class TestOutputArrayHeights:
         assert nonzero_heights.per_variable == 1
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [{"output_functions": ["time", "state", "observables", "mean"]}],
+        "solver_settings_override",
+        [{"output_types": ["time", "state", "observables", "mean"]}],
         indirect=True,
     )
     def test_from_output_fns_default(self, output_functions):
@@ -350,8 +350,8 @@ class TestOutputArrayHeights:
         )
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [{"output_functions": ["time", "state", "observables", "mean"]}],
+        "solver_settings_override",
+        [{"output_types": ["time", "state", "observables", "mean"]}],
         indirect=True,
     )
     def test_explicit_vs_from_output_fns(self, output_functions):
@@ -426,8 +426,8 @@ class TestSingleRunOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [{"output_functions": ["time", "state", "observables", "mean"]}],
+        "solver_settings_override",
+        [{"output_types": ["time", "state", "observables", "mean"]}],
         indirect=True,
     )
     def test_from_output_fns_and_run_settings_default(
@@ -458,12 +458,14 @@ class TestSingleRunOutputSizes:
         )
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [{"output_functions": ["time", "state", "observables", "mean"]}],
+        "solver_settings_override",
+        [
+            {
+                "output_types": ["time", "state", "observables", "mean"],
+                "duration": 0.0,
+            }
+        ],
         indirect=True,
-    )
-    @pytest.mark.parametrize(
-        "solver_settings_override", [{"duration": 0.0}], indirect=True
     )
     def test_from_solver_with_nonzero(self, solverkernel):
         """Test creating SingleRunOutputSizes and using nonzero property"""
@@ -477,8 +479,8 @@ class TestSingleRunOutputSizes:
         assert all(v >= 1 for v in nonzero_sizes.observable_summaries)
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
-        [{"output_functions": ["time", "state", "observables", "mean"]}],
+        "solver_settings_override",
+        [{"output_types": ["time", "state", "observables", "mean"]}],
         indirect=True,
     )
     def test_explicit_vs_from_solver(
@@ -619,14 +621,14 @@ class TestIntegrationScenarios:
     """Test realistic integration scenarios"""
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
+        "solver_settings_override",
         [
             {
                 "dt_save": 0.01,
                 "dt_summarise": 0.1,
                 "saved_state_indices": [0, 1, 2],
                 "saved_observable_indices": [0, 1],
-                "output_functions": ["time", "state", "observables", "mean"],
+                "output_types": ["time", "state", "observables", "mean"],
             }
         ],
         indirect=True,
@@ -666,18 +668,16 @@ class TestIntegrationScenarios:
         )
 
     @pytest.mark.parametrize(
-        "loop_compile_settings_overrides",
+        "solver_settings_override",
         [
             {
-                "output_functions": ["time", "state", "observables", "mean"],
+                "output_types": ["time", "state", "observables", "mean"],
                 "saved_state_indices": [],
                 "saved_observable_indices": [],
+                "duration": 0.0,
             }
         ],
         indirect=True,
-    )
-    @pytest.mark.parametrize(
-        "solver_settings_override", [{"duration": 0.0}], indirect=True
     )
     def test_edge_case_all_zeros_with_nonzero(
         self, system, solverkernel, output_functions

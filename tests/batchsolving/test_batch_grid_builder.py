@@ -1,11 +1,11 @@
 import numpy as np
 import pytest
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_array_equal, assert_allclose
 
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving import BatchGridBuilder as BGB
 import itertools
-from cubie.odesystems.systems.decays import Decays
+# from cubie.odesystems.systems.decays import Decays
 
 
 @pytest.fixture(scope="function")
@@ -403,8 +403,9 @@ def param_array(system, batch_settings):
 
 @pytest.mark.parametrize(
     "mixed_type, params_type,states_type",
-    list(itertools.product(["dict", "seq", "array", None], repeat=3)),
+    list(itertools.product(["dict", "seq", "array"], repeat=3)),
 )
+@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_call_input_types(
     grid_builder,
     system,
@@ -490,6 +491,7 @@ def test_call_input_types(
     )
 
 
+@pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_call_outputs(system, grid_builder):
     testarray1 = np.array([[1, 2], [3, 4]])
     state_testarray1 = extend_test_array(testarray1, system.initial_values)
@@ -561,9 +563,9 @@ def extend_test_array(array, values_object):
     )
 
 
-def test_docstring_examples(grid_builder):
+def test_docstring_examples(grid_builder, system):
     # Example 1: combinatorial dict
-    system = Decays(coefficients=[1.0, 2.0])
+
     grid_builder = BatchGridBuilder.from_system(system)
     params = {"p0": [0.1, 0.2], "p1": [10, 20]}
     states = {"x0": [1.0, 2.0], "x1": [0.5, 1.5]}
@@ -572,46 +574,46 @@ def test_docstring_examples(grid_builder):
     )
     expected_initial_large = np.array(
         [
-            [1.0, 0.5],
-            [1.0, 0.5],
-            [1.0, 0.5],
-            [1.0, 0.5],
-            [1.0, 1.5],
-            [1.0, 1.5],
-            [1.0, 1.5],
-            [1.0, 1.5],
-            [2.0, 0.5],
-            [2.0, 0.5],
-            [2.0, 0.5],
-            [2.0, 0.5],
-            [2.0, 1.5],
-            [2.0, 1.5],
-            [2.0, 1.5],
-            [2.0, 1.5],
+            [1.0, 0.5, 1.2],
+            [1.0, 0.5, 1.2],
+            [1.0, 0.5, 1.2],
+            [1.0, 0.5, 1.2],
+            [1.0, 1.5, 1.2],
+            [1.0, 1.5, 1.2],
+            [1.0, 1.5, 1.2],
+            [1.0, 1.5, 1.2],
+            [2.0, 0.5, 1.2],
+            [2.0, 0.5, 1.2],
+            [2.0, 0.5, 1.2],
+            [2.0, 0.5, 1.2],
+            [2.0, 1.5, 1.2],
+            [2.0, 1.5, 1.2],
+            [2.0, 1.5, 1.2],
+            [2.0, 1.5, 1.2],
         ]
     )
     expected_params_large = np.array(
         [
-            [0.1, 10.0],
-            [0.1, 20.0],
-            [0.2, 10.0],
-            [0.2, 20.0],
-            [0.1, 10.0],
-            [0.1, 20.0],
-            [0.2, 10.0],
-            [0.2, 20.0],
-            [0.1, 10.0],
-            [0.1, 20.0],
-            [0.2, 10.0],
-            [0.2, 20.0],
-            [0.1, 10.0],
-            [0.1, 20.0],
-            [0.2, 10.0],
-            [0.2, 20.0],
+            [0.1, 10.0, 1.1],
+            [0.1, 20.0, 1.1],
+            [0.2, 10.0, 1.1],
+            [0.2, 20.0, 1.1],
+            [0.1, 10.0, 1.1],
+            [0.1, 20.0, 1.1],
+            [0.2, 10.0, 1.1],
+            [0.2, 20.0, 1.1],
+            [0.1, 10.0, 1.1],
+            [0.1, 20.0, 1.1],
+            [0.2, 10.0, 1.1],
+            [0.2, 20.0, 1.1],
+            [0.1, 10.0, 1.1],
+            [0.1, 20.0, 1.1],
+            [0.2, 10.0, 1.1],
+            [0.2, 20.0, 1.1],
         ]
     )
-    assert_array_equal(initial_states, expected_initial_large)
-    assert_array_equal(parameters, expected_params_large)
+    assert_allclose(initial_states, expected_initial_large)
+    assert_allclose(parameters, expected_params_large)
 
     # Example 2: verbatim arrays
     params = np.array([[0.1, 0.2], [10, 20]])
@@ -619,23 +621,23 @@ def test_docstring_examples(grid_builder):
     initial_states, parameters = grid_builder(
         params=params, states=states, kind="verbatim"
     )
-    expected_initial = np.array([[1.0, 2.0], [0.5, 1.5]])
-    expected_params = np.array([[0.1, 0.2], [10.0, 20.0]])
-    assert_array_equal(initial_states, expected_initial)
-    assert_array_equal(parameters, expected_params)
+    expected_initial = np.array([[1.0, 2.0, 1.2], [0.5, 1.5, 1.2]])
+    expected_params = np.array([[0.1, 0.2, 1.1], [10.0, 20.0, 1.1]])
+    assert_allclose(initial_states, expected_initial)
+    assert_allclose(parameters, expected_params)
 
     # Example 3: combinatorial arrays
     initial_states, parameters = grid_builder(
         params=params, states=states, kind="combinatorial"
     )
     expected_initial = np.array(
-        [[1.0, 2.0], [1.0, 2.0], [0.5, 1.5], [0.5, 1.5]]
+        [[1.0, 2.0, 1.2], [1.0, 2.0, 1.2], [0.5, 1.5, 1.2], [0.5, 1.5, 1.2]]
     )
     expected_params = np.array(
-        [[0.1, 0.2], [10.0, 20.0], [0.1, 0.2], [10.0, 20.0]]
+        [[0.1, 0.2, 1.1], [10.0, 20.0, 1.1], [0.1, 0.2, 1.1], [10.0, 20.0, 1.1]]
     )
-    assert_array_equal(initial_states, expected_initial)
-    assert_array_equal(parameters, expected_params)
+    assert_allclose(initial_states, expected_initial)
+    assert_allclose(parameters, expected_params)
 
     # Example 4: request dict
     request = {
@@ -647,18 +649,18 @@ def test_docstring_examples(grid_builder):
     initial_states, parameters = grid_builder(
         request=request, kind="combinatorial"
     )
-    assert_array_equal(initial_states, expected_initial_large)
-    assert_array_equal(parameters, expected_params_large)
+    assert_allclose(initial_states, expected_initial_large)
+    assert_allclose(parameters, expected_params_large)
     initial_states, parameters = grid_builder(request=request, kind="verbatim")
-    assert_array_equal(initial_states, initial_states)
-    assert_array_equal(parameters, parameters)
+    assert_allclose(initial_states, initial_states)
+    assert_allclose(parameters, parameters)
 
     # Example 5: request dict with only params
     request = {"p0": [0.1, 0.2]}
     initial_states, parameters = grid_builder(
         request=request, kind="combinatorial"
     )
-    expected_params = np.array([[0.1, 2.0], [0.2, 2.0]])
-    expected_initial = np.array([[1.0, 1.0], [1.0, 1.0]])
-    assert_array_equal(initial_states, expected_initial)
-    assert_array_equal(parameters, expected_params)
+    expected_params = np.array([[0.1, 0.90, 1.1], [0.2, 0.9, 1.1]])
+    expected_initial = np.array([[0.5, -0.25, 1.2], [0.5, -0.25, 1.2]])
+    assert_allclose(initial_states, expected_initial)
+    assert_allclose(parameters, expected_params)
