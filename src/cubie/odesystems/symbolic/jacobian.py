@@ -201,6 +201,7 @@ def generate_jacobian(equations: Union[
 def _prune_unused_assignments(
     expressions: Iterable[Tuple[sp.Symbol, sp.Expr]],
     outputsym_str: str = "jvp",
+    output_symbols: Optional[Iterable[sp.Symbol]] = None,
 ) -> List[Tuple[sp.Symbol, sp.Expr]]:
     """Remove assignments that do not contribute to the final JVP outputs.
 
@@ -209,7 +210,12 @@ def _prune_unused_assignments(
     expressions
         Topologically sorted assignments ``(lhs, rhs)``.
     outputsym_str
-        Prefix identifying JVP output symbols.
+        Prefix identifying JVP output symbols. Ignored when
+        ``output_symbols`` is provided.
+    output_symbols
+        Optional collection of output symbols to retain when pruning.
+        When supplied, only assignments contributing to these symbols are
+        kept.
 
     Returns
     -------
@@ -230,8 +236,14 @@ def _prune_unused_assignments(
     all_lhs = set(lhs_symbols)
 
     # Detect outputs by name convention
-    output_syms = {lhs for lhs in lhs_symbols
-                   if str(lhs).startswith(f"{outputsym_str}[")}
+    if output_symbols is not None:
+        output_syms = set(output_symbols) & all_lhs
+    else:
+        output_syms = {
+            lhs
+            for lhs in lhs_symbols
+            if str(lhs).startswith(f"{outputsym_str}[")
+        }
 
     # If we can't detect outputs, do nothing
     if not output_syms:

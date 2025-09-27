@@ -72,10 +72,7 @@ class BaseStepConfig(ABC):
         default=None,
         validator=validators.optional(validators.is_callable()),
     )
-    observables_function: Callable = attrs.field(
-        kw_only=True,
-        validator=is_device_validator,
-    )
+
     @property
     def numba_precision(self) -> type:
         """Return the Numba dtype associated with ``precision``."""

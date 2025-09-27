@@ -242,8 +242,9 @@ def explicit_euler_step(
 ) -> StepResult:
     """Explicit Euler integration step."""
 
-    dxdt, observables = evaluator.rhs(state, params, drivers_now, time)
+    dxdt, _ = evaluator.rhs(state, params, drivers_now, time)
     new_state = state + dt * dxdt
+    _, observables = evaluator.rhs(new_state, params, drivers_now, time)
     error = np.zeros_like(state)
     status = _encode_solver_status(True, 0)
     return StepResult(new_state, observables, error, status, 0)
@@ -313,7 +314,7 @@ def backward_euler_step(
         tol,
         max_iters,
     )
-    dxdt, observables = evaluator.rhs(next_state, params, drivers_next, time)
+    _, observables = evaluator.rhs(next_state, params, drivers_next, time)
     error = np.zeros_like(next_state)
     status = _encode_solver_status(converged, niters)
     return StepResult(next_state, observables, error, status, niters)
@@ -662,9 +663,8 @@ def run_reference_loop(
         next_save_time = dt_save
         save_index = 1
         state_history = [state.copy()]
-        observable_history = [
-            np.zeros(len(saved_observable_indices), dtype=precision)
-        ]
+        _, observables = evaluator.rhs(state, params, sampler.sample(0), t)
+        observable_history.append(observables.copy())
         time_history: list[float] = [t]
 
     end_time = precision(warmup + duration)

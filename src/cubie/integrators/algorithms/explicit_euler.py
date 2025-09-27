@@ -88,6 +88,7 @@ class ExplicitEulerStep(ODEExplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -103,6 +104,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             parameters,
             drivers,
             observables,
+            proposed_observables,
             error,
             dt_scalar,
             time_scalar,
@@ -124,7 +126,9 @@ class ExplicitEulerStep(ODEExplicitStep):
             drivers
                 Device array of time-dependent drivers.
             observables
-                Device array receiving observable outputs.
+                Device array storing accepted observable outputs.
+            proposed_observables
+                Device array receiving proposed observable outputs.
             error
                 Device array reserved for error estimates (unused here).
             dt_scalar
@@ -153,7 +157,11 @@ class ExplicitEulerStep(ODEExplicitStep):
             for i in range(n):
                 proposed_state[i] = state[i] + step_size * work_buffer[i]
             observables_function(
-                proposed_state, parameters, drivers, observables, time_scalar
+                proposed_state,
+                parameters,
+                drivers,
+                proposed_observables,
+                time_scalar,
             )
             return int32(0)
 

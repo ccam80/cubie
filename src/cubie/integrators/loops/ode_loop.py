@@ -147,6 +147,7 @@ class IVPLoop(CUDAFactory):
         state_shared_ind = shared_indices.state
         dxdt_shared_ind = shared_indices.dxdt
         obs_shared_ind = shared_indices.observables
+        obs_prop_shared_ind = shared_indices.proposed_observables
         state_prop_shared_ind = shared_indices.proposed_state
         state_summ_shared_ind = shared_indices.state_summaries
         params_shared_ind = shared_indices.parameters
@@ -170,6 +171,7 @@ class IVPLoop(CUDAFactory):
         # Loop sizes
         n_states = shared_indices.n_states
         n_parameters = shared_indices.n_parameters
+        n_observables = shared_indices.n_observables
         n_drivers = shared_indices.n_drivers
 
         fixed_mode = not config.is_adaptive
@@ -242,24 +244,49 @@ class IVPLoop(CUDAFactory):
             state_proposal_buffer = shared_scratch[state_prop_shared_ind]
             work_buffer = shared_scratch[dxdt_shared_ind]
             observables_buffer = shared_scratch[obs_shared_ind]
+            observables_proposal_buffer = shared_scratch[obs_prop_shared_ind]
             parameters_buffer = shared_scratch[params_shared_ind]
             drivers_buffer = shared_scratch[drivers_shared_ind]
             state_summary_buffer = shared_scratch[state_summ_shared_ind]
             observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
             remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
 
+            driver_length = drivers.shape[0]
+
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
             error = persistent_local[error_slice]
             controller_temp = persistent_local[controller_slice]
             algo_local = persistent_local[algorithm_slice]
-            
+
             for k in range(n_states):
                 state_buffer[k] = initial_states[k]
             for k in range(n_parameters):
                 parameters_buffer[k] = parameters[k]
 
-            driver_length = drivers.shape[0]
+            # Populate observables for the initial state so subsequent
+            # derivative evaluations see consistent inputs. Reuse the step
+            # helper with a zero step size and discard the proposed state.
+            n_observables = observables_buffer.shape[0]
+            if n_observables > 0:
+                if driver_length > 0:
+                    for k in range(n_drivers):
+                        drivers_buffer[k] = drivers[0, k]
+                step_fn(
+                    state_buffer,
+                    state_proposal_buffer,
+                    work_buffer,
+                    parameters_buffer,
+                    drivers_buffer,
+                    observables_buffer,
+                    observables_buffer,
+                    error,
+                    precision(0.0),
+                    t,
+                    remaining_shared_scratch,
+                    algo_local,
+                )
+
             save_idx = int32(0)
 
             if settling_time > precision(0.0):
@@ -314,6 +341,7 @@ class IVPLoop(CUDAFactory):
                         parameters_buffer,
                         drivers_buffer,
                         observables_buffer,
+                        observables_proposal_buffer,
                         error,
                         dt_eff,
                         t,
@@ -343,6 +371,11 @@ class IVPLoop(CUDAFactory):
                         newv = state_proposal_buffer[i]
                         oldv = state_buffer[i]
                         state_buffer[i] = selp(accept, newv, oldv)
+
+                    for i in range(n_observables):
+                        new_obs = observables_proposal_buffer[i]
+                        old_obs = observables_buffer[i]
+                        observables_buffer[i] = selp(accept, new_obs, old_obs)
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = accept and do_save

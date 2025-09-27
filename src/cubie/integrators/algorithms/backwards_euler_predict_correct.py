@@ -51,6 +51,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -66,6 +67,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             parameters,
             drivers,
             observables,
+            proposed_observables,
             error,
             dt_scalar,
             time_scalar,
@@ -87,7 +89,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             drivers
                 Device array of time-dependent drivers.
             observables
-                Device array receiving observable outputs.
+                Device array storing accepted observable outputs.
+            proposed_observables
+                Device array receiving proposed observable outputs.
             error
                 Device array capturing solver diagnostics.
             dt_scalar
@@ -133,7 +137,11 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             )
 
             observables_function(
-                proposed_state, parameters, drivers, observables, time_scalar
+                proposed_state,
+                parameters,
+                drivers,
+                proposed_observables,
+                time_scalar,
             )
             return status
 

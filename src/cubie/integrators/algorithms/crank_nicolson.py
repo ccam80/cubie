@@ -135,6 +135,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -150,6 +151,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             parameters,
             drivers,
             observables,
+            proposed_observables,
             error,
             dt_scalar,
             time_scalar,
@@ -171,7 +173,9 @@ class CrankNicolsonStep(ODEImplicitStep):
             drivers
                 Device array of time-dependent drivers.
             observables
-                Device array receiving observable outputs.
+                Device array storing accepted observable outputs.
+            proposed_observables
+                Device array receiving proposed observable outputs.
             error
                 Device array capturing embedded error estimates.
             dt_scalar
@@ -235,7 +239,11 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             # calculate and save observables (wastes some compute)
             observables_function(
-                proposed_state, parameters, drivers, observables, time_scalar
+                proposed_state,
+                parameters,
+                drivers,
+                proposed_observables,
+                time_scalar,
             )
 
             status |= solver_fn(

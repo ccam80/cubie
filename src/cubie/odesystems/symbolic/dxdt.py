@@ -84,6 +84,13 @@ def generate_dxdt_lines(
         equations = cse_and_stack(equations)
     else:
         equations = topological_sort(equations)
+
+    if index_map is not None:
+        equations = _prune_unused_assignments(
+            equations,
+            output_symbols=index_map.dxdt.ref_map.keys(),
+        )
+
     dxdt_lines = print_cuda_multiple(
         equations, symbol_map=index_map.all_arrayrefs
     )
