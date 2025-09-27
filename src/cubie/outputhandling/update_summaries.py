@@ -1,24 +1,23 @@
-"""
-CUDA device function factory for updating summary metrics during integration.
+"""Factories that build CUDA device functions to accumulate summary metrics.
 
-This module implements a recursive function chaining approach for CUDA device
-functions that update summary metrics during integration algorithms. It uses the
-same chaining strategy as save_summaries.py but for accumulating data rather
-than extracting final results.
+This module chains summary metric update functions into a single callable that
+is specialised for the requested metrics and tracked variables.
 
 Notes
 -----
 This implementation is based on the "chain" approach by sklam from
 https://github.com/numba/numba/issues/3405. The approach allows dynamic
-compilation of only the summary metrics that are actually requested,
-avoiding wasted space in working arrays.
+compilation of only the summary metrics that are actually requested, avoiding
+wasted space in working arrays.
 
 The process consists of:
-1. A recursive chain_metrics function that builds a chain of update functions
-2. An update_summary_factory that applies the chained functions to each variable
+1. A recursive ``chain_metrics`` function that builds a chain of update
+   functions.
+2. An ``update_summary_factory`` that applies the chained functions to each
+   variable.
 """
 
-from typing import Sequence
+from typing import Callable, Sequence
 
 from numba import cuda
 from numpy.typing import ArrayLike
@@ -33,34 +32,38 @@ def do_nothing(
     buffer,
     current_step,
 ):
-    """
-    No-operation function for empty metric chains.
+    """Provide a no-op device function for empty metric chains.
 
     Parameters
     ----------
-    values : array-like
-        Input values (unused).
-    buffer : array-like
-        Buffer array (unused).
-    current_step : int
-        Current integration step (unused).
+    values
+        device array containing the current scalar value (unused).
+    buffer
+        device array slice reserved for summary accumulation (unused).
+    current_step
+        Integer or scalar step identifier (unused).
+
+    Returns
+    -------
+    None
+        The device function intentionally performs no operations.
 
     Notes
     -----
-    This function serves as the base case for the recursive chain when
-    no summary metrics are configured or as the initial inner_chain
-    function for update operations.
+    This function serves as the base case for the recursive chain when no
+    summary metrics are configured or as the initial ``inner_chain`` function
+    for update operations.
     """
     pass
 
 
 def chain_metrics(
-    metric_functions: Sequence,
+    metric_functions: Sequence[Callable],
     buffer_offsets: Sequence[int],
-    buffer_sizes,
-    function_params,
-    inner_chain=do_nothing,
-):
+    buffer_sizes: Sequence[int],
+    function_params: Sequence[object],
+    inner_chain: Callable = do_nothing,
+) -> Callable:
     """
     Recursively chain summary metric update functions for CUDA execution.
 
@@ -70,20 +73,20 @@ def chain_metrics(
 
     Parameters
     ----------
-    metric_functions : Sequence
+    metric_functions
         Sequence of CUDA device functions for updating summary metrics.
-    buffer_offsets : Sequence[int]
-        Buffer memory offsets for each metric function.
-    buffer_sizes : Sequence
-        Buffer sizes required by each metric function.
-    function_params : Sequence
-        Parameters required by each metric function.
-    inner_chain : callable, default do_nothing
-        Previously chained function to execute before current function.
+    buffer_offsets
+        Sequence of offsets into the metric buffer for each function.
+    buffer_sizes
+        Sequence of per-metric buffer lengths.
+    function_params
+        Sequence of parameter payloads passed to each metric function.
+    inner_chain
+        Callable executed before the current metric; defaults to ``do_nothing``.
 
     Returns
     -------
-    callable
+    Callable
         CUDA device function that executes all chained metric updates.
 
     Notes
@@ -113,6 +116,22 @@ def chain_metrics(
         buffer,
         current_step,
     ):
+        """Apply the accumulated metric chain before invoking the current metric.
+
+        Parameters
+        ----------
+        value
+            device array element being summarised.
+        buffer
+            device array slice containing the metric working storage.
+        current_step
+            Integer or scalar step identifier passed through the chain.
+
+        Returns
+        -------
+        None
+            The device function mutates the metric buffer in place.
+        """
         inner_chain(value, buffer, current_step)
         current_fn(
             value,
@@ -139,7 +158,7 @@ def update_summary_factory(
     summarised_state_indices: Sequence[int] | ArrayLike,
     summarised_observable_indices: Sequence[int] | ArrayLike,
     summaries_list: Sequence[str],
-):
+) -> Callable:
     """
     Factory function for creating CUDA device functions to update summary
     metrics.
@@ -150,19 +169,21 @@ def update_summary_factory(
 
     Parameters
     ----------
-    buffer_sizes : SummariesBufferSizes
-        Object containing buffer size information for summary calculations.
-    summarised_state_indices : Sequence[int] or ArrayLike
-        Indices of state variables to include in summary calculations.
-    summarised_observable_indices : Sequence[int] or ArrayLike
-        Indices of observable variables to include in summary calculations.
-    summaries_list : Sequence[str]
-        List of summary metric names to compute.
+    buffer_sizes
+        ``SummariesBufferSizes`` instance that reports per-variable buffer
+        lengths.
+    summarised_state_indices
+        Sequence of state indices to include in summary calculations.
+    summarised_observable_indices
+        Sequence of observable indices to include in summary calculations.
+    summaries_list
+        Ordered list of summary metric identifiers registered with
+        :mod:`cubie.outputhandling.summarymetrics`.
 
     Returns
     -------
-    callable
-        Compiled CUDA device function for updating summary metrics.
+    Callable
+        CUDA device function for updating summary metrics.
 
     Notes
     -----
@@ -197,28 +218,31 @@ def update_summary_factory(
         observable_summary_buffer,
         current_step,
     ):
-        """
-        Update summary metrics with current state and observable values.
+        """Accumulate summary metrics from the current state sample.
 
         Parameters
         ----------
-        current_state : array-like
-            Current state values from the integrator.
-        current_observables : array-like
-            Current observable values computed from the state.
-        state_summary_buffer : array-like
-            Buffer for accumulating state summary data.
-        observable_summary_buffer : array-like
-            Buffer for accumulating observable summary data.
-        current_step : int
-            Current integration step number.
+        current_state
+            device array holding the latest integrator state values.
+        current_observables
+            device array holding the latest observable values.
+        state_summary_buffer
+            device array slice used to accumulate state summary data.
+        observable_summary_buffer
+            device array slice used to accumulate observable summary data.
+        current_step
+            Integer or scalar step identifier associated with the sample.
+
+        Returns
+        -------
+        None
+            The device function mutates the supplied summary buffers in place.
 
         Notes
         -----
-        This device function processes each state and observable variable
-        by applying the chained summary metric updates to accumulate data
-        in the summary buffers. This is called at each integration step
-        where summary updates are needed.
+        The chained metric function is executed for each selected state or
+        observable entry, writing into the contiguous buffer segment assigned
+        to that variable.
         """
         if summarise_states:
             for idx in range(num_summarised_states):

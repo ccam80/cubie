@@ -1,4 +1,6 @@
-from typing import Optional
+"""Containers describing ODE system metadata used by factories."""
+
+from typing import Optional, Dict
 
 import attrs
 import numpy as np
@@ -13,24 +15,25 @@ from cubie.odesystems.SystemValues import SystemValues
 
 @attrs.define
 class SystemSizes:
-    """Data structure to hold the sizes of various components of a system.
+    """Store counts for each component category in an ODE system.
 
     Parameters
     ----------
-    states : int
+    states
         Number of state variables in the system.
-    observables : int
+    observables
         Number of observable variables in the system.
-    parameters : int
+    parameters
         Number of parameters in the system.
-    constants : int
+    constants
         Number of constants in the system.
-    drivers : int
+    drivers
         Number of driver variables in the system.
 
     Notes
     -----
-    This is used to pass size information to the ODE solver kernel.
+    This data class is passed to CUDA kernels so they can size device buffers
+    and shared-memory structures correctly.
     """
 
     states: int = attrs.field(validator=attrs.validators.instance_of(int))
@@ -42,22 +45,29 @@ class SystemSizes:
 
 @attrs.define
 class ODEData:
-    """Data structure to hold ODE system parameters and initial states.
+    """Bundle numerical values and metadata for an ODE system.
 
     Parameters
     ----------
-    constants : SystemValues, optional
+    constants
         System constants that do not change during simulation.
-    parameters : SystemValues, optional
-        System parameters that can change during simulation.
-    initial_states : SystemValues
+    parameters
+        Tunable system parameters that may vary between simulations.
+    initial_states
         Initial state values for the ODE system.
-    observables : SystemValues
+    observables
         Observable variables to track during simulation.
-    precision : type, optional
-        Data type for numerical calculations, by default float32.
-    num_drivers : int, optional
-        Number of driver/forcing functions, by default 1.
+    precision
+        Precision factory used for numerical calculations. Defaults to
+        :class:`numpy.float32`.
+    num_drivers
+        Number of driver or forcing functions. Defaults to ``1``.
+
+    Returns
+    -------
+    ODEData
+        Instance containing all values and derived sizes needed for CUDA
+        compilation.
     """
 
     constants: Optional[SystemValues] = attrs.field(
@@ -98,58 +108,28 @@ class ODEData:
     )
 
     @property
-    def num_states(self):
-        """Get the number of state variables.
-
-        Returns
-        -------
-        int
-            Number of state variables.
-        """
+    def num_states(self) -> int:
+        """Number of state variables."""
         return self.initial_states.n
 
     @property
-    def num_observables(self):
-        """Get the number of observable variables.
-
-        Returns
-        -------
-        int
-            Number of observable variables.
-        """
+    def num_observables(self) -> int:
+        """Number of observable variables."""
         return self.observables.n
 
     @property
-    def num_parameters(self):
-        """Get the number of parameters.
-
-        Returns
-        -------
-        int
-            Number of parameters.
-        """
+    def num_parameters(self) -> int:
+        """Number of parameters."""
         return self.parameters.n
 
     @property
-    def num_constants(self):
-        """Get the number of constants.
-
-        Returns
-        -------
-        int
-            Number of constants.
-        """
+    def num_constants(self) -> int:
+        """Number of constants."""
         return self.constants.n
 
     @property
-    def sizes(self):
-        """Get system sizes.
-
-        Returns
-        -------
-        SystemSizes
-            Object containing sizes for all system components.
-        """
+    def sizes(self) -> SystemSizes:
+        """System component sizes grouped for CUDA kernels."""
         return SystemSizes(
             states=self.num_states,
             observables=self.num_observables,
@@ -160,68 +140,80 @@ class ODEData:
 
     @property
     def numba_precision(self) -> type:
-        """Returns numba precision type."""
+        """Numba representation of the configured precision."""
         return numba.from_dtype(self.precision)
 
     @property
     def simsafe_precision(self) -> type:
-        """Returns simulator safe precision."""
+        """Precision promoted for CUDA simulator compatibility."""
         return simsafe_dtype(self.precision)
 
     @classmethod
     def from_BaseODE_initargs(
         cls,
-        initial_values=None,
-        parameters=None,
-        constants=None,
-        observables=None,
-        default_initial_values=None,
-        default_parameters=None,
-        default_constants=None,
-        default_observable_names=None,
-        precision=np.float64,
-        num_drivers=1,
-    ):
-        """Create ODEData from BaseODE initialization arguments.
+        initial_values: Optional[Dict[str, float]] = None,
+        parameters: Optional[Dict[str, float]] = None,
+        constants: Optional[Dict[str, float]] = None,
+        observables: Optional[Dict[str, float]] = None,
+        default_initial_values: Optional[Dict[str, float]] = None,
+        default_parameters: Optional[Dict[str, float]] = None,
+        default_constants: Optional[Dict[str, float]] = None,
+        default_observable_names: Optional[Dict[str, float]] = None,
+        precision: type = np.float64,
+        num_drivers: int = 1,
+    ) -> "ODEData":
+        """Create :class:`ODEData` from ``BaseODE`` initialization arguments.
 
         Parameters
         ----------
-        initial_values : dict, optional
+        initial_values
             Initial values for state variables.
-        parameters : dict, optional
+        parameters
             Parameter values for the system.
-        constants : dict, optional
+        constants
             Constants that are not expected to change during simulation.
-        observables : dict, optional
+        observables
             Auxiliary variables to track during simulation.
-        default_initial_values : dict, optional
-            Default initial values if not provided in initial_values.
-        default_parameters : dict, optional
-            Default parameter values if not provided in parameters.
-        default_constants : dict, optional
-            Default constant values if not provided in constants.
-        default_observable_names : dict, optional
-            Default observable names if not provided in observables.
-        precision : numpy.dtype, optional
-            Precision to use for calculations, by default np.float64.
-        num_drivers : int, optional
-            Number of driver/forcing functions, by default 1.
+        default_initial_values
+            Default initial values if ``initial_values`` omits entries.
+        default_parameters
+            Default parameter values if ``parameters`` omits entries.
+        default_constants
+            Default constant values if ``constants`` omits entries.
+        default_observable_names
+            Default observable names if ``observables`` omits entries.
+        precision
+            Precision factory used for calculations. Defaults to
+            :class:`numpy.float64`.
+        num_drivers
+            Number of driver or forcing functions. Defaults to ``1``.
 
         Returns
         -------
         ODEData
-            Initialized ODEData object.
+            Initialized data container suitable for CUDA compilation.
         """
         init_values = SystemValues(
             initial_values, precision, default_initial_values, name="States"
         )
-        parameters = SystemValues(parameters, precision, default_parameters,
-                                  name="Parameters")
-        observables = SystemValues(
-            observables, precision, default_observable_names, name="Observables"
+        parameters = SystemValues(
+            parameters,
+            precision,
+            default_parameters,
+            name="Parameters",
         )
-        constants = SystemValues(constants, precision, default_constants,
-                                 name="Constants")
+        observables = SystemValues(
+            observables,
+            precision,
+            default_observable_names,
+            name="Observables",
+        )
+        constants = SystemValues(
+            constants,
+            precision,
+            default_constants,
+            name="Constants",
+        )
 
         return cls(
             constants=constants,

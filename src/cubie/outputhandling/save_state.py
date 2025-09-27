@@ -1,12 +1,11 @@
-"""
-CUDA device function factory for saving state and observable values.
+"""Factories that build CUDA device functions for saving solver state.
 
-This module provides a factory function that generates CUDA device functions
-for saving current state and observable values to output arrays during
-integration.
+This module exposes a single factory that specialises a CUDA device function
+for writing selected state, observable, and time values into output buffers
+during integration.
 """
 
-from typing import Sequence
+from typing import Callable, Sequence
 
 from numba import cuda
 from numpy.typing import ArrayLike
@@ -18,39 +17,37 @@ def save_state_factory(
     save_state: bool,
     save_observables: bool,
     save_time: bool,
-):
-    """
-    Factory function for creating CUDA device functions to save state data.
-
-    This factory generates CUDA device functions that save current state and
-    observable values to output arrays, with optional time saving. The
-    generated function is specialized for the provided indices and flags.
+) -> Callable:
+    """Build a CUDA device function that stores solver state and observables.
 
     Parameters
     ----------
-    saved_state_indices : Sequence[int] or ArrayLike
-        Indices of state variables to save in the output.
-    saved_observable_indices : Sequence[int] or ArrayLike
-        Indices of observable variables to save in the output.
-    save_state : bool
-        Whether to save state variables.
-    save_observables : bool
-        Whether to save observable variables.
-    save_time : bool
-        Whether to append time values to the state output.
+    saved_state_indices
+        Sequence of state indices to write into the state output window.
+    saved_observable_indices
+        Sequence of observable indices to write into the observable output
+        window.
+    save_state
+        When ``True`` the generated function copies the current state slice.
+    save_observables
+        When ``True`` the generated function copies the current observable
+        slice.
+    save_time
+        When ``True`` the generated function appends the current step to the
+        end of the state output window.
 
     Returns
     -------
     Callable
-        Compiled CUDA device function for saving state data.
+        CUDA device function that writes state, observable, and optional time
+        values into contiguous output buffers.
 
     Notes
     -----
-    The generated function takes arguments (current_state,
-    current_observables, output_states_slice, output_observables_slice,
-    current_step) and modifies the output slices in-place. If save_time is
-    True, the current step is appended to the state output after the state
-    variables.
+    The generated device function expects ``current_state``,
+    ``current_observables``, ``output_states_slice``,
+    ``output_observables_slice``, and ``current_step`` arguments and mutates
+    the output slices in place.
     """
     # Extract sizes from heights object
     nobs = len(saved_observable_indices)
@@ -64,27 +61,32 @@ def save_state_factory(
         output_observables_slice,
         current_step,
     ):
-        """
-        Save current state and observables to output arrays.
+        """Write selected state, observable, and time values to device buffers.
 
         Parameters
         ----------
-        current_state : array-like
-            Current state values from the integrator.
-        current_observables : array-like
-            Current observable values computed from the state.
-        output_states_slice : array-like
-            Output array slice for state values, modified in-place.
-        output_observables_slice : array-like
-            Output array slice for observable values, modified in-place.
-        current_step : int or float
-            Current integration step number or time value.
+        current_state
+            device array containing the latest integrator state values.
+        current_observables
+            device array containing the latest observable values.
+        output_states_slice
+            device array window that receives saved state (and optional time)
+            values in place.
+        output_observables_slice
+            device array window that receives saved observable values in
+            place.
+        current_step
+            Scalar step or time value associated with the current sample.
+
+        Returns
+        -------
+        None
+            The device function mutates the provided output buffers in place.
 
         Notes
         -----
-        The function modifies the output slices directly without returning
-        values. If time saving is enabled, the current step/time is appended
-        after the state variables in the state output slice.
+        When ``save_time`` is ``True`` the current step value is stored at the
+        first slot immediately after the copied state values.
         """
         # no cover: start
         if save_state:

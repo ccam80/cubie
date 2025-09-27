@@ -1,19 +1,20 @@
-"""
-Output function management for CUDA-accelerated batch solving.
+"""Factories that compile and cache CUDA output management routines.
 
-This module provides classes for managing output functions that handle state
-saving, summary calculations, and writing to memory for CUDA batch solvers.
-The functions are automatically cached and compiled on demand through the
-CUDAFactory base class.
+The module provides a single entry point, :class:`OutputFunctions`, that uses
+:class:`cubie.CUDAFactory` to build CUDA callables for saving state values,
+updating summary metrics, and writing summary data back to host memory. All
+helper factories consume an :class:`~cubie.outputhandling.output_config.OutputConfig`
+instance so the compiled functions always reflect the active configuration.
 """
 
-from typing import Sequence, Callable, Union
+from typing import Callable, Sequence, Union
 
 import attrs
-from numpy.typing import ArrayLike
+import numpy as np
+from numpy.typing import ArrayLike, NDArray
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie.outputhandling.output_config import OutputConfig
+from cubie.outputhandling.output_config import OutputCompileFlags, OutputConfig
 from cubie.outputhandling.output_sizes import (
     SummariesBufferSizes,
     OutputArrayHeights,
@@ -25,20 +26,15 @@ from cubie.outputhandling.update_summaries import update_summary_factory
 
 @attrs.define
 class OutputFunctionCache:
-    """
-    Cache container for compiled output functions.
-
-    This class holds the three main compiled functions used in output
-    handling: state saving, summary updates, and summary saving. It serves
-    as a data container returned by the OutputFunctions.build() method.
+    """Cache container for compiled output functions.
 
     Attributes
     ----------
-    save_state_function : Callable
+    save_state_function
         Compiled CUDA function for saving state values.
-    update_summaries_function : Callable
+    update_summaries_function
         Compiled CUDA function for updating summary metrics.
-    save_summaries_function : Callable
+    save_summaries_function
         Compiled CUDA function for saving summary results.
     """
 
@@ -54,36 +50,31 @@ class OutputFunctionCache:
 
 
 class OutputFunctions(CUDAFactory):
-    """
-    Output function factory with automatic caching.
-
-    This class manages the creation and caching of CUDA-compiled output
-    functions for state saving and summary calculations. It extends
-    CUDAFactory to provide automatic function caching and invalidation when
-    settings change.
+    """Factory that compiles and caches output management functions.
 
     Parameters
     ----------
-    max_states : int
+    max_states
         Maximum number of state variables in the system.
-    max_observables : int
+    max_observables
         Maximum number of observable variables in the system.
-    output_types : list[str], optional
-        Types of output to generate. Default is ["state"].
-    saved_state_indices : Sequence[int] or ArrayLike, optional
+    output_types
+        Types of output to generate. Defaults to ["state"].
+    saved_state_indices
         Indices of state variables to save in time-domain output.
-    saved_observable_indices : Sequence[int] or ArrayLike, optional
+    saved_observable_indices
         Indices of observable variables to save in time-domain output.
-    summarised_state_indices : Sequence[int] or ArrayLike, optional
+    summarised_state_indices
         Indices of state variables to include in summary calculations.
-    summarised_observable_indices : Sequence[int] or ArrayLike, optional
+    summarised_observable_indices
         Indices of observable variables to include in summary calculations.
 
     Notes
     -----
-    The class automatically creates an OutputConfig object from the provided
-    parameters and sets it up as compile settings through the CUDAFactory
-    interface. Functions are compiled lazily when first accessed.
+    The constructor converts the provided options into an
+    :class:`~cubie.outputhandling.output_config.OutputConfig` instance and
+    installs it as the compile settings. CUDA callables are only built once
+    per configuration and cached by :class:`cubie.CUDAFactory`.
     """
 
     def __init__(
@@ -113,39 +104,38 @@ class OutputFunctions(CUDAFactory):
         )
         self.setup_compile_settings(config)
 
-    def update(self, updates_dict=None, silent=False, **kwargs):
-        """
-        Update compile settings through the CUDAFactory interface.
-
-        Pass updates to compile settings, which will invalidate the function
-        cache if an update is successful. This allows dynamic reconfiguration
-        of output parameters.
+    def update(
+        self,
+        updates_dict: dict[str, object] | None = None,
+        silent: bool = False,
+        **kwargs: object,
+    ) -> set[str]:
+        """Update compile settings through the factory interface.
 
         Parameters
         ----------
-        updates_dict : dict, optional
+        updates_dict
             Dictionary of parameter updates to apply.
-        silent : bool, optional
-            If True, suppress warnings about unrecognized parameters.
-            Default is False.
+        silent
+            When ``True``, suppress warnings about unrecognised parameters.
         **kwargs
             Additional parameter updates to apply.
 
         Returns
         -------
-        set
-            Set of recognized parameter names that were successfully updated.
+        set[str]
+            Recognised parameter names that were successfully updated.
 
         Raises
         ------
         KeyError
-            If unrecognized parameters are provided and silent=False.
+            If unrecognised parameters are provided and ``silent`` is ``False``.
 
         Notes
         -----
-        This method is useful for bulk updates with other component parameters
-        when silent=True is used to suppress warnings about keys not found in
-        this component.
+        Use this method for coordinated configuration updates alongside other
+        components by passing ``silent=True`` so unrelated keys fall through
+        without raising.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -153,14 +143,14 @@ class OutputFunctions(CUDAFactory):
         if kwargs:
             updates_dict.update(kwargs)
         if updates_dict == {}:
-            return []
+            return set()
         unrecognised = set(updates_dict.keys())
 
         recognised_params = set()
         recognised_params |= self.update_compile_settings(
             updates_dict, silent=True
         )
-        self.compile_settings.__attrs_post_init__() # call validation funcs
+        self.compile_settings.__attrs_post_init__()  # call validation funcs
         unrecognised -= recognised_params
 
         if not silent and unrecognised:
@@ -171,23 +161,19 @@ class OutputFunctions(CUDAFactory):
         return set(recognised_params)
 
     def build(self) -> OutputFunctionCache:
-        """
-        Compile output functions and calculate memory requirements.
-
-        Compiles three main functions: save state, update summary metrics,
-        and save summaries. Also calculates memory requirements for buffer
-        and output arrays based on the current configuration.
+        """Compile output functions and calculate memory requirements.
 
         Returns
         -------
         OutputFunctionCache
-            Container with all compiled functions and memory requirements.
+            Container with compiled functions that target the current
+            configuration.
 
         Notes
         -----
-        This method is called automatically by the CUDAFactory when functions
-        are first accessed. The compiled functions are optimized for the
-        current configuration settings.
+        This method is invoked lazily by :class:`cubie.CUDAFactory` the first
+        time a compiled function is requested. The resulting cache is reused
+        until configuration settings change.
         """
         config = self.compile_settings
 
@@ -223,320 +209,121 @@ class OutputFunctions(CUDAFactory):
         )
 
     @property
-    def save_state_func(self):
-        """
-        Access the compiled state saving function.
-
-        Returns
-        -------
-        Callable
-            Compiled CUDA function for saving state values.
-
-        Notes
-        -----
-        Exposes save_state_function from the cached OutputFunctionCache
-        object. The function is compiled on first access if not already cached.
-        """
+    def save_state_func(self) -> Callable:
+        """Compiled state saving function."""
         return self.get_cached_output("save_state_function")
 
     @property
-    def update_summaries_func(self):
-        """
-        Access the compiled summary update function.
-
-        Returns
-        -------
-        Callable
-            Compiled CUDA function for updating summary metrics.
-
-        Notes
-        -----
-        Exposes update_summaries_function from the cached OutputFunctionCache
-        object. The function is compiled on first access if not already
-        cached.
-        """
+    def update_summaries_func(self) -> Callable:
+        """Compiled summary update function."""
         return self.get_cached_output("update_summaries_function")
 
     @property
-    def output_types(self):
-        """
-        Get the output types configured for compilation.
-
-        Returns
-        -------
-        set
-            Set of output types requested/compiled into the functions.
-        """
+    def output_types(self) -> set[str]:
+        """Configured output types."""
         return self.compile_settings.output_types
 
     @property
-    def save_summary_metrics_func(self):
-        """
-        Access the compiled summary saving function.
-
-        Returns
-        -------
-        Callable
-            Compiled CUDA function for saving summary results.
-
-        Notes
-        -----
-        Exposes save_summaries_function from the cached OutputFunctionCache
-        object. The function is compiled on first access if not already
-        cached.
-        """
+    def save_summary_metrics_func(self) -> Callable:
+        """Compiled summary saving function."""
         return self.get_cached_output("save_summaries_function")
 
     @property
-    def compile_flags(self):
-        """
-        Get the compile flags for output functions.
-
-        Returns
-        -------
-        OutputCompileFlags
-            Compile flags indicating which output types are enabled.
-        """
+    def compile_flags(self) -> OutputCompileFlags:
+        """Compile flags for the active configuration."""
         return self.compile_settings.compile_flags
 
     @property
-    def save_time(self):
-        """
-        Check if time saving is enabled.
-
-        Returns
-        -------
-        bool
-            True if time values are being saved with state data.
-        """
+    def save_time(self) -> bool:
+        """Whether time samples are saved alongside states."""
         return self.compile_settings.save_time
 
     @property
-    def saved_state_indices(self):
-        """
-        Get indices of states to save in time-domain output.
-
-        Returns
-        -------
-        np.ndarray
-            Array of state variable indices for time-domain saving.
-        """
+    def saved_state_indices(self) -> NDArray[np.int_]:
+        """Indices of states saved in time-domain output."""
         return self.compile_settings.saved_state_indices
 
     @property
-    def saved_observable_indices(self):
-        """
-        Get indices of observables to save in time-domain output.
-
-        Returns
-        -------
-        np.ndarray
-            Array of observable variable indices for time-domain saving.
-        """
+    def saved_observable_indices(self) -> NDArray[np.int_]:
+        """Indices of observables saved in time-domain output."""
         return self.compile_settings.saved_observable_indices
 
     @property
-    def summarised_state_indices(self):
-        """
-        Get indices of states to include in summary calculations.
-
-        Returns
-        -------
-        np.ndarray
-            Array of state variable indices for summary calculations.
-        """
+    def summarised_state_indices(self) -> NDArray[np.int_]:
+        """Indices of states tracked by summary metrics."""
         return self.compile_settings.summarised_state_indices
 
     @property
-    def summarised_observable_indices(self):
-        """
-        Get indices of observables to include in summary calculations.
-
-        Returns
-        -------
-        np.ndarray
-            Array of observable variable indices for summary calculations.
-        """
+    def summarised_observable_indices(self) -> NDArray[np.int_]:
+        """Indices of observables tracked by summary metrics."""
         return self.compile_settings.summarised_observable_indices
 
     @property
     def n_saved_states(self) -> int:
-        """
-        Get number of states that will be saved in time-domain output.
-
-        Returns
-        -------
-        int
-            Number of state variables to save, which equals the length of
-            saved_state_indices when save_state is True.
-        """
+        """Number of state variables saved in time-domain output."""
         return self.compile_settings.n_saved_states
 
     @property
     def n_saved_observables(self) -> int:
-        """
-        Get number of observables that will be saved in time-domain output.
-
-        Returns
-        -------
-        int
-            Number of observable variables that will actually be saved.
-        """
+        """Number of observable variables saved in time-domain output."""
         return self.compile_settings.n_saved_observables
 
     @property
     def state_summaries_output_height(self) -> int:
-        """
-        Get height of the output array for state summaries.
-
-        Returns
-        -------
-        int
-            Height of the output array for state summary data.
-        """
+        """Height of the state summary output array."""
         return self.compile_settings.state_summaries_output_height
 
     @property
     def observable_summaries_output_height(self) -> int:
-        """
-        Get height of the output array for observable summaries.
-
-        Returns
-        -------
-        int
-            Height of the output array for observable summary data.
-        """
+        """Height of the observable summary output array."""
         return self.compile_settings.observable_summaries_output_height
 
     @property
     def summaries_buffer_height_per_var(self) -> int:
-        """
-        Get height of the summary buffer per variable.
-
-        Returns
-        -------
-        int
-            Height of the summary buffer required per variable.
-        """
+        """Height of the summary buffer required per variable."""
         return self.compile_settings.summaries_buffer_height_per_var
 
     @property
     def state_summaries_buffer_height(self) -> int:
-        """
-        Get height of the state summaries buffer.
-
-        Returns
-        -------
-        int
-            Total height of the buffer for state summary calculations.
-        """
+        """Total height of the buffer for state summary calculations."""
         return self.compile_settings.state_summaries_buffer_height
 
     @property
     def observable_summaries_buffer_height(self) -> int:
-        """
-        Get height of the observable summaries buffer.
-
-        Returns
-        -------
-        int
-            Total height of the buffer for observable summary calculations.
-        """
+        """Total height of the buffer for observable summary calculations."""
         return self.compile_settings.observable_summaries_buffer_height
 
     @property
     def total_summary_buffer_size(self) -> int:
-        """
-        Get total size of the summaries buffer.
-
-        Returns
-        -------
-        int
-            Total size required for all summary buffers combined.
-        """
+        """Total size required for all summary buffers combined."""
         return self.compile_settings.total_summary_buffer_size
 
     @property
     def summaries_output_height_per_var(self) -> int:
-        """
-        Get height of the summary output per variable.
-
-        Returns
-        -------
-        int
-            Height of the summary output array per variable.
-        """
+        """Height of the summary output array per variable."""
         return self.compile_settings.summaries_output_height_per_var
 
     @property
     def n_summarised_states(self) -> int:
-        """
-        Get number of states that will be summarised.
-
-        Returns
-        -------
-        int
-            Number of state variables included in summary calculations,
-            which equals the length of summarised_state_indices when
-            save_summaries is active.
-        """
+        """Number of states included in summary calculations."""
         return self.compile_settings.n_summarised_states
 
     @property
     def n_summarised_observables(self) -> int:
-        """
-        Get number of observables that will be summarised.
-
-        Returns
-        -------
-        int
-            Number of observable variables that will actually be summarised.
-        """
+        """Number of observables included in summary calculations."""
         return self.compile_settings.n_summarised_observables
 
     @property
     def summaries_buffer_sizes(self) -> SummariesBufferSizes:
-        """
-        Get summary buffer size information.
-
-        Returns
-        -------
-        SummariesBufferSizes
-            Object containing buffer size information for summary
-            calculations.
-
-        Notes
-        -----
-        Exposes SummariesBufferSizes from the child SummariesBufferSizes
-        object.
-        """
+        """Summary buffer size helper built from the active configuration."""
         return SummariesBufferSizes.from_output_fns(self)
 
     @property
     def output_array_heights(self) -> OutputArrayHeights:
-        """
-        Get output array height information.
-
-        Returns
-        -------
-        OutputArrayHeights
-            Object containing height information for output arrays.
-
-        Notes
-        -----
-        Exposes OutputArrayHeights from the child OutputArrayHeights object.
-        """
+        """Output array height helper built from the active configuration."""
         return OutputArrayHeights.from_output_fns(self)
 
     @property
     def summary_legend_per_variable(self) -> dict[str, int]:
-        """
-        Get mapping of summary names to their heights per variable.
-
-        Returns
-        -------
-        dict[str, int]
-            Dictionary mapping summary metric names to their required
-            heights per variable.
-        """
+        """Mapping of summary metric names to their per-variable heights."""
         return self.compile_settings.summary_legend_per_variable

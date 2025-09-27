@@ -18,23 +18,29 @@ from numpy.typing import NDArray
 from cubie.outputhandling import summary_metrics
 
 
-def _indices_validator(array, max_index):
-    """
-    Validate that indices are valid numpy arrays within bounds.
+def _indices_validator(
+    array: Optional[NDArray[np.int_]], max_index: int
+) -> None:
+    """Validate index arrays and enforce bounds.
 
     Parameters
     ----------
-    array : np.ndarray or None
+    array
         Array of indices to validate.
-    max_index : int
+    max_index
         Maximum allowed index value (exclusive).
+
+    Returns
+    -------
+    None
+        Returns ``None``.
 
     Raises
     ------
     TypeError
-        If array is not a numpy array of integers.
+        Raised when *array* is not an integer numpy array.
     ValueError
-        If indices are out of bounds or contain duplicates.
+        Raised when indices are out of bounds or duplicated.
     """
     if array is not None:
         if not isinstance(array, np.ndarray) or array.dtype != np.int_:
@@ -51,24 +57,21 @@ def _indices_validator(array, max_index):
 
 @attrs.define
 class OutputCompileFlags:
-    """
-    Compile-time flags for output functionality.
-
-    This class holds boolean flags that determine which output features
-    should be compiled into CUDA kernels for optimal performance.
+    """Boolean compile-time controls for CUDA output features.
 
     Attributes
     ----------
-    save_state : bool, default False
-        Whether to save state variables.
-    save_observables : bool, default False
-        Whether to save observable variables.
-    summarise : bool, default False
-        Whether to compute summary statistics.
-    summarise_observables : bool, default False
-        Whether to compute summaries for observables.
-    summarise_state : bool, default False
-        Whether to compute summaries for states.
+    save_state
+        Whether to save state variables. Defaults to ``False``.
+    save_observables
+        Whether to save observable variables. Defaults to ``False``.
+    summarise
+        Whether to compute any summary statistics. Defaults to ``False``.
+    summarise_observables
+        Whether to compute summaries for observables. Defaults to ``False``.
+    summarise_state
+        Whether to compute summaries for state variables. Defaults to
+        ``False``.
     """
 
     save_state: bool = attrs.field(
@@ -90,41 +93,35 @@ class OutputCompileFlags:
 
 @attrs.define
 class OutputConfig:
-    """
-    Configuration class for output handling with validation.
-
-    This class manages output configuration settings including which variables
-    to save, which to summarize, and various validation logic to ensure proper
-    configuration. It handles the conversion between user-friendly output type
-    specifications and internal boolean flags.
+    """Validated configuration for solver outputs and summaries.
 
     Parameters
     ----------
-    _max_states : int
-        Maximum number of state variables in the system.
-    _max_observables : int
-        Maximum number of observable variables in the system.
-    _saved_state_indices : list or NDArray, optional
-        Indices of state variables to save. Defaults to empty list.
-    _saved_observable_indices : list or NDArray, optional
-        Indices of observable variables to save. Defaults to empty list.
-    _summarised_state_indices : list or NDArray, optional
-        Indices of state variables to summarize. Defaults to empty list.
-    _summarised_observable_indices : list or NDArray, optional
-        Indices of observable variables to summarize. Defaults to empty list.
-    _output_types : list[str], optional
-        List of requested output types. Defaults to empty list.
+    max_states
+        Maximum number of state variables.
+    max_observables
+        Maximum number of observable variables.
+    saved_state_indices
+        Indices of state variables to save. Defaults to an empty collection
+        that resolves to all states.
+    saved_observable_indices
+        Indices of observable variables to save. Defaults to an empty
+        collection that resolves to all observables.
+    summarised_state_indices
+        Indices of state variables to summarise. Defaults to
+        *saved_state_indices*.
+    summarised_observable_indices
+        Indices of observable variables to summarise. Defaults to
+        *saved_observable_indices*.
+    output_types
+        Requested output type names, including summary metric identifiers.
 
     Notes
     -----
-    Uses private attributes with property accessors to handle circular
-    dependencies when setting indices and output flags. This design allows
-    for proper validation while maintaining a clean public interface.
-
-    The class automatically validates that:
-    - At least one output type is requested
-    - All indices are within valid ranges
-    - No duplicate indices are specified
+    Private attributes store numpy arrays so that properties can manage
+    circular dependencies between index validation and flag updates. The
+    post-initialisation hook applies default indices, validates bounds, and
+    ensures at least one output path is active.
     """
 
     # System dimensions, used to validate indices
@@ -133,42 +130,49 @@ class OutputConfig:
         validator=attrs.validators.instance_of(int)
     )
 
-    _saved_state_indices: Optional[Union[List | NDArray]] = attrs.field(
+    _saved_state_indices: Optional[Union[List[int], NDArray[np.int_]]] = attrs.field(
         default=attrs.Factory(list),
         eq=attrs.cmp_using(eq=array_equal),
     )
-    _saved_observable_indices: Optional[Union[List | NDArray]] = attrs.field(
+    _saved_observable_indices: Optional[
+        Union[List[int], NDArray[np.int_]]
+    ] = attrs.field(
         default=attrs.Factory(list),
         eq=attrs.cmp_using(eq=array_equal),
     )
-    _summarised_state_indices: Optional[Union[List | NDArray]] = attrs.field(
+    _summarised_state_indices: Optional[
+        Union[List[int], NDArray[np.int_]]
+    ] = attrs.field(
         default=attrs.Factory(list),
         eq=attrs.cmp_using(eq=array_equal),
     )
-    _summarised_observable_indices: Optional[Union[List | NDArray]] = (
-        attrs.field(
-            default=attrs.Factory(list),
-            eq=attrs.cmp_using(eq=array_equal),
-        )
+    _summarised_observable_indices: Optional[
+        Union[List[int], NDArray[np.int_]]
+    ] = attrs.field(
+        default=attrs.Factory(list),
+        eq=attrs.cmp_using(eq=array_equal),
     )
 
     _output_types: List[str] = attrs.field(default=attrs.Factory(list))
     _save_state: bool = attrs.field(default=True, init=False)
     _save_observables: bool = attrs.field(default=True, init=False)
     _save_time: bool = attrs.field(default=False, init=False)
-    _summary_types: Tuple[str] = attrs.field(
+    _summary_types: Tuple[str, ...] = attrs.field(
         default=attrs.Factory(tuple), init=False
     )
 
-    def __attrs_post_init__(self):
-        """
-        Perform post-initialization validation and setup.
+    def __attrs_post_init__(self) -> None:
+        """Perform post-initialisation validation and setup.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
 
         Notes
         -----
-        This method is called automatically after object initialization to
-        validate indices, set up default arrays, and ensure at least one
-        output type is requested.
+        Runs after object creation to populate default arrays, validate
+        indices, and confirm that at least one output path is enabled.
         """
         self.update_from_outputs_list(self._output_types)
         self._check_saved_indices()
@@ -176,15 +180,18 @@ class OutputConfig:
         self._validate_index_arrays()
         self._check_for_no_outputs()
 
-    def _validate_index_arrays(self):
-        """
-        Validate that all index arrays are within bounds and contain no
-        duplicates.
+    def _validate_index_arrays(self) -> None:
+        """Validate all index arrays for bounds and duplication.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
 
         Notes
         -----
-        Called post-init to allow None arrays to be replaced with default
-        arrays before validation.
+        Called post-initialisation so that ``None`` values can be replaced by
+        defaults before validation.
         """
         index_arrays = [
             self._saved_state_indices,
@@ -201,14 +208,18 @@ class OutputConfig:
         for i, array in enumerate(index_arrays):
             _indices_validator(array, maxima[i])
 
-    def _check_for_no_outputs(self):
-        """
-        Ensure at least one output type is requested.
+    def _check_for_no_outputs(self) -> None:
+        """Ensure that at least one output type is requested.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
 
         Raises
         ------
         ValueError
-            If no output types are enabled.
+            Raised when no output types are enabled.
         """
         any_output = (
             self._save_state
@@ -222,14 +233,18 @@ class OutputConfig:
                 "observables, time, summaries)"
             )
 
-    def _check_saved_indices(self):
-        """
-        Convert saved indices to numpy arrays and set defaults if empty.
+    def _check_saved_indices(self) -> None:
+        """Convert saved indices to numpy arrays and provide defaults.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
 
         Notes
         -----
-        If index arrays are empty, creates arrays containing all possible
-        indices for the respective variable types.
+        When no indices are provided the arrays are populated with the full
+        range for the corresponding variable type.
         """
         if len(self._saved_state_indices) == 0:
             self._saved_state_indices = np.arange(
@@ -248,14 +263,18 @@ class OutputConfig:
                 self._saved_observable_indices, dtype=np.int_
             )
 
-    def _check_summarised_indices(self):
-        """
-        Set summarised indices to saved indices if not provided.
+    def _check_summarised_indices(self) -> None:
+        """Default summarised indices to the saved selections when needed.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
 
         Notes
         -----
-        If summarised indices are empty, defaults them to the corresponding
-        saved indices arrays.
+        Empty summary selections inherit the saved selections for the matching
+        variable type.
         """
         if len(self._summarised_state_indices) == 0:
             self._summarised_state_indices = self._saved_state_indices
@@ -273,31 +292,28 @@ class OutputConfig:
             )
 
     @property
-    def max_states(self):
-        """
-        Get the maximum number of states.
-
-        Returns
-        -------
-        int
-            Maximum number of state variables.
-        """
+    def max_states(self) -> int:
+        """Maximum number of states."""
         return self._max_states
 
     @max_states.setter
-    def max_states(self, value):
-        """
-        Set the maximum number of states with automatic index updating.
+    def max_states(self, value: int) -> None:
+        """Set the maximum number of states and refresh dependent indices.
 
         Parameters
         ----------
-        value : int
+        value
             New maximum number of states.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
 
         Notes
         -----
-        If saved state indices are currently set to the full range,
-        automatically updates them to the new full range.
+        When saved indices currently span the full range they are expanded to
+        the new size before validation reruns.
         """
         if np.array_equal(
             self._saved_state_indices,
@@ -308,31 +324,28 @@ class OutputConfig:
         self.__attrs_post_init__()
 
     @property
-    def max_observables(self):
-        """
-        Get the maximum number of observables.
-
-        Returns
-        -------
-        int
-            Maximum number of observable variables.
-        """
+    def max_observables(self) -> int:
+        """Maximum number of observables."""
         return self._max_observables
 
     @max_observables.setter
-    def max_observables(self, value):
-        """
-        Set the maximum number of observables with automatic index updating.
+    def max_observables(self, value: int) -> None:
+        """Set the maximum number of observables and refresh saved indices.
 
         Parameters
         ----------
-        value : int
+        value
             New maximum number of observables.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
 
         Notes
         -----
-        If saved observable indices are currently set to the full range,
-        automatically updates them to the new full range.
+        When saved indices span the full observable range they expand to the
+        new size before validation reruns.
         """
         if np.array_equal(
             self._saved_observable_indices,
@@ -344,76 +357,34 @@ class OutputConfig:
 
     @property
     def save_state(self) -> bool:
-        """
-        Check if state saving is enabled and has valid indices.
-
-        Returns
-        -------
-        bool
-            True if state saving is enabled and indices are available.
-        """
+        """Whether state saving is enabled with valid indices."""
         return self._save_state and (len(self._saved_state_indices) > 0)
 
     @property
-    def save_observables(self):
-        """
-        Check if observable saving is enabled and has valid indices.
-
-        Returns
-        -------
-        bool
-            True if observable saving is enabled and indices are available.
-        """
+    def save_observables(self) -> bool:
+        """Whether observable saving is enabled with valid indices."""
         return self._save_observables and (
             len(self._saved_observable_indices) > 0
         )
 
     @property
-    def save_time(self):
-        """
-        Check if time saving is enabled.
-
-        Returns
-        -------
-        bool
-            True if time values should be saved.
-        """
+    def save_time(self) -> bool:
+        """Whether solver time samples should be saved."""
         return self._save_time
 
     @property
     def save_summaries(self) -> bool:
-        """
-        Check if any summary calculations are needed.
-
-        Returns
-        -------
-        bool
-            True if any summary types are configured.
-        """
+        """Whether any summary metric is configured."""
         return len(self._summary_types) > 0
 
     @property
     def summarise_state(self) -> bool:
-        """
-        Check if state variables will be summarised.
-
-        Returns
-        -------
-        bool
-            True if summaries are enabled and state indices are available.
-        """
+        """Whether state variables contribute to summaries."""
         return self.save_summaries and self.n_summarised_states > 0
 
     @property
     def summarise_observables(self) -> bool:
-        """
-        Check if observable variables will be summarised.
-
-        Returns
-        -------
-        bool
-            True if summaries are enabled and observable indices are available.
-        """
+        """Whether observable variables contribute to summaries."""
         return self.save_summaries and self.n_summarised_observables > 0
 
     @property
@@ -435,108 +406,104 @@ class OutputConfig:
         )
 
     @property
-    def saved_state_indices(self):
-        """
-        Get indices of states to save.
-
-        Returns
-        -------
-        np.ndarray
-            Array of state indices, empty if state saving is disabled.
-        """
+    def saved_state_indices(self) -> NDArray[np.int_]:
+        """State indices to save, or an empty array when disabled."""
         if not self._save_state:
             return np.asarray([], dtype=np.int_)
         return self._saved_state_indices
 
     @saved_state_indices.setter
-    def saved_state_indices(self, value):
-        """
-        Set indices of states to save.
+    def saved_state_indices(
+        self, value: Sequence[int] | NDArray[np.int_]
+    ) -> None:
+        """Set the state indices that will be saved.
 
         Parameters
         ----------
-        value : array-like
+        value
             State indices to save.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
         """
         self._saved_state_indices = np.asarray(value, dtype=np.int_)
         self._validate_index_arrays()
         self._check_for_no_outputs()
 
     @property
-    def saved_observable_indices(self):
-        """
-        Get indices of observables to save.
-
-        Returns
-        -------
-        np.ndarray
-            Array of observable indices, empty if observable saving is disabled.
-        """
+    def saved_observable_indices(self) -> NDArray[np.int_]:
+        """Observable indices to save, or an empty array when disabled."""
         if not self._save_observables:
             return np.asarray([], dtype=np.int_)
         return self._saved_observable_indices
 
     @saved_observable_indices.setter
-    def saved_observable_indices(self, value):
-        """
-        Set indices of observables to save.
+    def saved_observable_indices(
+        self, value: Sequence[int] | NDArray[np.int_]
+    ) -> None:
+        """Set the observable indices that will be saved.
 
         Parameters
         ----------
-        value : array-like
+        value
             Observable indices to save.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
         """
         self._saved_observable_indices = np.asarray(value, dtype=np.int_)
         self._validate_index_arrays()
         self._check_for_no_outputs()
 
     @property
-    def summarised_state_indices(self):
-        """
-        Get indices of states to summarise.
-
-        Returns
-        -------
-        np.ndarray
-            Array of state indices for summary calculations.
-        """
+    def summarised_state_indices(self) -> NDArray[np.int_]:
+        """State indices included in summary calculations."""
         return self._summarised_state_indices
 
     @summarised_state_indices.setter
-    def summarised_state_indices(self, value):
-        """
-        Set indices of states to summarise.
+    def summarised_state_indices(
+        self, value: Sequence[int] | NDArray[np.int_]
+    ) -> None:
+        """Set the state indices used for summary calculations.
 
         Parameters
         ----------
-        value : array-like
+        value
             State indices for summary calculations.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
         """
         self._summarised_state_indices = np.asarray(value, dtype=np.int_)
         self._validate_index_arrays()
         self._check_for_no_outputs()
 
     @property
-    def summarised_observable_indices(self):
-        """
-        Get indices of observables to summarise.
-
-        Returns
-        -------
-        np.ndarray
-            Array of observable indices for summary calculations.
-        """
+    def summarised_observable_indices(self) -> NDArray[np.int_]:
+        """Observable indices included in summary calculations."""
         return self._summarised_observable_indices
 
     @summarised_observable_indices.setter
-    def summarised_observable_indices(self, value):
-        """
-        Set indices of observables to summarise.
+    def summarised_observable_indices(
+        self, value: Sequence[int] | NDArray[np.int_]
+    ) -> None:
+        """Set the observable indices used for summary calculations.
 
         Parameters
         ----------
-        value : array-like
+        value
             Observable indices for summary calculations.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
         """
         self._summarised_observable_indices = np.asarray(value, dtype=np.int_)
         self._validate_index_arrays()
@@ -611,26 +578,19 @@ class OutputConfig:
         )
 
     @property
-    def summary_types(self):
-        """
-        Get the configured summary types.
-
-        Returns
-        -------
-        tuple[str]
-            Tuple of summary metric names.
-        """
+    def summary_types(self) -> Tuple[str, ...]:
+        """Configured summary metric identifiers."""
         return self._summary_types
 
     @property
-    def summary_legend_per_variable(self):
-        """
-        Get mapping of summary types to indices per variable.
+    def summary_legend_per_variable(self) -> dict[int, str]:
+        """Map per-variable summary indices to metric names.
 
         Returns
         -------
-        dict[str, int]
-            Dictionary mapping index numbers to summary type names.
+        dict[int, str]
+            Dictionary that assigns each per-variable summary slot to its
+            metric identifier.
         """
         if not self._summary_types:
             return {}
@@ -639,14 +599,14 @@ class OutputConfig:
         return legend_dict
 
     @property
-    def summary_parameters(self):
-        """
-        Get parameters for summary metrics.
+    def summary_parameters(self) -> dict[str, object]:
+        """Collect parameters required by the registered summary metrics.
 
         Returns
         -------
-        dict
-            Parameters required by the summary metrics system.
+        dict[str, object]
+            Dictionary of metric-specific keyword arguments needed during
+            compilation.
         """
         return summary_metrics.params(list(self._summary_types))
 
@@ -759,30 +719,27 @@ class OutputConfig:
 
     @property
     def output_types(self) -> List[str]:
-        """
-        Get the configured output types.
-
-        Returns
-        -------
-        list[str]
-            List of requested output type names.
-        """
+        """Configured output type names in declaration order."""
         return self._output_types
 
     @output_types.setter
-    def output_types(self, value: Sequence[str]):
-        """
-        Set output types and update configuration accordingly.
+    def output_types(self, value: Sequence[str]) -> None:
+        """Set output types and update configuration accordingly.
 
         Parameters
         ----------
-        value : Sequence[str]
-            Output types to configure. Can be list, tuple, or single string.
+        value
+            Output types to configure. Accepts a list, tuple, or single string.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
 
         Raises
         ------
         TypeError
-            If value is not a valid sequence type.
+            Raised when *value* is not a supported sequence type.
         """
         if isinstance(value, tuple):
             value = list(value)
@@ -800,20 +757,24 @@ class OutputConfig:
     def update_from_outputs_list(
         self,
         output_types: list[str],
-    ):
-        """
-        Update configuration from a list of output type names.
+    ) -> None:
+        """Update configuration from a list of output type names.
 
         Parameters
         ----------
-        output_types : list[str]
-            List of output type names to configure.
+        output_types
+            Output type names to configure.
+
+        Returns
+        -------
+        None
+            Returns ``None``.
 
         Notes
         -----
-        Parses the output types list to set internal boolean flags and
-        extract summary metric specifications. Unknown output types
-        generate warnings but do not cause errors.
+        Parses the list to set boolean flags and collect summary metric
+        selections. Unknown entries trigger warnings but do not raise
+        exceptions.
         """
         if not output_types:
             self._output_types = []
@@ -853,10 +814,10 @@ class OutputConfig:
     def from_loop_settings(
         cls,
         output_types: List[str],
-        saved_state_indices=None,
-        saved_observable_indices=None,
-        summarised_state_indices=None,
-        summarised_observable_indices=None,
+        saved_state_indices: Sequence[int] | NDArray[np.int_] | None = None,
+        saved_observable_indices: Sequence[int] | NDArray[np.int_] | None = None,
+        summarised_state_indices: Sequence[int] | NDArray[np.int_] | None = None,
+        summarised_observable_indices: Sequence[int] | NDArray[np.int_] | None = None,
         max_states: int = 0,
         max_observables: int = 0,
     ) -> "OutputConfig":
@@ -865,22 +826,22 @@ class OutputConfig:
 
         Parameters
         ----------
-        output_types : list[str]
-            Output types from ["state", "observables", "time"] plus
-            summary metrics like ["max", "peaks", "mean", "rms", "min"].
-        saved_state_indices : array-like, optional
+        output_types
+            Output types including ``"state"``, ``"observables"``, ``"time"``,
+            and summary metric names such as ``"max"`` or ``"rms"``.
+        saved_state_indices
             Indices of states to save in time-domain output.
-        saved_observable_indices : array-like, optional
+        saved_observable_indices
             Indices of observables to save in time-domain output.
-        summarised_state_indices : array-like, optional
-            Indices of states for summary calculations. If None,
-            defaults to saved_state_indices.
-        summarised_observable_indices : array-like, optional
-            Indices of observables for summary calculations. If None,
-            defaults to saved_observable_indices.
-        max_states : int, default 0
+        summarised_state_indices
+            Indices of states for summary calculations. Defaults to
+            *saved_state_indices*.
+        summarised_observable_indices
+            Indices of observables for summary calculations. Defaults to
+            *saved_observable_indices*.
+        max_states
             Total number of state variables in the system.
-        max_observables : int, default 0
+        max_observables
             Total number of observable variables in the system.
 
         Returns

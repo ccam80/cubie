@@ -1,23 +1,23 @@
-"""
-CUDA device function factory for saving summary metrics.
+"""Factories that build CUDA device functions for persisting summary metrics.
 
-This module implements a recursive function chaining approach for CUDA device
-functions that save summary metrics. It compiles only the requested summary
-functions to optimize memory usage and performance.
+This module chains registered summary metric save functions and specialises a
+CUDA device function for the requested set of metrics and tracked variables.
 
 Notes
 -----
 This implementation is based on the "chain" approach by sklam from
 https://github.com/numba/numba/issues/3405. The approach allows iterating
-through jitted functions without passing them as an iterable, which isn't
-supported by Numba.
+through JIT-compiled functions without passing them as an iterable, which is
+not supported by Numba.
 
 The process consists of:
-1. A recursive chain_metrics function that builds a chain of summary functions
-2. A save_summary_factory that applies the chained functions to each variable
+1. A recursive ``chain_metrics`` function that builds a chain of summary
+   functions.
+2. A ``save_summary_factory`` that applies the chained functions to each
+   variable.
 """
 
-from typing import Sequence
+from typing import Callable, Sequence
 
 from numba import cuda
 from numpy.typing import ArrayLike
@@ -32,36 +32,39 @@ def do_nothing(
     output,
     summarise_every,
 ):
-    """
-    No-operation function for empty metric chains.
+    """Provide a no-op device function for empty metric chains.
 
     Parameters
     ----------
-    buffer : array-like
-        Buffer array (unused).
-    output : array-like
-        Output array (unused).
-    summarise_every : int
-        Summarization interval (unused).
+    buffer
+        device array slice containing accumulated metric values (unused).
+    output
+        device array slice that would receive saved results (unused).
+    summarise_every
+        Integer interval between summary exports (unused).
+
+    Returns
+    -------
+    None
+        The device function intentionally performs no operations.
 
     Notes
     -----
-    This function serves as the base case for the recursive chain when
-    no summary metrics are configured or as the initial inner_chain
-    function.
+    This function serves as the base case for the recursive chain when no
+    summary metrics are configured or as the initial ``inner_chain`` function.
     """
     pass
 
 
 def chain_metrics(
-    metric_functions: Sequence,
-    buffer_offsets,
-    buffer_sizes,
-    output_offsets,
-    output_sizes,
-    function_params,
-    inner_chain=do_nothing,
-):
+    metric_functions: Sequence[Callable],
+    buffer_offsets: Sequence[int],
+    buffer_sizes: Sequence[int],
+    output_offsets: Sequence[int],
+    output_sizes: Sequence[int],
+    function_params: Sequence[object],
+    inner_chain: Callable = do_nothing,
+) -> Callable:
     """
     Recursively chain summary metric functions for CUDA execution.
 
@@ -71,24 +74,24 @@ def chain_metrics(
 
     Parameters
     ----------
-    metric_functions : Sequence
-        Sequence of CUDA device functions for summary metrics.
-    buffer_offsets : Sequence
-        Buffer memory offsets for each metric function.
-    buffer_sizes : Sequence
-        Buffer sizes required by each metric function.
-    output_offsets : Sequence
-        Output array offsets for each metric function.
-    output_sizes : Sequence
-        Output sizes for each metric function.
-    function_params : Sequence
-        Parameters required by each metric function.
-    inner_chain : callable, default do_nothing
-        Previously chained function to execute before current function.
+    metric_functions
+        Sequence of CUDA device functions that save summary metrics.
+    buffer_offsets
+        Sequence of offsets into the accumulation buffer for each metric.
+    buffer_sizes
+        Sequence of per-metric buffer lengths.
+    output_offsets
+        Sequence of offsets into the output window for each metric.
+    output_sizes
+        Sequence of per-metric output lengths.
+    function_params
+        Sequence of parameter payloads passed to each metric function.
+    inner_chain
+        Callable executed before the current metric; defaults to ``do_nothing``.
 
     Returns
     -------
-    callable
+    Callable
         CUDA device function that executes all chained metrics.
 
     Notes
@@ -120,6 +123,22 @@ def chain_metrics(
         output,
         summarise_every,
     ):
+        """Apply the accumulated metric chain before invoking the current metric.
+
+        Parameters
+        ----------
+        buffer
+            device array slice holding accumulated metric state.
+        output
+            device array slice that receives exported summary values.
+        summarise_every
+            Integer interval between summary exports passed along the chain.
+
+        Returns
+        -------
+        None
+            The device function mutates the provided output window in place.
+        """
         inner_chain(
             buffer,
             output,
@@ -158,7 +177,7 @@ def save_summary_factory(
     summarised_state_indices: Sequence[int] | ArrayLike,
     summarised_observable_indices: Sequence[int] | ArrayLike,
     summaries_list: Sequence[str],
-):
+) -> Callable:
     """
     Factory function for creating CUDA device functions to save summary metrics.
 
@@ -168,19 +187,21 @@ def save_summary_factory(
 
     Parameters
     ----------
-    buffer_sizes : SummariesBufferSizes
-        Object containing buffer size information for summary calculations.
-    summarised_state_indices : Sequence[int] or ArrayLike
-        Indices of state variables to include in summary calculations.
-    summarised_observable_indices : Sequence[int] or ArrayLike
-        Indices of observable variables to include in summary calculations.
-    summaries_list : Sequence[str]
-        List of summary metric names to compute.
+    buffer_sizes
+        ``SummariesBufferSizes`` instance that reports per-variable buffer
+        lengths.
+    summarised_state_indices
+        Sequence of state indices to include in summary calculations.
+    summarised_observable_indices
+        Sequence of observable indices to include in summary calculations.
+    summaries_list
+        Ordered list of summary metric identifiers registered with
+        :mod:`cubie.outputhandling.summarymetrics`.
 
     Returns
     -------
-    callable
-        Compiled CUDA device function for saving summary metrics.
+    Callable
+        CUDA device function for saving summary metrics.
 
     Notes
     -----
@@ -228,27 +249,31 @@ def save_summary_factory(
         output_observable_summaries_window,
         summarise_every,
     ):
-        """
-        Save summary metrics from buffers to output arrays.
+        """Export summary metrics from accumulation buffers to output windows.
 
         Parameters
         ----------
-        buffer_state_summaries : array-like
-            Buffer containing accumulated state summary data.
-        buffer_observable_summaries : array-like
-            Buffer containing accumulated observable summary data.
-        output_state_summaries_window : array-like
-            Output array window for state summary results.
-        output_observable_summaries_window : array-like
-            Output array window for observable summary results.
-        summarise_every : int
-            Number of algorithms between summary calculations.
+        buffer_state_summaries
+            device array slice holding accumulated state summary data.
+        buffer_observable_summaries
+            device array slice holding accumulated observable summary data.
+        output_state_summaries_window
+            device array slice that receives state summary results.
+        output_observable_summaries_window
+            device array slice that receives observable summary results.
+        summarise_every
+            Integer interval between summary exports.
+
+        Returns
+        -------
+        None
+            The device function mutates the provided output windows in place.
 
         Notes
         -----
-        This device function processes each state and observable variable
-        by applying the chained summary metrics to extract final results
-        from the accumulation buffers into the output arrays.
+        The chained metric function is executed for each selected state or
+        observable entry, writing the requested metric results into contiguous
+        regions of the output arrays.
         """
         if summarise_states:
             for state_index in range(num_summarised_states):

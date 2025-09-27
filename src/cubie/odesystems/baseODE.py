@@ -1,5 +1,7 @@
+"""Base classes for defining and compiling CUDA-backed ODE systems."""
+
 from abc import abstractmethod
-from typing import Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Set, Tuple, Union
 
 import attrs
 import numpy as np
@@ -11,7 +13,7 @@ from cubie.odesystems.ODEData import ODEData
 
 @attrs.define
 class ODECache:
-    """Cache for compiled CUDA device and support functions.
+    """Cache compiled CUDA device and support functions for an ODE system.
 
     Attributes default to ``-1`` when the corresponding function is not built.
     """
@@ -27,12 +29,12 @@ class ODECache:
 
 
 class BaseODE(CUDAFactory):
-    """Abstract base class for ODE systems.
+    """Abstract base for CUDA-backed ordinary differential equation systems.
 
-    This class is designed to be subclassed for specific systems so that the
-    shared machinery used to interface with CUDA can be reused. When subclassing,
-    you should overload the build() and correct_answer_python() methods to provide
-    the specific ODE system you want to simulate.
+    Subclasses override :meth:`build` to compile a CUDA device function that
+    advances the system state and, optionally, provide analytic helpers via
+    :meth:`get_solver_helper`. The base class handles value management,
+    precision selection, and caching through :class:`CUDAFactory`.
 
     Notes
     -----
@@ -40,89 +42,49 @@ class BaseODE(CUDAFactory):
     available on this base class. Solver helper functions such as the linear
     operator or preconditioner are generated only by subclasses like
     :class:`SymbolicODE`.
-
-    Parameters
-    ----------
-    initial_values : dict, optional
-        Initial values for state variables.
-    parameters : dict, optional
-        Parameter values for the system.
-    constants : dict, optional
-        Constants that are not expected to change between simulations.
-    observables : dict, optional
-        Observable values to track.
-    default_initial_values : dict, optional
-        Default initial values if not provided in initial_values.
-    default_parameters : dict, optional
-        Default parameter values if not provided in parameters.
-    default_constants : dict, optional
-        Default constant values if not provided in constants.
-    default_observable_names : dict, optional
-        Default observable names if not provided in observables.
-    precision : numpy.dtype, optional
-        Precision to use for calculations, by default np.float64.
-    num_drivers : int, optional
-        Number of driver/forcing functions, by default 1.
-    **kwargs : dict
-        Additional arguments.
-
-    Notes
-    -----
-    If you do implement a correct_answer_python() method, then you can subclass
-    the SystemTester class in tests/odesystems/SystemTester.py and overload
-    system_class with your ODE class name. The generate_system_tests function
-    can then generate a set of floating-point and missing-input tests to see if
-    your system behaves as expected.
-
-    Most systems will contain a default set of initial values, parameters,
-    constants, and observables. This parent class does not contain them, but
-    instead can be instantiated with a set of values of any size, for testing
-    purposes. The default values provide a way to both set a default state and
-    to provide the set of modifiable entries. This means that a user can't add
-    in a state or parameter when solving the system that ends up having no
-    effect on the system.
     """
 
     def __init__(
         self,
-        initial_values=None,
-        parameters=None,
-        constants=None,
-        observables=None,
-        default_initial_values=None,
-        default_parameters=None,
-        default_constants=None,
-        default_observable_names=None,
-        precision=np.float64,
-        num_drivers=1,
-        name=None
-    ):
+        initial_values: Optional[Dict[str, float]] = None,
+        parameters: Optional[Dict[str, float]] = None,
+        constants: Optional[Dict[str, float]] = None,
+        observables: Optional[Dict[str, float]] = None,
+        default_initial_values: Optional[Dict[str, float]] = None,
+        default_parameters: Optional[Dict[str, float]] = None,
+        default_constants: Optional[Dict[str, float]] = None,
+        default_observable_names: Optional[Dict[str, float]] = None,
+        precision: type = np.float64,
+        num_drivers: int = 1,
+        name: Optional[str] = None,
+    ) -> None:
         """Initialize the ODE system.
 
         Parameters
         ----------
-        initial_values : dict, optional
+        initial_values
             Initial values for state variables.
-        parameters : dict, optional
+        parameters
             Parameter values for the system.
-        constants : dict, optional
+        constants
             Constants that are not expected to change between simulations.
-        observables : Sequence[str], optional
+        observables
             Observable values to track.
-        default_initial_values : dict, optional
-            Default initial values if not provided in initial_values.
-        default_parameters : dict, optional
-            Default parameter values if not provided in parameters.
-        default_constants : dict, optional
-            Default constant values if not provided in constants.
-        default_observable_names : Sequence[str], optional
-            Default observable names if not provided in observables.
-        precision : numpy.dtype, optional
-            Precision to use for calculations, by default np.float64.
-        num_drivers : int, optional
-            Number of driver/forcing functions, by default 1.
-        name: str, optional
-            String name for the system, for printing, default None.
+        default_initial_values
+            Default initial values if ``initial_values`` omits entries.
+        default_parameters
+            Default parameter values if ``parameters`` omits entries.
+        default_constants
+            Default constant values if ``constants`` omits entries.
+        default_observable_names
+            Default observable names if ``observables`` omits entries.
+        precision
+            Precision factory used for calculations. Defaults to
+            :class:`numpy.float64`.
+        num_drivers
+            Number of driver or forcing functions. Defaults to ``1``.
+        name
+            Printable identifier for the system. Defaults to ``None``.
         """
         super().__init__()
         system_data = ODEData.from_BaseODE_initargs(
@@ -140,7 +102,7 @@ class BaseODE(CUDAFactory):
         self.setup_compile_settings(system_data)
         self.name = name
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         if self.name is None:
             name = "ODE System"
         else:
@@ -156,7 +118,7 @@ class BaseODE(CUDAFactory):
 
     @abstractmethod
     def build(self) -> ODECache:
-        """Compile the dxdt system as a CUDA device function.
+        """Compile the ``dxdt`` system as a CUDA device function.
 
         Returns
         -------
@@ -166,80 +128,89 @@ class BaseODE(CUDAFactory):
 
         Notes
         -----
-        Bring constants into local (outer) scope before you define the dxdt
-        function, as the CUDA device function can't handle a reference to self.
+        Bring constants into local (outer) scope before defining ``dxdt``
+        because CUDA device functions cannot reference ``self``.
         """
         # return ODECache(dxdt=dxdt)
 
     def correct_answer_python(
-        self, states, parameters, drivers
-    ) -> Tuple[NDArray, NDArray]:
-        """Python version of the dxdt function for testing.
-
-        This function is used in testing. Override this with a simpler, Python
-        version of the dxdt function if you want to use the SystemTester
-        class to check your function is working as expected.
+        self,
+        states: NDArray[np.floating[Any]],
+        parameters: NDArray[np.floating[Any]],
+        drivers: NDArray[np.floating[Any]],
+    ) -> Tuple[NDArray[np.floating[Any]], NDArray[np.floating[Any]]]:
+        """Python reference ``dxdt`` for testing.
 
         Parameters
         ----------
-        states : numpy.ndarray
+        states
             Current state values.
-        parameters : numpy.ndarray
+        parameters
             Parameter values.
-        drivers : numpy.ndarray
-            Driver/forcing values.
+        drivers
+            Driver or forcing values.
 
         Returns
         -------
         tuple of numpy.ndarray
-            A tuple containing (dxdt, observables) arrays.
+            Tuple containing the state derivatives and observable outputs.
         """
         return np.asarray([0]), np.asarray([0])
 
-    def update(self, updates_dict, silent=False, **kwargs):
-        """Update compile settings through the CUDAFactory interface.
+    def update(
+        self,
+        updates_dict: Optional[Dict[str, float]],
+        silent: bool = False,
+        **kwargs: float,
+    ) -> Set[str]:
+        """Update compile settings through the :class:`CUDAFactory` interface.
 
-        Pass updates to compile settings through the CUDAFactory interface,
-        which will invalidate cache if an update is successful.
+        Pass updates through the compile-settings interface, which invalidates
+        caches when an update succeeds.
 
         Parameters
         ----------
-        updates_dict : dict
+        updates_dict
             Dictionary of updates to apply.
-        silent : bool, optional
-            If True, suppress warnings about keys not found, by default False.
-        **kwargs : dict
-            Additional update parameters.
+        silent
+            Set to ``True`` to suppress warnings about missing keys.
+        **kwargs
+            Additional updates specified as keyword arguments.
+
+        Returns
+        -------
+        set of str
+            Labels that were recognized and updated.
 
         Notes
         -----
-        Pass silent=True if doing a bulk update with other component's params
-        to suppress warnings about keys not found.
+        Pass ``silent=True`` when performing bulk updates that may include
+        values for other components to suppress warnings about missing keys.
         """
         return self.set_constants(updates_dict, silent=silent, **kwargs)
 
     def set_constants(
         self,
-        updates_dict: Dict[str, float] = None,
+        updates_dict: Optional[Dict[str, float]] = None,
         silent: bool = False,
-        **kwargs,
-    ):
-        """Update the constants of the system.
+        **kwargs: float,
+    ) -> Set[str]:
+        """Update constant values in the system.
 
         Parameters
         ----------
-            updates_dict : dict of strings, floats
-                A dictionary mapping constant names to their new values.
-            silent : bool
-                If True, suppress warnings about keys not found, default False.
-            **kwargs: key-value pairs
-                Additional constant updates in key=value form, overrides
-                updates_dict.
+        updates_dict
+            Mapping from constant names to their new values.
+        silent
+            Set to ``True`` to suppress warnings about missing keys.
+        **kwargs
+            Additional constant updates provided as keyword arguments. These
+            override entries in ``updates_dict``.
 
         Returns
         -------
-        set of str:
-            All labels that were recognized (and therefore updated)
+        set of str
+            Labels that were recognized and updated.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -265,189 +236,110 @@ class BaseODE(CUDAFactory):
 
     @property
     def parameters(self):
-        """Get the parameters of the system.
-
-        Returns
-        -------
-        SystemValues
-            The parameters of the system.
-        """
+        """Parameter values configured for the system."""
         return self.compile_settings.parameters
 
     @property
     def states(self):
-        """Get the states of the system.
-
-        Returns
-        -------
-        SystemValues
-            The initial values of the system.
-        """
+        """Initial state values configured for the system."""
         return self.compile_settings.initial_states
 
     @property
     def initial_values(self):
-        """Get the initial values of the system. Alias for BaseODE.states
-
-        Returns
-        -------
-        SystemValues
-            The initial values of the system.
-        """
+        """Alias for :attr:`states`."""
         return self.compile_settings.initial_states
 
     @property
     def observables(self):
-        """Get the observables of the system.
-
-        Returns
-        -------
-        SystemValues
-            The observables of the system.
-        """
+        """Observable definitions configured for the system."""
         return self.compile_settings.observables
 
     @property
     def constants(self):
-        """Get the constants of the system.
-
-        Returns
-        -------
-        SystemValues
-            The constants of the system.
-        """
+        """Constant values configured for the system."""
         return self.compile_settings.constants
 
     @property
-    def num_states(self):
-        """Get the number of state variables.
-
-        Returns
-        -------
-        int
-            Number of state variables.
-        """
+    def num_states(self) -> int:
+        """Number of state variables."""
         return self.compile_settings.num_states
 
     @property
-    def num_observables(self):
-        """Get the number of observable variables.
-
-        Returns
-        -------
-        int
-            Number of observable variables.
-        """
+    def num_observables(self) -> int:
+        """Number of observable variables."""
         return self.compile_settings.num_observables
 
     @property
-    def num_parameters(self):
-        """Get the number of parameters.
-
-        Returns
-        -------
-        int
-            Number of parameters.
-        """
+    def num_parameters(self) -> int:
+        """Number of parameters."""
         return self.compile_settings.num_parameters
 
     @property
-    def num_constants(self):
-        """Get the number of constants.
-
-        Returns
-        -------
-        int
-            Number of constants.
-        """
+    def num_constants(self) -> int:
+        """Number of constants."""
         return self.compile_settings.num_constants
 
     @property
-    def num_drivers(self):
-        """Get the number of driver variables.
-
-        Returns
-        -------
-        int
-            Number of driver variables.
-        """
+    def num_drivers(self) -> int:
+        """Number of driver variables."""
         return self.compile_settings.num_drivers
 
     @property
     def sizes(self):
-        """Get system sizes.
-
-        Returns
-        -------
-        SystemSizes
-            Dictionary of sizes (number of states, parameters, observables,
-            constants, drivers) for the system.
-        """
+        """System component sizes cached for solvers."""
         return self.compile_settings.sizes
 
     @property
     def precision(self):
-        """Get the precision of the system.
-
-        Returns
-        -------
-        numpy.dtype
-            The precision of the system (numba type, float32 or float64).
-        """
+        """Precision factory configured for the system."""
         return self.compile_settings.precision
 
     @property
     def numba_precision(self):
-        """Returns numba precision type."""
+        """Numba representation of the configured precision."""
         return self.compile_settings.numba_precision
 
     @property
     def simsafe_precision(self):
-        """Returns simulator safe precision."""
+        """Precision promoted for CUDA simulator compatibility."""
         return self.compile_settings.simsafe_precision
 
     @property
     def dxdt_function(self):
-        """Get the compiled device function.
-
-        Returns
-        -------
-        function
-            The compiled CUDA device function.
-        """
+        """Compiled CUDA device function for ``dxdt``."""
         return self.get_cached_output("dxdt")
 
     def get_solver_helper(self,
                           func_name: str,
                           beta: float = 1.0,
-                          gamma: float=1.0,
-                          mass: float=1.0,
-                          preconditioner_order: int=0):
+                          gamma: float = 1.0,
+                          mass: Any = 1.0,
+                          preconditioner_order: int = 0) -> Callable:
         """Retrieve a cached solver helper function.
 
         Parameters
         ----------
-        func_name : str
+        func_name
             Identifier for the helper function.
-        beta : float, optional
-            Shift parameter for the linear operator. Defaults to 1.0
-        gamma : float, optional
-            Weight of the Jacobian term in the linear operator. Defaults
-            to 1.0
-        preconditioner_order : int, optional
-            Polynomial order of the preconditioner. Defaults to 1. Unused in
-            generating the linear operator
-        mass : np.ndarray or sp.Matrix, optional
-            Mass matrix for the linear operator. Defaults to Identity
+        beta
+            Shift parameter for the linear operator. Defaults to ``1.0``.
+        gamma
+            Weight of the Jacobian term in the linear operator. Defaults to
+            ``1.0``.
+        preconditioner_order
+            Polynomial order of the preconditioner. Defaults to ``0``. Unused
+            when generating the linear operator.
+        mass
+            Mass matrix used by the linear operator. Defaults to identity.
 
         Returns
         -------
         Callable
-            The cached device function corresponding to ``func_name``.
+            Cached device function corresponding to ``func_name``.
 
         Notes
         -----
-        Returns 'NotImplementedError' if the ODESystem is not symbolic for any
-        functions that require codegen.
+        Returns ``NotImplementedError`` if the ``ODESystem`` lacks generated
+        code for the requested helper.
         """
         return self.get_cached_output(func_name)
