@@ -31,46 +31,6 @@ def _as_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
         raise ValueError("Expected a one-dimensional array of samples.")
     return array
 
-
-# def _bind_python_helpers(
-#     system: BaseODE,
-#     dxdt_fn: Callable[[Array, Array, Array, Array], Array],
-#     jac_fn: Callable[[Array, Array, Array, Array], Array],
-#     observables_fn: Callable[
-#         [Array, Array, Array, Array, Array], Array
-#     ],
-# ) -> None:
-#     """Attach Python evaluation helpers to ``system``."""
-#     pass
-    # def correct_answer_python(
-    #     self: BaseODE,
-    #     state: Sequence[float] | Array,
-    #     parameters: Sequence[float] | Array,
-    #     drivers: Sequence[float] | Array,
-    # ) -> tuple[Array, Array]:
-    #     dtype = self.precision
-    #     state_arr = _as_array(state, dtype)
-    #     param_arr = _as_array(parameters, dtype)
-    #     driver_arr = _as_array(drivers, dtype)
-    #     const_arr = self.constants.values_array.astype(dtype)
-    #     dxdt = dxdt_fn(state_arr, param_arr, driver_arr, const_arr)
-    #     observables = observables_fn(
-    #         state_arr, param_arr, driver_arr, const_arr, dxdt
-    #     )
-    #     return dxdt.astype(dtype, copy=False), observables.astype(
-    #         dtype, copy=False
-    #     )
-    #
-    # system.correct_answer_python = MethodType(correct_answer_python, system)
-    # system.python_dxdt = dxdt_fn
-    # system.python_jacobian = jac_fn
-    # system.python_observables = observables_fn
-
-
-# ---------------------------------------------------------------------------
-# Three-state linear system (Decays replacement)
-# ---------------------------------------------------------------------------
-
 THREE_STATE_LINEAR_EQUATIONS = [
     "dx0 = -x0",
     "dx1 = -x1/2",
@@ -85,50 +45,6 @@ THREE_STATE_LINEAR_PARAMETERS = {"p0": 1.0, "p1": 2.0, "p2": 3.0}
 THREE_STATE_LINEAR_CONSTANTS = {"c0": 0.5, "c1": 1.0, "c2": 2.0}
 THREE_STATE_LINEAR_DRIVERS = ["d0"]
 THREE_STATE_LINEAR_OBSERVABLES = ["o0", "o1", "o2"]
-
-#
-# def pydxdt_three_state_linear(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Derivative helper for the three-state linear system."""
-#
-#     dtype = state.dtype
-#     dxdt = np.empty(3, dtype=dtype)
-#     dxdt[0] = -state[0]
-#     dxdt[1] = -0.5 * state[1]
-#     dxdt[2] = -(1.0 / 3.0) * state[2]
-#     return dxdt
-#
-#
-# def pyjac_three_state_linear(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Jacobian helper for the three-state linear system."""
-#
-#     dtype = state.dtype
-#     jacobian = np.zeros((3, 3), dtype=dtype)
-#     jacobian[0, 0] = -1.0
-#     jacobian[1, 1] = -0.5
-#     jacobian[2, 2] = -(1.0 / 3.0)
-#     return jacobian
-#
-#
-# def pyobservables_three_state_linear(
-#     state: Array,
-#     parameters: Array,
-#     drivers: Array,
-#     constants: Array,
-#     dxdt: Array,
-# ) -> Array:
-#     """Observable helper for the three-state linear system."""
-#
-#     dtype = state.dtype
-#     driver = drivers[0] if drivers.size else dtype.type(0)
-#     observables = np.empty(3, dtype=dtype)
-#     observables = dxdt * parameters
-#     observables += constants[:3]
-#     observables += driver
-#     return observables.astype(dtype)
 
 
 def build_three_state_linear_system(precision: np.dtype) -> BaseODE:
@@ -145,13 +61,7 @@ def build_three_state_linear_system(precision: np.dtype) -> BaseODE:
         name="three_state_linear",
         strict=True,
     )
-    # system.build()
-    # _bind_python_helpers(
-    #     system,
-    #     pydxdt_three_state_linear,
-    #     pyjac_three_state_linear,
-    #     pyobservables_three_state_linear,
-    # )
+
     return system
 
 
@@ -174,58 +84,6 @@ THREE_STATE_NONLINEAR_CONSTANTS = {"c0": 0.5, "c1": -0.3, "c2": 0.25}
 THREE_STATE_NONLINEAR_DRIVERS = ["d0"]
 THREE_STATE_NONLINEAR_OBSERVABLES = ["o0", "o1", "o2"]
 
-#
-# def pydxdt_three_state_nonlinear(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Derivative helper for the three-state nonlinear system."""
-#
-#     dtype = state.dtype
-#     driver = drivers[0] if drivers.size else dtype.type(0)
-#     dxdt = np.empty(3, dtype=dtype)
-#     dxdt[0] = parameters[0] * (state[1] - state[0] ** 3) + driver
-#     dxdt[1] = parameters[1] * state[0] * state[2] - state[1] + constants[1]
-#     dxdt[2] = -parameters[2] * state[2]
-#     dxdt[2] += constants[2] * np.tanh(state[0])
-#     return dxdt
-#
-#
-# def pyjac_three_state_nonlinear(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Jacobian helper for the three-state nonlinear system."""
-#
-#     dtype = state.dtype
-#     jacobian = np.zeros((3, 3), dtype=dtype)
-#     jacobian[0, 0] = -3.0 * parameters[0] * (state[0] ** 2)
-#     jacobian[0, 1] = parameters[0]
-#     jacobian[1, 0] = parameters[1] * state[2]
-#     jacobian[1, 1] = -1.0
-#     jacobian[1, 2] = parameters[1] * state[0]
-#     sech2 = 1.0 - np.tanh(state[0]) ** 2
-#     jacobian[2, 0] = constants[2] * sech2
-#     jacobian[2, 2] = -parameters[2]
-#     return jacobian
-#
-#
-# def pyobservables_three_state_nonlinear(
-#     state: Array,
-#     parameters: Array,
-#     drivers: Array,
-#     constants: Array,
-#     dxdt: Array,
-# ) -> Array:
-#     """Observable helper for the three-state nonlinear system."""
-#
-#     dtype = state.dtype
-#     driver = drivers[0] if drivers.size else dtype.type(0)
-#     observables = np.empty(3, dtype=dtype)
-#     observables[0] = state[0] + constants[0]
-#     observables[1] = state[1] ** 2 + parameters[1]
-#     observables[2] = state[2] + driver
-#     return observables
-
-
 def build_three_state_nonlinear_system(precision: np.dtype) -> BaseODE:
     """Return the symbolic three-state nonlinear system."""
 
@@ -240,13 +98,7 @@ def build_three_state_nonlinear_system(precision: np.dtype) -> BaseODE:
         name="three_state_nonlinear",
         strict=True,
     )
-    # system.build()
-    # _bind_python_helpers(
-    #     system,
-    #     pydxdt_three_state_nonlinear,
-    #     pyjac_three_state_nonlinear,
-    #     pyobservables_three_state_nonlinear,
-    # )
+
     return system
 
 
@@ -280,108 +132,6 @@ THREE_CHAMBER_CONSTANTS: dict[str, float] = {}
 THREE_CHAMBER_DRIVERS = ["d1"]
 THREE_CHAMBER_OBSERVABLES = ["P_a", "P_v", "P_h", "Q_i", "Q_o", "Q_c"]
 
-#
-# def _three_chamber_pressures(
-#     state: Array, parameters: Array, drivers: Array
-# ) -> tuple[np.floating, np.floating, np.floating]:
-#     dtype = state.dtype
-#     driver = drivers[0] if drivers.size else dtype.type(0)
-#     p_a = parameters[1] * state[1]
-#     p_v = parameters[2] * state[2]
-#     p_h = parameters[0] * state[0] * driver
-#     return p_a, p_v, p_h
-
-
-# def pydxdt_three_chamber(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Derivative helper for the three chamber cardiovascular model."""
-#
-#     dtype = state.dtype
-#     p_a, p_v, p_h = _three_chamber_pressures(state, parameters, drivers)
-#     r_i, r_o, r_c = parameters[3], parameters[4], parameters[5]
-#
-#     if p_v > p_h:
-#         q_i = (p_v - p_h) / r_i
-#     else:
-#         q_i = dtype.type(0)
-#
-#     if p_h > p_a:
-#         q_o = (p_h - p_a) / r_o
-#     else:
-#         q_o = dtype.type(0)
-#
-#     q_c = (p_a - p_v) / r_c
-#     dxdt = np.empty(3, dtype=dtype)
-#     dxdt[0] = q_i - q_o
-#     dxdt[1] = q_o - q_c
-#     dxdt[2] = q_c - q_i
-#     return dxdt
-#
-#
-# def pyjac_three_chamber(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Jacobian helper mirroring the ThreeCM device implementation."""
-#
-#     dtype = state.dtype
-#     p_a, p_v, p_h = _three_chamber_pressures(state, parameters, drivers)
-#     r_i, r_o, r_c = parameters[3], parameters[4], parameters[5]
-#     e_h, e_a, e_v = parameters[0], parameters[1], parameters[2]
-#     driver = drivers[0] if drivers.size else dtype.type(0)
-#
-#     qi_active = p_v > p_h
-#     qo_active = p_h > p_a
-#
-#     jacobian = np.zeros((3, 3), dtype=dtype)
-#
-#     dqi_dvh = -(e_h * driver) / r_i if qi_active else dtype.type(0)
-#     dqi_dvv = e_v / r_i if qi_active else dtype.type(0)
-#     dqo_dvh = (e_h * driver) / r_o if qo_active else dtype.type(0)
-#     dqo_dva = -(e_a) / r_o if qo_active else dtype.type(0)
-#     dqc_dva = e_a / r_c
-#     dqc_dvv = -e_v / r_c
-#
-#     jacobian[0, 0] = dqi_dvh - dqo_dvh
-#     jacobian[0, 1] = -dqo_dva
-#     jacobian[0, 2] = dqi_dvv
-#
-#     jacobian[1, 0] = dqo_dvh
-#     jacobian[1, 1] = dqo_dva - dqc_dva
-#     jacobian[1, 2] = -dqc_dvv
-#
-#     jacobian[2, 0] = -dqi_dvh
-#     jacobian[2, 1] = dqc_dva
-#     jacobian[2, 2] = dqc_dvv - dqi_dvv
-#     return jacobian
-#
-#
-# def pyobservables_three_chamber(
-#     state: Array,
-#     parameters: Array,
-#     drivers: Array,
-#     constants: Array,
-#     dxdt: Array,
-# ) -> Array:
-#     """Observable helper for the three chamber cardiovascular model."""
-#
-#     dtype = state.dtype
-#     p_a, p_v, p_h = _three_chamber_pressures(state, parameters, drivers)
-#     r_i, r_o, r_c = parameters[3], parameters[4], parameters[5]
-#
-#     if p_v > p_h:
-#         q_i = (p_v - p_h) / r_i
-#     else:
-#         q_i = dtype.type(0)
-#
-#     if p_h > p_a:
-#         q_o = (p_h - p_a) / r_o
-#     else:
-#         q_o = dtype.type(0)
-#
-#     q_c = (p_a - p_v) / r_c
-#     return np.array([p_a, p_v, p_h, q_i, q_o, q_c], dtype=dtype)
-#
 
 def build_three_chamber_system(precision: np.dtype) -> BaseODE:
     """Return the symbolic three chamber cardiovascular system."""
@@ -397,13 +147,7 @@ def build_three_chamber_system(precision: np.dtype) -> BaseODE:
         name="three_chamber_system",
         strict=True,
     )
-    # system.build()
-    # _bind_python_helpers(
-    #     system,
-    #     pydxdt_three_chamber,
-    #     pyjac_three_chamber,
-    #     pyobservables_three_chamber,
-    # )
+
     return system
 
 
@@ -433,71 +177,6 @@ THREE_STATE_VERY_STIFF_CONSTANTS = {"c0": 0.5}
 THREE_STATE_VERY_STIFF_DRIVERS = ["d0"]
 THREE_STATE_VERY_STIFF_OBSERVABLES = ["r0", "r1", "r2"]
 
-#
-# def pydxdt_three_state_very_stiff(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Derivative helper for the very stiff nonlinear system."""
-#
-#     dtype = state.dtype
-#     driver = drivers[0] if drivers.size else dtype.type(0)
-#     k1, k2, k3, n0, n1, n2 = parameters[:6]
-#     c0 = constants[0]
-#
-#     dxdt = np.empty(3, dtype=dtype)
-#     dxdt[0] = -k1 * (state[0] - state[1])
-#     dxdt[0] -= n0 * state[0] ** 3
-#     dxdt[0] += driver
-#
-#     dxdt[1] = k1 * (state[0] - state[1])
-#     dxdt[1] -= k2 * (state[1] - state[2])
-#     dxdt[1] -= n1 * state[1] ** 3
-#
-#     dxdt[2] = k2 * (state[1] - state[2])
-#     dxdt[2] -= k3 * (state[2] - c0)
-#     dxdt[2] -= n2 * state[2] ** 3
-#
-#     return dxdt
-#
-#
-# def pyjac_three_state_very_stiff(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Jacobian helper for the very stiff nonlinear system."""
-#
-#     dtype = state.dtype
-#     k1, k2, k3, n0, n1, n2 = parameters[:6]
-#
-#     jacobian = np.zeros((3, 3), dtype=dtype)
-#
-#     jacobian[0, 0] = -k1 - 3.0 * n0 * (state[0] ** 2)
-#     jacobian[0, 1] = k1
-#
-#     jacobian[1, 0] = k1
-#     jacobian[1, 1] = -k1 - k2 - 3.0 * n1 * (state[1] ** 2)
-#     jacobian[1, 2] = k2
-#
-#     jacobian[2, 1] = k2
-#     jacobian[2, 2] = -k2 - k3 - 3.0 * n2 * (state[2] ** 2)
-#
-#     return jacobian
-#
-#
-# def pyobservables_three_state_very_stiff(
-#     state: Array,
-#     parameters: Array,
-#     drivers: Array,
-#     constants: Array,
-#     dxdt: Array,
-# ) -> Array:
-#     """Observable helper for the very stiff nonlinear system."""
-#
-#     dtype = state.dtype
-#     observables = np.empty(3, dtype=dtype)
-#     observables[0] = state[0] - state[1]
-#     observables[1] = state[1] - state[2]
-#     observables[2] = state[0] + state[1] + state[2]
-#     return observables
 
 
 def build_three_state_very_stiff_system(precision: np.dtype) -> BaseODE:
@@ -514,13 +193,7 @@ def build_three_state_very_stiff_system(precision: np.dtype) -> BaseODE:
         name="three_state_very_stiff",
         strict=True,
     )
-    # system.build()
-    # _bind_python_helpers(
-    #     system,
-    #     pydxdt_three_state_very_stiff,
-    #     pyjac_three_state_very_stiff,
-    #     pyobservables_three_state_very_stiff,
-    # )
+
     return system
 
 
@@ -562,51 +235,6 @@ LARGE_SYSTEM_CONSTANTS = {
 }
 LARGE_SYSTEM_DRIVERS = ["d0"]
 
-#
-# def pydxdt_large_nonlinear(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Derivative helper for the 100-state nonlinear system."""
-#
-#     dtype = state.dtype
-#     driver = drivers[0] if drivers.size else dtype.type(0)
-#     n = state.size
-#     dxdt = np.empty(n, dtype=dtype)
-#     for idx in range(n):
-#         nxt = (idx + 1) % n
-#         dxdt[idx] = -parameters[idx] * state[idx]
-#         dxdt[idx] += constants[nxt] * np.sin(state[nxt])
-#         dxdt[idx] += 0.01 * state[idx] * state[nxt]
-#         dxdt[idx] += driver / (idx + 1)
-#     return dxdt
-#
-#
-# def pyjac_large_nonlinear(
-#     state: Array, parameters: Array, drivers: Array, constants: Array
-# ) -> Array:
-#     """Jacobian helper for the 100-state nonlinear system."""
-#
-#     dtype = state.dtype
-#     n = state.size
-#     jacobian = np.zeros((n, n), dtype=dtype)
-#     for idx in range(n):
-#         nxt = (idx + 1) % n
-#         jacobian[idx, idx] = -parameters[idx] + 0.01 * state[nxt]
-#         jacobian[idx, nxt] = constants[nxt] * np.cos(state[nxt])
-#         jacobian[idx, nxt] += 0.01 * state[idx]
-#     return jacobian
-#
-#
-# def pyobservables_large_nonlinear(
-#     state: Array,
-#     parameters: Array,
-#     drivers: Array,
-#     constants: Array,
-#     dxdt: Array,
-# ) -> Array:
-#     """Observable helper for the 100-state nonlinear system."""
-#
-#     return np.empty(0, dtype=state.dtype)
 
 
 def build_large_nonlinear_system(precision: np.dtype) -> BaseODE:
@@ -622,13 +250,7 @@ def build_large_nonlinear_system(precision: np.dtype) -> BaseODE:
         name="large_nonlinear_system",
         strict=True,
     )
-    # system.build()
-    # _bind_python_helpers(
-    #     system,
-    #     pydxdt_large_nonlinear,
-    #     pyjac_large_nonlinear,
-    #     pyobservables_large_nonlinear,
-    # )
+
     return system
 
 
@@ -638,14 +260,4 @@ __all__ = [
     "build_three_chamber_system",
     "build_three_state_very_stiff_system",
     "build_large_nonlinear_system",
-    # "pydxdt_three_state_linear",
-    # "pydxdt_three_state_nonlinear",
-    # "pydxdt_three_chamber",
-    # "pydxdt_three_state_very_stiff",
-    # "pydxdt_large_nonlinear",
-    # "pyjac_three_state_linear",
-    # "pyjac_three_state_nonlinear",
-    # "pyjac_three_chamber",
-    # "pyjac_three_state_very_stiff",
-    # "pyjac_large_nonlinear",
 ]
