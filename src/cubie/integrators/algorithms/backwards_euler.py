@@ -206,12 +206,13 @@ class BackwardsEulerStep(ODEImplicitStep):
             )
 
             # calculate and save observables (wastes some compute)
+            next_time = time_scalar + dt_scalar
             observables_function(
                 proposed_state,
                 parameters,
                 drivers,
                 proposed_observables,
-                time_scalar,
+                next_time,
             )
             return status
 
