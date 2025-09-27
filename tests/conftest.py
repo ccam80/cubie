@@ -444,13 +444,16 @@ def step_object(solver_settings, implicit_step_settings, precision, system):
                 'dt':solver_settings["dt_min"],
                 'precision':precision,
                 'n':system.sizes.states,
-                'dxdt_function':system.dxdt_function
+                'dxdt_function':system.dxdt_function,
+                'observables_function':system.observables_function,
+
         }
     else:
         solver_kwargs = {
             "precision": precision,
             "n": system.sizes.states,
             'dxdt_function':system.dxdt_function,
+            'observables_function':system.observables_function,
             'get_solver_helper_fn':system.get_solver_helper,
             'preconditioner_order':implicit_step_settings[
             "preconditioner_order"],

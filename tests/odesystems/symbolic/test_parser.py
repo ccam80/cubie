@@ -424,7 +424,7 @@ class TestParseInput:
 
         index_map, all_symbols, funcs, equation_map, fn_hash = parse_input(
             dxdt=["dx = t"],
-            states={"dx": 0.0},
+            states={"x": 0.0},
             observables=[],
             parameters={},
             constants={},
