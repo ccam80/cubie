@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Optional, Tuple
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
     from cubie.outputhandling.output_functions import OutputFunctions
-    from cubie.odesystems.systems.BaseODE import BaseODE
+    from cubie.odesystems.baseODE import BaseODE
 
 from abc import ABC
 
