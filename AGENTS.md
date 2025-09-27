@@ -90,9 +90,22 @@ Numba's External Memory Manager interface and provides a context manager to
 adopt Numba streams inside CuPy. CuPy is optional; without it the package falls
 back to Numba's default allocator.
 ##### src/cubie/odesystems
+Base classes and data containers that describe CUDA-ready ODE systems.
+``baseODE`` extends :class:`cubie.CUDAFactory` to manage compile settings and
+provide solver helper caches. ``ODEData`` and ``SystemValues`` capture precision
+aware metadata that integrator factories consume when wiring algorithms to
+generated kernels.
 ###### src/cubie/odesystems/symbolic
-###### src/cubie/odesystems/systems
+SymPy-driven code generation pipeline. Parses symbolic system definitions,
+emits CUDA ``dxdt`` kernels, and produces Newton--Krylov helpers consumed by
+integrator loops. Depends on SymPy, :mod:`numba.cuda`, and the base classes in
+the parent package.
 ##### src/cubie/outputhandling
+CUDA output subsystem. ``OutputFunctions`` wraps :class:`cubie.CUDAFactory` to
+compile state-saving and summary callbacks from an ``OutputConfig`` instance,
+while ``output_sizes`` exposes sizing helpers for host/device buffer planning.
+``summarymetrics`` instantiates the shared registry and re-exports
+``register_metric`` so CUDA metric modules can self-register.
 ###### src/cubie/outputhandling/summarymetrics
 Summary metric registry plus CUDA implementations. ``__init__`` instantiates
 ``SummaryMetrics`` and imports the built-in ``mean``, ``max``, ``rms``, and
