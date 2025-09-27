@@ -151,6 +151,7 @@ def device_step_results(
         error_vec,
         status_vec,
         dt_scalar,
+        time_scalar,
     ) -> None:
         idx = cuda.grid(1)
         if idx > 0:
@@ -166,6 +167,7 @@ def device_step_results(
             observables_vec,
             error_vec,
             dt_scalar,
+            time_scalar,
             shared,
             persistent,
         )
@@ -181,6 +183,7 @@ def device_step_results(
         d_error,
         d_status,
         dt_value,
+        numba_precision(0.0),
     )
     cuda.synchronize()
     
@@ -221,7 +224,8 @@ def cpu_step_results(
         drivers_now=drivers_now,
         drivers_next=drivers_next,
         dt=dt,
-        tol=implicit_step_settings['nonlinear_tolerance']
+        tol=implicit_step_settings['nonlinear_tolerance'],
+        time=0.0,
         )
 
     return StepResult(

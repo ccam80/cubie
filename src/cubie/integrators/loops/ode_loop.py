@@ -316,6 +316,7 @@ class IVPLoop(CUDAFactory):
                         observables_buffer,
                         error,
                         dt_eff,
+                        t,
                         remaining_shared_scratch,
                         algo_local,
                     )

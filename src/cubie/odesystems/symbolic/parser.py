@@ -15,6 +15,8 @@ from cubie._utils import is_devfunc
 # Lambda notation, Auto-number, factorial notation, implicit multiplication
 PARSE_TRANSORMS = (T[0][0], T[3][0], T[4][0], T[8][0])
 
+TIME_SYMBOL = sp.Symbol("t", real=True)
+
 KNOWN_FUNCTIONS = {
     # Basic mathematical functions
     'exp': sp.exp,
@@ -523,6 +525,7 @@ def _rhs_pass(
     # Expose mapping for the printer via special key in all_symbols (copied by caller)
     local_dict = all_symbols.copy()
     local_dict.update(parse_locals)
+    local_dict.setdefault("t", TIME_SYMBOL)
     new_symbols = []
     for raw_line, line in zip(lines, sanitized_lines):
         lhs, rhs = [p.strip() for p in line.split("=", 1)]
@@ -647,6 +650,7 @@ def parse_input(
     fn_hash = hash_system_definition(dxdt, constants)
     anon_aux = _lhs_pass(lines, index_map, strict=strict)
     all_symbols = index_map.all_symbols.copy()
+    all_symbols.setdefault("t", TIME_SYMBOL)
     all_symbols.update(anon_aux)
 
     equation_map, funcs, new_params = _rhs_pass(

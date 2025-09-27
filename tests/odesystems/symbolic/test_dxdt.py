@@ -29,6 +29,7 @@ class TestDxdtTemplate:
         assert "test body" in formatted
         assert "@cuda.jit" in formatted
         assert "def dxdt(" in formatted
+        assert "out, t" in formatted
         assert "return dxdt" in formatted
 
     def test_dxdt_template_structure(self):
@@ -163,7 +164,8 @@ class TestGenerateDxdtFacCode:
         assert "parameters" in func_def_line
         assert "driver" in func_def_line
         assert "observables" in func_def_line
-        assert "dxdt" in func_def_line
+        assert "out" in func_def_line
+        assert "t" in func_def_line
 
     def test_constants_unpacked(self, indexed_bases):
         """Constants should be defined as standalone variables."""
@@ -261,6 +263,7 @@ class TestGenerateObservablesFacCode:
         assert "def get_observables" in code
         assert "observables[" in code
         assert "out[" not in code
+        assert "observables, t" in code
 
     def test_observables_factory_includes_cse_dependencies(
         self, indexed_bases
@@ -301,9 +304,9 @@ class TestObservablesDeviceParity:
         """Compare observables computed via dxdt and helper kernels."""
 
         system = observables_kernel_system
-        cache = system.build()
-        dxdt_dev = cache.dxdt
-        get_observables = system.get_solver_helper("observables")
+        system.build()
+        dxdt_dev = system.dxdt_function
+        observables_fn = system.observables_function
 
         state = np.array(state_values, dtype=precision)
         parameters = np.array(param_values, dtype=precision)
@@ -329,9 +332,12 @@ class TestObservablesDeviceParity:
             obs_dxdt,
             obs_helper,
             out_buf,
+            time_scalar,
         ):
-            dxdt_dev(state_in, params_in, drivers_in, obs_dxdt, out_buf)
-            get_observables(state_in, params_in, drivers_in, obs_helper)
+            dxdt_dev(state_in, params_in, drivers_in, obs_dxdt, out_buf, time_scalar,
+)
+            observables_fn(state_in, params_in, drivers_in, obs_helper, time_scalar,
+)
 
         kernel[
             1,
@@ -343,6 +349,7 @@ class TestObservablesDeviceParity:
             obs_from_dxdt,
             obs_from_helper,
             out,
+            precision(0.0),
         )
 
         state_idx = system.states.indices_dict
@@ -392,8 +399,8 @@ def test_recompile_updates_constants(precision):
         dxdt_func = cache.dxdt
 
         @cuda.jit
-        def kernel(state, parameters, drivers, observables, out):
-            dxdt_func(state, parameters, drivers, observables, out)
+        def kernel(state, parameters, drivers, observables, out, time_scalar):
+            dxdt_func(state, parameters, drivers, observables, out, time_scalar)
 
         state = np.array([precision(1.0)], dtype=precision)
         parameters = np.zeros(current_system.num_parameters, dtype=precision)
@@ -402,7 +409,7 @@ def test_recompile_updates_constants(precision):
             current_system.num_observables, dtype=precision
         )
         out = np.zeros(current_system.num_states, dtype=precision)
-        kernel[1, 1](state, parameters, drivers, observables, out)
+        kernel[1, 1](state, parameters, drivers, observables, out, precision(0.0))
         return float(out[0])
 
     res1 = run_dxdt(system)

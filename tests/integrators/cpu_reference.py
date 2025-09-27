@@ -26,6 +26,8 @@ from cubie.odesystems.symbolic.sym_utils import topological_sort
 
 from tests._utils import calculate_expected_summaries
 
+TIME_SYMBOL = sp.Symbol("t", real=True)
+
 
 Array = NDArray[np.floating]
 STATUS_MASK = 0xFFFF
@@ -122,6 +124,7 @@ class CPUODESystem():
             params: Array,
             drivers: Array,
             observables: Array,
+            time_scalar: float,
         ) -> dict:
         """Get current values for all symbols."""
         # drivers = _ensure_array(drivers, self.precision)
@@ -146,13 +149,17 @@ class CPUODESystem():
              },
         }
         )
+        # Provide the current simulation time symbol value
+        values[TIME_SYMBOL] = self.precision(time_scalar)
         return values
 
-    def rhs(self, state: Array, params: Array, drivers: Array
+    def rhs(self, state: Array, params: Array, drivers: Array,
+            time_scalar: float,
             ) -> tuple[Array, Array]:
         dxdt = self._state_template.copy()
         observables = self._observable_template.copy()
-        symbol_values = self._get_symbol_values(state, params, drivers, observables)
+        symbol_values = self._get_symbol_values(state, params, drivers,
+                                                observables, time_scalar)
 
         # Evaluate each compiled equation
         # Try er thrice for good measure - for out-of-order evaluation? no,
@@ -174,11 +181,20 @@ class CPUODESystem():
 
         return dxdt, observables
 
-    def jacobian(self, state: Array, params: Array, drivers: Array) -> Array:
+    def jacobian(
+            self,
+            state: Array,
+            params: Array,
+            drivers: Array,
+            time_scalar: float,
+        ) -> Array:
+        if not self._compiled_jacobian:
+            return np.zeros((self.n_states, self.n_states), dtype=self.precision)
 
-        _, observables = self.rhs(state, params, drivers)
+        _, observables = self.rhs(state, params, drivers, time_scalar)
 
-        symbol_values = self._get_symbol_values(state, params, drivers, observables)
+        symbol_values = self._get_symbol_values(state, params, drivers,
+                                                observables, time_scalar)
         jac_rows = len(self._compiled_jacobian)
         jac_cols = len(self._compiled_jacobian[0]) if jac_rows > 0 else 0
         jacobian = np.zeros((jac_rows, jac_cols), dtype=self.precision)
@@ -222,10 +238,11 @@ def explicit_euler_step(
     dt: Optional[float] = None,
     tol: Optional[float] = None,
     max_iters: Optional[int] = None,
+    time: float = 0.0,
 ) -> StepResult:
     """Explicit Euler integration step."""
 
-    dxdt, observables = evaluator.rhs(state, params, drivers_now)
+    dxdt, observables = evaluator.rhs(state, params, drivers_now, time)
     new_state = state + dt * dxdt
     error = np.zeros_like(state)
     status = _encode_solver_status(True, 0)
@@ -267,17 +284,18 @@ def backward_euler_step(
     tol: Optional[float] = None,
     initial_guess: Optional[Array] = None,
     max_iters: int = 25,
+    time: float = 0.0,
 ) -> StepResult:
     """Backward Euler step solved via Newton iteration."""
 
     precision = evaluator.precision
 
     def residual(candidate: Array) -> Array:
-        dxdt, _ = evaluator.rhs(candidate, params, drivers_next)
+        dxdt, _ = evaluator.rhs(candidate, params, drivers_next, time)
         return candidate - state - dt * dxdt
 
     def jacobian(candidate: Array) -> Array:
-        jac = evaluator.jacobian(candidate, params, drivers_next)
+        jac = evaluator.jacobian(candidate, params, drivers_next, time)
         identity = np.eye(jac.shape[0], dtype=precision)
         return identity - dt * jac
 
@@ -295,7 +313,7 @@ def backward_euler_step(
         tol,
         max_iters,
     )
-    dxdt, observables = evaluator.rhs(next_state, params, drivers_next)
+    dxdt, observables = evaluator.rhs(next_state, params, drivers_next, time)
     error = np.zeros_like(next_state)
     status = _encode_solver_status(converged, niters)
     return StepResult(next_state, observables, error, status, niters)
@@ -310,18 +328,19 @@ def crank_nicolson_step(
     dt: Optional[float] = None,
     tol: Optional[float] = None,
     max_iters: int = 25,
+    time: float = 0.0,
 ) -> StepResult:
     """Crank–Nicolson step with embedded backward Euler for error estimation."""
 
     precision = evaluator.precision
-    f_now, _ = evaluator.rhs(state, params, drivers_now)
+    f_now, _ = evaluator.rhs(state, params, drivers_now, time)
 
     def residual(candidate: Array) -> Array:
-        f_candidate, _ = evaluator.rhs(candidate, params, drivers_next)
+        f_candidate, _ = evaluator.rhs(candidate, params, drivers_next, time)
         return candidate - state - precision(0.5) * dt * (f_now + f_candidate)
 
     def jacobian(candidate: Array) -> Array:
-        jac = evaluator.jacobian(candidate, params, drivers_next)
+        jac = evaluator.jacobian(candidate, params, drivers_next, time)
         identity = np.eye(jac.shape[0], dtype=precision)
         return identity - precision(0.5) * dt * jac
 
@@ -334,7 +353,7 @@ def crank_nicolson_step(
             tol,
             max_iters,
     )
-    _, observables = evaluator.rhs(next_state, params, drivers_next)
+    _, observables = evaluator.rhs(next_state, params, drivers_next, time)
 
     # Embedded backward Euler step for the error estimate
     be_result = backward_euler_step(
@@ -346,6 +365,7 @@ def crank_nicolson_step(
         tol=tol,
         initial_guess=next_state,
         max_iters=max_iters,
+        time=time,
     )
     error = next_state - be_result.state
     status = _encode_solver_status(converged, niters)
@@ -360,11 +380,12 @@ def backward_euler_predict_correct_step(
     dt: Optional[float] = None,
     tol: Optional[float] = None,
     max_iters: int = 25,
+    time: float = 0.0,
 ) -> StepResult:
     """Predict with explicit Euler and correct with backward Euler."""
 
     precision = evaluator.precision
-    f_now, _ = evaluator.rhs(state, params, drivers_now)
+    f_now, _ = evaluator.rhs(state, params, drivers_now, time)
     predictor = state.astype(precision, copy=True) + dt * f_now
     return backward_euler_step(
         evaluator=evaluator,
@@ -375,6 +396,7 @@ def backward_euler_predict_correct_step(
         tol=tol,
         initial_guess=predictor,
         max_iters=max_iters,
+        time=time,
     )
 
 
@@ -669,7 +691,8 @@ def run_reference_loop(
                 drivers_next=drivers_next,
                 dt=dt,
                 tol=implicit_step_settings['nonlinear_tolerance'],
-                max_iters=max_iters
+                max_iters=max_iters,
+                time=float(t),
             )
 
         step_status = int(result.status)

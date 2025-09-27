@@ -12,6 +12,7 @@ from cubie.odesystems.symbolic.indexedbasemaps import (
 )
 from cubie.odesystems.symbolic.parser import (
     EquationWarning,
+    TIME_SYMBOL,
     _lhs_pass,
     _process_calls,
     _process_parameters,
@@ -263,6 +264,19 @@ class TestRhsPass:
         expressions, funcs, new_symbols = _rhs_pass(lines, symbols)
         assert expressions[0] == [dx, Piecewise((a, x > 0), (b, True))]
 
+    def test_rhs_pass_recognises_time_symbol(self):
+        """``t`` is available as a default symbol without declarations."""
+
+        symbols = {
+            "dx": sp.Symbol("dx", real=True),
+            "t": TIME_SYMBOL,
+        }
+        expressions, funcs, new_symbols = _rhs_pass(["dx = t"], symbols)
+
+        assert expressions == [[symbols["dx"], TIME_SYMBOL]]
+        assert funcs == {}
+        assert new_symbols == []
+
 
 class TestHashSystemDefinition:
     """Test system definition hashing function."""
@@ -404,6 +418,23 @@ class TestParseInput:
         assert "custom_func" in all_symbols
         assert callable(all_symbols["custom_func"])
         assert funcs["custom_func"] == user_functions["custom_func"]
+
+    def test_parse_input_includes_time_symbol(self):
+        """Ensure ``t`` is always present without explicit declaration."""
+
+        index_map, all_symbols, funcs, equation_map, fn_hash = parse_input(
+            dxdt=["dx = t"],
+            states={"dx": 0.0},
+            observables=[],
+            parameters={},
+            constants={},
+            drivers=[],
+            strict=True,
+        )
+
+        assert "t" in all_symbols
+        assert equation_map == [[all_symbols["dx"], TIME_SYMBOL]]
+        assert funcs == {}
 
     def test_parse_input_invalid_dxdt_type(self):
         """Test error with invalid dxdt type."""

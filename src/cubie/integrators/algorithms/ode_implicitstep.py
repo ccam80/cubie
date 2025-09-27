@@ -1,7 +1,7 @@
 """Infrastructure for implicit integration step implementations."""
 
 from abc import abstractmethod
-from typing import Callable, Tuple, Union
+from typing import Callable, Union
 
 import attrs
 import numpy as np
@@ -139,16 +139,17 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Container with the compiled step and nonlinear solver.
         """
 
-        solver_fn, obs_fn = self.build_implicit_helpers()
+        solver_fn = self.build_implicit_helpers()
         config = self.compile_settings
         dxdt_fn = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
+        observables_function = config.observables_function
 
         return self.build_step(
             solver_fn,
             dxdt_fn,
-            obs_fn,
+            observables_function,
             numba_precision,
             n,
         )
@@ -158,7 +159,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         self,
         solver_fn: Callable,
         dxdt_fn: Callable,
-        obs_fn: Callable,
+        observables_function: Callable,
         numba_precision: type,
         n: int,
     ) -> StepCache:
@@ -170,7 +171,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Device nonlinear solver produced by ``build_implicit_helpers``.
         dxdt_fn
             Device derivative function for the ODE system.
-        obs_fn
+        observables_function
             Device observable computation helper.
         numba_precision
             Numba precision for compiled device buffers.
@@ -185,14 +186,14 @@ class ODEImplicitStep(BaseAlgorithmStep):
 
         raise NotImplementedError
 
-    def build_implicit_helpers(self) -> Tuple[Callable, Callable]:
+    def build_implicit_helpers(self) -> Callable:
         """Construct the nonlinear solver chain used by implicit methods.
 
         Returns
         -------
-        tuple of Callable
-            Nonlinear solver function and observable helper compiled for the
-            configured implicit scheme.
+        Callable
+            Nonlinear solver function compiled for the configured implicit
+            scheme.
         """
 
         config = self.compile_settings
@@ -234,8 +235,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
                 mass=mass,
                 preconditioner_order=preconditioner_order)
 
-        obs_fn = get_fn('observables')
-
         linsolve_tolerance = config.linsolve_tolerance
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
@@ -261,7 +260,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             damping=newton_damping,
             max_backtracks=newton_max_backtracks,
         )
-        return nonlinear_solver, obs_fn
+        return nonlinear_solver
 
     @property
     def is_implicit(self) -> bool:

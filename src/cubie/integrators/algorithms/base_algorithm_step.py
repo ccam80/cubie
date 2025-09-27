@@ -22,7 +22,9 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 # Define all possible algorithm step parameters across all algorithm types
 ALL_ALGORITHM_STEP_PARAMETERS = {
     # Base parameters
-    'precision', 'n', 'dxdt_function', 'get_solver_helper_fn',
+    'precision', 'n', 'dxdt_function', 'observables_function',
+    'get_solver_helper_fn',
+    'observables_function',
     # Explicit algorithm parameters
     'dt',
     # Implicit algorithm parameters
@@ -43,9 +45,13 @@ class BaseStepConfig(ABC):
         Number of state entries advanced by each step call.
     dxdt_function
         Device function that evaluates the system right-hand side.
+    observables_function
+        Device function that evaluates the system observables.
     get_solver_helper_fn
         Optional callable that returns device helpers required by the
         nonlinear solver construction.
+    observables_function
+        Device function computing system observables.
     """
 
     precision: PrecisionDtype = attrs.field(
@@ -58,11 +64,18 @@ class BaseStepConfig(ABC):
         default=None,
         validator=validators.optional(is_device_validator),
     )
+    observables_function: Optional[Callable] = attrs.field(
+        default=None,
+        validator=validators.optional(is_device_validator),
+    )
     get_solver_helper_fn: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(validators.is_callable()),
     )
-
+    observables_function: Callable = attrs.field(
+        kw_only=True,
+        validator=is_device_validator,
+    )
     @property
     def numba_precision(self) -> type:
         """Return the Numba dtype associated with ``precision``."""
@@ -79,7 +92,10 @@ class BaseStepConfig(ABC):
     def settings_dict(self) -> Dict[str, object]:
         """Return a mutable view of the configuration state."""
 
-        return {"n": self.n, "precision": self.precision}
+        return {
+            "n": self.n,
+            "precision": self.precision,
+        }
 
 @attrs.define
 class StepCache:

@@ -5,8 +5,10 @@ from typing import Callable, Optional
 from numba import cuda, int32
 
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
-from cubie.integrators.algorithms.ode_explicitstep import ODEExplicitStep, \
-    ExplicitStepConfig
+from cubie.integrators.algorithms.ode_explicitstep import (
+    ExplicitStepConfig,
+    ODEExplicitStep,
+)
 
 class ExplicitEulerStep(ODEExplicitStep):
     """Forward Euler integration step for explicit ODE updates."""
@@ -14,6 +16,7 @@ class ExplicitEulerStep(ODEExplicitStep):
     def __init__(
         self,
         dxdt_function: Callable,
+        observables_function: Callable,
         precision: type,
         n: int,
         dt: float,
@@ -25,6 +28,8 @@ class ExplicitEulerStep(ODEExplicitStep):
         ----------
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
+        observables_function
+            Device function computing system observables.
         precision
             Precision applied to device buffers.
         n
@@ -39,6 +44,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             dt=dt,
             precision=precision,
             dxdt_function=dxdt_function,
+            observables_function=observables_function,
             n=n,
         )
 
@@ -47,6 +53,7 @@ class ExplicitEulerStep(ODEExplicitStep):
     def build_step(
         self,
         dxdt_function: Callable,
+        observables_function: Callable,
         numba_precision: type,
         n: int,
         fixed_step_size: float,
@@ -82,6 +89,7 @@ class ExplicitEulerStep(ODEExplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision,
+                numba_precision,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -97,6 +105,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             observables,
             error,
             dt_scalar,
+            time_scalar,
             shared,
             persistent_local,
         ):
@@ -120,6 +129,8 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Device array reserved for error estimates (unused here).
             dt_scalar
                 Scalar containing the proposed step size.
+            time_scalar
+                Scalar containing the current simulation time.
             shared
                 Device array used for shared memory (unused here).
             persistent_local
@@ -131,9 +142,19 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Status code indicating successful completion.
             """
 
-            dxdt_function(state, parameters, drivers, observables, work_buffer)
+            dxdt_function(
+                state,
+                parameters,
+                drivers,
+                observables,
+                work_buffer,
+                time_scalar,
+            )
             for i in range(n):
                 proposed_state[i] = state[i] + step_size * work_buffer[i]
+            observables_function(
+                proposed_state, parameters, drivers, observables
+            )
             return int32(0)
 
         return StepCache(step=step, nonlinear_solver=None)

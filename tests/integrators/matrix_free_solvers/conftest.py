@@ -102,15 +102,16 @@ def system_setup(request, precision):
     deriv = np.zeros(3, dtype=precision)
 
     @cuda.jit()
-    def dxdt_kernel(state, params, drivers, observables, deriv):
-        dxdt_func(state, params, drivers, observables, deriv)
+    def dxdt_kernel(state, params, drivers, observables, deriv, time_scalar):
+        dxdt_func(state, params, drivers, observables, deriv, time_scalar)
 
-    dxdt_kernel[1, 1](base_host, params, drivers, observables, deriv)
+    zero_time = precision(0.0)
+    dxdt_kernel[1, 1](base_host, params, drivers, observables, deriv, zero_time)
     state_init_host = base_host + h * deriv * precision(1.05)
 
     state_fp = state_init_host.copy()
     for _ in range(32):
-        dxdt_kernel[1, 1](state_fp, params, drivers, observables, deriv)
+        dxdt_kernel[1, 1](state_fp, params, drivers, observables, deriv, zero_time)
         new_state = base_host + h * deriv
         if np.max(np.abs(new_state - state_fp)) < precision(1e-12):
             state_fp = new_state

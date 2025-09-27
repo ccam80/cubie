@@ -15,7 +15,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         self,
         solver_fn: Callable,
         dxdt_fn: Callable,
-        obs_fn: Callable,
+        observables_function: Callable,
         numba_precision: type,
         n: int,
     ) -> StepCache:  # pragma: no cover - cuda code
@@ -27,7 +27,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
-        obs_fn
+        observables_function
             Device observable computation helper.
         numba_precision
             Numba precision corresponding to the configured precision.
@@ -52,6 +52,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision,
+                numba_precision,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -67,6 +68,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             observables,
             error,
             dt_scalar,
+            time_scalar,
             shared,
             persistent_local,
         ):
@@ -90,6 +92,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 Device array capturing solver diagnostics.
             dt_scalar
                 Scalar containing the proposed step size.
+            time_scalar
+                Scalar containing the current simulation time.
             shared
                 Device array used for shared memory (unused here).
             persistent_local
@@ -101,7 +105,14 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 Status code returned by the nonlinear solver.
             """
 
-            dxdt_fn(state, parameters, drivers, observables, work_buffer)
+            dxdt_fn(
+                state,
+                parameters,
+                drivers,
+                observables,
+                work_buffer,
+                time_scalar,
+            )
             for i in range(n):
                 proposed_state[i] = state[i] + dt_scalar * work_buffer[i]
 
@@ -121,7 +132,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 error,  # fixed-step loop reuses error as scratch
             )
 
-            obs_fn(proposed_state, parameters, drivers, observables)
+            observables_function(
+                proposed_state, parameters, drivers, observables, time_scalar
+            )
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)

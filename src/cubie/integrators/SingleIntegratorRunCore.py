@@ -140,13 +140,15 @@ class SingleIntegratorRunCore(CUDAFactory):
         )
 
         fixed = not self._step_controller.is_adaptive
-        self._algo_step = self.instantiate_step_object(algorithm,
-                                                       n=system.sizes.states,
-                                                       dxdt_function=self._system.dxdt_function,
-                                                       get_solver_helper_fn=self._system.get_solver_helper,
-                                                       step_size=fixed_step_size,
-                                                       **(
-                                                                   algorithm_parameters or {}))
+        self._algo_step = self.instantiate_step_object(
+            algorithm,
+            n=system.sizes.states,
+            dxdt_function=self._system.dxdt_function,
+            observables_function=self._system.observables_function,
+            get_solver_helper_fn=self._system.get_solver_helper,
+            step_size=fixed_step_size,
+            **(algorithm_parameters or {}),
+        )
 
         if self._step_controller.is_adaptive:
             self._step_controller.update(algorithm_order=self._algo_step.order)
@@ -197,6 +199,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         kind: str = "euler",
         n: int = 1,
         dxdt_function: Optional[Callable] = None,
+        observables_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         step_size: float = 1e-3,
         **kwargs: Any,
@@ -212,6 +215,8 @@ class SingleIntegratorRunCore(CUDAFactory):
             Number of state variables supplied to the algorithm constructor.
         dxdt_function
             Device function computing the derivative of the ODE system.
+        observables_function
+            Device function computing system observables.
         get_solver_helper_fn
             Factory returning linear solver helpers for implicit algorithms.
         step_size
@@ -229,14 +234,17 @@ class SingleIntegratorRunCore(CUDAFactory):
         Supported identifiers include ``"euler"``, ``"backwards_euler"``,
         ``"backwards_euler_pc"``, and ``"crank_nicolson"``.
         """
-        if kind.lower() in ["euler"]: # fixed step algorithms
-            kwargs = {"dt": step_size}
-        algorithm = get_algorithm_step(kind,
-                                  precision=self.precision,
-                                  n=n,
-                                  dxdt_function=dxdt_function,
-                                  get_solver_helper_fn=get_solver_helper_fn,
-                                  **kwargs)
+        if kind.lower() in ["euler"]:  # fixed step algorithms
+            kwargs.update({"dt": step_size})
+        algorithm = get_algorithm_step(
+            kind,
+            precision=self.precision,
+            n=n,
+            dxdt_function=dxdt_function,
+            get_solver_helper_fn=get_solver_helper_fn,
+            observables_function=observables_function,
+            **kwargs,
+        )
         return algorithm
 
     def instantiate_controller(
@@ -358,8 +366,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         """
         shared_indices = LoopSharedIndices.from_sizes(
                 n_states=n_states,
-                n_observables=n_parameters,
-                n_parameters=n_observables,
+                n_observables=n_observables,
+                n_parameters=n_parameters,
                 n_drivers=n_drivers,
                 state_summaries_buffer_height=state_summaries_buffer_height,
                 observable_summaries_buffer_height
@@ -447,10 +455,13 @@ class SingleIntegratorRunCore(CUDAFactory):
             new_algo_key = updates_dict["algorithm"].lower()
             if new_algo_key != self.algorithm_key:
                 old_settings = self._algo_step.settings_dict
-                _algo_step = self.instantiate_step_object(new_algo_key,
-                                                          n=self.system_sizes.states,
-                                                          dxdt_function=self._system.dxdt_function,
-                                                          get_solver_helper_fn=self._system.get_solver_helper)
+                _algo_step = self.instantiate_step_object(
+                    new_algo_key,
+                    n=self.system_sizes.states,
+                    dxdt_function=self._system.dxdt_function,
+                    observables_function=self._system.observables_function,
+                    get_solver_helper_fn=self._system.get_solver_helper,
+                )
                 _algo_step.update(old_settings, silent=True)
                 self._algo_step = _algo_step
             recognized.add("algorithm")
