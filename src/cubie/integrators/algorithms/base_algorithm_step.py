@@ -291,6 +291,11 @@ class BaseAlgorithmStep(CUDAFactory):
         """Return the compiled device derivative function."""
         return self.compile_settings.dxdt_function
 
+    @property
+    def observables_function(self) -> Optional[Callable]:
+        """Return the compiled device observables function."""
+        return self.compile_settings.observables_function
+
 
     @property
     def get_solver_helper_fn(self) -> Optional[Callable]:

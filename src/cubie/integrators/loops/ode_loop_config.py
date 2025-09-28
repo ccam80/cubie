@@ -357,6 +357,8 @@ class ODELoopConfig:
         Device function that updates the timestep and acceptance flag.
     step_fn
         Device function that advances the solution by one tentative step.
+    observables_fn
+        Device function that evaluates observables for the current state.
     _dt0
         Initial timestep prior to controller feedback.
     _dt_min
@@ -406,6 +408,10 @@ class ODELoopConfig:
         validator=validators.optional(is_device_validator)
     )
     step_fn: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator)
+    )
+    observables_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
     )

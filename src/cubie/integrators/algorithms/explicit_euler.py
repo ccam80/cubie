@@ -156,6 +156,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             )
             for i in range(n):
                 proposed_state[i] = state[i] + step_size * work_buffer[i]
+
             next_time = time_scalar + dt_scalar
             observables_function(
                 proposed_state,

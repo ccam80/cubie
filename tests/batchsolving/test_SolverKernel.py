@@ -17,7 +17,7 @@ def test_kernel_builds(solverkernel):
     (
         ({}, {}, {}),
         pytest.param(
-            {},
+            "three_chamber",
             {
                 "duration": 1.0,
                 "dt_min": 0.0025,
@@ -30,6 +30,10 @@ def test_kernel_builds(solverkernel):
                     "rms",
                     "peaks[2]",
                 ],
+                'saved_state_indices': [0, 1, 2],
+                'saved_observable_indices': [0, 1, 2],
+                'summarised_state_indices': [0, 1, 2],
+                'summarised_observable_indices': [0, 1, 2],
             },
             {},
         ),
@@ -69,7 +73,7 @@ def test_run(
     solverkernel.run(
         duration=solver_settings["duration"],
         params=params,
-        inits=inits,  # debug: inits has no varied parameters
+        inits=inits,
         forcing_vectors=drivers,
         blocksize=solver_settings["blocksize"],
         stream=solver_settings["stream"],
@@ -100,39 +104,6 @@ def test_run(
                                output_functions=output_functions,
                                atol=atol,
                                rtol=rtol)
-    # if active_output_arrays.state:
-    #     assert_allclose(
-    #         cpu_batch_results.state,
-    #         state,
-    #         atol=atol,
-    #         rtol=rtol,
-    #         err_msg="State Output does not match expected: device = \n."
-    #             f"{state}, \ncpu = \n{cpu_batch_results.state}",
-    #     )
-    # if active_output_arrays.observables:
-    #     assert_allclose(
-    #         cpu_batch_results.observables,
-    #         observables,
-    #         atol=atol,
-    #         rtol=rtol,
-    #         err_msg="Observables do not match expected.",
-    #     )
-    # if active_output_arrays.state_summaries:
-    #     assert_allclose(
-    #         cpu_batch_results.state_summaries,
-    #         state_summaries,
-    #         atol=atol,
-    #         rtol=rtol,
-    #         err_msg="Summary states do not match expected.",
-    #     )
-    # if active_output_arrays.observable_summaries:
-    #     assert_allclose(
-    #         cpu_batch_results.observable_summaries,
-    #         observable_summaries,
-    #         atol=atol,
-    #         rtol=rtol,
-    #         err_msg="Summary observables do not match expected.",
-    #     )
 
 
 def test_algorithm_change(solverkernel):

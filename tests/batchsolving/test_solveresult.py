@@ -4,8 +4,7 @@ import pytest
 
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
-from tests._utils import _driver_sequence
-
+from tests._utils import _driver_sequence, extract_state_and_time
 
 
 # --------------------------------------------------------------------------- #
@@ -333,13 +332,14 @@ class TestSolveResultFromSolver:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "duration": 0.5}],
+          "duration": 0.6}],
         indirect=True,
     )
     def test_full_result_matches_cpu_outputs(
         self,
         solver_with_arrays,
         cpu_batch_results,
+        output_functions,
         precision,
     ) -> None:
         """Ensure ``SolveResult`` values match CPU reference integrations."""
@@ -355,6 +355,7 @@ class TestSolveResultFromSolver:
         observable_columns = [
             idx for idx, label in legend.items() if label in observable_labels
         ]
+        state_ref, time_ref = extract_state_and_time(cpu_batch_results.state, output_functions)
 
         if precision == np.float32:
             atol = rtol = 1e-5
@@ -364,9 +365,12 @@ class TestSolveResultFromSolver:
         if state_columns:
             np.testing.assert_allclose(
                 time_domain[:, :, state_columns],
-                cpu_batch_results.state[:, :, state_columns],
+                state_ref,
                 atol=atol,
                 rtol=rtol,
+                err_msg="state mismatch.\n"
+                f"device: {time_domain[:, :, state_columns]}\n"
+                f"reference: {cpu_batch_results.state}\n"
             )
         if observable_columns:
             np.testing.assert_allclose(
@@ -374,6 +378,9 @@ class TestSolveResultFromSolver:
                 cpu_batch_results.observables,
                 atol=atol,
                 rtol=rtol,
+                err_msg="observables mismatch.\n"
+                        f"device: {time_domain[:, :, observable_columns]}\n"
+                        f"reference: {cpu_batch_results.observables}\n"
             )
 
         if result.summaries_array.size:
@@ -397,17 +404,23 @@ class TestSolveResultFromSolver:
 
             if state_summary_columns:
                 np.testing.assert_allclose(
-                    summaries[:, state_summary_columns],
+                    summaries[:,:, state_summary_columns],
                     cpu_batch_results.state_summaries,
                     atol=atol,
                     rtol=rtol,
+                    err_msg="state summaries mismatch.\n"
+                        f"device: {time_domain[:, :, observable_columns]}\n"
+                        f"reference: {cpu_batch_results.observables}\n"
                 )
             if observable_summary_columns:
                 np.testing.assert_allclose(
-                    summaries[:, observable_summary_columns],
+                    summaries[:,:, observable_summary_columns],
                     cpu_batch_results.observable_summaries,
                     atol=atol,
                     rtol=rtol,
+                    err_msg="observables summaries mismatch.\n"
+                        f"device: {time_domain[:, :, observable_summary_columns]}\n"
+                        f"reference: {cpu_batch_results.observable_summaries}\n"
                 )
 
 

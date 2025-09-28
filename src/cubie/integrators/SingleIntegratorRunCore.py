@@ -95,7 +95,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         algorithm: str = "euler",
         dt_min: float = 0.01,
         dt_max: float = 0.1,
-        fixed_step_size: float = 0.01,
+        fixed_step_size: Optional[float] =None,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
         atol: float = 1e-6,
@@ -129,6 +129,8 @@ class SingleIntegratorRunCore(CUDAFactory):
             summarised_observable_indices=summarised_observable_indices,
         )
 
+        if fixed_step_size is None:
+            fixed_step_size = dt_min
         self._step_controller = self.instantiate_controller(
                 step_controller_kind,
                 dt_min=dt_min,
@@ -139,7 +141,6 @@ class SingleIntegratorRunCore(CUDAFactory):
                 **(step_controller_parameters or {}),
         )
 
-        fixed = not self._step_controller.is_adaptive
         self._algo_step = self.instantiate_step_object(
             algorithm,
             n=system.sizes.states,
@@ -159,7 +160,6 @@ class SingleIntegratorRunCore(CUDAFactory):
                 n_parameters=system_sizes.parameters,
                 n_observables=system_sizes.observables,
                 n_drivers=system_sizes.drivers,
-
                 controller_local_elements=self._step_controller
                 .local_memory_elements,
                 algorithm_local_elements=self._algo_step
@@ -255,7 +255,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         dt_max: float = 1e-1,
         atol: Union[float, np.ndarray] = 1e-6,
         rtol: Union[float, np.ndarray] = 1e-6,
-        fixed_step_size: float = 0.01,
+        fixed_step_size: Optional[float] = None,
         **kwargs: Any,
     ) -> BaseStepController:
         """Instantiate the step controller.
@@ -291,6 +291,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         ``"pid"``, and ``"gustafsson"``.
         """
         if kind == 'fixed':
+            if fixed_step_size is None:
+                fixed_step_size = dt_min
             controller = get_controller(kind,
                     precision=self.precision,
                     dt=fixed_step_size)
@@ -388,7 +390,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                        dt0=dt0,
                        dt_min=dt_min,
                        dt_max=dt_max,
-                       is_adaptive=is_adaptive )
+                       is_adaptive=is_adaptive)
         return loop
 
     def update(
@@ -549,10 +551,13 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         # Lowest level - check for changes in dxdt_fn, get_solver_helper_fn
         dxdt_fn = self._system.dxdt_function
+        observables_fn = self._system.observables_function
         get_solver_helper_fn = self._system.get_solver_helper
         compiled_fns_dict = {}
         if dxdt_fn != self._algo_step.dxdt_function:
             compiled_fns_dict['dxdt_function'] = dxdt_fn
+        if observables_fn != self._algo_step.observables_function:
+            compiled_fns_dict['observables_function'] = observables_fn
         if get_solver_helper_fn != self._algo_step.get_solver_helper_fn:
             compiled_fns_dict['get_solver_helper_fn'] = get_solver_helper_fn
 
@@ -565,6 +570,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             'save_summaries_fn': self._output_functions.save_summary_metrics_func,
             'step_controller_fn': self._step_controller.device_function,
             'step_fn': self._algo_step.step_function,
+            'observables_fn': observables_fn
         }
 
         self._loop.update(compiled_functions)

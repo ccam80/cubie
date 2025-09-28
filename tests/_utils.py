@@ -551,8 +551,8 @@ def extract_state_and_time(
         state_values = state_output[:, :n_state_columns]
         time_values = state_output[:, n_state_columns : n_state_columns + 1]
     else:
-        state_values = state_output[:, :, n_state_columns]
-        time_values = state_output[:, :, n_state_columns : n_state_columns + 1]
+        state_values = state_output[:, :, :n_state_columns]
+        time_values = state_output[:, :, n_state_columns : ]
 
     return state_values, time_values
 

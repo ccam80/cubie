@@ -123,32 +123,42 @@ class CPUODESystem():
             state: Array,
             params: Array,
             drivers: Array,
-            observables: Array,
             time_scalar: float,
-        ) -> dict:
+            observables: Optional[Array] = None,
+
+    ) -> dict:
         """Get current values for all symbols."""
         # drivers = _ensure_array(drivers, self.precision)
         precision = self.precision
         values = {}
-        values.update({
-            **{
-                sym: precision(state[index])
-                for sym, index in self._state_index.items()
-             },
-             **{
-                sym: precision(params[index])
-                for sym, index in self._parameter_index.items()
-             },
-             **{
-                sym: precision(self.system.constants.values_dict[str(sym)])
-                for sym in self._constant_index.keys()
-             },
-             **{
-                sym: precision(drivers[index])
-                for sym, index in self._driver_index.items()
-             },
-        }
+        values.update(
+            {
+                **{
+                    sym: precision(state[index])
+                    for sym, index in self._state_index.items()
+                },
+                **{
+                    sym: precision(params[index])
+                    for sym, index in self._parameter_index.items()
+                },
+                **{
+                    sym: precision(self.system.constants.values_dict[str(sym)])
+                    for sym in self._constant_index.keys()
+                },
+                **{
+                    sym: precision(drivers[index])
+                    for sym, index in self._driver_index.items()
+                }
+            }
         )
+
+        if observables is not None:
+            values.update({
+                    sym: precision(observables[index])
+                    for sym, index in self._observable_index.items()
+                },
+        )
+
         # Provide the current simulation time symbol value
         values[TIME_SYMBOL] = self.precision(time_scalar)
         return values
@@ -159,7 +169,7 @@ class CPUODESystem():
         dxdt = self._state_template.copy()
         observables = self._observable_template.copy()
         symbol_values = self._get_symbol_values(state, params, drivers,
-                                                observables, time_scalar)
+                                                time_scalar)
 
         # Evaluate each compiled equation
         # Try er thrice for good measure - for out-of-order evaluation? no,
@@ -194,7 +204,7 @@ class CPUODESystem():
         _, observables = self.rhs(state, params, drivers, time_scalar)
 
         symbol_values = self._get_symbol_values(state, params, drivers,
-                                                observables, time_scalar)
+                                                time_scalar, observables)
         jac_rows = len(self._compiled_jacobian)
         jac_cols = len(self._compiled_jacobian[0]) if jac_rows > 0 else 0
         jacobian = np.zeros((jac_rows, jac_cols), dtype=self.precision)
@@ -208,6 +218,7 @@ class CPUODESystem():
                 else:
                     jacobian[i, j] = compiled_entry
         return jacobian
+
 @dataclass
 class StepResult:
     """Container describing the outcome of a single integration step."""
@@ -244,7 +255,7 @@ def explicit_euler_step(
 
     dxdt, _ = evaluator.rhs(state, params, drivers_now, time)
     new_state = state + dt * dxdt
-    _, observables = evaluator.rhs(new_state, params, drivers_now, time)
+    _, observables = evaluator.rhs(new_state, params, drivers_next, time+dt)
     error = np.zeros_like(state)
     status = _encode_solver_status(True, 0)
     return StepResult(new_state, observables, error, status, 0)
@@ -521,10 +532,10 @@ class CPUAdaptiveController:
               niters: int,
               current_dt: float) -> float:
         precision = self.precision
-        expo_fraction = precision( 1 / (2 * (self.order + 1)))
+        expo_fraction = precision( precision(1.0) / (precision(2) * (precision(self.order) + precision(1))))
         if self.kind == "i":
             exponent = expo_fraction
-            gain = self.safety * (errornorm ** exponent)
+            gain = self.safety * precision(errornorm ** exponent)
 
         elif self.kind == "pi":
             kp_exp = precision(self.kp * expo_fraction)
@@ -669,13 +680,23 @@ def run_reference_loop(
 
     end_time = precision(warmup + duration)
     max_iters = implicit_step_settings['max_newton_iters']
+    fixed_steps_per_save = int(np.ceil(dt_save / controller.dt_min))
+    fixed_step_count = 0
 
     while t < end_time - precision(1e-12):
-        dt = min(controller.dt, end_time - t)
+        dt = precision(min(controller.dt, end_time - t))
         do_save=False
-        if t + dt + precision(1e-12) >= next_save_time:
-            dt = next_save_time - t
-            do_save = True
+        if controller.is_adaptive:
+            if t + dt + precision(1e-10) >= next_save_time:
+                dt = precision(next_save_time - t)
+                do_save = True
+        else:
+            if (fixed_step_count+1) % fixed_steps_per_save == 0:
+                do_save = True
+                fixed_step_count = 0
+            else:
+                fixed_step_count += 1
+
 
         driver_sample = sampler.sample(save_index)
 
@@ -703,7 +724,7 @@ def run_reference_loop(
             continue
 
         state = result.state.copy()
-        t += dt
+        t += precision(dt)
 
         if do_save:
             if len(state_history) < max_save_samples:

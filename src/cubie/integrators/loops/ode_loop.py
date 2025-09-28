@@ -75,6 +75,7 @@ class IVPLoop(CUDAFactory):
         save_summaries_func: Optional[Callable] = None,
         step_controller_fn: Optional[Callable] = None,
         step_fn: Optional[Callable] = None,
+        observables_fn: Optional[Callable] = None,
     ) -> None:
         super().__init__()
 
@@ -86,6 +87,7 @@ class IVPLoop(CUDAFactory):
             save_summaries_fn=save_summaries_func,
             step_controller_fn=step_controller_fn,
             step_fn=step_fn,
+            observables_fn=observables_fn,
             precision=precision,
             compile_flags=compile_flags,
             dt_save=dt_save,
@@ -132,6 +134,7 @@ class IVPLoop(CUDAFactory):
         save_summaries = config.save_summaries_fn
         step_controller = config.step_controller_fn
         step_fn = config.step_fn
+        observables_fn = config.observables_fn
 
         flags = config.compile_flags
         save_obs_bool = flags.save_observables
@@ -264,34 +267,26 @@ class IVPLoop(CUDAFactory):
             for k in range(n_parameters):
                 parameters_buffer[k] = parameters[k]
 
-            # Populate observables for the initial state so subsequent
-            # derivative evaluations see consistent inputs. Reuse the step
-            # helper with a zero step size and discard the proposed state.
-            n_observables = observables_buffer.shape[0]
+            # Seed initial observables from initial state.
             if n_observables > 0:
-                if driver_length > 0:
-                    for k in range(n_drivers):
-                        drivers_buffer[k] = drivers[0, k]
-                step_fn(
+                for k in range(n_drivers):
+                    drivers_buffer[k] = drivers[0, k]
+                observables_fn(
                     state_buffer,
-                    state_proposal_buffer,
-                    work_buffer,
                     parameters_buffer,
                     drivers_buffer,
                     observables_buffer,
-                    observables_buffer,
-                    error,
-                    precision(0.0),
                     t,
-                    remaining_shared_scratch,
-                    algo_local,
                 )
 
             save_idx = int32(0)
+            summary_idx = int32(0)
 
             if settling_time > precision(0.0):
+                #Don't save t0, wait until settling_time
                 next_save = precision(settling_time)
             else:
+                #Seed initial state and save/update summaries
                 next_save = precision(dt_save)
                 save_state(
                     state_buffer,
@@ -300,10 +295,29 @@ class IVPLoop(CUDAFactory):
                     observables_output[save_idx * save_obs_bool, :],
                     t,
                 )
-                save_idx += int32(1)
+                if summarise:
+                    #reset temp buffers to starting state - will be overwritten
+                    save_summaries(state_summary_buffer,
+                                   observable_summary_buffer,
+                                   state_summaries_output[
+                                       summary_idx * summarise_state_bool, :
+                                   ],
+                                   observable_summaries_output[
+                                       summary_idx * summarise_obs_bool, :
+                                   ],
+                                   saves_per_summary)
+                    
+                    # Log first summary update
+                    update_summaries(
+                        state_buffer,
+                        observables_buffer,
+                        state_summary_buffer,
+                        observable_summary_buffer,
+                        save_idx,
+                    )
+            save_idx += int32(1)
 
             status = int32(0)
-            summary_idx = int32(0)
             dt[0] = dt0
             dt_eff = dt[0]
             accept_step[0] = int32(0)
@@ -348,6 +362,18 @@ class IVPLoop(CUDAFactory):
                         remaining_shared_scratch,
                         algo_local,
                     )
+
+                    # HACK: Standin until better drivers handling, as loop is
+                    #  fetching a single driver for pre and post step
+                    # for k in range(n_drivers):
+                    #     drivers_buffer[k] = (drivers[(save_idx+1) %
+                    #                          driver_length, k])
+                    observables_fn(state_proposal_buffer,
+                                   parameters_buffer,
+                                   drivers_buffer,
+                                   observables_proposal_buffer,
+                                   t + dt_eff,
+                                   )
                     niters = (step_status >> 16) & status_mask
                     status |= step_status & status_mask
 
@@ -389,28 +415,31 @@ class IVPLoop(CUDAFactory):
                             observables_buffer,
                             state_output[save_idx * save_state_bool, :],
                             observables_output[save_idx * save_obs_bool, :],
-                            t)
-                        save_idx += 1
-
+                            t,
+                        )
                         if summarise:
                             update_summaries(
                                 state_buffer,
                                 observables_buffer,
                                 state_summary_buffer,
                                 observable_summary_buffer,
-                                saves_per_summary)
+                                save_idx)
 
                             if (save_idx + 1) % saves_per_summary == 0:
                                 save_summaries(
                                     state_summary_buffer,
                                     observable_summary_buffer,
                                     state_summaries_output[
-                                        summary_idx * summarise_state_bool, :],
+                                        summary_idx * summarise_state_bool, :
+                                    ],
                                     observable_summaries_output[
-                                        summary_idx * summarise_obs_bool, :],
+                                        summary_idx * summarise_obs_bool, :
+                                    ],
                                     saves_per_summary,
                                 )
                                 summary_idx += 1
+                        save_idx += 1
+
             if status == int32(0):
                 #Max iterations exhausted without other error
                 status = int32(8)
@@ -493,6 +522,12 @@ class IVPLoop(CUDAFactory):
         """Return the algorithm step device function used by the loop."""
 
         return self.compile_settings.step_fn
+
+    @property
+    def observables_fn(self) -> Optional[Callable]:
+        """Return the observables device function used by the loop."""
+
+        return self.compile_settings.observables_fn
 
     @property
     def dt0(self) -> Optional[float]:
