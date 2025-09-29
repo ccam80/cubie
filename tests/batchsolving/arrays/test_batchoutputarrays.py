@@ -337,6 +337,7 @@ class TestOutputArrays:
         assert output_arrays_manager.device_state is not None
         assert output_arrays_manager.device_observables is not None
 
+    @pytest.mark.nocudasim
     def test_finalise_method_copies_device_to_host(
         self, output_arrays_manager, solver
     ):

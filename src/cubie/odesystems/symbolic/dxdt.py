@@ -22,10 +22,11 @@ DXDT_TEMPLATE = (
     "               precision[:],\n"
     "               precision[:],\n"
     "               precision[:],\n"
-    "               precision[:]),\n"
+    "               precision[:],\n"
+    "               precision),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def dxdt(state, parameters, drivers, observables, out):\n"
+    "    def dxdt(state, parameters, drivers, observables, out, t):\n"
     "    {body}\n"
     "    \n"
     "    return dxdt\n"
@@ -40,10 +41,11 @@ OBSERVABLES_TEMPLATE = (
     "    @cuda.jit((precision[:],\n"
     "               precision[:],\n"
     "               precision[:],\n"
-    "               precision[:]),\n"
+    "               precision[:],\n"
+    "               precision),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def get_observables(state, parameters, drivers, observables):\n"
+    "    def get_observables(state, parameters, drivers, observables, t):\n"
     "    {body}\n"
     "    \n"
     "    return get_observables\n"
@@ -82,6 +84,18 @@ def generate_dxdt_lines(
         equations = cse_and_stack(equations)
     else:
         equations = topological_sort(equations)
+
+    if index_map is not None:
+        observable_symbols = set(index_map.observables.ref_map.keys())
+        equations = [
+            (lhs, rhs)
+            for lhs, rhs in equations
+            if lhs not in observable_symbols
+        ]
+        equations = _prune_unused_assignments(
+            equations,
+            output_symbols=index_map.dxdt.ref_map.keys(),
+        )
     dxdt_lines = print_cuda_multiple(
         equations, symbol_map=index_map.all_arrayrefs
     )

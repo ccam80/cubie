@@ -22,6 +22,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         precision: PrecisionDtype,
         n: int,
         dxdt_function: Callable,
+        observables_function: Callable,
         get_solver_helper_fn: Callable,
         preconditioner_order: int = 1,
         linsolve_tolerance: float = 1e-6,
@@ -42,6 +43,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             Number of state entries advanced per step.
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
+        observables_function
+            Device function computing system observables.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
@@ -85,6 +88,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             newton_damping=newton_damping,
             newton_max_backtracks=newton_max_backtracks,
             dxdt_function=dxdt_function,
+            observables_function=observables_function,
             precision=precision,
         )
         super().__init__(config)
@@ -93,7 +97,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         self,
         solver_fn: Callable,
         dxdt_fn: Callable,
-        obs_fn: Callable,
+        observables_function: Callable,
         numba_precision: type,
         n: int,
     ) -> StepCache:  # pragma: no cover - cuda code
@@ -105,7 +109,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
-        obs_fn
+        observables_function
             Device observable computation helper.
         numba_precision
             Numba precision corresponding to the configured precision.
@@ -131,6 +135,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
+                numba_precision,
                 numba_precision,
                 numba_precision[:],
                 numba_precision[:],
@@ -145,8 +151,10 @@ class CrankNicolsonStep(ODEImplicitStep):
             parameters,
             drivers,
             observables,
+            proposed_observables,
             error,
             dt_scalar,
+            time_scalar,
             shared,
             persistent_local,
         ):
@@ -165,11 +173,15 @@ class CrankNicolsonStep(ODEImplicitStep):
             drivers
                 Device array of time-dependent drivers.
             observables
-                Device array receiving observable outputs.
+                Device array storing accepted observable outputs.
+            proposed_observables
+                Device array receiving proposed observable outputs.
             error
                 Device array capturing embedded error estimates.
             dt_scalar
                 Scalar containing the proposed step size.
+            time_scalar
+                Scalar containing the current simulation time.
             shared
                 Device array used for shared memory (unused here).
             persistent_local
@@ -180,27 +192,39 @@ class CrankNicolsonStep(ODEImplicitStep):
             int
                 Status code returned by the nonlinear solver.
             """
-
-
             # Initialize proposed state
             for i in range(n):
                 proposed_state[i] = state[i]
+
+            # HACK: workaround for lack of driver interp
+            observables_function(
+                state,
+                parameters,
+                drivers,
+                observables,
+                time_scalar,
+            )
 
             # Work arrays (reused for both CN and BE computations)
             resid = cuda.local.array(n, numba_precision)
             z = cuda.local.array(n, numba_precision)
             temp = cuda.local.array(n, numba_precision)
 
-            # Additional array for error estimation
-            be_state = cuda.local.array(n, numba_precision)
-            base_adjusted = cuda.local.array(n, numba_precision)
-
-            # Evaluate f(state) to enforce Crank-Nicolson averaging
-            dxdt_fn(state, parameters, drivers, observables, resid)
+            # Evaluate f(state)
+            dxdt_fn(
+                state,
+                parameters,
+                drivers,
+                observables,
+                resid,
+                time_scalar,
+            )
 
             cn_dt = dt_scalar * half
+
+            #Reuse error array to store base-adjusted state
             for i in range(n):
-                base_adjusted[i] = state[i] + cn_dt * resid[i]
+                error[i] = state[i] + cn_dt * resid[i]
 
             # Solve Crank-Nicolson step (main solution)
             status = solver_fn(
@@ -209,22 +233,23 @@ class CrankNicolsonStep(ODEImplicitStep):
                 drivers,
                 cn_dt,
                 a_ij,
-                base_adjusted,
+                error,
                 work_buffer,
                 resid,
                 z,
                 temp,
             )
 
-            # Solve Backward Euler step for error estimation (start from CN solution)
+            # Use error vec again for the BE solution's state
             for i in range(n):
-                be_state[i] = proposed_state[i]
+                error[i] = proposed_state[i]
 
             # calculate and save observables (wastes some compute)
-            obs_fn(proposed_state, parameters, drivers, observables)
+            next_time = time_scalar + dt_scalar
+
 
             status |= solver_fn(
-                be_state,
+                error,
                 parameters,
                 drivers,
                 dt_scalar,
@@ -238,7 +263,16 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             # Compute error as difference between Crank-Nicolson and Backward Euler
             for i in range(n):
-                error[i] = proposed_state[i] - be_state[i]
+                error[i] = proposed_state[i] - error[i]
+
+            observables_function(
+                proposed_state,
+                parameters,
+                drivers,
+                proposed_observables,
+                next_time,
+            )
+
 
             return status
 
@@ -260,7 +294,7 @@ class CrankNicolsonStep(ODEImplicitStep):
     def local_scratch_required(self) -> int:
         """Local scratch usage expressed in precision-sized entries."""
 
-        return 5 * self.compile_settings.n
+        return 3 * self.compile_settings.n
 
     @property
     def persistent_local_required(self) -> int:

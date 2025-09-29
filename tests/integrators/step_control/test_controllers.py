@@ -34,6 +34,7 @@ def _run_device_step(
     local_mem=None,
     state=None,
     state_prev=None,
+    niters: int = 1,
 ):
     """Execute a controller device function once."""
 
@@ -44,13 +45,13 @@ def _run_device_step(
     dt = np.asarray([dt0], dtype=precision)
     accept = np.zeros(1, dtype=np.int32)
     temp = np.asarray(local_mem, dtype=precision) if local_mem is not None else np.empty(0, dtype=precision)
-    niters = np.int32(1)
+    niters_val = np.int32(niters)
 
     @cuda.jit
     def kernel(dt_val, state_val, state_prev_val, err_val, niters_val, accept_val, temp_val):
         device_func(dt_val, state_val, state_prev_val, err_val, niters_val, accept_val, temp_val)
 
-    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters, accept, temp)
+    kernel[1, 1](dt, state_arr, state_prev_arr, err, niters_val, accept, temp)
     return StepResult(float(dt[0]), int(accept[0]), temp.copy())
 
 @pytest.fixture(scope='function')
@@ -79,9 +80,8 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
     if kind == 'pi':
         controller._prev_nrm2 = float(provided_local[0])
     elif kind == 'pid':
-        prev_nrm2 = max(float(provided_local[0]), 1e-12)
-        controller._prev_nrm2 = prev_nrm2
-        controller._prev_inv_nrm2 = 1.0 / prev_nrm2
+        controller._prev_nrm2 = float(provided_local[0])
+        controller._prev_prev_nrm2 = float(provided_local[1])
     elif kind == 'gustafsson':
         controller._prev_dt = float(provided_local[0])
         controller._prev_nrm2 = float(provided_local[1])
@@ -98,7 +98,10 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
     elif kind == 'pi':
         out_local = np.array([errornorm], dtype=precision)
     elif kind == 'pid':
-        out_local = np.array([errornorm, 1/errornorm], dtype=precision)
+        out_local = np.array([
+            controller._prev_nrm2,
+            controller._prev_prev_nrm2,
+        ], dtype=precision)
     elif kind == 'gustafsson':
         out_local = np.array([
             controller.dt,
@@ -148,8 +151,32 @@ class TestControllers:
     @pytest.mark.parametrize(
         'step_controller_settings_override, step_setup',
         (
-            ({'dt_min': 1e-4, 'dt_max': 1.0, 'min_gain': 0.5, 'max_gain': 1.5}, {'dt0': 0.1, 'error': np.asarray([1e-12, 1e-12, 1e-12])}),
-            ({'dt_min': 1e-4, 'dt_max': 1.0, 'min_gain': 0.5, 'max_gain': 1.5}, {'dt0': 0.1, 'error': np.asarray([1e12, 1e12, 1e12])}),
+            (
+                {
+                    'dt_min': 1e-4,
+                    'dt_max': 1.0,
+                    'min_gain': 0.5,
+                    'max_gain': 1.5,
+                },
+                {
+                    'dt0': 0.1,
+                    'error': np.asarray([1e-12, 1e-12, 1e-12]),
+                    'local_mem': np.asarray([1e6, 1e-6]),
+                },
+            ),
+            (
+                {
+                    'dt_min': 1e-4,
+                    'dt_max': 1.0,
+                    'min_gain': 0.5,
+                    'max_gain': 1.5,
+                },
+                {
+                    'dt0': 0.1,
+                    'error': np.asarray([1e12, 1e12, 1e12]),
+                    'local_mem': np.asarray([1e-6, 1e6]),
+                },
+            ),
         ),
         ids=("gain_max_clamp", "gain_min_clamp"),
         indirect=True,
@@ -172,8 +199,94 @@ class TestControllers:
         ids=("low_err", "high_err", "low_err_with_mem", "high_err_with_mem"),
         indirect=True,
     )
+    @pytest.mark.parametrize('step_controller_settings_override',
+                             [{'dt_min': 1e-6}], indirect=True)
     def test_matches_cpu(self, step_controller, step_controller_settings, step_setup, cpu_step_results, device_step_results):
 
         assert device_step_results.dt == pytest.approx(cpu_step_results.dt, abs=1e-6, rel=1e-6)
         valid_localmem = step_controller.local_memory_elements
         assert np.allclose(device_step_results.local_mem[:valid_localmem], cpu_step_results.local_mem[:valid_localmem], rtol=1e-6, atol=1e-6)
+
+    def test_cpu_gpu_sequence_agree(
+        self,
+        step_controller,
+        cpu_step_controller,
+        precision,
+        system,
+    ):
+        n_states = system.sizes.states
+        dtype = precision
+        cpu_controller = cpu_step_controller
+        current_dt_cpu = float(step_controller.dt0)
+        current_dt_gpu = float(step_controller.dt0)
+        local_mem = np.zeros(
+            step_controller.local_memory_elements,
+            dtype=dtype,
+        )
+        base_state = np.linspace(
+            0.5,
+            0.5 + 0.1 * (n_states - 1),
+            n_states,
+            dtype=dtype,
+        )
+
+        error_values = (
+            dtype(0.0),
+            dtype(5.0e-4),
+            dtype(1.4e-3),
+            dtype(6.0e-4),
+            dtype(1.6e-3),
+        )
+        delta_values = (
+            dtype(2.0e-2),
+            dtype(1.5e-2),
+            dtype(1.0e-2),
+            dtype(2.5e-2),
+            dtype(1.5e-2),
+        )
+        niters_values = (1, 2, 1, 3, 2)
+
+        current_state = base_state.copy()
+
+        for i, (error_val, delta_val, niters) in enumerate(zip(
+            error_values,
+            delta_values,
+            niters_values,
+        )):
+            state_prev = current_state.copy()
+            state = state_prev + np.full(n_states, delta_val, dtype=dtype)
+            error_vec = np.full(n_states, error_val, dtype=dtype)
+
+            cpu_controller.dt = dtype(current_dt_cpu)
+            accept_cpu = cpu_controller.propose_dt(
+                prev_state=state_prev,
+                new_state=state,
+                error_vector=error_vec,
+                niters=niters,
+            )
+            dt_cpu = float(cpu_controller.dt)
+
+            device_result = _run_device_step(
+                step_controller.device_function,
+                dtype,
+                dtype(current_dt_gpu),
+                error_vec,
+                state=state,
+                state_prev=state_prev,
+                local_mem=local_mem,
+                niters=niters,
+            )
+            local_mem = device_result.local_mem.copy()
+            current_dt_gpu = device_result.dt
+
+            assert device_result.accepted == int(accept_cpu), f"Step {i} accept mismatch"
+            assert current_dt_gpu == pytest.approx(
+                dt_cpu,
+                rel=1e-5,
+                abs=1e-6,
+            ), f"Step {i} dt mismatch"
+
+            if accept_cpu:
+                current_state = state
+
+            current_dt_cpu = dt_cpu

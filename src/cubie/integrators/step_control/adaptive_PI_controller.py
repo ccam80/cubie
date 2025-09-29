@@ -5,9 +5,9 @@ from typing import Callable, Optional, Union
 from numba import cuda, int32
 import numpy as np
 from numpy._typing import ArrayLike
-from attrs import field, define
+from attrs import field, define, validators
 
-from cubie._utils import gttype_validator
+from cubie._utils import _expand_dtype
 from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig, BaseAdaptiveStepController
 )
@@ -24,11 +24,11 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
     """
     _kp: float = field(
         default=0.075,
-        validator=gttype_validator(float, 0.0),
+        validator=validators.instance_of(_expand_dtype(float))
     )
     _ki: float = field(
         default=0.175,
-        validator=gttype_validator(float, 0.0),
+        validator=validators.instance_of(_expand_dtype(float))
     )
 
     @property
@@ -54,8 +54,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         algorithm_order: int = 2,
         n: int = 1,
-        kp: float = 0.7,
-        ki: float = 0.4,
+        kp: float = 2/3,
+        ki: float = -1/3,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
     ) -> None:
@@ -209,6 +209,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             err_prev = local_temp[0]
             nrm2 = precision(0.0)
             for i in range(n):
+                error[i] = max(abs(error[i]), precision(1e-12))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
@@ -230,7 +231,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
             local_temp[0] = nrm2
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(1)
+            ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 
         return controller_PI

@@ -75,8 +75,10 @@ an observable that tracks the predator's death rate:
     )
     print(LV)
 
-If we didn't define predator_death_rate as an observable, Cubie would treat it as an anonymous aixiliary variable, used
-on the way to the results we want but not worth keeping.
+If we didn't define predator_death_rate as an observable, Cubie would treat it as an anonymous auxiliary variable, used
+on the way to the results we want but not worth keeping. This behaviour applies to *all* left-hand side assignments that
+do not target known states or listed observables: the variables still participate in the symbolic expressions, but they
+are stored only as anonymous auxiliaries and their trajectories are not saved.
 
 Cubie ODE System Glossary
 -------------------

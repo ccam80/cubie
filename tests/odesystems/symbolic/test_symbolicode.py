@@ -126,7 +126,7 @@ def test_solver_helper_cached(built_simple_strict):
 def test_observables_helper_available(built_simple_strict):
     """Symbolic systems should expose an observables-only helper."""
 
-    func = built_simple_strict.get_solver_helper("observables")
+    func = built_simple_strict.observables_function
     assert callable(func)
-    cached = built_simple_strict.get_solver_helper("observables")
+    cached = built_simple_strict.observables_function
     assert func is cached

@@ -321,8 +321,13 @@ class BatchSolverKernel(CUDAFactory):
         if stream is None:
             stream = self.stream
 
-        self.duration = duration
-        self.warmup = warmup
+        precision=self.precision
+        duration = precision(duration)
+        warmup = precision(warmup)
+        t0 = precision(t0)
+
+        self.duration = precision(duration)
+        self.warmup = precision(warmup)
         numruns = inits.shape[0]
         self.num_runs = numruns
 
@@ -395,7 +400,7 @@ class BatchSolverKernel(CUDAFactory):
 
             # Apply warmup only to the first chunk
             if (chunk_axis == "time") and (i != 0):
-                chunk_warmup = 0.0
+                chunk_warmup = precision(0.0)
                 chunk_t0 = i * chunk_duration
 
             self.device_function[

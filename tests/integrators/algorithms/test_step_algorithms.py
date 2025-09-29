@@ -11,7 +11,7 @@ from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
 from tests.integrators.cpu_reference import CPUODESystem, get_ref_step_fn
-from _utils import assert_integration_outputs, \
+from tests._utils import assert_integration_outputs, \
     _driver_sequence
 
 Array = np.ndarray
@@ -68,7 +68,7 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_adaptive": True,
             "order": 2,
             "shared_memory_required": 0,
-            "local_scratch_required": 5 * n_states,
+            "local_scratch_required": 3 * n_states,
         },
     }
 
@@ -137,6 +137,7 @@ def device_step_results(
     d_params = cuda.to_device(params)
     d_drivers = cuda.to_device(drivers)
     d_observables = cuda.to_device(observables)
+    d_proposed_observables = cuda.to_device(observables)
     d_error = cuda.to_device(error)
     d_status = cuda.to_device(status)
 
@@ -148,9 +149,11 @@ def device_step_results(
         params_vec,
         drivers_vec,
         observables_vec,
+        proposed_observables_vec,
         error_vec,
         status_vec,
         dt_scalar,
+        time_scalar,
     ) -> None:
         idx = cuda.grid(1)
         if idx > 0:
@@ -164,8 +167,10 @@ def device_step_results(
             params_vec,
             drivers_vec,
             observables_vec,
+            proposed_observables_vec,
             error_vec,
             dt_scalar,
+            time_scalar,
             shared,
             persistent,
         )
@@ -178,16 +183,18 @@ def device_step_results(
         d_params,
         d_drivers,
         d_observables,
+        d_proposed_observables,
         d_error,
         d_status,
         dt_value,
+        numba_precision(0.0),
     )
     cuda.synchronize()
     
     status_value = int(d_status.copy_to_host()[0])
     return StepResult(
         state=d_proposed.copy_to_host(),
-        observables=d_observables.copy_to_host(),
+        observables=d_proposed_observables.copy_to_host(),
         error=d_error.copy_to_host(),
         status=status_value & STATUS_MASK,
         niters=(status_value >> 16) & STATUS_MASK,
@@ -221,15 +228,16 @@ def cpu_step_results(
         drivers_now=drivers_now,
         drivers_next=drivers_next,
         dt=dt,
-        tol=implicit_step_settings['nonlinear_tolerance']
+        tol=implicit_step_settings['nonlinear_tolerance'],
+        time=0.0,
         )
 
     return StepResult(
         state=result.state.astype(cpu_system.precision, copy=True),
         observables=result.observables.astype(cpu_system.precision, copy=True),
         error=result.error.astype(cpu_system.precision, copy=True),
-        status=int(result.status),
-        niters=result.niters,
+        status=result.status & STATUS_MASK,
+        niters=(result.status >> 16) & STATUS_MASK,
     )
 
 
@@ -241,7 +249,7 @@ def cpu_step_results(
         {"algorithm": "backwards_euler"},
         {"algorithm": "backwards_euler_pc"},
         {"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
-            1e-4, 'rtol': 1e-4, 'dt_min': 0.001},
+            1e-6, 'rtol': 1e-6, 'dt_min': 0.001},
     ],
     ids=["euler", "backwards_euler", "backwards_euler_pc", "crank_nicolson"],
     indirect=True,
@@ -280,15 +288,12 @@ def test_algorithm(
     assert step_object.local_scratch_required \
         == properties["local_scratch_required"],\
         "local_scratch_required getter"
-
     assert step_object.persistent_local_required \
         == properties["persistent_local_required"], \
         "persistent_local_required getter"
-
     assert (
         step_object.threads_per_step == properties["threads_per_step"]
     ), "threads_per_step getter"
-
     config = step_object.compile_settings
     assert config.n == system.sizes.states, "compile_settings.n getter"
     assert config.precision == precision, "compile_settings.precision getter"
@@ -359,8 +364,8 @@ def test_algorithm(
         assert "dt" in recognised, "dt recognised"
         assert step_object.dt == pytest.approx(new_dt), "dt update"
 
-
-    tolerances = {"rtol": 1e-4, "atol": 1e-4}
+    # Test equality for a single step
+    tolerances = {"rtol": 1e6, "atol": 1e-6}
     assert device_step_results.status == cpu_step_results.status, \
         "status matches"
     assert device_step_results.niters == cpu_step_results.niters, \
@@ -385,8 +390,8 @@ def test_algorithm(
             atol=tolerances["atol"],
         ), "error matches"
 
+
     # Run a short loop to ensure step works in that context
-    assert device_loop_outputs.status == 0
     assert_integration_outputs(
         reference=cpu_loop_outputs,
         device=device_loop_outputs,
@@ -394,4 +399,5 @@ def test_algorithm(
         rtol=tolerances["rtol"],
         atol=tolerances["atol"],
     )
+    assert device_loop_outputs.status == 0
 

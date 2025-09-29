@@ -264,12 +264,21 @@ class SymbolicODE(BaseODE):
             self.gen_file = ODEFile(self.name, new_hash)
             self.fn_hash = new_hash
 
-        code = generate_dxdt_fac_code(
+        dxdt_code = generate_dxdt_fac_code(
             self.equations, self.indices, "dxdt_factory"
         )
-        factory = self.gen_file.import_function("dxdt_factory", code)
-        dxdt_func = factory(constants, numba_precision)
-        self._cache = ODECache(dxdt=dxdt_func)
+        dxdt_factory = self.gen_file.import_function("dxdt_factory", dxdt_code)
+        dxdt_func = dxdt_factory(constants, numba_precision)
+
+        observables_code = generate_observables_fac_code(
+            self.equations, self.indices, func_name="observables_factory"
+        )
+        observables_factory = self.gen_file.import_function(
+            "observables_factory", observables_code
+        )
+        observables_func = observables_factory(constants, numba_precision)
+
+        self._cache = ODECache(dxdt=dxdt_func, observables=observables_func)
         self._cache_valid = True
         self._cache_valid = False
         return self._cache
@@ -410,12 +419,6 @@ class SymbolicODE(BaseODE):
                 beta=beta,
                 gamma=gamma,
                 order=preconditioner_order,
-            )
-        elif func_type == "observables":
-            code = generate_observables_fac_code(
-                self.equations,
-                self.indices,
-                func_name=func_type,
             )
         else:
             raise NotImplementedError(

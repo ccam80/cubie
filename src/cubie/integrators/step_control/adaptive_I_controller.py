@@ -155,6 +155,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             """
             nrm2 = precision(0.0)
             for i in range(n):
+                error[i] = max(abs(error[i]), precision(1e-12))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
@@ -171,7 +172,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(1)
+            ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 
         return controller_I

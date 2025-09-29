@@ -22,7 +22,9 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 # Define all possible algorithm step parameters across all algorithm types
 ALL_ALGORITHM_STEP_PARAMETERS = {
     # Base parameters
-    'precision', 'n', 'dxdt_function', 'get_solver_helper_fn',
+    'precision', 'n', 'dxdt_function', 'observables_function',
+    'get_solver_helper_fn',
+    'observables_function',
     # Explicit algorithm parameters
     'dt',
     # Implicit algorithm parameters
@@ -43,9 +45,13 @@ class BaseStepConfig(ABC):
         Number of state entries advanced by each step call.
     dxdt_function
         Device function that evaluates the system right-hand side.
+    observables_function
+        Device function that evaluates the system observables.
     get_solver_helper_fn
         Optional callable that returns device helpers required by the
         nonlinear solver construction.
+    observables_function
+        Device function computing system observables.
     """
 
     precision: PrecisionDtype = attrs.field(
@@ -55,6 +61,10 @@ class BaseStepConfig(ABC):
     )
     n: int = attrs.field(default=1, validator=getype_validator(int, 1))
     dxdt_function: Optional[Callable] = attrs.field(
+        default=None,
+        validator=validators.optional(is_device_validator),
+    )
+    observables_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
     )
@@ -79,7 +89,10 @@ class BaseStepConfig(ABC):
     def settings_dict(self) -> Dict[str, object]:
         """Return a mutable view of the configuration state."""
 
-        return {"n": self.n, "precision": self.precision}
+        return {
+            "n": self.n,
+            "precision": self.precision,
+        }
 
 @attrs.define
 class StepCache:
@@ -277,6 +290,11 @@ class BaseAlgorithmStep(CUDAFactory):
     def dxdt_function(self) -> Optional[Callable]:
         """Return the compiled device derivative function."""
         return self.compile_settings.dxdt_function
+
+    @property
+    def observables_function(self) -> Optional[Callable]:
+        """Return the compiled device observables function."""
+        return self.compile_settings.observables_function
 
 
     @property

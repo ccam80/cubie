@@ -309,6 +309,18 @@ class BaseODE(CUDAFactory):
         """Compiled CUDA device function for ``dxdt``."""
         return self.get_cached_output("dxdt")
 
+    @property
+    def observables_function(self) -> Callable:
+        """Return the compiled observables device function.
+
+        Returns
+        -------
+        Callable
+            CUDA device function that computes observables without updating
+            the derivative buffer.
+        """
+        return self.get_cached_output("observables")
+
     def get_solver_helper(self,
                           func_name: str,
                           beta: float = 1.0,

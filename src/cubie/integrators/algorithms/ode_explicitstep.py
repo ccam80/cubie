@@ -52,14 +52,20 @@ class ODEExplicitStep(BaseAlgorithmStep):
         numba_precision = config.numba_precision
         n = config.n
         fixed_step_size = config.dt
+        observables_function = config.observables_function
         return self.build_step(
-            dxdt_function, numba_precision, n, fixed_step_size
+            dxdt_function,
+            observables_function,
+            numba_precision,
+            n,
+            fixed_step_size,
         )
 
     @abstractmethod
     def build_step(
         self,
         dxdt_function: Callable,
+        observables_function: Callable,
         numba_precision: type,
         n: int,
         fixed_step_size: float,
@@ -70,6 +76,8 @@ class ODEExplicitStep(BaseAlgorithmStep):
         ----------
         dxdt_function
             Device derivative function for the ODE system.
+        observables_function
+            Device helper that computes observables for the system.
         numba_precision
             Numba precision for compiled device buffers.
         n

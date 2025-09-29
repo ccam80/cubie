@@ -22,6 +22,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         precision: PrecisionDtype,
         n: int,
         dxdt_function: Callable,
+        observables_function: Callable,
         get_solver_helper_fn: Callable,
         preconditioner_order: int = 1,
         linsolve_tolerance: float = 1e-6,
@@ -42,6 +43,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             Number of state entries advanced per step.
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
+        observables_function
+            Device function computing system observables.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
@@ -80,6 +83,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             newton_damping=newton_damping,
             newton_max_backtracks=newton_max_backtracks,
             dxdt_function=dxdt_function,
+            observables_function=observables_function,
             precision=precision,
         )
         super().__init__(config)
@@ -88,7 +92,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         self,
         solver_fn: Callable,
         dxdt_fn: Callable,
-        obs_fn: Callable,
+        observables_function: Callable,
         numba_precision: type,
         n: int,
     ) -> StepCache:  # pragma: no cover - cuda code
@@ -100,7 +104,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             Device nonlinear solver produced by the implicit helper chain.
         dxdt_fn
             Device derivative function for the ODE system.
-        obs_fn
+        observables_function
             Device observable computation helper.
         numba_precision
             Numba precision corresponding to the configured precision.
@@ -124,6 +128,8 @@ class BackwardsEulerStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
+                numba_precision,
                 numba_precision,
                 numba_precision[:],
                 numba_precision[:],
@@ -137,9 +143,11 @@ class BackwardsEulerStep(ODEImplicitStep):
             work_buffer,
             parameters,
             drivers,
-            observables,  # unused here
+            observables,
+            proposed_observables,  # unused here
             error,
             dt_scalar,
+            time_scalar,
             shared,
             persistent_local,
         ):
@@ -158,11 +166,15 @@ class BackwardsEulerStep(ODEImplicitStep):
             drivers
                 Device array of time-dependent drivers.
             observables
-                Device array receiving observable outputs.
+                Device array storing accepted observable outputs.
+            proposed_observables
+                Device array receiving proposed observable outputs.
             error
                 Device array capturing solver diagnostics.
             dt_scalar
                 Scalar containing the proposed step size.
+            time_scalar
+                Scalar containing the current simulation time.
             shared
                 Device array used for shared memory (unused here).
             persistent_local
@@ -174,6 +186,14 @@ class BackwardsEulerStep(ODEImplicitStep):
                 Status code returned by the nonlinear solver.
             """
 
+            # HACK: workaround for lack of driver interp
+            observables_function(
+                state,
+                parameters,
+                drivers,
+                observables,
+                time_scalar,
+            )
 
             for i in range(n):
                 proposed_state[i] = state[i]
@@ -195,7 +215,14 @@ class BackwardsEulerStep(ODEImplicitStep):
             )
 
             # calculate and save observables (wastes some compute)
-            obs_fn(proposed_state, parameters, drivers, observables)
+            next_time = time_scalar + dt_scalar
+            observables_function(
+                proposed_state,
+                parameters,
+                drivers,
+                proposed_observables,
+                next_time,
+            )
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)

@@ -595,7 +595,7 @@ class OutputConfig:
         if not self._summary_types:
             return {}
         legend_tuple = summary_metrics.legend(self._summary_types)
-        legend_dict = dict(zip(range(len(self._summary_types)), legend_tuple))
+        legend_dict = dict(zip(range(len(legend_tuple)), legend_tuple))
         return legend_dict
 
     @property

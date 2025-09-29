@@ -171,11 +171,11 @@ def implicit_step_settings(solver_settings, implicit_step_settings_override):
         "rtol": solver_settings['rtol'],
         "linear_tolerance": 1e-6,
         "correction_type": 'minimal_residual',
-        "nonlinear_tolerance": 1e-6,
-        'preconditioner_order': 1,
-        "max_linear_iters": 100,
-        "max_newton_iters": 100,
-        "newton_damping": 0.5,
+        "nonlinear_tolerance": 1e-4,
+        'preconditioner_order': 2,
+        "max_linear_iters": 500,
+        "max_newton_iters": 500,
+        "newton_damping": 0.85,
         "newton_max_backtracks": 25
     }
     defaults.update(implicit_step_settings_override)
@@ -204,10 +204,12 @@ def step_controller_settings(
         "atol": precision(solver_settings["atol"]),
         "rtol": precision(solver_settings["rtol"]),
         "order": 1,
+        "min_gain": precision(0.2),
+        "max_gain": precision(5.0),
         "n": system.sizes.states,
-        "kp": precision(0.6),
-        "ki": precision(0.4),
-        "kd": precision(0.1),
+        "kp": precision(1/18),
+        "ki": precision(1/9),
+        "kd": precision(1/18),
     }
     overrides = {**step_controller_settings_override}
     float_keys = {"dt", "dt_min", "dt_max", "atol", "rtol", "kp", "ki", "kd"}
@@ -371,6 +373,7 @@ def step_controller(precision, step_controller_settings):
 @pytest.fixture(scope="function")
 def loop(
     precision,
+    system,
     step_object,
     loop_buffer_sizes,
     output_functions,
@@ -400,6 +403,7 @@ def loop(
                    save_summaries_func=output_functions.save_summary_metrics_func,
                    step_controller_fn=step_controller.device_function,
                    step_fn=step_object.step_function,
+                   observables_fn=system.observables_function,
                    dt_save=solver_settings["dt_save"],
                    dt_summarise=solver_settings["dt_summarise"],
                    dt0=step_controller.dt0, dt_min=step_controller.dt_min,
@@ -444,13 +448,16 @@ def step_object(solver_settings, implicit_step_settings, precision, system):
                 'dt':solver_settings["dt_min"],
                 'precision':precision,
                 'n':system.sizes.states,
-                'dxdt_function':system.dxdt_function
+                'dxdt_function':system.dxdt_function,
+                'observables_function':system.observables_function,
+
         }
     else:
         solver_kwargs = {
             "precision": precision,
             "n": system.sizes.states,
             'dxdt_function':system.dxdt_function,
+            'observables_function':system.observables_function,
             'get_solver_helper_fn':system.get_solver_helper,
             'preconditioner_order':implicit_step_settings[
             "preconditioner_order"],
@@ -498,9 +505,16 @@ def cpu_step_controller(precision, step_controller_settings):
 # ========================================
 
 @pytest.fixture(scope="function")
-def initial_state(system, precision):
+def initial_state(system, precision, request):
     """Return a copy of the system's initial state vector."""
-
+    if hasattr(request, "param"):
+        try:
+            request_inits = np.asarray(request.param, dtype=precision)
+            if request_inits.ndim != 1 or request_inits.shape[0] != system.sizes.states:
+                raise ValueError("initial state override has incorrect shape")
+        except:
+            raise TypeError("initial state override could not be coerced into numpy array")
+        return request_inits
     return system.initial_values.values_array.astype(precision, copy=True)
 
 

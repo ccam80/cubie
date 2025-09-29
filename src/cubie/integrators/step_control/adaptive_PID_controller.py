@@ -5,9 +5,9 @@ from typing import Callable, Optional, Union
 import numpy as np
 from numba import cuda, int32
 from numpy._typing import ArrayLike
-from attrs import define, field
+from attrs import define, field, validators
 
-from cubie._utils import gttype_validator
+from cubie._utils import  _expand_dtype
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
@@ -20,7 +20,8 @@ class PIDStepControlConfig(PIStepControlConfig):
     """Configuration for a proportional–integral–derivative controller."""
 
     _kd: float = field(
-        default=0.0, validator=gttype_validator(float, 0.0)
+        default=0.0,
+        validator=validators.instance_of(_expand_dtype(float)),
     )
 
     @property
@@ -41,9 +42,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         algorithm_order: int = 2,
         n: int = 1,
-        kp: float = 0.7,
-        ki: float = 0.4,
-        kd: float = 0.2,
+        kp: float = 1/18,
+        ki: float = -1/9,
+        kd: float = 1/18,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
     ) -> None:
@@ -213,31 +214,39 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 Non-zero when the step is rejected at the minimum size.
             """
             err_prev = local_temp[0]
-            err_prev_inv = local_temp[1]
+            err_prev_prev = local_temp[1]
             nrm2 = precision(0.0)
+
             for i in range(n):
-                tol = atol[i] + rtol[i] * max(abs(state[i]),
-                                              abs(state_prev[i]))
-                nrm2 += (tol*tol) / (error[i]*error[i])
+                error[i] = max(abs(error[i]), precision(1e-12))
+                tol = atol[i] + rtol[i] * max(
+                    abs(state[i]), abs(state_prev[i])
+                )
+                ratio = tol / error[i]
+                nrm2 += ratio * ratio
 
             nrm2 = precision(nrm2/n)
             accept = nrm2 >= precision(1.0)
             accept_out[0] = int32(1) if accept else int32(0)
             err_prev_safe = err_prev if err_prev > precision(0.0) else nrm2
-            err_prev_inv_safe = err_prev_inv if err_prev_inv > precision(0.0) \
-                else nrm2
+            err_prev_prev_safe = (
+                err_prev_prev if err_prev_prev > precision(0.0) else err_prev_safe
+            )
 
-            gain_new = precision(safety * ((nrm2 ** expo1) *
-                                 (err_prev_safe ** expo2) *
-                                 ((nrm2*err_prev_inv_safe) ** expo3)))
+            gain_new = precision(
+                safety
+                * (nrm2 ** (expo1))
+                * (err_prev_safe ** (expo2))
+                * (err_prev_prev_safe ** (expo3))
+            )
             gain = precision(clamp(gain_new, min_gain, max_gain))
 
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
-            local_temp[1] = 1/nrm2
+            local_temp[1] = err_prev
             local_temp[0] = nrm2
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(1)
+            ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 
         return controller_PID

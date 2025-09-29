@@ -12,6 +12,7 @@ from cubie.odesystems.symbolic.indexedbasemaps import (
 )
 from cubie.odesystems.symbolic.parser import (
     EquationWarning,
+    TIME_SYMBOL,
     _lhs_pass,
     _process_calls,
     _process_parameters,
@@ -159,6 +160,39 @@ class TestLhsPass:
             assert "done" in ib.dxdt_names
             assert isinstance(anon_aux["uninited"], sp.Symbol)
 
+    def test_lhs_pass_strict_unlisted_auxiliary(self):
+        """Unlisted LHS assignments stay anonymous in strict mode."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["a"], [], ["obs"], []
+        )
+        lines = ["obs = x + a", "aux_val = obs", "dx = obs"]
+
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            anon_aux = _lhs_pass(lines, ib, strict=True)
+
+        assert "aux_val" in anon_aux
+        assert anon_aux["aux_val"] == sp.Symbol("aux_val", real=True)
+        assert "aux_val" not in ib.observable_names
+
+    def test_lhs_pass_relaxes_to_anonymous_aux_non_strict(self):
+        """Non-strict parsing still keeps undeclared LHS symbols anonymous."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["a"], [], ["obs"], []
+        )
+        lines = ["obs = x + a", "floating = obs", "dx = obs"]
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            anon_aux = _lhs_pass(lines, ib, strict=False)
+
+        assert "floating" in anon_aux
+        assert anon_aux["floating"] == sp.Symbol("floating", real=True)
+        assert "floating" not in ib.observable_names
+        assert any(
+            issubclass(item.category, EquationWarning) for item in caught
+        )
+
     def test_lhs_pass_state_derivative(self):
         """Test processing state derivatives."""
         ib = IndexedBases.from_user_inputs(["x"], ["a"], ["c"], [], ["drv"])
@@ -262,6 +296,19 @@ class TestRhsPass:
 
         expressions, funcs, new_symbols = _rhs_pass(lines, symbols)
         assert expressions[0] == [dx, Piecewise((a, x > 0), (b, True))]
+
+    def test_rhs_pass_recognises_time_symbol(self):
+        """``t`` is available as a default symbol without declarations."""
+
+        symbols = {
+            "dx": sp.Symbol("dx", real=True),
+            "t": TIME_SYMBOL,
+        }
+        expressions, funcs, new_symbols = _rhs_pass(["dx = t"], symbols)
+
+        assert expressions == [[symbols["dx"], TIME_SYMBOL]]
+        assert funcs == {}
+        assert new_symbols == []
 
 
 class TestHashSystemDefinition:
@@ -404,6 +451,23 @@ class TestParseInput:
         assert "custom_func" in all_symbols
         assert callable(all_symbols["custom_func"])
         assert funcs["custom_func"] == user_functions["custom_func"]
+
+    def test_parse_input_includes_time_symbol(self):
+        """Ensure ``t`` is always present without explicit declaration."""
+
+        index_map, all_symbols, funcs, equation_map, fn_hash = parse_input(
+            dxdt=["dx = t"],
+            states={"x": 0.0},
+            observables=[],
+            parameters={},
+            constants={},
+            drivers=[],
+            strict=True,
+        )
+
+        assert "t" in all_symbols
+        assert equation_map == [[all_symbols["dx"], TIME_SYMBOL]]
+        assert funcs == {}
 
     def test_parse_input_invalid_dxdt_type(self):
         """Test error with invalid dxdt type."""
@@ -556,8 +620,10 @@ class TestNonStrictInput:
         assert "zebra" in index_map.parameter_names
         assert "driver1" in index_map.parameter_names
         assert "one" in index_map.state_names
-        assert "safari" in index_map.observable_names
-        assert "uninited" in index_map.observable_names
+        assert "safari" not in index_map.observable_names
+        assert "uninited" not in index_map.observable_names
+        assert sp.Symbol("safari", real=True) == all_symbols["safari"]
+        assert sp.Symbol("uninited", real=True) == all_symbols["uninited"]
         assert "dfoo" in index_map.dxdt_names
 
 class TestFunctions:
@@ -617,4 +683,3 @@ class TestFunctions:
         # Operator-apply code should contain calls to the provided derivative name
         code = generate_operator_apply_code(equations=eq_map, index_map=index_map)
         assert "myfunc_grad(" in code
-        print(code)

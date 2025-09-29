@@ -49,15 +49,24 @@ def batch_request(system, batch_settings, precision) -> dict[str, Array]:
 
     state_names = list(system.initial_values.names)
     param_names = list(system.parameters.names)
+    #Generate n samples as a linspace, but also concatenate the default value on the end for comparison
     return {
-        state_names[0]: np.linspace(0.1, 1.0, batch_settings[
-            "num_state_vals_0"], dtype=precision),
-        state_names[1]: np.linspace(0.1, 1.0, batch_settings[
-            "num_state_vals_1"], dtype=precision),
-        param_names[0]: np.linspace(0.1, 1.0, batch_settings[
-            "num_param_vals_0"], dtype=precision),
-        param_names[1]: np.linspace(0.1, 1.0, batch_settings[
-            "num_param_vals_1"], dtype=precision),
+        state_names[0]: np.concatenate([
+            np.linspace(0.1, 1.0, batch_settings["num_state_vals_0"], dtype=precision),
+            [system.initial_values.values_dict[state_names[0]]]
+        ]),
+        state_names[1]: np.concatenate([
+            np.linspace(0.1, 1.0, batch_settings["num_state_vals_1"], dtype=precision),
+            [system.initial_values.values_dict[state_names[1]]]
+        ]),
+        param_names[0]: np.concatenate([
+            np.linspace(0.1, 1.0, batch_settings["num_param_vals_0"], dtype=precision),
+            [system.parameters.values_dict[param_names[0]]]
+        ]),
+        param_names[1]: np.concatenate([
+            np.linspace(0.1, 1.0, batch_settings["num_param_vals_1"], dtype=precision),
+            [system.parameters.values_dict[param_names[1]]]
+        ]),
     }
 
 

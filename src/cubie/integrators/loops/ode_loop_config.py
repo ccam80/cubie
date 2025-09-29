@@ -148,6 +148,8 @@ class LoopSharedIndices:
         Slice covering the proposed state buffer.
     observables
         Slice covering observable work buffers.
+    proposed_observables
+        Slice covering the proposed observable buffer.
     parameters
         Slice covering parameter storage.
     drivers
@@ -177,6 +179,10 @@ class LoopSharedIndices:
             validator=valid_opt_slice
     )
     observables: Optional[slice] = field(
+            default=None,
+            validator=valid_opt_slice
+    )
+    proposed_observables: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
@@ -265,7 +271,12 @@ class LoopSharedIndices:
         state_proposal_start_idx = state_start_idx + n_states
         dxdt_start_index = state_proposal_start_idx + n_states
         observables_start_index = dxdt_start_index + n_states
-        parameters_start_index = observables_start_index + n_observables
+        observables_proposal_start_idx = (
+            observables_start_index + n_observables
+        )
+        parameters_start_index = (
+            observables_proposal_start_idx + n_observables
+        )
         drivers_start_index = parameters_start_index + n_parameters
         state_summ_start_index = drivers_start_index + n_drivers
         obs_summ_start_index = (state_summ_start_index +
@@ -276,7 +287,12 @@ class LoopSharedIndices:
             state=slice(state_start_idx, state_proposal_start_idx),
             proposed_state=slice(state_proposal_start_idx, dxdt_start_index),
             dxdt=slice(dxdt_start_index, observables_start_index),
-            observables=slice(observables_start_index, parameters_start_index),
+            observables=slice(
+                observables_start_index, observables_proposal_start_idx
+            ),
+            proposed_observables=slice(
+                observables_proposal_start_idx, parameters_start_index
+            ),
             parameters=slice(parameters_start_index, drivers_start_index),
             drivers=slice(drivers_start_index, state_summ_start_index),
             state_summaries=slice(state_summ_start_index, obs_summ_start_index),
@@ -307,6 +323,11 @@ class LoopSharedIndices:
         """Return the number of drivers."""
         return int(self.drivers.stop - self.drivers.start)
 
+    @property
+    def n_observables(self) -> int:
+        """Return the number of observables."""
+        return int(self.observables.stop - self.observables.start)
+
 
 @define
 class ODELoopConfig:
@@ -336,6 +357,8 @@ class ODELoopConfig:
         Device function that updates the timestep and acceptance flag.
     step_fn
         Device function that advances the solution by one tentative step.
+    observables_fn
+        Device function that evaluates observables for the current state.
     _dt0
         Initial timestep prior to controller feedback.
     _dt_min
@@ -385,6 +408,10 @@ class ODELoopConfig:
         validator=validators.optional(is_device_validator)
     )
     step_fn: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator)
+    )
+    observables_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
     )

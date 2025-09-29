@@ -15,6 +15,8 @@ from cubie._utils import is_devfunc
 # Lambda notation, Auto-number, factorial notation, implicit multiplication
 PARSE_TRANSORMS = (T[0][0], T[3][0], T[4][0], T[8][0])
 
+TIME_SYMBOL = sp.Symbol("t", real=True)
+
 KNOWN_FUNCTIONS = {
     # Basic mathematical functions
     'exp': sp.exp,
@@ -188,9 +190,9 @@ def _build_sympy_user_functions(
     derivative placeholders so that downstream printers can emit gradient
     kernels.
     """
-    parse_locals: Dict[str, object] = {}
-    alias_map: Dict[str, str] = {}
-    is_device_map: Dict[str, bool] = {}
+    parse_locals = {}
+    alias_map = {}
+    is_device_map = {}
 
     for orig_name, func in (user_functions or {}).items():
         sym_name = rename.get(orig_name, orig_name)
@@ -308,7 +310,7 @@ def _process_calls(
         user_functions = {}
     for line in equations_input:
         calls |= set(_func_call_re.findall(line))
-    funcs: Dict[str, Callable] = {}
+    funcs = {}
     for name in calls:
         if name in user_functions:
             funcs[name] = user_functions[name]
@@ -373,8 +375,8 @@ def _lhs_pass(
     indexed_bases
         Indexed symbol collections constructed from user inputs.
     strict
-        When ``False``, unrecognised symbols are inferred and added to the
-        relevant collections.
+        When ``False``, unknown state derivatives are inferred automatically
+        but other assignments remain anonymous auxiliaries.
 
     Returns
     -------
@@ -390,11 +392,11 @@ def _lhs_pass(
     anonymous_auxiliaries = {}
     assigned_obs = set()
     underived_states = set(indexed_bases.dxdt_names)
-    state_names = indexed_bases.state_names
-    observable_names = indexed_bases.observable_names
-    param_names = indexed_bases.parameter_names
-    constant_names = indexed_bases.constant_names
-    driver_names = indexed_bases.driver_names
+    state_names = set(indexed_bases.state_names)
+    observable_names = set(indexed_bases.observable_names)
+    param_names = set(indexed_bases.parameter_names)
+    constant_names = set(indexed_bases.constant_names)
+    driver_names = set(indexed_bases.driver_names)
     states = indexed_bases.states
     observables = indexed_bases.observables
     dxdt = indexed_bases.dxdt
@@ -415,6 +417,8 @@ def _lhs_pass(
                     states.push(s_sym)
                     dxdt.push(sp.Symbol(f"d{state_name}", real=True))
                     observables.pop(s_sym)
+                    state_names.add(state_name)
+                    observable_names.discard(state_name)
                 else:
                     if strict:
                         raise ValueError(
@@ -424,16 +428,22 @@ def _lhs_pass(
                     else:
                         states.push(s_sym)
                         dxdt.push(sp.Symbol(f"d{state_name}", real=True))
+                        state_names.add(state_name)
+                        underived_states.add(f"d{state_name}")
             underived_states -= {lhs}
 
-        elif lhs in indexed_bases.state_names:
+        elif lhs in state_names:
             raise ValueError(
                 f"State {lhs} cannot be assigned directly. All "
                 f"states must be defined as derivatives with d"
                 f"{lhs} = [...]"
             )
 
-        elif lhs in param_names or lhs in constant_names or lhs in driver_names:
+        elif (
+            lhs in param_names
+            or lhs in constant_names
+            or lhs in driver_names
+        ):
             raise ValueError(
                 f"{lhs} was entered as an immutable "
                 f"input (constant, parameter, or driver)"
@@ -445,17 +455,16 @@ def _lhs_pass(
 
         else:
             if lhs not in observable_names:
-                if strict:
-                    warn(
-                        f"The intermediate variable {lhs} was assigned to "
-                        f"but not listed as an observable. It's trajectory will "
-                        f"not be saved.",
-                        EquationWarning,
-                    )
-                    anonymous_auxiliaries[lhs] = sp.Symbol(lhs, real=True)
-                else:
-                    observables.push(sp.Symbol(lhs, real=True))
-            assigned_obs.add(lhs)
+                warn(
+                    f"The intermediate variable {lhs} was assigned to "
+                    f"but not listed as an observable. It will be treated "
+                    f"as an anonymous auxiliary and its trajectory will "
+                    f"not be saved.",
+                    EquationWarning,
+                )
+                anonymous_auxiliaries[lhs] = sp.Symbol(lhs, real=True)
+            if lhs in observable_names:
+                assigned_obs.add(lhs)
 
     missing_obs = set(indexed_bases.observable_names) - assigned_obs
     if missing_obs:
@@ -480,6 +489,7 @@ def _lhs_pass(
             observables.push(s_sym)
             states.pop(s_sym)
             dxdt.pop(s_sym)
+            observable_names.add(state)
 
     return anonymous_auxiliaries
 
@@ -523,6 +533,7 @@ def _rhs_pass(
     # Expose mapping for the printer via special key in all_symbols (copied by caller)
     local_dict = all_symbols.copy()
     local_dict.update(parse_locals)
+    local_dict.setdefault("t", TIME_SYMBOL)
     new_symbols = []
     for raw_line, line in zip(lines, sanitized_lines):
         lhs, rhs = [p.strip() for p in line.split("=", 1)]
@@ -647,6 +658,7 @@ def parse_input(
     fn_hash = hash_system_definition(dxdt, constants)
     anon_aux = _lhs_pass(lines, index_map, strict=strict)
     all_symbols = index_map.all_symbols.copy()
+    all_symbols.setdefault("t", TIME_SYMBOL)
     all_symbols.update(anon_aux)
 
     equation_map, funcs, new_params = _rhs_pass(
