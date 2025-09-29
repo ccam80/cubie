@@ -245,7 +245,7 @@ def cpu_step_results(
         {"algorithm": "backwards_euler"},
         {"algorithm": "backwards_euler_pc"},
         {"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
-            1e-4, 'rtol': 1e-4, 'dt_min': 0.001},
+            1e-6, 'rtol': 1e-6, 'dt_min': 0.001},
     ],
     ids=["euler", "backwards_euler", "backwards_euler_pc", "crank_nicolson"],
     indirect=True,

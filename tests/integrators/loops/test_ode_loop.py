@@ -42,7 +42,7 @@ Array = NDArray[np.floating]
         },
         {
             "algorithm": "crank_nicolson",
-            "step_controller": "gustafsson",
+            "step_controller": "i",
             "atol": 1e-6,
             "rtol": 1e-6,
             "dt_min": 0.0001,

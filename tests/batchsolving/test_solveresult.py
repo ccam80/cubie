@@ -325,7 +325,7 @@ class TestSolveResultFromSolver:
 
     @pytest.mark.parametrize(
         "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms"],
+        [{"output_types": ["state", "observables", "time", "mean", "rms", "peaks[2]"],
           "duration": 0.6}],
         indirect=True,
     )
@@ -403,7 +403,7 @@ class TestSolveResultFromSolver:
                     atol=atol,
                     rtol=rtol,
                     err_msg="state summaries mismatch.\n"
-                        f"device: {time_domain[:, :, observable_columns]}\n"
+                        f"device: {summaries[:,:, state_summary_columns]}\n"
                         f"reference: {cpu_batch_results.observables}\n"
                 )
             if observable_summary_columns:
@@ -413,7 +413,7 @@ class TestSolveResultFromSolver:
                     atol=atol,
                     rtol=rtol,
                     err_msg="observables summaries mismatch.\n"
-                        f"device: {time_domain[:, :, observable_summary_columns]}\n"
+                        f"device: {summaries[:,:, observable_summary_columns]}\n"
                         f"reference: {cpu_batch_results.observable_summaries}\n"
                 )
 

@@ -485,17 +485,15 @@ class CPUAdaptiveController:
         self._prev_nrm2 = zero
         self._prev_inv_nrm2 = zero
         self._prev_dt = zero
-        self._error_cap = precision(1e4)
 
     @property
     def is_adaptive(self) -> bool:
         return self.kind != "fixed"
 
     def error_norm(self, state_prev: Array, state_new: Array, error: Array) -> float:
+        error = np.maximum(error, 1e-30)
         scale = self.atol + self.rtol * np.maximum(
             np.abs(state_prev), np.abs(state_new))
-        if np.sum(error) == self.precision(0.0):
-            return self.precision(self._error_cap)
         nrm2 = np.sum((scale * scale) / (error * error))
         norm = nrm2 / len(error)
         return self.precision(norm)
@@ -508,17 +506,26 @@ class CPUAdaptiveController:
         self._step_count += 1
         if not self.is_adaptive:
             return True
-        errornorm = self.error_norm(prev_state, new_state, error_vector)
-        accept = errornorm < 1.0
+        errornorm = self.error_norm(
+            state_prev=prev_state,
+            state_new=new_state,
+            error=error_vector)
+
+        accept = errornorm > 1.0
 
         # Save current dt before computing new gain (needed for gustafsson)
         current_dt = self.dt
-        gain = self._gain(errornorm, accept, niters, current_dt)
+        gain = self._gain(
+            errornorm=errornorm,
+            accept=accept,
+            niters=niters,
+            current_dt=current_dt)
+
         unclamped_dt = self.precision(current_dt * gain)
         new_dt = min(self.dt_max, max(self.dt_min, unclamped_dt))
         self.dt = new_dt
         self._prev_dt = current_dt
-        self._prev_nrm2 =  min(errornorm, self._error_cap)
+        self._prev_nrm2 =  errornorm
 
         if new_dt < self.dt_min:
             raise ValueError(f"dt < dt_min: {new_dt} < {self.dt_min}"
@@ -533,24 +540,24 @@ class CPUAdaptiveController:
               current_dt: float) -> float:
         precision = self.precision
         expo_fraction = precision( precision(1.0) / (precision(2) * (precision(self.order) + precision(1))))
+        kp_exp = precision(self.kp * expo_fraction)
+        ki_exp = precision(self.ki * expo_fraction)
+        kd_exp = precision(self.kd * expo_fraction)
+
         if self.kind == "i":
             exponent = expo_fraction
             gain = self.safety * precision(errornorm ** exponent)
 
         elif self.kind == "pi":
-            kp_exp = precision(self.kp * expo_fraction)
-            ki_exp = precision(self.ki * expo_fraction)
+
             prev = self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
             gain = (self.safety *
                     precision(errornorm ** kp_exp) *
                     precision(prev ** ki_exp))
 
         elif self.kind == "pid":
-            prev_nrm2 = self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
 
-            kp_exp = precision(self.kp * expo_fraction)
-            ki_exp = precision(self.ki * expo_fraction)
-            kd_exp = precision(self.kd * expo_fraction)
+            prev_nrm2 = self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
             ratio_term = errornorm / prev_nrm2
             gain = (
                 self.safety
@@ -718,8 +725,11 @@ def run_reference_loop(
 
         step_status = int(result.status)
         status_flags |= step_status & STATUS_MASK
-        accept = controller.propose_dt(state, result.state, result.error,
-                                       niters=result.niters)
+        accept = controller.propose_dt(
+            error_vector=result.error,
+            prev_state=state,
+            new_state=result.state,
+            niters=result.niters)
         if not accept:
             continue
 

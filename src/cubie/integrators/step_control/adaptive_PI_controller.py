@@ -209,6 +209,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             err_prev = local_temp[0]
             nrm2 = precision(0.0)
             for i in range(n):
+                error[i] = max(error[i], precision(1e-30))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
