@@ -223,7 +223,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             pgain = precision(nrm2 ** (kp))
             # Handle uninitialized err_prev by using current error as fallback
             err_source = err_prev if err_prev > precision(0.0) else nrm2
-            igain = precision(err_source ** (ki))
+            igain = precision(err_source ** (-ki))
             gain_new = safety * pgain * igain
             gain = clamp(gain_new, min_gain, max_gain)
 

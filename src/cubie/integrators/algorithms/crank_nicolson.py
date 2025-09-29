@@ -205,7 +205,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             be_state = cuda.local.array(n, numba_precision)
             base_adjusted = cuda.local.array(n, numba_precision)
 
-            # Evaluate f(state) to enforce Crank-Nicolson averaging
+            # Evaluate f(state)
             dxdt_fn(
                 state,
                 parameters,

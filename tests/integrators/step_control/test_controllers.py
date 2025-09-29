@@ -80,9 +80,8 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
     if kind == 'pi':
         controller._prev_nrm2 = float(provided_local[0])
     elif kind == 'pid':
-        prev_nrm2 = max(float(provided_local[0]), 1e-12)
-        controller._prev_nrm2 = prev_nrm2
-        controller._prev_inv_nrm2 = 1.0 / prev_nrm2
+        controller._prev_nrm2 = float(provided_local[0])
+        controller._prev_prev_nrm2 = float(provided_local[1])
     elif kind == 'gustafsson':
         controller._prev_dt = float(provided_local[0])
         controller._prev_nrm2 = float(provided_local[1])
@@ -99,7 +98,10 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
     elif kind == 'pi':
         out_local = np.array([errornorm], dtype=precision)
     elif kind == 'pid':
-        out_local = np.array([errornorm, 1/errornorm], dtype=precision)
+        out_local = np.array([
+            controller._prev_nrm2,
+            controller._prev_prev_nrm2,
+        ], dtype=precision)
     elif kind == 'gustafsson':
         out_local = np.array([
             controller.dt,
@@ -220,11 +222,11 @@ class TestControllers:
 
         current_state = base_state.copy()
 
-        for error_val, delta_val, niters in zip(
+        for i, (error_val, delta_val, niters) in enumerate(zip(
             error_values,
             delta_values,
             niters_values,
-        ):
+        )):
             state_prev = current_state.copy()
             state = state_prev + np.full(n_states, delta_val, dtype=dtype)
             error_vec = np.full(n_states, error_val, dtype=dtype)
@@ -251,12 +253,12 @@ class TestControllers:
             local_mem = device_result.local_mem.copy()
             current_dt_gpu = device_result.dt
 
-            assert device_result.accepted == int(accept_cpu)
+            assert device_result.accepted == int(accept_cpu), f"Step {i} accept mismatch"
             assert current_dt_gpu == pytest.approx(
                 dt_cpu,
                 rel=1e-5,
                 abs=1e-6,
-            )
+            ), f"Step {i} dt mismatch"
 
             if accept_cpu:
                 current_state = state

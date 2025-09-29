@@ -205,9 +205,9 @@ def step_controller_settings(
         "rtol": precision(solver_settings["rtol"]),
         "order": 1,
         "n": system.sizes.states,
-        "kp": precision(0.6),
-        "ki": precision(0.4),
-        "kd": precision(0.1),
+        "kp": precision(1/18),
+        "ki": precision(1/9),
+        "kd": precision(1/18),
     }
     overrides = {**step_controller_settings_override}
     float_keys = {"dt", "dt_min", "dt_max", "atol", "rtol", "kp", "ki", "kd"}

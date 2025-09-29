@@ -365,7 +365,7 @@ def crank_nicolson_step(
             tol,
             max_iters,
     )
-    _, observables = evaluator.rhs(next_state, params, drivers_next, time)
+    _, observables = evaluator.rhs(next_state, params, drivers_next, time + dt)
 
     # Embedded backward Euler step for the error estimate
     be_result = backward_euler_step(
@@ -447,14 +447,14 @@ class CPUAdaptiveController:
         rtol: float,
         order: int,
         precision: type,
-        kp: float = 0.7,
-        ki: float = 0.4,
-        kd: float = 0.1,
+        kp: float = 1/18,
+        ki: float = 1/9,
+        kd: float = 1/18,
         gamma: float = 0.9,
         safety: float = 0.9,
         min_gain: float = 0.2,
         max_gain: float = 2.0,
-        max_newton_iters: int = 4,
+        max_newton_iters: int = 0,
     ) -> None:
 
         self.kind = kind.lower()
@@ -483,7 +483,7 @@ class CPUAdaptiveController:
         self._convergence_failed = False
         self._rejections_at_dt_min = 0
         self._prev_nrm2 = zero
-        self._prev_inv_nrm2 = zero
+        self._prev_prev_nrm2 = zero
         self._prev_dt = zero
 
     @property
@@ -525,7 +525,9 @@ class CPUAdaptiveController:
         new_dt = min(self.dt_max, max(self.dt_min, unclamped_dt))
         self.dt = new_dt
         self._prev_dt = current_dt
-        self._prev_nrm2 =  errornorm
+        if self.kind == "pid":
+            self._prev_prev_nrm2 = self._prev_nrm2
+        self._prev_nrm2 = errornorm
 
         if new_dt < self.dt_min:
             raise ValueError(f"dt < dt_min: {new_dt} < {self.dt_min}"
@@ -551,19 +553,27 @@ class CPUAdaptiveController:
         elif self.kind == "pi":
 
             prev = self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
-            gain = (self.safety *
-                    precision(errornorm ** kp_exp) *
-                    precision(prev ** ki_exp))
-
-        elif self.kind == "pid":
-
-            prev_nrm2 = self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
-            ratio_term = errornorm / prev_nrm2
             gain = (
                 self.safety
                 * precision(errornorm ** kp_exp)
-                * precision(prev_nrm2 ** ki_exp)
-                * precision(ratio_term ** kd_exp)
+                * precision(prev ** (-ki_exp))
+            )
+
+        elif self.kind == "pid":
+
+            prev_nrm2 = (
+                self._prev_nrm2 if self._prev_nrm2 > 0.0 else errornorm
+            )
+            prev_prev = (
+                self._prev_prev_nrm2
+                if self._prev_prev_nrm2 > 0.0
+                else prev_nrm2
+            )
+            gain = (
+                self.safety
+                * precision(errornorm ** kp_exp)
+                * precision(prev_nrm2 ** (-ki_exp))
+                * precision(prev_prev ** (-kd_exp))
             )
 
         elif self.kind == "gustafsson":
