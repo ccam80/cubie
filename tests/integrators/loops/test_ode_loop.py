@@ -56,6 +56,8 @@ Array = NDArray[np.floating]
                 "peaks[2]",
             ],
         },
+        {"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.6},
     ],
     indirect=True,
 )

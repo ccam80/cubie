@@ -37,11 +37,13 @@ def test_kernel_builds(solverkernel):
             },
             {},
         ),
+        ({}, {"output_types": ["state", "observables", "time", "mean", "rms"],
+          "duration": 0.6}, {})
         # ("three_chamber",
         #  {'duration': 10.0, 'output_types':["state", "observables", "mean", "max"]},
         #  {'num_state_vals_0': 10, 'num_state_vals_1': 10, 'num_param_vals_0': 10, 'num_param_vals_1': 10})
     ),
-    ids=["smoke_test", "fire_test (all outputs)"],
+    ids=["smoke_test", "fire_test (all outputs)", "solveresult_emulator"],
     # "10s threeCM runs"],
     indirect=True,
 )

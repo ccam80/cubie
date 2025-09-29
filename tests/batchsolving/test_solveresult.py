@@ -23,13 +23,7 @@ def solver_with_arrays(
 
     samples = max(
         1,
-        int(
-            np.ceil(
-                solver_settings["duration"]
-                / max(float(solver_settings["dt_save"]), 1e-12)
-            )
-        ),
-    )
+        int(np.ceil(solver_settings["duration"] / solver_settings["dt_save"])))
     drivers = _driver_sequence(
         samples=samples,
         total_time=solver_settings["duration"],
