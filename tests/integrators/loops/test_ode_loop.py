@@ -111,7 +111,7 @@ def test_build(loop, step_controller, step_object,
         {
             "algorithm": "crank_nicolson",
             "step_controller": "pid",
-            "dt_min": 0.01,
+            "dt_min": 1e-6,
             "output_types": ["state", "observables"],
         },
     ],

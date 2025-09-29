@@ -463,8 +463,8 @@ class CPUAdaptiveController:
         if kind == "fixed":
             self.dt0 = precision(dt_min)
         else:
-            self.dt0 = precision((dt_min + dt_max) / 2)
-        self.dt = self.dt_min
+            self.dt0 = precision(np.sqrt(dt_min * dt_max))
+        self.dt = self.dt0
         self.atol = precision(atol)
         self.rtol = precision(rtol)
         self.order = order
@@ -528,7 +528,7 @@ class CPUAdaptiveController:
         self._prev_prev_nrm2 = self._prev_nrm2
         self._prev_nrm2 = errornorm
 
-        if new_dt < self.dt_min:
+        if unclamped_dt < self.dt_min:
             raise ValueError(f"dt < dt_min: {new_dt} < {self.dt_min}"
                              f"exceeded")
 

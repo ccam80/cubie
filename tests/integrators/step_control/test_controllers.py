@@ -199,6 +199,8 @@ class TestControllers:
         ids=("low_err", "high_err", "low_err_with_mem", "high_err_with_mem"),
         indirect=True,
     )
+    @pytest.mark.parametrize('step_controller_settings_override',
+                             [{'dt_min': 1e-6}], indirect=True)
     def test_matches_cpu(self, step_controller, step_controller_settings, step_setup, cpu_step_results, device_step_results):
 
         assert device_step_results.dt == pytest.approx(cpu_step_results.dt, abs=1e-6, rel=1e-6)
