@@ -151,8 +151,32 @@ class TestControllers:
     @pytest.mark.parametrize(
         'step_controller_settings_override, step_setup',
         (
-            ({'dt_min': 1e-4, 'dt_max': 1.0, 'min_gain': 0.5, 'max_gain': 1.5}, {'dt0': 0.1, 'error': np.asarray([1e-12, 1e-12, 1e-12])}),
-            ({'dt_min': 1e-4, 'dt_max': 1.0, 'min_gain': 0.5, 'max_gain': 1.5}, {'dt0': 0.1, 'error': np.asarray([1e12, 1e12, 1e12])}),
+            (
+                {
+                    'dt_min': 1e-4,
+                    'dt_max': 1.0,
+                    'min_gain': 0.5,
+                    'max_gain': 1.5,
+                },
+                {
+                    'dt0': 0.1,
+                    'error': np.asarray([1e-12, 1e-12, 1e-12]),
+                    'local_mem': np.asarray([1e6, 1e-6]),
+                },
+            ),
+            (
+                {
+                    'dt_min': 1e-4,
+                    'dt_max': 1.0,
+                    'min_gain': 0.5,
+                    'max_gain': 1.5,
+                },
+                {
+                    'dt0': 0.1,
+                    'error': np.asarray([1e12, 1e12, 1e12]),
+                    'local_mem': np.asarray([1e-6, 1e6]),
+                },
+            ),
         ),
         ids=("gain_max_clamp", "gain_min_clamp"),
         indirect=True,
@@ -205,7 +229,7 @@ class TestControllers:
         )
 
         error_values = (
-            dtype(2.0e-3),
+            dtype(0.0),
             dtype(5.0e-4),
             dtype(1.4e-3),
             dtype(6.0e-4),

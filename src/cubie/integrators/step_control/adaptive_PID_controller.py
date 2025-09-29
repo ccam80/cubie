@@ -5,9 +5,9 @@ from typing import Callable, Optional, Union
 import numpy as np
 from numba import cuda, int32
 from numpy._typing import ArrayLike
-from attrs import define, field
+from attrs import define, field, validators
 
-from cubie._utils import gttype_validator
+from cubie._utils import  _expand_dtype
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
@@ -20,7 +20,8 @@ class PIDStepControlConfig(PIStepControlConfig):
     """Configuration for a proportional–integral–derivative controller."""
 
     _kd: float = field(
-        default=0.0, validator=gttype_validator(float, 0.0)
+        default=0.0,
+        validator=validators.instance_of(_expand_dtype(float)),
     )
 
     @property
@@ -41,9 +42,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         algorithm_order: int = 2,
         n: int = 1,
-        kp: float = 0.7,
-        ki: float = 0.4,
-        kd: float = 0.2,
+        kp: float = 1/18,
+        ki: float = -1/9,
+        kd: float = 1/18,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
     ) -> None:
@@ -215,8 +216,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             err_prev = local_temp[0]
             err_prev_prev = local_temp[1]
             nrm2 = precision(0.0)
+
             for i in range(n):
-                error[i] = max(error[i], precision(1e-30))
+                error[i] = max(abs(error[i]), precision(1e-12))
                 tol = atol[i] + rtol[i] * max(
                     abs(state[i]), abs(state_prev[i])
                 )
@@ -233,9 +235,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
             gain_new = precision(
                 safety
-                * (nrm2 ** expo1)
-                * (err_prev_safe ** (-expo2))
-                * (err_prev_prev_safe ** (-expo3))
+                * (nrm2 ** (expo1))
+                * (err_prev_safe ** (expo2))
+                * (err_prev_prev_safe ** (expo3))
             )
             gain = precision(clamp(gain_new, min_gain, max_gain))
 
@@ -244,7 +246,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             local_temp[1] = err_prev
             local_temp[0] = nrm2
 
-            ret = int32(0) if dt_new_raw > dt_min else int32(1)
+            ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 
         return controller_PID

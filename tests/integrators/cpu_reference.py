@@ -448,7 +448,7 @@ class CPUAdaptiveController:
         order: int,
         precision: type,
         kp: float = 1/18,
-        ki: float = 1/9,
+        ki: float = -1/9,
         kd: float = 1/18,
         gamma: float = 0.9,
         safety: float = 0.9,
@@ -491,7 +491,7 @@ class CPUAdaptiveController:
         return self.kind != "fixed"
 
     def error_norm(self, state_prev: Array, state_new: Array, error: Array) -> float:
-        error = np.maximum(error, 1e-30)
+        error = np.maximum(np.abs(error), 1e-12)
         scale = self.atol + self.rtol * np.maximum(
             np.abs(state_prev), np.abs(state_new))
         nrm2 = np.sum((scale * scale) / (error * error))
@@ -525,8 +525,7 @@ class CPUAdaptiveController:
         new_dt = min(self.dt_max, max(self.dt_min, unclamped_dt))
         self.dt = new_dt
         self._prev_dt = current_dt
-        if self.kind == "pid":
-            self._prev_prev_nrm2 = self._prev_nrm2
+        self._prev_prev_nrm2 = self._prev_nrm2
         self._prev_nrm2 = errornorm
 
         if new_dt < self.dt_min:
@@ -556,7 +555,7 @@ class CPUAdaptiveController:
             gain = (
                 self.safety
                 * precision(errornorm ** kp_exp)
-                * precision(prev ** (-ki_exp))
+                * precision(prev ** (ki_exp))
             )
 
         elif self.kind == "pid":
@@ -572,8 +571,8 @@ class CPUAdaptiveController:
             gain = (
                 self.safety
                 * precision(errornorm ** kp_exp)
-                * precision(prev_nrm2 ** (-ki_exp))
-                * precision(prev_prev ** (-kd_exp))
+                * precision(prev_nrm2 ** (ki_exp))
+                * precision(prev_prev ** (kd_exp))
             )
 
         elif self.kind == "gustafsson":

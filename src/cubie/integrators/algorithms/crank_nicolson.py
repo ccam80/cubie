@@ -201,10 +201,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             z = cuda.local.array(n, numba_precision)
             temp = cuda.local.array(n, numba_precision)
 
-            # Additional array for error estimation
-            be_state = cuda.local.array(n, numba_precision)
-            base_adjusted = cuda.local.array(n, numba_precision)
-
             # Evaluate f(state)
             dxdt_fn(
                 state,
@@ -216,8 +212,10 @@ class CrankNicolsonStep(ODEImplicitStep):
             )
 
             cn_dt = dt_scalar * half
+
+            #Reuse error array to store base-adjusted state
             for i in range(n):
-                base_adjusted[i] = state[i] + cn_dt * resid[i]
+                error[i] = state[i] + cn_dt * resid[i]
 
             # Solve Crank-Nicolson step (main solution)
             status = solver_fn(
@@ -226,29 +224,23 @@ class CrankNicolsonStep(ODEImplicitStep):
                 drivers,
                 cn_dt,
                 a_ij,
-                base_adjusted,
+                error,
                 work_buffer,
                 resid,
                 z,
                 temp,
             )
 
-            # Solve Backward Euler step for error estimation (start from CN solution)
+            # Use error vec again for the BE solution's state
             for i in range(n):
-                be_state[i] = proposed_state[i]
+                error[i] = proposed_state[i]
 
             # calculate and save observables (wastes some compute)
             next_time = time_scalar + dt_scalar
-            observables_function(
-                proposed_state,
-                parameters,
-                drivers,
-                proposed_observables,
-                next_time,
-            )
+
 
             status |= solver_fn(
-                be_state,
+                error,
                 parameters,
                 drivers,
                 dt_scalar,
@@ -262,7 +254,16 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             # Compute error as difference between Crank-Nicolson and Backward Euler
             for i in range(n):
-                error[i] = proposed_state[i] - be_state[i]
+                error[i] = proposed_state[i] - error[i]
+
+            observables_function(
+                proposed_state,
+                parameters,
+                drivers,
+                proposed_observables,
+                next_time,
+            )
+
 
             return status
 
@@ -284,7 +285,7 @@ class CrankNicolsonStep(ODEImplicitStep):
     def local_scratch_required(self) -> int:
         """Local scratch usage expressed in precision-sized entries."""
 
-        return 5 * self.compile_settings.n
+        return 3 * self.compile_settings.n
 
     @property
     def persistent_local_required(self) -> int:

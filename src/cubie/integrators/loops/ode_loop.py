@@ -180,7 +180,7 @@ class IVPLoop(CUDAFactory):
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
 
-        equality_breaker = precision(1e-16)
+        equality_breaker = precision(1e-7) if precision is np.float32 else precision(1e-14)
         @cuda.jit(device=True, inline=True)
         def loop_fn(
             initial_states,
@@ -236,7 +236,7 @@ class IVPLoop(CUDAFactory):
             # Cap max iterations - all internal steps at dt_min, plus a bonus
             # end/start, plus one failure per successful step.
             max_steps = (int32(ceil(t_end / dt_min)) + int32(2))
-            max_steps = max_steps << 1
+            max_steps = max_steps << 2
 
             n_output_samples = max(state_output.shape[0],
                                    observables_output.shape[0])
@@ -329,6 +329,7 @@ class IVPLoop(CUDAFactory):
 
             for _ in range(max_steps):
                 finished = save_idx >= n_output_samples
+
                 if all_sync(mask, finished):
                     return status
 
@@ -345,8 +346,9 @@ class IVPLoop(CUDAFactory):
                     else:
                         do_save = (t + dt[0]  +equality_breaker) >= next_save
                         dt_eff = selp(do_save, next_save - t, dt[0])
-                        status |= selp(dt_eff <= precision(0.0),
-                                            int32(16), int32(0))
+
+                        status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
+
 
                     step_status = step_fn(
                         state_buffer,
@@ -379,6 +381,7 @@ class IVPLoop(CUDAFactory):
 
                     # Adjust dt if step rejected - auto-accepts if fixed-step
                     if not fixed_mode:
+
                         status |= step_controller(
                             dt,
                             state_buffer,
@@ -388,6 +391,7 @@ class IVPLoop(CUDAFactory):
                             accept_step,
                             controller_temp,
                         )
+
                         accept = accept_step[0] != int32(0)
 
                     t_proposal = t + dt_eff
@@ -442,7 +446,7 @@ class IVPLoop(CUDAFactory):
 
             if status == int32(0):
                 #Max iterations exhausted without other error
-                status = int32(8)
+                status = int32(32)
             return status
 
         return loop_fn

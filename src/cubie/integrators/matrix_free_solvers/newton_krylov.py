@@ -221,8 +221,11 @@ def newton_krylov_solver_factory(
 
         if status < 0:
             status = int32(2)
+
         status |= (iters_count + 1) << 16
         return status
+
+
 
     # no cover: end
     return newton_krylov_solver

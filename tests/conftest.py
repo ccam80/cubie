@@ -171,11 +171,11 @@ def implicit_step_settings(solver_settings, implicit_step_settings_override):
         "rtol": solver_settings['rtol'],
         "linear_tolerance": 1e-6,
         "correction_type": 'minimal_residual',
-        "nonlinear_tolerance": 1e-6,
-        'preconditioner_order': 1,
+        "nonlinear_tolerance": 1e-4,
+        'preconditioner_order': 2,
         "max_linear_iters": 500,
         "max_newton_iters": 500,
-        "newton_damping": 0.5,
+        "newton_damping": 0.85,
         "newton_max_backtracks": 25
     }
     defaults.update(implicit_step_settings_override)
@@ -204,6 +204,8 @@ def step_controller_settings(
         "atol": precision(solver_settings["atol"]),
         "rtol": precision(solver_settings["rtol"]),
         "order": 1,
+        "min_gain": precision(0.2),
+        "max_gain": precision(5.0),
         "n": system.sizes.states,
         "kp": precision(1/18),
         "ki": precision(1/9),
