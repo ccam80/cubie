@@ -9,7 +9,7 @@ from cubie.odesystems.symbolic.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,
 )
-from cubie.odesystems.symbolic.parser import IndexedBases
+from cubie.odesystems.symbolic.parser import IndexedBases, parse_input
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 
@@ -243,6 +243,38 @@ class TestDxdtIntegration:
         assert isinstance(code, str)
         assert "def dxdt_factory" in code
 
+    def test_dxdt_reuses_observables_buffer(self):
+        """Generated dxdt code should not reassign the observables array."""
+
+        dxdt_lines = [
+            "a1 = x1**2",
+            "a2 = x1 * x2",
+            "a3 = p1 * x3 * x2",
+            "o1 = a3**2 + x1",
+            "o2 = x2 * a2",
+            "dx1 = o2 * p2",
+            "dx2 = o1 * a1 * p2",
+            "dx3 = x3 * a1",
+        ]
+
+        index_map, _, _, equations, _ = parse_input(
+            dxdt=dxdt_lines,
+            states={"x1": 0.0, "x2": 0.0, "x3": 0.0},
+            observables=["o1", "o2"],
+            parameters={"p1": 0.0, "p2": 0.0},
+            constants={},
+            drivers=[],
+            strict=False,
+        )
+
+        code = generate_dxdt_fac_code(equations, index_map)
+
+        lines = code.splitlines()
+        assert any("observables[" in line for line in lines)
+        assert all(
+            not line.lstrip().startswith("observables[") for line in lines
+        )
+
 
 class TestGenerateObservablesFacCode:
     """Tests for observables-only factory generation."""
@@ -293,7 +325,7 @@ class TestObservablesDeviceParity:
             ([-0.6, 1.5], [0.9, -0.2], -0.4),
         ],
     )
-    def test_observables_match_dxdt_kernel(
+    def test_dxdt_preserves_observables(
         self,
         observables_kernel_system,
         state_values,
@@ -301,7 +333,7 @@ class TestObservablesDeviceParity:
         driver_value,
         precision,
     ):
-        """Compare observables computed via dxdt and helper kernels."""
+        """dxdt should consume, not overwrite, the observables buffer."""
 
         system = observables_kernel_system
         system.build()
@@ -316,11 +348,8 @@ class TestObservablesDeviceParity:
         parameters_kernel = parameters.copy()
         drivers_kernel = drivers.copy()
 
-        obs_from_dxdt = np.full(
+        observables_buffer = np.full(
             system.num_observables, precision(-1.0), dtype=precision
-        )
-        obs_from_helper = np.full(
-            system.num_observables, precision(-2.0), dtype=precision
         )
         out = np.zeros(system.num_states, dtype=precision)
 
@@ -329,15 +358,12 @@ class TestObservablesDeviceParity:
             state_in,
             params_in,
             drivers_in,
-            obs_dxdt,
-            obs_helper,
+            obs_buf,
             out_buf,
             time_scalar,
         ):
-            dxdt_dev(state_in, params_in, drivers_in, obs_dxdt, out_buf, time_scalar,
-)
-            observables_fn(state_in, params_in, drivers_in, obs_helper, time_scalar,
-)
+            observables_fn(state_in, params_in, drivers_in, obs_buf, time_scalar)
+            dxdt_dev(state_in, params_in, drivers_in, obs_buf, out_buf, time_scalar)
 
         kernel[
             1,
@@ -346,8 +372,7 @@ class TestObservablesDeviceParity:
             state_kernel,
             parameters_kernel,
             drivers_kernel,
-            obs_from_dxdt,
-            obs_from_helper,
+            observables_buffer,
             out,
             precision(0.0),
         )
@@ -366,16 +391,19 @@ class TestObservablesDeviceParity:
 
         expected_rate = alpha * x_val + const_value
         expected_total = expected_rate + beta * y_val + drive_val
-        expected = np.array([expected_rate, expected_total], dtype=precision)
+        expected_observables = np.array(
+            [expected_rate, expected_total], dtype=precision
+        )
+        expected_dx = expected_total - y_val + alpha * drive_val
+        expected_dy = expected_rate * x_val + const_value
 
         np.testing.assert_allclose(
-            obs_from_dxdt, expected, rtol=1e-6
+            observables_buffer, expected_observables, rtol=1e-6
         )
         np.testing.assert_allclose(
-            obs_from_helper, expected, rtol=1e-6
-        )
-        np.testing.assert_allclose(
-            obs_from_dxdt, obs_from_helper, rtol=1e-6
+            out,
+            np.array([expected_dx, expected_dy], dtype=precision),
+            rtol=1e-6,
         )
 
 

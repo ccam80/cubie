@@ -196,6 +196,15 @@ class CrankNicolsonStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = state[i]
 
+            # HACK: workaround for lack of driver interp
+            observables_function(
+                state,
+                parameters,
+                drivers,
+                observables,
+                time_scalar,
+            )
+
             # Work arrays (reused for both CN and BE computations)
             resid = cuda.local.array(n, numba_precision)
             z = cuda.local.array(n, numba_precision)

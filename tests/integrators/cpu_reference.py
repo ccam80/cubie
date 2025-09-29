@@ -15,7 +15,7 @@ outputs.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, Mapping, Sequence, Optional
+from typing import Callable, Dict, Mapping, Sequence, Optional, Set
 import numpy as np
 import sympy as sp
 from numpy.typing import NDArray
@@ -71,6 +71,18 @@ class CPUODESystem():
             self._dx_index,
         )
 
+        self._base_symbols: Set[sp.Symbol] = set().union(
+            self._state_index.keys(),
+            self._parameter_index.keys(),
+            self._constant_index.keys(),
+            self._driver_index.keys(),
+            {TIME_SYMBOL},
+        )
+        self._observable_symbols: Set[sp.Symbol] = set(
+            self._observable_index.keys()
+        )
+        self._dx_symbols: Set[sp.Symbol] = set(self._dx_index.keys())
+
         # Precompile expressions for fast numerical evaluation
         self._compile_expressions()
 
@@ -118,6 +130,48 @@ class CPUODESystem():
             self._compiled_jacobian = []
             self._jacobian_symbols = []
 
+        self._observable_eval_order = self._resolve_dependencies(
+            self._observable_symbols
+        )
+        self._dx_eval_order = self._resolve_dependencies(
+            self._dx_symbols, skip=self._observable_symbols
+        )
+
+    def _resolve_dependencies(
+        self,
+        targets: Set[sp.Symbol],
+        *,
+        skip: Optional[Set[sp.Symbol]] = None,
+    ) -> list[sp.Symbol]:
+        """Return topologically ordered symbols needed to evaluate ``targets``."""
+
+        if skip is None:
+            skip = set()
+
+        closure: Set[sp.Symbol] = set()
+
+        def visit(symbol: sp.Symbol) -> None:
+            """Populate ``closure`` with dependencies for ``symbol``."""
+
+            if (
+                symbol in skip
+                or symbol in closure
+                or symbol not in self._equation_symbols
+            ):
+                return
+
+            closure.add(symbol)
+            for dependency in self._equation_symbols[symbol]:
+                if dependency in skip or dependency in self._base_symbols:
+                    continue
+                visit(dependency)
+
+        for target in targets:
+            visit(target)
+
+        ordered = [lhs for lhs, _ in self._equations if lhs in closure]
+        return ordered
+
     def _get_symbol_values(
             self,
             state: Array,
@@ -153,58 +207,99 @@ class CPUODESystem():
         )
 
         if observables is not None:
-            values.update({
+            values.update(
+                {
                     sym: precision(observables[index])
                     for sym, index in self._observable_index.items()
-                },
-        )
+                }
+            )
 
         # Provide the current simulation time symbol value
         values[TIME_SYMBOL] = self.precision(time_scalar)
         return values
 
-    def rhs(self, state: Array, params: Array, drivers: Array,
-            time_scalar: float,
-            ) -> tuple[Array, Array]:
-        dxdt = self._state_template.copy()
-        observables = self._observable_template.copy()
-        symbol_values = self._get_symbol_values(state, params, drivers,
-                                                time_scalar)
+    def observables(
+        self,
+        state: Array,
+        params: Array,
+        drivers: Array,
+        time_scalar: float,
+    ) -> Array:
+        """Evaluate the observable expressions for the current state."""
 
-        # Evaluate each compiled equation
-        # Try er thrice for good measure - for out-of-order evaluation? no,
-        # args will fail if there's unidentified symbols.
-        for lhs, argsymbols in self._equation_symbols.items():
+        observables = self._observable_template.copy()
+        symbol_values = self._get_symbol_values(
+            state,
+            params,
+            drivers,
+            time_scalar,
+        )
+
+        for lhs in self._observable_eval_order:
+            argsymbols = self._equation_symbols[lhs]
             if argsymbols:
                 args = tuple(symbol_values[sym] for sym in argsymbols)
                 value = self.precision(self._compiled_equations[lhs](*args))
             else:
                 value = self._compiled_equations[lhs]
 
-            symbol_values.update({lhs: value})
+            symbol_values[lhs] = value
+            if lhs in self._observable_index:
+                observables[self._observable_index[lhs]] = value
 
+        return observables
+
+    def rhs(
+        self,
+        state: Array,
+        params: Array,
+        drivers: Array,
+        observables: Array,
+        time_scalar: float,
+    ) -> tuple[Array, Dict[sp.Symbol, float]]:
+        """Evaluate ``dx/dt`` using pre-computed observables."""
+
+        dxdt = self._state_template.copy()
+        symbol_values = self._get_symbol_values(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            observables=observables,
+        )
+
+        for lhs in self._dx_eval_order:
+            argsymbols = self._equation_symbols[lhs]
+            if argsymbols:
+                args = tuple(symbol_values[sym] for sym in argsymbols)
+                value = self.precision(self._compiled_equations[lhs](*args))
+            else:
+                value = self._compiled_equations[lhs]
+
+            symbol_values[lhs] = value
             if lhs in self._dx_index:
                 dxdt[self._dx_index[lhs]] = value
-            elif lhs in self._observable_index:
-                observables[self._observable_index[lhs]] = value
-            # auxiliary expressions are stored in computed_values for dependent equations
 
-        return dxdt, observables
+        return dxdt, symbol_values
 
     def jacobian(
             self,
             state: Array,
             params: Array,
             drivers: Array,
+            observables: Array,
             time_scalar: float,
         ) -> Array:
         if not self._compiled_jacobian:
             return np.zeros((self.n_states, self.n_states), dtype=self.precision)
 
-        _, observables = self.rhs(state, params, drivers, time_scalar)
-
-        symbol_values = self._get_symbol_values(state, params, drivers,
-                                                time_scalar, observables)
+        _, symbol_values = self.rhs(
+            state,
+            params,
+            drivers,
+            observables,
+            time_scalar,
+        )
         jac_rows = len(self._compiled_jacobian)
         jac_cols = len(self._compiled_jacobian[0]) if jac_rows > 0 else 0
         jacobian = np.zeros((jac_rows, jac_cols), dtype=self.precision)
@@ -253,9 +348,21 @@ def explicit_euler_step(
 ) -> StepResult:
     """Explicit Euler integration step."""
 
-    dxdt, _ = evaluator.rhs(state, params, drivers_now, time)
+    observables_now = evaluator.observables(state, params, drivers_now, time)
+    dxdt, _ = evaluator.rhs(
+        state,
+        params,
+        drivers_now,
+        observables_now,
+        time,
+    )
     new_state = state + dt * dxdt
-    _, observables = evaluator.rhs(new_state, params, drivers_next, time+dt)
+    observables = evaluator.observables(
+        new_state,
+        params,
+        drivers_next,
+        time + dt,
+    )
     error = np.zeros_like(state)
     status = _encode_solver_status(True, 0)
     return StepResult(new_state, observables, error, status, 0)
@@ -303,11 +410,35 @@ def backward_euler_step(
     precision = evaluator.precision
 
     def residual(candidate: Array) -> Array:
-        dxdt, _ = evaluator.rhs(candidate, params, drivers_next, time)
+        candidate_observables = evaluator.observables(
+            candidate,
+            params,
+            drivers_next,
+            time,
+        )
+        dxdt, _ = evaluator.rhs(
+            candidate,
+            params,
+            drivers_next,
+            candidate_observables,
+            time,
+        )
         return candidate - state - dt * dxdt
 
     def jacobian(candidate: Array) -> Array:
-        jac = evaluator.jacobian(candidate, params, drivers_next, time)
+        candidate_observables = evaluator.observables(
+            candidate,
+            params,
+            drivers_next,
+            time,
+        )
+        jac = evaluator.jacobian(
+            candidate,
+            params,
+            drivers_next,
+            candidate_observables,
+            time,
+        )
         identity = np.eye(jac.shape[0], dtype=precision)
         return identity - dt * jac
 
@@ -325,7 +456,12 @@ def backward_euler_step(
         tol,
         max_iters,
     )
-    _, observables = evaluator.rhs(next_state, params, drivers_next, time)
+    observables = evaluator.observables(
+        next_state,
+        params,
+        drivers_next,
+        time + dt,
+    )
     error = np.zeros_like(next_state)
     status = _encode_solver_status(converged, niters)
     return StepResult(next_state, observables, error, status, niters)
@@ -345,14 +481,50 @@ def crank_nicolson_step(
     """Crank–Nicolson step with embedded backward Euler for error estimation."""
 
     precision = evaluator.precision
-    f_now, _ = evaluator.rhs(state, params, drivers_now, time)
+    observables_now = evaluator.observables(
+        state,
+        params,
+        drivers_now,
+        time,
+    )
+    f_now, _ = evaluator.rhs(
+        state,
+        params,
+        drivers_now,
+        observables_now,
+        time,
+    )
 
     def residual(candidate: Array) -> Array:
-        f_candidate, _ = evaluator.rhs(candidate, params, drivers_next, time)
+        candidate_observables = evaluator.observables(
+            candidate,
+            params,
+            drivers_next,
+            time,
+        )
+        f_candidate, _ = evaluator.rhs(
+            candidate,
+            params,
+            drivers_next,
+            candidate_observables,
+            time,
+        )
         return candidate - state - precision(0.5) * dt * (f_now + f_candidate)
 
     def jacobian(candidate: Array) -> Array:
-        jac = evaluator.jacobian(candidate, params, drivers_next, time)
+        candidate_observables = evaluator.observables(
+            candidate,
+            params,
+            drivers_next,
+            time,
+        )
+        jac = evaluator.jacobian(
+            candidate,
+            params,
+            drivers_next,
+            candidate_observables,
+            time,
+        )
         identity = np.eye(jac.shape[0], dtype=precision)
         return identity - precision(0.5) * dt * jac
 
@@ -365,7 +537,12 @@ def crank_nicolson_step(
             tol,
             max_iters,
     )
-    _, observables = evaluator.rhs(next_state, params, drivers_next, time + dt)
+    observables = evaluator.observables(
+        next_state,
+        params,
+        drivers_next,
+        time + dt,
+    )
 
     # Embedded backward Euler step for the error estimate
     be_result = backward_euler_step(
@@ -397,7 +574,19 @@ def backward_euler_predict_correct_step(
     """Predict with explicit Euler and correct with backward Euler."""
 
     precision = evaluator.precision
-    f_now, _ = evaluator.rhs(state, params, drivers_now, time)
+    observables_now = evaluator.observables(
+        state,
+        params,
+        drivers_now,
+        time,
+    )
+    f_now, _ = evaluator.rhs(
+        state,
+        params,
+        drivers_now,
+        observables_now,
+        time,
+    )
     predictor = state.astype(precision, copy=True) + dt * f_now
     return backward_euler_step(
         evaluator=evaluator,
@@ -681,6 +870,7 @@ def run_reference_loop(
     state = initial_state.copy()
     state_history = [state.copy()]
     observable_history = []
+    time_history: list[float] = []
     t = precision(0.0)
 
     if warmup > zero:
@@ -690,9 +880,14 @@ def run_reference_loop(
         next_save_time = dt_save
         save_index = 1
         state_history = [state.copy()]
-        _, observables = evaluator.rhs(state, params, sampler.sample(0), t)
+        observables = evaluator.observables(
+            state,
+            params,
+            sampler.sample(0),
+            t,
+        )
         observable_history.append(observables.copy())
-        time_history: list[float] = [t]
+        time_history = [t]
 
     end_time = precision(warmup + duration)
     max_iters = implicit_step_settings['max_newton_iters']

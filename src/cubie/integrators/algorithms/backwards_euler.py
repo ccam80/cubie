@@ -186,6 +186,15 @@ class BackwardsEulerStep(ODEImplicitStep):
                 Status code returned by the nonlinear solver.
             """
 
+            # HACK: workaround for lack of driver interp
+            observables_function(
+                state,
+                parameters,
+                drivers,
+                observables,
+                time_scalar,
+            )
+
             for i in range(n):
                 proposed_state[i] = state[i]
 

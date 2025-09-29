@@ -146,6 +146,15 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Status code indicating successful completion.
             """
 
+            # HACK: workaround for lack of driver interp
+            observables_function(
+                state,
+                parameters,
+                drivers,
+                observables,
+                time_scalar,
+            )
+
             dxdt_function(
                 state,
                 parameters,

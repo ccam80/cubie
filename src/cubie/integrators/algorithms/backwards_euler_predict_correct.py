@@ -109,6 +109,15 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 Status code returned by the nonlinear solver.
             """
 
+            # HACK: workaround for lack of driver interp
+            observables_function(
+                state,
+                parameters,
+                drivers,
+                observables,
+                time_scalar,
+            )
+
             dxdt_fn(
                 state,
                 parameters,
