@@ -97,8 +97,8 @@ def test_build(loop, step_controller, step_object,
             reference=cpu_loop_outputs,
             device=device_loop_outputs,
             output_functions=output_functions,
-            rtol=1e-5,
-            atol=1e-5)
+            rtol=rtol,
+            atol=atol)
     assert device_loop_outputs.status == 0
 
 
