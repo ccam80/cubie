@@ -160,6 +160,39 @@ class TestLhsPass:
             assert "done" in ib.dxdt_names
             assert isinstance(anon_aux["uninited"], sp.Symbol)
 
+    def test_lhs_pass_strict_unlisted_auxiliary(self):
+        """Unlisted LHS assignments stay anonymous in strict mode."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["a"], [], ["obs"], []
+        )
+        lines = ["obs = x + a", "aux_val = obs", "dx = obs"]
+
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            anon_aux = _lhs_pass(lines, ib, strict=True)
+
+        assert "aux_val" in anon_aux
+        assert anon_aux["aux_val"] == sp.Symbol("aux_val", real=True)
+        assert "aux_val" not in ib.observable_names
+
+    def test_lhs_pass_relaxes_to_anonymous_aux_non_strict(self):
+        """Non-strict parsing still keeps undeclared LHS symbols anonymous."""
+        ib = IndexedBases.from_user_inputs(
+            ["x"], ["a"], [], ["obs"], []
+        )
+        lines = ["obs = x + a", "floating = obs", "dx = obs"]
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            anon_aux = _lhs_pass(lines, ib, strict=False)
+
+        assert "floating" in anon_aux
+        assert anon_aux["floating"] == sp.Symbol("floating", real=True)
+        assert "floating" not in ib.observable_names
+        assert any(
+            issubclass(item.category, EquationWarning) for item in caught
+        )
+
     def test_lhs_pass_state_derivative(self):
         """Test processing state derivatives."""
         ib = IndexedBases.from_user_inputs(["x"], ["a"], ["c"], [], ["drv"])
@@ -587,8 +620,10 @@ class TestNonStrictInput:
         assert "zebra" in index_map.parameter_names
         assert "driver1" in index_map.parameter_names
         assert "one" in index_map.state_names
-        assert "safari" in index_map.observable_names
-        assert "uninited" in index_map.observable_names
+        assert "safari" not in index_map.observable_names
+        assert "uninited" not in index_map.observable_names
+        assert sp.Symbol("safari", real=True) == all_symbols["safari"]
+        assert sp.Symbol("uninited", real=True) == all_symbols["uninited"]
         assert "dfoo" in index_map.dxdt_names
 
 class TestFunctions:
