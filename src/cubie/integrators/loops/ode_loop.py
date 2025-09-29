@@ -315,7 +315,7 @@ class IVPLoop(CUDAFactory):
                         observable_summary_buffer,
                         save_idx,
                     )
-            save_idx += int32(1)
+                save_idx += int32(1)
 
             status = int32(0)
             dt[0] = dt0

@@ -683,4 +683,3 @@ class TestFunctions:
         # Operator-apply code should contain calls to the provided derivative name
         code = generate_operator_apply_code(equations=eq_map, index_map=index_map)
         assert "myfunc_grad(" in code
-        print(code)

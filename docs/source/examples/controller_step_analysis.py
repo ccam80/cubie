@@ -533,8 +533,9 @@ def run_analysis(output_dir: Path, save_figs=True) -> List[Path]:
     return saved_paths, all_histories
 
 
-def main(save_figs=True, output_dir: str | Path = "docs/source/_static") -> (
-        List)[Path]:
+def main(
+    save_figs=True, output_dir: str | Path = "docs/source/_static"
+) -> (List)[Path]:
     """Run the analysis pipeline and return the generated figure paths."""
 
     output_path = Path(output_dir)
@@ -550,6 +551,7 @@ if __name__ == "__main__":
         controller_label = controller.upper()
 
         for axis, system_name in zip(axes, SYSTEM_ORDER):
+            axis.set_yscale("log")
             records = histories.get(system_name, [])
             for record in records:
                 marker = "o" if record.accepted else "x"
@@ -565,6 +567,7 @@ if __name__ == "__main__":
             axis.set_title(SYSTEM_LABELS.get(system_name, system_name))
             axis.set_xlabel("Time")
             axis.set_ylabel("Step size")
+
             axis.grid(True, linestyle=":", linewidth=0.6)
 
         fig.suptitle(
