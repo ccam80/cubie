@@ -556,7 +556,7 @@ if __name__ == "__main__":
 
         for i, (controller, histories) in enumerate(all_histories.items()):
             records = histories.get(system_name, [])
-            axis = axes[i][j]
+            axis = allaxes[j][i]
             axis.set_yscale("log")
             for record in records:
                 marker = "o" if record.accepted else "x"

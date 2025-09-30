@@ -5,6 +5,7 @@ docstrings for all functions and classes. Write type hints for all functions and
 Use descriptive variable names rather than minimal ones.
 Use descriptive function names rather than minimal ones.
 Don't type hint variables inside functions.
+Don't import from __future__ import annotations, assume Python 3.7+.
 The repository is in development, do not enforce backwards compatibility; breaking changes are expected.
 Type hints are compulsory, in PEP484 format in function definitions, rather than in docstrings.
 
@@ -15,7 +16,7 @@ Do not use mock or patch in tests.
 A test which fails is a good test. Do not design tests to work around bugs or quirks in the code. Design tests to test 
 that the code works as intended.
 Never shortcut "is_device" or implement patches to get around other cuda-related checks that fail - this defeats the purpose.
-
+Don't type hint tests.
 ## Environment
 Install from workspace/cubie with pip install -e .[dev]
 To run tests from an environment without CUDA drivers, set the environment variable NUMBA_ENABLE_CUDASIM="1".
