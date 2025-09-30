@@ -115,5 +115,5 @@ Classes are also sometimes used to make identifying tests easier, in cases where
 Each folder in tests has an \_\_init\_\_.py file, which allows us to import the tests as a package. You can import
 things using a standard import statement, e.g.:
 ```python
-from tests.integrators.algorithms import LoopAlgorithmTester
+from tests.integrators.cpu_reference import CPUAdaptiveController
 ```
