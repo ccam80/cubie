@@ -544,15 +544,20 @@ def main(
 
 if __name__ == "__main__":
     generated, all_histories = main(save_figs=False)
-    for controller, histories in all_histories.items():
-
-        fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=False, sharey=False)
+    allfigs = []
+    allaxes = []
+    for j, system_name in enumerate(SYSTEM_ORDER):
+        fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=False,
+                             sharey=False, layout='constrained')
         axes = axes.ravel()
-        controller_label = controller.upper()
+        fig.suptitle(f"{system_name} system")
+        allfigs.append(fig)
+        allaxes.append(axes)
 
-        for axis, system_name in zip(axes, SYSTEM_ORDER):
-            axis.set_yscale("log")
+        for i, (controller, histories) in enumerate(all_histories.items()):
             records = histories.get(system_name, [])
+            axis = axes[i][j]
+            axis.set_yscale("log")
             for record in records:
                 marker = "o" if record.accepted else "x"
                 axis.scatter(
@@ -564,15 +569,12 @@ if __name__ == "__main__":
                     s=18,
                 )
 
-            axis.set_title(SYSTEM_LABELS.get(system_name, system_name))
-            axis.set_xlabel("Time")
-            axis.set_ylabel("Step size")
+                axis.set_title(controller)
+                axis.set_xlabel("Time")
+                axis.set_ylabel("Step size")
+                axis.set_xlim(auto=True)
+                axis.set_ylim(auto=True)
+                axis.grid(True, linestyle=":", linewidth=0.6)
 
-            axis.grid(True, linestyle=":", linewidth=0.6)
-
-        fig.suptitle(
-                f"Step-size history for {controller_label} controller", fontsize=14
-        )
-        fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-
+    for fig in allfigs:
         plt.show()
