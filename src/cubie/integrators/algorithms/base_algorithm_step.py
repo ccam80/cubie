@@ -23,6 +23,7 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 ALL_ALGORITHM_STEP_PARAMETERS = {
     # Base parameters
     'precision', 'n', 'dxdt_function', 'observables_function',
+    'driver_function',
     'get_solver_helper_fn',
     'observables_function',
     # Explicit algorithm parameters
@@ -47,6 +48,8 @@ class BaseStepConfig(ABC):
         Device function that evaluates the system right-hand side.
     observables_function
         Device function that evaluates the system observables.
+    driver_function
+        Device function that evaluates driver arrays for a given time.
     get_solver_helper_fn
         Optional callable that returns device helpers required by the
         nonlinear solver construction.
@@ -65,6 +68,10 @@ class BaseStepConfig(ABC):
         validator=validators.optional(is_device_validator),
     )
     observables_function: Optional[Callable] = attrs.field(
+        default=None,
+        validator=validators.optional(is_device_validator),
+    )
+    driver_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
     )

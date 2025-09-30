@@ -1,6 +1,6 @@
 """Backward Euler step with an explicit predictor and implicit corrector."""
 
-from typing import Callable
+from typing import Callable, Optional
 
 from numba import cuda
 
@@ -16,6 +16,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
+        driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
     ) -> StepCache:  # pragma: no cover - cuda code
@@ -29,6 +30,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             Device derivative function for the ODE system.
         observables_function
             Device observable computation helper.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
         numba_precision
             Numba precision corresponding to the configured precision.
         n
@@ -41,6 +44,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         """
 
         a_ij = numba_precision(1.0)
+        has_driver_function = driver_function is not None
+        driver_fn = driver_function
 
         @cuda.jit(
             (
@@ -48,6 +53,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:, :, :],
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
@@ -65,7 +71,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             proposed_state,
             work_buffer,
             parameters,
-            drivers,
+            driver_coefficients,
+            drivers_buffer,
             observables,
             proposed_observables,
             error,
@@ -86,7 +93,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 Device array used as temporary storage for derivatives.
             parameters
                 Device array of static model parameters.
-            drivers
+            driver_coefficients
+                Device array containing spline driver coefficients.
+            drivers_buffer
                 Device array of time-dependent drivers.
             observables
                 Device array storing accepted observable outputs.
@@ -109,19 +118,10 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 Status code returned by the nonlinear solver.
             """
 
-            # HACK: workaround for lack of driver interp
-            observables_function(
-                state,
-                parameters,
-                drivers,
-                observables,
-                time_scalar,
-            )
-
             dxdt_fn(
                 state,
                 parameters,
-                drivers,
+                drivers_buffer,
                 observables,
                 work_buffer,
                 time_scalar,
@@ -129,13 +129,21 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             for i in range(n):
                 proposed_state[i] = state[i] + dt_scalar * work_buffer[i]
 
+            next_time = time_scalar + dt_scalar
+            if has_driver_function:
+                driver_fn(
+                    next_time,
+                    driver_coefficients,
+                    drivers_buffer,
+                )
+
             resid = cuda.local.array(n, numba_precision)
             z = cuda.local.array(n, numba_precision)
 
             status = solver_fn(
                 proposed_state,
                 parameters,
-                drivers,
+                drivers_buffer,
                 dt_scalar,
                 a_ij,
                 state,
@@ -145,11 +153,10 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 error,  # fixed-step loop reuses error as scratch
             )
 
-            next_time = time_scalar + dt_scalar
             observables_function(
                 proposed_state,
                 parameters,
-                drivers,
+                drivers_buffer,
                 proposed_observables,
                 next_time,
             )

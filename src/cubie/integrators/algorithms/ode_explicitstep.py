@@ -1,7 +1,7 @@
 """Infrastructure for explicit integration step implementations."""
 
 from abc import abstractmethod
-from typing import Callable
+from typing import Callable, Optional
 
 import attrs
 
@@ -53,9 +53,11 @@ class ODEExplicitStep(BaseAlgorithmStep):
         n = config.n
         fixed_step_size = config.dt
         observables_function = config.observables_function
+        driver_function = config.driver_function
         return self.build_step(
             dxdt_function,
             observables_function,
+            driver_function,
             numba_precision,
             n,
             fixed_step_size,
@@ -66,6 +68,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
         self,
         dxdt_function: Callable,
         observables_function: Callable,
+        driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
         fixed_step_size: float,
@@ -78,6 +81,8 @@ class ODEExplicitStep(BaseAlgorithmStep):
             Device derivative function for the ODE system.
         observables_function
             Device helper that computes observables for the system.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
         numba_precision
             Numba precision for compiled device buffers.
         n

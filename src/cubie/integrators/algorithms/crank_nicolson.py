@@ -1,6 +1,6 @@
 """Crank–Nicolson step with embedded backward Euler error estimation."""
 
-from typing import Callable
+from typing import Callable, Optional
 
 from numba import cuda, int32
 import numpy as np
@@ -24,6 +24,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         dxdt_function: Callable,
         observables_function: Callable,
         get_solver_helper_fn: Callable,
+        driver_function: Optional[Callable] = None,
         preconditioner_order: int = 1,
         linsolve_tolerance: float = 1e-6,
         max_linear_iters: int = 100,
@@ -45,6 +46,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             Device derivative function evaluating ``dx/dt``.
         observables_function
             Device function computing system observables.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
@@ -89,6 +92,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             newton_max_backtracks=newton_max_backtracks,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
+            driver_function=driver_function,
             precision=precision,
         )
         super().__init__(config)
@@ -98,6 +102,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
+        driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
     ) -> StepCache:  # pragma: no cover - cuda code
@@ -111,6 +116,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             Device derivative function for the ODE system.
         observables_function
             Device observable computation helper.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
         numba_precision
             Numba precision corresponding to the configured precision.
         n
@@ -125,6 +132,8 @@ class CrankNicolsonStep(ODEImplicitStep):
         half = numba_precision(0.5)
         a_ij = numba_precision(1.0)
         # Backward Euler coefficient for error estimation
+        has_driver_function = driver_function is not None
+        driver_fn = driver_function
 
         @cuda.jit(
             (
@@ -132,6 +141,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:, :, :],
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
@@ -149,7 +159,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             proposed_state,
             work_buffer,
             parameters,
-            drivers,
+            driver_coefficients,
+            drivers_buffer,
             observables,
             proposed_observables,
             error,
@@ -170,7 +181,9 @@ class CrankNicolsonStep(ODEImplicitStep):
                 Device array used as temporary storage.
             parameters
                 Device array of static model parameters.
-            drivers
+            driver_coefficients
+                Device array containing spline driver coefficients.
+            drivers_buffer
                 Device array of time-dependent drivers.
             observables
                 Device array storing accepted observable outputs.
@@ -196,15 +209,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = state[i]
 
-            # HACK: workaround for lack of driver interp
-            observables_function(
-                state,
-                parameters,
-                drivers,
-                observables,
-                time_scalar,
-            )
-
             # Work arrays (reused for both CN and BE computations)
             resid = cuda.local.array(n, numba_precision)
             z = cuda.local.array(n, numba_precision)
@@ -214,7 +218,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             dxdt_fn(
                 state,
                 parameters,
-                drivers,
+                drivers_buffer,
                 observables,
                 resid,
                 time_scalar,
@@ -227,10 +231,18 @@ class CrankNicolsonStep(ODEImplicitStep):
                 error[i] = state[i] + cn_dt * resid[i]
 
             # Solve Crank-Nicolson step (main solution)
+            mid_time = time_scalar + cn_dt
+            if has_driver_function:
+                driver_fn(
+                    mid_time,
+                    driver_coefficients,
+                    drivers_buffer,
+                )
+
             status = solver_fn(
                 proposed_state,
                 parameters,
-                drivers,
+                drivers_buffer,
                 cn_dt,
                 a_ij,
                 error,
@@ -245,13 +257,18 @@ class CrankNicolsonStep(ODEImplicitStep):
                 error[i] = proposed_state[i]
 
             # calculate and save observables (wastes some compute)
-            next_time = time_scalar + dt_scalar
-
+            next_time = mid_time + cn_dt
+            if has_driver_function:
+                driver_fn(
+                    next_time,
+                    driver_coefficients,
+                    drivers_buffer,
+                )
 
             status |= solver_fn(
                 error,
                 parameters,
-                drivers,
+                drivers_buffer,
                 dt_scalar,
                 a_ij,
                 state,
@@ -268,7 +285,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             observables_function(
                 proposed_state,
                 parameters,
-                drivers,
+                drivers_buffer,
                 proposed_observables,
                 next_time,
             )

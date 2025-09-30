@@ -50,13 +50,21 @@ class DriverArrayConfig:
         self._validate_time_array()
 
     def _normalise_driver_array(self) -> None:
-        """Promote the forcing array to the expected dimensionality."""
+        """Promote the forcing array to the expected dimensionality.
+
+        Raises
+        ------
+        ValueError
+            Raised when the driver array fails dimensionality requirements or
+            when the time array length does not match the driver samples.
+        """
 
         if self.forcingArray.ndim == 1:
             self.forcingArray = self.forcingArray[:, np.newaxis]
         elif self.forcingArray.ndim != 2:
             raise ValueError(
-                "driver_array must be one- or two-dimensional with columns per driver.",
+                "driver_array must be one- or two-dimensional with"
+                " columns per driver.",
             )
 
         if self.timeArray.ndim != 1:
@@ -64,16 +72,25 @@ class DriverArrayConfig:
 
         if self.timeArray.size != self.num_samples:
             raise ValueError(
-                "time_array length must match the number of rows in driver_array.",
+                "time_array length must match the number of rows in"
+                " driver_array.",
             )
 
         if self.num_samples < self.order + 1:
             raise ValueError(
-                "At least order + 1 samples are required to construct splines.",
+                "At least order + 1 samples are required to construct"
+                " splines.",
             )
 
     def _validate_time_array(self) -> None:
-        """Verify that time samples are increasing and uniformly spaced."""
+        """Verify that time samples are increasing and uniformly spaced.
+
+        Raises
+        ------
+        ValueError
+            Raised if the time array is not strictly increasing or the
+            spacing between samples is non-uniform.
+        """
 
         time_differences = np.diff(self.timeArray)
         if np.any(time_differences <= 0.0):
@@ -129,7 +146,7 @@ class DriverArrayCache:
 
 
 class DriverArray(CUDAFactory):
-    """Factory that emits CUDA device functions for array-driven forcing terms."""
+    """Factory emitting CUDA device functions for array-driven forcings."""
 
     def __init__(
         self,
@@ -212,7 +229,14 @@ class DriverArray(CUDAFactory):
         return self._coefficients_segment_major
 
     def _compute_segment_major(self) -> FloatArray:
-        """Vectorise polynomial fitting across all segments and drivers."""
+        """Vectorise polynomial fitting across all segments and drivers.
+
+        Returns
+        -------
+        numpy.ndarray
+            Segment-major coefficient array of shape ``(num_segments,
+            num_drivers, order + 1)``.
+        """
 
         num_segments = self.num_segments
         num_drivers = self.num_drivers
@@ -265,7 +289,21 @@ class DriverArray(CUDAFactory):
         coeffs_host = self.build_coefficients()
 
         @cuda.jit(device=True, inline=True)
-        def evaluate_all(time: float, coefficients, out) -> None:  # type: ignore
+        def evaluate_all(
+            time: float, coefficients: np.ndarray, out: np.ndarray
+        ) -> None:
+            """Evaluate all driver polynomials at ``time`` on the device.
+
+            Parameters
+            ----------
+            time : float
+                Query time for evaluation.
+            coefficients : numpy.ndarray
+                Segment-major coefficients with trailing polynomial degrees.
+            out : numpy.ndarray
+                Output array to populate with evaluated driver values.
+            """
+
             scaled = (time - start_time) * inv_resolution
             idx = int32(math.floor(scaled))
             if wrap:

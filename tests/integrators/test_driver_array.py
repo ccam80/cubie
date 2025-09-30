@@ -45,8 +45,27 @@ def wrapping_drivers() -> tuple[DriverArray, DriverArray]:
     return clamp, wrap
 
 
-def _cpu_partition(time: float, start: float, inv_res: float, segments: int) -> int:
-    """Clamp time to the closest segment index."""
+def _cpu_partition(
+    time: float, start: float, inv_res: float, segments: int
+) -> int:
+    """Clamp time to the closest segment index.
+
+    Parameters
+    ----------
+    time : float
+        Query time to partition.
+    start : float
+        Start time of the driver samples.
+    inv_res : float
+        Reciprocal of the temporal resolution.
+    segments : int
+        Number of polynomial segments.
+
+    Returns
+    -------
+    int
+        Clamped segment index.
+    """
 
     scaled = (time - start) * inv_res
     idx = math.floor(scaled)
@@ -64,7 +83,26 @@ def _cpu_evaluate(
     resolution: float,
     wrap: bool,
 ) -> np.ndarray:
-    """Evaluate all driver polynomials on the CPU."""
+    """Evaluate all driver polynomials on the CPU.
+
+    Parameters
+    ----------
+    time : float
+        Query time to evaluate.
+    coefficients : numpy.ndarray
+        Segment-major polynomial coefficients.
+    start : float
+        Start time of the driver samples.
+    resolution : float
+        Temporal resolution between consecutive samples.
+    wrap : bool
+        Whether the driver wraps beyond the final segment.
+
+    Returns
+    -------
+    numpy.ndarray
+        Evaluated driver values at ``time``.
+    """
 
     inv_res = 1.0 / resolution
     scaled = (time - start) * inv_res
@@ -87,8 +125,25 @@ def _cpu_evaluate(
     return out
 
 
-def _run_evaluate(device_fn, coefficients: np.ndarray, query_times: np.ndarray) -> np.ndarray:
-    """Execute the device evaluation function across supplied samples."""
+def _run_evaluate(
+    device_fn, coefficients: np.ndarray, query_times: np.ndarray
+) -> np.ndarray:
+    """Execute the device evaluation function across supplied samples.
+
+    Parameters
+    ----------
+    device_fn : callable
+        Device function to execute.
+    coefficients : numpy.ndarray
+        Segment-major polynomial coefficients.
+    query_times : numpy.ndarray
+        Time samples to evaluate on the device.
+
+    Returns
+    -------
+    numpy.ndarray
+        Evaluated driver values for each query time.
+    """
 
     n_times = query_times.size
     n_drivers = coefficients.shape[1]

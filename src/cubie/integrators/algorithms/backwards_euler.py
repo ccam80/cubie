@@ -24,6 +24,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         dxdt_function: Callable,
         observables_function: Callable,
         get_solver_helper_fn: Callable,
+        driver_function: Optional[Callable] = None,
         preconditioner_order: int = 1,
         linsolve_tolerance: float = 1e-6,
         max_linear_iters: int = 100,
@@ -45,6 +46,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             Device derivative function evaluating ``dx/dt``.
         observables_function
             Device function computing system observables.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
         get_solver_helper_fn
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
@@ -84,6 +87,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             newton_max_backtracks=newton_max_backtracks,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
+            driver_function=driver_function,
             precision=precision,
         )
         super().__init__(config)
@@ -93,6 +97,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
+        driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
     ) -> StepCache:  # pragma: no cover - cuda code
@@ -106,6 +111,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             Device derivative function for the ODE system.
         observables_function
             Device observable computation helper.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
         numba_precision
             Numba precision corresponding to the configured precision.
         n
@@ -118,6 +125,8 @@ class BackwardsEulerStep(ODEImplicitStep):
         """
 
         a_ij = numba_precision(1.0)
+        has_driver_function = driver_function is not None
+        driver_fn = driver_function
 
         @cuda.jit(
             (
@@ -125,6 +134,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:, :, :],
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
@@ -142,7 +152,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             proposed_state,
             work_buffer,
             parameters,
-            drivers,
+            driver_coefficients,
+            drivers_buffer,
             observables,
             proposed_observables,  # unused here
             error,
@@ -163,7 +174,9 @@ class BackwardsEulerStep(ODEImplicitStep):
                 Device array used as temporary storage.
             parameters
                 Device array of static model parameters.
-            drivers
+            driver_coefficients
+                Device array containing spline driver coefficients.
+            drivers_buffer
                 Device array of time-dependent drivers.
             observables
                 Device array storing accepted observable outputs.
@@ -186,17 +199,16 @@ class BackwardsEulerStep(ODEImplicitStep):
                 Status code returned by the nonlinear solver.
             """
 
-            # HACK: workaround for lack of driver interp
-            observables_function(
-                state,
-                parameters,
-                drivers,
-                observables,
-                time_scalar,
-            )
-
             for i in range(n):
                 proposed_state[i] = state[i]
+
+            next_time = time_scalar + dt_scalar
+            if has_driver_function:
+                driver_fn(
+                    next_time,
+                    driver_coefficients,
+                    drivers_buffer,
+                )
 
             resid = cuda.local.array(n, numba_precision)
             z = cuda.local.array(n, numba_precision)
@@ -204,7 +216,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             status = solver_fn(
                 proposed_state,
                 parameters,
-                drivers,
+                drivers_buffer,
                 dt_scalar,
                 a_ij,
                 state,
@@ -215,11 +227,10 @@ class BackwardsEulerStep(ODEImplicitStep):
             )
 
             # calculate and save observables (wastes some compute)
-            next_time = time_scalar + dt_scalar
             observables_function(
                 proposed_state,
                 parameters,
-                drivers,
+                drivers_buffer,
                 proposed_observables,
                 next_time,
             )
