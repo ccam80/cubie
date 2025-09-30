@@ -20,7 +20,7 @@ from cubie.integrators.driver_array import DriverArray
 
 
 def build_wiggly_driver(
-    num_samples: int = 2048, duration: float = 32.0
+    num_samples: int = 512, duration: float = 32.0
 ) -> tuple[np.ndarray, np.ndarray]:
     """Construct a long driver array with rapidly changing structure.
 
@@ -40,7 +40,7 @@ def build_wiggly_driver(
     times = np.linspace(0.0, duration, num_samples, dtype=np.float64)
     base = np.sin(0.6 * times) + 0.2 * np.sin(4.2 * times + 0.7)
     chirp = 0.35 * np.sin(0.15 * times ** 1.4)
-    ripples = 0.1 * np.sin(21.0 * times) + 0.05 * np.cos(39.0 * times)
+    ripples = 0.5 * np.sin(21.0 * times) + 0.05 * np.cos(39.0 * times)
     envelope = 1.0 + 0.3 * np.sin(0.25 * times)
     values = envelope * (base + chirp + ripples)
     return times, values.astype(np.float64)
@@ -87,9 +87,17 @@ def evaluate_on_device(
 
 def main() -> None:
     """Generate plots comparing CUDA and SciPy spline interpolation."""
-
+    precision = np.float64
     times, samples = build_wiggly_driver()
-    driver = DriverArray(samples, times, order=5, wrap=False)
+    driver = DriverArray(
+        precision=precision,
+        drivers_dict = {
+            'wiggler': samples,
+            'time': times
+        },
+        order=3,
+        wrap=False
+    )
     cache = driver.build()
 
     dense_times = np.linspace(times[0], times[-1], 8192, dtype=np.float64)

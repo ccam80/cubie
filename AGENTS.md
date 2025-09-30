@@ -5,6 +5,7 @@ docstrings for all functions and classes. Write type hints for all functions and
 Use descriptive variable names rather than minimal ones.
 Use descriptive function names rather than minimal ones.
 Don't type hint variables inside functions.
+Never call build() directly on a CUDAFactory subclass. These objects automatially cache or build when you request the result through the object's property.
 Don't import from __future__ import annotations, assume Python 3.7+.
 The repository is in development, do not enforce backwards compatibility; breaking changes are expected.
 Type hints are compulsory, in PEP484 format in function definitions, rather than in docstrings.
