@@ -8,26 +8,24 @@ A batch integration system for systems of ODEs and SDEs, for when elegant soluti
 1,000,000 systems, fast. This package was designed to simulate a large electrophysiological model as part of a 
 likelihood-free inference method (eventually, package [cubism]), but the machinery is domain-agnostic.
 
-While in early development, using this library as a way to experiment with and learn about some better software practice than I have used in 
-past, including testing, CI/CD, and other helpful tactics I stumble upon. As such, there will
-be some clunky bits.
-
-The interface is not yet stable. As of v0.0.3, the symbolic interface for creating problems is up and running, and batch 
+The interface is not yet stable. As of v0.0.3, a symbolic interface for creating problems is up and running, and batch 
 solves can be performed using Euler's method only, with a slightly clumsy API and some disorganised documentation.
 
 ### Roadmap:
--v0.0.4: Implicit integration methods.
-  - Currently in development: Matrix-free solvers
-  - Next up: 
-    - Adaptive time-stepping loops and abstraction of the integrator loop base class.
-    - Backward Euler method
-    - Rosenbrock methods
-    - Radau methods
-    - Runge-Kutta methods
-- v0.0.5: API improvements. This version should be stable enough for use in research - I will be using it in mine.
+- v0.0.4: Adaptive-step implicit algorithms
+  - Adaptive step controllers, matrix-free solvers, and some algorithms - backwards euler, crank-nicolson, already implemented.
+  - Remaining work: refactor the way that cubie handles "drivers" - either interpolate a provided array, or provide 
+  equations which use t as a variable directly.
+- v0.0.5: Bigger, better algorithms
+  - Rosenbrock-W methods
+  - Explicit Runge-Kutta methods (generic, tableau-driven)
+  - Implicit Runge-Kutta methods (generic, tableau-driven)
+  - Common RK concrete algos: tsit5, Dormand-Prince
+  - RadauIIA-5 
+- v0.0.6: API improvements. This version should be stable enough for use in research - I will be using it in mine.
 - v0.1.0: Documentation to match the API, organised in the sane way that a robot does not.
 
-I'm completing this project to use it to finish my PhD, so I've got a pretty solid driver to get to v0.0.5 as fast as my
+I'm completing this project to use it to finish my PhD, so I've got a pretty solid driver to get to v0.0.6 as fast as my
 little fingers can type. I am motivated to get v0.1.0 out soon after to see if there is interest in this tool from the 
 wider community.
 
