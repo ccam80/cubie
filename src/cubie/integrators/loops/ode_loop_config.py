@@ -411,6 +411,10 @@ class ODELoopConfig:
         default=None,
         validator=validators.optional(is_device_validator)
     )
+    driver_fn: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator)
+    )
     observables_fn: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
