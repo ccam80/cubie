@@ -188,7 +188,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             niters,
             accept_out,
             local_temp
-        ):
+        ):  # pragma: no cover - CUDA
             """Proportional–integral–derivative accept/step controller.
 
             Parameters

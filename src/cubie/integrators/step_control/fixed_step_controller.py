@@ -94,7 +94,7 @@ class FixedStepController(BaseStepController):
         @cuda.jit(device=True, inline=True, fastmath=True)
         def controller_fixed_step(
             dt, state, state_prev, error, accept_out, local_temp
-        ):
+        ):  # pragma: no cover - CUDA
             """Fixed-step controller device function.
 
             Parameters

@@ -19,7 +19,7 @@ import numpy as np
 CUDA_SIMULATION: bool = os.environ.get("NUMBA_ENABLE_CUDASIM") == "1"
 
 
-class FakeBaseCUDAMemoryManager:
+class FakeBaseCUDAMemoryManager: # pragma: no cover - placeholder
     """Minimal stub of a CUDA memory manager."""
 
     def __init__(self, context: Any | None = None):
@@ -37,7 +37,7 @@ class FakeBaseCUDAMemoryManager:
         return contextmanager(lambda: (yield))()
 
 
-class FakeNumbaCUDAMemoryManager(FakeBaseCUDAMemoryManager):
+class FakeNumbaCUDAMemoryManager(FakeBaseCUDAMemoryManager): # pragma: no cover - placeholder
     """Minimal fake of a CUDA memory manager."""
 
     handle: int = 0
@@ -49,7 +49,7 @@ class FakeNumbaCUDAMemoryManager(FakeBaseCUDAMemoryManager):
         super().__init__()
 
 
-class FakeGetIpcHandleMixin:
+class FakeGetIpcHandleMixin:  # pragma: no cover - placeholder
     """Return a fake IPC handle object."""
 
     def get_ipc_handle(self):
@@ -62,17 +62,17 @@ class FakeGetIpcHandleMixin:
         return FakeIpcHandle()
 
 
-class FakeStream:
+class FakeStream:  # pragma: no cover - placeholder
     """Placeholder CUDA stream."""
 
     handle = c_void_p(0)
 
 
-class FakeHostOnlyCUDAManager(FakeBaseCUDAMemoryManager):
+class FakeHostOnlyCUDAManager(FakeBaseCUDAMemoryManager):  # pragma: no cover - placeholder
     """Host-only manager used in simulation environments."""
 
 
-class FakeMemoryPointer:
+class FakeMemoryPointer:  # pragma: no cover - placeholder
     """Lightweight pointer-like object used in simulation."""
 
     def __init__(
@@ -90,7 +90,7 @@ class FakeMemoryPointer:
         self._finalizer = finalizer
 
 
-class FakeMemoryInfo:
+class FakeMemoryInfo:  # pragma: no cover - placeholder
     """Container for fake memory statistics."""
 
     free = 1024 ** 3

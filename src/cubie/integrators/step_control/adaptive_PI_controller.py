@@ -181,7 +181,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         @cuda.jit(device=True, inline=True, fastmath=True)
         def controller_PI(
             dt, state, state_prev, error, niters, accept_out, local_temp
-        ):
+        ):  # pragma: no cover - CUDA
             """Proportional–integral accept/step-size controller.
 
             Parameters

@@ -128,7 +128,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             niters,
             accept_out,
             local_temp,
-        ):
+        ):  # pragma: no cover - CUDA
             """Integral accept/step-size controller.
 
             Parameters
