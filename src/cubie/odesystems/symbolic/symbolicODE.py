@@ -1,9 +1,10 @@
 """Symbolic ODE system built from :mod:`sympy` expressions."""
 
-from typing import Callable, Iterable, Optional, Set, Union
+from typing import Any, Callable, Iterable, Optional, Set, Union
 
 import numpy as np
 import sympy as sp
+from cubie.integrators.driver_array import DriverArray
 from cubie.odesystems.symbolic.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,
@@ -27,7 +28,7 @@ def create_ODE_system(
     observables: Optional[Iterable[str]] = None,
     parameters: Optional[Union[dict[str, float], Iterable[str]]] = None,
     constants: Optional[Union[dict[str, float], Iterable[str]]] = None,
-    drivers: Optional[Iterable[str]] = None,
+    drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
     user_functions: Optional[dict[str, Callable]] = None,
     name: Optional[str] = None,
     precision: PrecisionDtype = np.float32,
@@ -52,7 +53,10 @@ def create_ODE_system(
         Constant labels either as an iterable or as a mapping to default
         values.
     drivers
-        External driver variable labels required at runtime.
+        External driver variable labels required at runtime. Accepts either
+        an iterable of driver symbol names or a dictionary mapping driver
+        names to default values or driver-array samples and configuration
+        entries.
     user_functions
         Custom callables referenced within ``dxdt`` expressions.
     name
@@ -166,6 +170,7 @@ class SymbolicODE(BaseODE):
         self.indices = all_indexed_bases
         self.fn_hash = fn_hash
         self.user_functions = user_functions
+        self.driver_defaults = all_indexed_bases.drivers.default_values
 
         super().__init__(
             initial_values=all_indexed_bases.state_values,
@@ -185,7 +190,7 @@ class SymbolicODE(BaseODE):
         observables: Optional[Iterable[str]] = None,
         parameters: Optional[Union[dict[str, float], Iterable[str]]] = None,
         constants: Optional[Union[dict[str, float], Iterable[str]]] = None,
-        drivers: Optional[Iterable[str]] = None,
+        drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
         precision: PrecisionDtype = np.float32,
@@ -210,7 +215,9 @@ class SymbolicODE(BaseODE):
             Constant labels either as an iterable or as a mapping to default
             values.
         drivers
-            External driver variable labels required at runtime.
+            External driver variable labels required at runtime. May be an
+            iterable of driver labels or a dictionary describing driver
+            defaults or driver-array samples alongside configuration entries.
         user_functions
             Custom callables referenced within ``dxdt`` expressions.
         name
@@ -227,15 +234,20 @@ class SymbolicODE(BaseODE):
             Fully constructed symbolic system ready for compilation.
         """
 
+        if isinstance(drivers, dict) and (
+            "time" in drivers or "dt" in drivers
+        ):
+            DriverArray(precision=precision, drivers_dict=drivers)
+
         sys_components = parse_input(
-                states = states,
-                observables = observables,
-                parameters = parameters,
-                constants = constants,
-                drivers = drivers,
-                user_functions=user_functions,
-                dxdt = dxdt,
-                strict=strict
+            states=states,
+            observables=observables,
+            parameters=parameters,
+            constants=constants,
+            drivers=drivers,
+            user_functions=user_functions,
+            dxdt=dxdt,
+            strict=strict,
         )
         index_map, all_symbols, functions, equations, fn_hash = sys_components
         return cls(equations=equations,

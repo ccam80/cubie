@@ -15,6 +15,9 @@ algorithms to use. This is the easiest way to create a system of ODEs. Here's an
 example of setting up the Lotka-Volterra predator-prey equations, a common
 example of a nonlinear ODE system:
 
+``BaseODE`` is the abstract interface, and ``SymbolicODE`` is currently its
+only concrete subclass.
+
 .. code-block:: python
    :caption: The simplest way to create a system of ODEs in Cubie.
 

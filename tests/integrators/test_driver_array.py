@@ -398,8 +398,8 @@ def test_interpolation_exact_for_polynomials(order, precision) -> None:
         ),
     )
 
-
-def test_cubic_matches_scipy_reference(precision) -> None:
+@pytest.mark.parametrize("bc", ["natural", "periodic"])
+def test_cubic_matches_scipy_reference(precision, bc) -> None:
     """Order-three interpolation should match SciPy's cubic spline."""
 
     scipy = pytest.importorskip("scipy.interpolate")
@@ -407,17 +407,18 @@ def test_cubic_matches_scipy_reference(precision) -> None:
     times = np.linspace(0.0, 2.0, 21, dtype=precision)
     samples = np.sin(2.3 * times) + 0.3 * np.cos(4.1 * times)
     samples += 0.05 * rng.standard_normal(times.size).astype(precision)
+    samples[0] = samples[-1]
     drivers_dict = {"drive": samples, "time": times}
     driver = DriverArray(
         precision=precision,
         drivers_dict=drivers_dict,
         order=3,
-        wrap=False,
-        boundary_condition='natural'
+        wrap=True,
+        boundary_condition=bc
     )
     query = np.linspace(times[0], times[-1], 257, dtype=precision)
     gpu = _run_evaluate(driver.driver_function, driver.coefficients, query)
-    spline = scipy.CubicSpline(times, samples, bc_type="natural")
+    spline = scipy.CubicSpline(times, samples, bc_type=bc)
     scipy_values = np.asarray(spline(query), dtype=precision)
     np.testing.assert_allclose(
         gpu[:, 0],

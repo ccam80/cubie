@@ -391,7 +391,7 @@ def run_device_loop(
     d_params = cuda.to_device(params)
     if driver_array is None:
         order = int(solver_config["driverspline_order"])
-        width = system.num_drivers
+        width = min(system.num_drivers, 1)
         coeff_shape = (1, width, order + 1)
         driver_coefficients = np.zeros(coeff_shape, dtype=precision)
     else:

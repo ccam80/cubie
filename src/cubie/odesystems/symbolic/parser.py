@@ -1,7 +1,17 @@
 """Parse symbolic ODE descriptions into structured SymPy objects."""
 
 import re
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 from warnings import warn
 
 import sympy as sp
@@ -16,6 +26,7 @@ from cubie._utils import is_devfunc
 PARSE_TRANSORMS = (T[0][0], T[3][0], T[4][0], T[8][0])
 
 TIME_SYMBOL = sp.Symbol("t", real=True)
+DRIVER_SETTING_KEYS = {"time", "dt", "wrap", "order"}
 
 KNOWN_FUNCTIONS = {
     # Basic mathematical functions
@@ -562,9 +573,36 @@ def _rhs_pass(
         # Attempt to inline non-device functions that can accept SymPy args
         rhs_expr = _inline_nondevice_calls(rhs_expr, user_funcs or {}, rename)
 
-        expressions.append([local_dict.get(lhs, all_symbols[lhs] if lhs in all_symbols else sp.Symbol(lhs, real=True)), rhs_expr])
+        expressions.append(
+            [
+                local_dict.get(
+                    lhs,
+                    all_symbols[lhs]
+                    if lhs in all_symbols
+                    else sp.Symbol(lhs, real=True),
+                ),
+                rhs_expr,
+            ]
+        )
 
-    # Return expressions along with funcs mapping (original names)
+    declared_symbols = {
+        value for value in all_symbols.values() if isinstance(value, sp.Symbol)
+    }
+    new_symbol_set = set(new_symbols)
+    rhs_symbols = {
+        symbol for _, expression in expressions for symbol in expression.free_symbols
+    }
+    unresolved_symbols = sorted(
+        str(symbol)
+        for symbol in rhs_symbols
+        if symbol not in declared_symbols and symbol not in new_symbol_set
+    )
+    if unresolved_symbols:
+        raise ValueError(
+            "Equations reference undefined symbols: "
+            f"{unresolved_symbols}."
+        )
+
     return expressions, funcs, new_symbols
 
 def parse_input(
@@ -573,7 +611,7 @@ def parse_input(
     observables: Optional[Iterable[str]] = None,
     parameters: Optional[Union[Dict[str, float], Iterable[str]]] = None,
     constants: Optional[Union[Dict[str, float], Iterable[str]]] = None,
-    drivers: Optional[Iterable[str]] = None,
+    drivers: Optional[Union[Iterable[str], Dict[str, Any]]] = None,
     user_functions: Optional[Dict[str, Callable]] = None,
     user_function_derivatives: Optional[Dict[str, Callable]] = None,
     strict: bool = False,
@@ -601,7 +639,10 @@ def parse_input(
         Constant names or mapping to default values that remain fixed across
         runs.
     drivers
-        Driver variable names supplied at runtime.
+        Driver variable names supplied at runtime. Accepts either an iterable
+        of driver labels or a dictionary mapping driver labels to default
+        values and, when using driver arrays, configuration entries such as
+        ``time``, ``dt``, ``wrap``, and ``order``.
     user_functions
         Mapping of callable names used in equations to their implementations.
     user_function_derivatives
@@ -634,8 +675,18 @@ def parse_input(
         parameters = {}
     if constants is None:
         constants = {}
+    driver_dict = None
     if drivers is None:
         drivers = []
+    elif isinstance(drivers, dict):
+        driver_dict = drivers
+        drivers = [
+            key for key in drivers.keys() if key not in DRIVER_SETTING_KEYS
+        ]
+        if len(drivers) == 0:
+            raise ValueError(
+                "Driver dictionary must include at least one driver symbol."
+            )
 
     index_map = _process_parameters(
         states=states,
@@ -669,6 +720,13 @@ def parse_input(
         strict=strict,
     )
 
+    for param in new_params:
+        index_map.parameters.push(param)
+        all_symbols[str(param)] = param
+
+    if driver_dict is not None:
+        index_map.drivers.set_passthrough_defaults(driver_dict)
+
     # Expose user functions in the returned symbols dict (original names)
     # and alias mapping for the printer under a special key
     if user_functions:
@@ -687,8 +745,5 @@ def parse_input(
         if rename:
             alias_map = {v: k for k, v in rename.items()}
             all_symbols['__function_aliases__'] = alias_map
-
-    for param in new_params:
-        index_map.parameters.push(param)
 
     return index_map, all_symbols, funcs, equation_map, fn_hash

@@ -1,15 +1,17 @@
 """Utilities for transforming array driver samples into CUDA interpolants."""
 
 import math
-from typing import Callable, Dict, Union, Set, Optional
+from typing import Callable, Dict, Optional, Set, TYPE_CHECKING, Union
 
 import numpy as np
 from attrs import define, field, validators
 from numba import cuda, int32
 from numpy.typing import NDArray
 
-from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 from cubie.cuda_simsafe import selp
+
+if TYPE_CHECKING:
+    from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie._utils import (
@@ -296,7 +298,7 @@ class DriverArray(CUDAFactory):
     @staticmethod
     def check_against_system(self,
                              drivers_dict: Dict[str, Union[float, bool, FloatArray]],
-                             system: SymbolicODE):
+                             system: 'SymbolicODE'):
         driver_keys = [
             key
             for key in drivers_dict
