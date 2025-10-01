@@ -37,7 +37,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         self,
         precision: type,
         dt_min: float,
-        dt_max: Optional[float] = None,
+        dt_max: float = 1.0,
         atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         algorithm_order: int = 2,
