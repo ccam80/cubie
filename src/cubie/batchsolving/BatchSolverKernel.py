@@ -277,7 +277,7 @@ class BatchSolverKernel(CUDAFactory):
         self,
         inits,
         params,
-        driver_arrays,
+        driver_coefficients,
         duration,
         blocksize=256,
         stream=None,
@@ -294,12 +294,11 @@ class BatchSolverKernel(CUDAFactory):
             Initial conditions for each run. Shape should be (n_runs, n_states).
         params : array_like
             Parameters for each run. Shape should be (n_runs, n_params).
-        driver_arrays : Dict[str, Array]
-            Mapping of driver symbols to vectors of sampled driver values.
-            Must also have a "time" vector or a scalar "dt" that represents
-            the times at which the provided vector was sampled. Can also
-            have a boolean field "wrap" which, when True, causes the driver
-            to loop indefinitely. This field is set to True by default.
+        driver_coefficients : numpy.ndarray
+            Driver spline coefficients with shape
+            (num_segments, num_drivers, spline_order). These are produced by
+            :class:`~cubie.integrators.driver_arrays.DriverArray` and are
+            consumed directly by the integration loops.
         duration : float
             Duration of the simulation.
         blocksize : int, default=256
@@ -325,7 +324,7 @@ class BatchSolverKernel(CUDAFactory):
         if stream is None:
             stream = self.stream
 
-        precision=self.precision
+        precision = self.precision
         duration = precision(duration)
         warmup = precision(warmup)
         t0 = precision(t0)
@@ -335,7 +334,7 @@ class BatchSolverKernel(CUDAFactory):
         numruns = inits.shape[0]
         self.num_runs = numruns
 
-        self.input_arrays.update(self, inits, params, driver_arrays)
+        self.input_arrays.update(self, inits, params, driver_coefficients)
         self.output_arrays.update(self)
 
         self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)

@@ -157,6 +157,7 @@ def test_time_driver_array_matches_function(
     time_driver_systems,
     time_driver_solver_settings,
     sinusoid_driver_array,
+    single_integrator_run
 ):
     function_system, interpolated_system = time_driver_systems
     solver_settings = time_driver_solver_settings
@@ -201,6 +202,8 @@ def test_time_driver_array_matches_function(
         initial_state=function_system.initial_values.values_array.astype(
             precision, copy=True
         ),
+        localmem_required=single_integrator_run.local_memory_elements,
+
         output_functions=output_functions_function,
         solver_config=solver_settings,
     )
@@ -210,6 +213,7 @@ def test_time_driver_array_matches_function(
         initial_state=interpolated_system.initial_values.values_array.astype(
             precision, copy=True
         ),
+        localmem_required=single_integrator_run.local_memory_elements,
         output_functions=output_functions_driver,
         solver_config=solver_settings,
         driver_array=driver_array,
