@@ -34,14 +34,18 @@ class DriverArrayConfig:
         convenience input for drivers. A dict containing a mapping from
         driver symbol to a vector of values; either a time vector with
         sampling times of forcing values or a scalar "dt" float which
-        represents sample spacing; an optional "wrap" boolean which
-        determines whether the driver should wrap past the final sample or
-        hold the final value after the final sample.
+        represents sample spacing; optional ``"wrap"`` and
+        ``"boundary_condition"`` flags to configure behaviour around the
+        final sample; an optional ``"order"`` integer to override the spline
+        order.
     order : int
         Polynomial order for the interpolation over each segment.
     wrap : bool
         Whether the vector should repeat or provide zero values
         outside of the sampled range.
+    boundary_condition : {"natural", "periodic"}, optional
+        Boundary condition for the spline interpolation. When omitted the
+        solver falls back to the original local polynomial interpolation.
     t0 : float
         start time of driver samples; overwritten if time is supplied as an
         array (defaults to first time in that array).
@@ -57,6 +61,12 @@ class DriverArrayConfig:
     )
     order: int = field(default=3)
     wrap: bool = field(default=True)
+    boundary_condition: Optional[str] = field(
+        default=None,
+        validator=validators.optional(
+            validators.in_({"natural", "periodic"})
+        ),
+    )
 
     # These are generated from _drivers_dict after init
     driver_array: FloatArray = field(
@@ -82,6 +92,8 @@ class DriverArrayConfig:
             self.order = self._drivers_dict["order"]
         if "wrap" in self._drivers_dict:
             self.wrap = self._drivers_dict["wrap"]
+        if "boundary_condition" in self._drivers_dict:
+            self.boundary_condition = self._drivers_dict["boundary_condition"]
 
     def _normalise_driver_array(self) -> None:
         """Promote the forcing array to the expected dimensionality.
@@ -92,8 +104,9 @@ class DriverArrayConfig:
             Raised when the driver array fails dimensionality requirements or
             when the time array length does not match the driver samples.
         """
+        special_keys = ["time", "dt", "wrap", "order", "boundary_condition"]
         for key, array in self._drivers_dict.items():
-            if key not in ["time", "dt", "wrap", "order"]:
+            if key not in special_keys:
                 array = np.asarray(array)
                 if array.ndim != 1:
                     raise ValueError(f"Forcing array {key} must be "
@@ -101,7 +114,7 @@ class DriverArrayConfig:
         forcing_vectors = tuple(
             array
             for key, array in self._drivers_dict.items()
-            if key not in ["time", "dt", "wrap", "order"]
+            if key not in special_keys
         )
         if not all(
             array.shape[0] == forcing_vectors[0].shape[0]
@@ -212,6 +225,7 @@ class DriverArray(CUDAFactory):
         drivers_dict: Dict[str, FloatArray],
         order: int = 3,
         wrap: bool = False,
+        boundary_condition: Optional[str] = None,
     ) -> None:
         super().__init__()
         config = DriverArrayConfig(
@@ -219,6 +233,7 @@ class DriverArray(CUDAFactory):
             drivers_dict=drivers_dict,
             order=order,
             wrap=wrap,
+            boundary_condition=boundary_condition,
         )
         self.setup_compile_settings(config)
 
@@ -253,6 +268,12 @@ class DriverArray(CUDAFactory):
         return self.compile_settings.wrap
 
     @property
+    def boundary_condition(self) -> Optional[str]:
+        """Return the spline boundary condition to enforce, if any."""
+
+        return self.compile_settings.boundary_condition
+
+    @property
     def num_segments(self) -> int:
         """Return the number of polynomial segments."""
         return self.num_samples - 1
@@ -276,10 +297,17 @@ class DriverArray(CUDAFactory):
     def check_against_system(self,
                              drivers_dict: Dict[str, Union[float, bool, FloatArray]],
                              system: SymbolicODE):
-        driver_keys = [key for key in drivers_dict if key not in ["time",
-                                                                  "dt",
-                                                                  "wrap",
-                                                                  "order"]]
+        driver_keys = [
+            key
+            for key in drivers_dict
+            if key not in [
+                "time",
+                "dt",
+                "wrap",
+                "order",
+                "boundary_condition",
+            ]
+        ]
         system_keys = set(system.indices.drivers.symbol_map.keys())
         if len(driver_keys) != system.num_drivers:
             raise ValueError(f"Number of drivers in drivers_dict "
@@ -299,32 +327,170 @@ class DriverArray(CUDAFactory):
             Segment-major coefficient array of shape ``(num_segments,
             num_drivers, order + 1)``.
         """
+        boundary_condition = self.boundary_condition
+        if boundary_condition is None:
+            precision = self.precision
+            num_segments = self.num_segments
+            num_drivers = self.num_drivers
+            order = self.order
+            drivers = self.driver_array
+            dt = self.dt
+            times = (np.arange(num_segments + 1, dtype=precision) * dt +
+                     self.t0)
+
+            window_size = order + 1
+            left_window = order // 2
+            base_indices = np.arange(num_segments, dtype=np.int64) - left_window
+            max_start = self.num_samples - window_size
+            indices_start = np.clip(base_indices, 0, max_start)
+            offsets = np.arange(window_size, dtype=np.int64)
+            window_indices = indices_start[:, np.newaxis] + offsets[np.newaxis, :]
+
+            window_times = times[window_indices]
+            base_times = times[:num_segments][:, np.newaxis]
+            normalised_times = (window_times - base_times) / dt
+
+            powers = np.arange(order + 1, dtype=precision)
+            vandermonde = normalised_times[..., np.newaxis] ** powers
+
+            window_values = drivers[window_indices, :]
+            coefficients = np.linalg.solve(vandermonde, window_values)
+            coefficients = np.transpose(coefficients, (0, 2, 1))
+            return np.ascontiguousarray(coefficients)
+
+        return self._compute_coefficients_with_boundary(boundary_condition)
+
+    def _compute_coefficients_with_boundary(
+        self,
+        boundary_condition: str,
+    ) -> FloatArray:
+        """Return spline coefficients respecting the requested boundary.
+
+        Parameters
+        ----------
+        boundary_condition : str
+            Requested boundary condition. Accepted values are ``"natural"``
+            and ``"periodic"``.
+
+        Returns
+        -------
+        numpy.ndarray
+            Coefficient array with shape ``(num_segments, num_drivers,
+            order + 1)`` ordered for Horner evaluation.
+
+        Raises
+        ------
+        ValueError
+            Raised when periodic constraints are incompatible with the driver
+            configuration or when an unknown boundary condition is supplied.
+        """
+
+        if boundary_condition not in {"natural", "periodic"}:
+            raise ValueError(
+                f"Unsupported boundary condition: {boundary_condition}."
+            )
+
         precision = self.precision
+        drivers = self.driver_array.astype(precision, copy=False)
+        num_samples = self.num_samples
         num_segments = self.num_segments
         num_drivers = self.num_drivers
         order = self.order
-        drivers = self.driver_array
-        dt = self.dt
-        times = (np.arange(num_segments + 1, dtype=precision) * dt +
-                 self.t0)
 
-        window_size = order + 1
-        left_window = order // 2
-        base_indices = np.arange(num_segments, dtype=np.int64) - left_window
-        max_start = self.num_samples - window_size
-        indices_start = np.clip(base_indices, 0, max_start)
-        offsets = np.arange(window_size, dtype=np.int64)
-        window_indices = indices_start[:, np.newaxis] + offsets[np.newaxis, :]
+        if boundary_condition == "periodic":
+            if not self.wrap:
+                raise ValueError(
+                    "Periodic boundary conditions require wrap=True so that "
+                    "the driver repeats after the final segment."
+                )
+            if not np.allclose(drivers[0], drivers[-1]):
+                raise ValueError(
+                    "Periodic boundary conditions require the first and "
+                    "last samples to match."
+                )
 
-        window_times = times[window_indices]
-        base_times = times[:num_segments][:, np.newaxis]
-        normalised_times = (window_times - base_times) / dt
+        num_coeffs = num_segments * (order + 1)
+        matrix = np.zeros((num_coeffs, num_coeffs), dtype=precision)
+        rhs = np.zeros((num_coeffs, num_drivers), dtype=precision)
+        row_index = 0
 
-        powers = np.arange(order + 1, dtype=precision)
-        vandermonde = normalised_times[..., np.newaxis] ** powers
+        def coeff_index(segment: int, power: int) -> int:
+            """Return the flattened coefficient index for ``segment``."""
 
-        window_values = drivers[window_indices, :]
-        coefficients = np.linalg.solve(vandermonde, window_values)
+            return segment * (order + 1) + power
+
+        falling = np.zeros((order + 1, order + 1), dtype=precision)
+        falling[:, 0] = precision(1.0)
+        for derivative in range(1, order + 1):
+            for power in range(derivative, order + 1):
+                falling[power, derivative] = (
+                    falling[power, derivative - 1]
+                    * precision(power - (derivative - 1))
+                )
+
+        # Function value constraints at the left edge of each segment.
+        for segment in range(num_segments):
+            matrix[row_index, coeff_index(segment, 0)] = precision(1.0)
+            rhs[row_index] = drivers[segment]
+            row_index += 1
+
+        # Function value constraints at the right edge of each segment.
+        for segment in range(num_segments):
+            base = coeff_index(segment, 0)
+            for power in range(order + 1):
+                matrix[row_index, base + power] = precision(1.0)
+            rhs[row_index] = drivers[segment + 1]
+            row_index += 1
+
+        # Continuity of derivatives across interior knots.
+        for segment in range(num_segments - 1):
+            for derivative in range(1, order):
+                base = coeff_index(segment, 0)
+                for power in range(derivative, order + 1):
+                    matrix[row_index, base + power] = falling[power, derivative]
+                next_index = coeff_index(segment + 1, derivative)
+                matrix[row_index, next_index] -= falling[derivative, derivative]
+                row_index += 1
+
+        if boundary_condition == "natural":
+            remaining = order - 1
+            derivative = 2
+            while remaining > 0 and derivative <= order:
+                base_start = coeff_index(0, 0)
+                matrix[row_index, base_start + derivative] = (
+                    falling[derivative, derivative]
+                )
+                row_index += 1
+                remaining -= 1
+                if remaining == 0:
+                    break
+                base_end = coeff_index(num_segments - 1, 0)
+                for power in range(derivative, order + 1):
+                    matrix[row_index, base_end + power] = (
+                        falling[power, derivative]
+                    )
+                row_index += 1
+                remaining -= 1
+                derivative += 1
+        elif boundary_condition == "periodic":
+            for derivative in range(1, order):
+                base_last = coeff_index(num_segments - 1, 0)
+                for power in range(derivative, order + 1):
+                    matrix[row_index, base_last + power] = (
+                        falling[power, derivative]
+                    )
+                base_first = coeff_index(0, derivative)
+                matrix[row_index, base_first] -= falling[derivative, derivative]
+                row_index += 1
+
+        if row_index != num_coeffs:
+            raise ValueError(
+                "Failed to assemble a square spline system; "
+                "please verify boundary condition handling."
+            )
+
+        solution = np.linalg.solve(matrix, rhs)
+        coefficients = solution.reshape(num_segments, order + 1, num_drivers)
         coefficients = np.transpose(coefficients, (0, 2, 1))
         return np.ascontiguousarray(coefficients)
 

@@ -413,8 +413,8 @@ def backward_euler_step(
     """Backward Euler step solved via Newton iteration."""
 
     precision = evaluator.precision
+    next_time = time + precision(dt)
 
-    drivers_now = driver_evaluator(time)
     drivers_next = driver_evaluator(time + dt)
 
     def residual(candidate: Array) -> Array:
@@ -422,14 +422,14 @@ def backward_euler_step(
             candidate,
             params,
             drivers_next,
-            time,
+            next_time,
         )
         dxdt, _ = evaluator.rhs(
             candidate,
             params,
             drivers_next,
             candidate_observables,
-            time,
+            next_time,
         )
         return candidate - state - dt * dxdt
 
@@ -438,14 +438,14 @@ def backward_euler_step(
             candidate,
             params,
             drivers_next,
-            time,
+            next_time,
         )
         jac = evaluator.jacobian(
             candidate,
             params,
             drivers_next,
             candidate_observables,
-            time,
+            next_time,
         )
         identity = np.eye(jac.shape[0], dtype=precision)
         return identity - dt * jac
@@ -489,35 +489,40 @@ def crank_nicolson_step(
     """Crank–Nicolson step with embedded backward Euler for error estimation."""
 
     precision = evaluator.precision
-    drivers_now = driver_evaluator(time)
-    drivers_next = driver_evaluator(time + dt)
+    current_time = precision(time)
+    half_dt = precision(dt) * 0.5
+    mid_time = current_time + half_dt
+    next_time = current_time + precision(dt)
+    drivers_now = driver_evaluator(current_time)
+    drivers_mid = driver_evaluator(mid_time)
+    drivers_next = driver_evaluator(next_time)
     observables_now = evaluator.observables(
         state,
         params,
         drivers_now,
-        time,
+        current_time,
     )
     f_now, _ = evaluator.rhs(
         state,
         params,
         drivers_now,
         observables_now,
-        time,
+        current_time,
     )
 
     def residual(candidate: Array) -> Array:
         candidate_observables = evaluator.observables(
             candidate,
             params,
-            drivers_next,
-            time,
+            drivers_mid,
+            mid_time,
         )
         f_candidate, _ = evaluator.rhs(
             candidate,
             params,
-            drivers_next,
+            drivers_mid,
             candidate_observables,
-            time,
+            mid_time,
         )
         return candidate - state - precision(0.5) * dt * (f_now + f_candidate)
 
@@ -525,15 +530,15 @@ def crank_nicolson_step(
         candidate_observables = evaluator.observables(
             candidate,
             params,
-            drivers_next,
-            time,
+            drivers_mid,
+            mid_time,
         )
         jac = evaluator.jacobian(
             candidate,
             params,
-            drivers_next,
+            drivers_mid,
             candidate_observables,
-            time,
+            mid_time,
         )
         identity = np.eye(jac.shape[0], dtype=precision)
         return identity - precision(0.5) * dt * jac
@@ -551,7 +556,7 @@ def crank_nicolson_step(
         next_state,
         params,
         drivers_next,
-        time + dt,
+        next_time,
     )
 
     # Embedded backward Euler step for the error estimate

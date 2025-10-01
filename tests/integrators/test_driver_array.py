@@ -413,6 +413,7 @@ def test_cubic_matches_scipy_reference(precision) -> None:
         drivers_dict=drivers_dict,
         order=3,
         wrap=False,
+        boundary_condition='natural'
     )
     query = np.linspace(times[0], times[-1], 257, dtype=precision)
     gpu = _run_evaluate(driver.driver_function, driver.coefficients, query)
@@ -428,4 +429,163 @@ def test_cubic_matches_scipy_reference(precision) -> None:
             f"gpu:\n{np.array2string(gpu[:, 0])}\n"
             f"scipy:\n{np.array2string(scipy_values)}"
         ),
+    )
+
+
+def _falling_factorial(power: int, derivative: int) -> int:
+    """Return the falling factorial ``power! / (power - derivative)!``."""
+
+    result = 1
+    for step in range(derivative):
+        result *= power - step
+    return result
+
+
+def _evaluate_derivative(
+    coefficients: np.ndarray,
+    segment: int,
+    driver_index: int,
+    tau: float,
+    derivative: int,
+    dt: float,
+) -> float:
+    """Evaluate a spline derivative at ``tau`` in the supplied segment."""
+
+    total = 0.0
+    for power in range(derivative, coefficients.shape[-1]):
+        factor = _falling_factorial(power, derivative)
+        total += (
+            coefficients[segment, driver_index, power]
+            * factor
+            * (tau ** (power - derivative))
+        )
+    return total / (dt ** derivative)
+
+
+def test_natural_boundary_supports_higher_orders(precision) -> None:
+    """Natural constraints should zero high derivatives for any order."""
+
+    order = 4
+    times = np.linspace(0.0, 3.0, 9, dtype=precision)
+    samples = np.sin(times) + 0.25 * times**2
+    drivers_dict = {"drive": samples, "time": times}
+    driver = DriverArray(
+        precision=precision,
+        drivers_dict=drivers_dict,
+        order=order,
+        wrap=False,
+        boundary_condition="natural",
+    )
+
+    coefficients = driver.coefficients
+    dt = driver.dt
+    expected_zero = []
+    remaining = order - 1
+    derivative = 2
+    while remaining > 0 and derivative <= order:
+        expected_zero.append((0, derivative))
+        remaining -= 1
+        if remaining == 0:
+            break
+        expected_zero.append((driver.num_segments - 1, derivative))
+        remaining -= 1
+        derivative += 1
+
+    for segment, derivative in expected_zero:
+        tau = 0.0 if segment == 0 else 1.0
+        value = _evaluate_derivative(coefficients, segment, 0, tau, derivative, dt)
+        np.testing.assert_allclose(
+            value,
+            0.0,
+            atol=1e-6,
+            err_msg=(
+                "natural boundary derivative failed to vanish\n"
+                f"segment={segment} derivative={derivative} value={value}"
+            ),
+        )
+
+    gpu = _run_evaluate(driver.driver_function, driver.coefficients, times)
+    reference = samples
+    np.testing.assert_allclose(
+        gpu[:, 0],
+        reference,
+        rtol=1e-6,
+        atol=1e-6,
+        err_msg="natural boundary spline failed to reproduce samples",
+    )
+
+
+def test_periodic_boundary_respects_general_order(precision) -> None:
+    """Periodic constraints should hold for arbitrary spline order."""
+
+    order = 5
+    num_samples = 12
+    times = np.linspace(0.0, 2.0 * np.pi, num_samples, dtype=precision)
+    values = np.column_stack(
+        (
+            np.sin(times),
+            0.75 * np.cos(2.0 * times),
+        )
+    )
+    values[0] = values[-1]
+    drivers_dict = {"s": values[:, 0], "c": values[:, 1], "time": times}
+    driver = DriverArray(
+        precision=precision,
+        drivers_dict=drivers_dict,
+        order=order,
+        wrap=True,
+        boundary_condition="periodic",
+    )
+
+    coefficients = driver.coefficients
+    dt = driver.dt
+    last_segment = driver.num_segments - 1
+    for derivative in range(1, order):
+        left = _evaluate_derivative(coefficients, 0, 0, 0.0, derivative, dt)
+        right = _evaluate_derivative(
+            coefficients,
+            last_segment,
+            0,
+            1.0,
+            derivative,
+            dt,
+        )
+        np.testing.assert_allclose(
+            left,
+            right,
+            atol=1e-6,
+            err_msg=(
+                "periodic derivative mismatch for sine driver\n"
+                f"derivative={derivative} left={left} right={right}"
+            ),
+        )
+
+    for derivative in range(1, order):
+        left = _evaluate_derivative(coefficients, 0, 1, 0.0, derivative, dt)
+        right = _evaluate_derivative(
+            coefficients,
+            last_segment,
+            1,
+            1.0,
+            derivative,
+            dt,
+        )
+        np.testing.assert_allclose(
+            left,
+            right,
+            atol=1e-6,
+            err_msg=(
+                "periodic derivative mismatch for cosine driver\n"
+                f"derivative={derivative} left={left} right={right}"
+            ),
+        )
+
+    gpu = _run_evaluate(driver.driver_function, driver.coefficients, times)
+    reference = values
+    np.testing.assert_allclose(
+        gpu,
+        reference,
+        rtol=1e-6,
+        atol=1e-6,
+        err_msg="periodic spline failed to reproduce samples",
     )
