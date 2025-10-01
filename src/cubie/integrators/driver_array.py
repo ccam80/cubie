@@ -1,14 +1,13 @@
 """Utilities for transforming array driver samples into CUDA interpolants."""
 
-from __future__ import annotations
-
 import math
-from typing import Callable, Union, Dict
+from typing import Callable, Dict, Union, Set, Optional
 
 import numpy as np
 from attrs import define, field, validators
 from numba import cuda, int32
 from numpy.typing import NDArray
+from cubie.cuda_simsafe import selp
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie._utils import (
@@ -52,15 +51,16 @@ class DriverArrayConfig:
 
     precision: PrecisionDtype = field(validator=precision_validator)
     _drivers_dict: dict[str, Union[float, bool, FloatArray]] = field(
-        validator=validators.instance_of(dict)
-        )
+        validator=validators.instance_of(dict),
+    )
     order: int = field()
     wrap: bool = field(default=True)
 
     # These are generated from _drivers_dict after init
     driver_array: FloatArray = field(
         init=False,
-        validator=float_array_validator)
+        validator=float_array_validator,
+    )
     dt: FloatArray = field(
         init=False,
         validator=getype_validator(float, 0)
@@ -89,10 +89,15 @@ class DriverArrayConfig:
                 if array.ndim != 1:
                     raise ValueError(f"Forcing array {key} must be "
                                      f"one-dimensional.")
-        forcing_vectors = tuple(array for key, array in self._drivers_dict.items()
-                        if key not in ["time", "dt", "wrap"])
-        if not all(array.shape[0] == forcing_vectors[0].shape[0]
-                   for array in forcing_vectors):
+        forcing_vectors = tuple(
+            array
+            for key, array in self._drivers_dict.items()
+            if key not in ["time", "dt", "wrap"]
+        )
+        if not all(
+            array.shape[0] == forcing_vectors[0].shape[0]
+            for array in forcing_vectors
+        ):
             raise ValueError(
                 "All forcing vectors must have the same length / be sampled "
                 "on the same grid",
@@ -192,7 +197,11 @@ class DriverArray(CUDAFactory):
     forcing terms."""
 
     def __init__(
-        self, precision: PrecisionDtype, drivers_dict: Dict[str, FloatArray], order: int = 3, wrap: bool = False,
+        self,
+        precision: PrecisionDtype,
+        drivers_dict: Dict[str, FloatArray],
+        order: int = 3,
+        wrap: bool = False,
     ) -> None:
         super().__init__()
         config = DriverArrayConfig(
@@ -254,7 +263,7 @@ class DriverArray(CUDAFactory):
         return self.compile_settings.dt
 
     def _compute_coefficients(self) -> FloatArray:
-        """Fit polynomial splines across all segments for all drivers
+        """Compute coefficients via local polynomial interpolation.
 
         Returns
         -------
@@ -262,7 +271,7 @@ class DriverArray(CUDAFactory):
             Segment-major coefficient array of shape ``(num_segments,
             num_drivers, order + 1)``.
         """
-        precision=self.precision
+        precision = self.precision
         num_segments = self.num_segments
         num_drivers = self.num_drivers
         order = self.order
@@ -271,12 +280,12 @@ class DriverArray(CUDAFactory):
         times = (np.arange(num_segments + 1, dtype=precision) * dt +
                  self.t0)
 
-        # repeat index at sample [n - order - 1] for the last [order] samples
-        indices_start = np.minimum(
-            np.arange(num_segments, dtype=np.int64),
-            self.num_samples - order - 1,
-        )
-        offsets = np.arange(order + 1, dtype=np.int64)
+        window_size = order + 1
+        left_window = order // 2
+        base_indices = np.arange(num_segments, dtype=np.int64) - left_window
+        max_start = self.num_samples - window_size
+        indices_start = np.clip(base_indices, 0, max_start)
+        offsets = np.arange(window_size, dtype=np.int64)
         window_indices = indices_start[:, np.newaxis] + offsets[np.newaxis, :]
 
         window_times = times[window_indices]
@@ -309,10 +318,13 @@ class DriverArray(CUDAFactory):
         num_segments_i32 = int32(num_segments)
         wrap = self.wrap
         coeffs_host = self._compute_coefficients()
+        zero_value = self.precision(0.0)
 
         @cuda.jit(device=True, inline=True)
         def evaluate_all(
-            time: float, coefficients: np.ndarray, out: np.ndarray
+            time,
+            coefficients,
+            out
         ) -> None:
             """Evaluate all driver polynomials at ``time`` on the device.
 
@@ -320,37 +332,85 @@ class DriverArray(CUDAFactory):
             ----------
             time : float
                 Query time for evaluation.
-            coefficients : numpy.ndarray
+            coefficients : device array
                 Segment-major coefficients with trailing polynomial degrees.
-            out : numpy.ndarray
+            out : device array
                 Output array to populate with evaluated driver values.
             """
 
             scaled = (time - start_time) * inv_resolution
-            idx = int32(math.floor(scaled))
+            scaled_floor = math.floor(scaled)
+            idx = int32(scaled_floor)
+
             if wrap:
                 seg = int32(idx % num_segments_i32)
-                if seg < 0:
-                    seg = int32(seg + num_segments_i32)
+                tau = scaled - scaled_floor
+                in_range = True
             else:
-                if idx < 0:
-                    seg = int32(0)
-                elif idx >= num_segments_i32:
-                    seg = int32(num_segments_i32 - 1)
-                else:
-                    seg = idx
-            base_time = start_time + resolution * float(seg)
-            tau = (time - base_time) * inv_resolution
+                in_range = (scaled >= 0.0) and (scaled <= num_segments)
+                seg = selp(idx < 0, int32(0), idx)
+                seg = selp(seg >= num_segments_i32,
+                           int32(num_segments_i32 - 1), seg)
+                tau = scaled - float(seg)
+
+            # Evaluate polynomials using Horner's rule; compiler will unroll the k-loop
             for driver_index in range(num_drivers):
-                acc = 0.0
+                acc = zero_value
                 for k in range(order, -1, -1):
                     acc = acc * tau + coefficients[seg, driver_index, k]
-                out[driver_index] = acc
+                out[driver_index] = acc if in_range else zero_value
 
         return DriverArrayCache(
             device_function=evaluate_all,
             coefficients=coeffs_host,
-        )
+         )
+
+    def update(
+        self,
+        updates_dict: Optional[Dict[str, object]] = None,
+        silent: bool = False,
+        **kwargs: object,
+    ) -> Set[str]:
+        """Apply configuration updates and invalidate caches when needed.
+
+        Parameters
+        ----------
+        updates_dict
+            Mapping of configuration keys to their new values.
+        silent
+            When ``True``, suppress warnings about inapplicable keys.
+        **kwargs
+            Additional configuration updates supplied inline.
+
+        Returns
+        -------
+        set
+            Set of configuration keys that were recognized and updated.
+
+        Raises
+        ------
+        KeyError
+            Raised when an unknown key is provided while ``silent`` is False.
+        """
+        if updates_dict is None:
+            updates_dict = {}
+        updates_dict = updates_dict.copy()
+        if kwargs:
+            updates_dict.update(kwargs)
+        if updates_dict == {}:
+            return set()
+
+        recognised = self.update_compile_settings(updates_dict, silent=True)
+        unrecognised = set(updates_dict.keys()) - recognised
+
+
+        if not silent and unrecognised:
+            raise KeyError(
+                f"Unrecognized parameters in update: {unrecognised}. "
+                "These parameters were not updated.",
+            )
+
+        return recognised
 
     @property
     def driver_function(self) -> Callable:

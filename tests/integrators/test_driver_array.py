@@ -1,8 +1,7 @@
 """Tests for CUDA driver-array interpolation helpers."""
 
-from __future__ import annotations
-
 import math
+from typing import Tuple
 
 import numpy as np
 import pytest
@@ -17,9 +16,12 @@ def quadratic_driver(precision) -> DriverArray:
 
     times = np.arange(0.0, 6.0, 1.0, dtype=precision)
     values = times**2
-    drivers_dict = {'values': values, 'time': times}
+    drivers_dict = {"values": values, "time": times}
     driver = DriverArray(
-        precision=precision, drivers_dict=drivers_dict, order=2, wrap=False
+        precision=precision,
+        drivers_dict=drivers_dict,
+        order=2,
+        wrap=False,
     )
     return driver
 
@@ -29,62 +31,42 @@ def cubic_drivers(precision) -> DriverArray:
     """Two driver signals that are exactly represented by cubic polynomials."""
 
     times = np.linspace(0.0, 5.0, 11, dtype=precision)
-    resolution = times[1] - times[0]
     t = times
-    drivers_dict = {"cubic1": t**3 - 2.0 * t,
-                    "cubic2": 0.5 * t**3 + 2*t**2 + t,
-                    "time": times}
+    drivers_dict = {
+        "cubic1": t**3 - 2.0 * t,
+        "cubic2": 0.5 * t**3 + 2 * t**2 + t,
+        "time": times,
+    }
     driver = DriverArray(
-        precision=precision, drivers_dict=drivers_dict, order=3, wrap=False
+        precision=precision,
+        drivers_dict=drivers_dict,
+        order=3,
+        wrap=False,
     )
     # Evaluation times avoid the final endpoint to prevent wrap behaviour.
     return driver
 
 
 @pytest.fixture(scope="function")
-def wrapping_drivers(precision) -> tuple[DriverArray, DriverArray]:
+def wrapping_drivers(precision) -> Tuple[DriverArray, DriverArray]:
     """Return clamp and wrap driver arrays sharing identical samples."""
 
     times = np.linspace(0.0, 4.0, 5, dtype=precision)
     values = np.array([0.0, 1.5, -0.75, 2.25, -3.0], dtype=precision)
-    drivers_dict = {'values': values, 'time': times}
-    clamp = DriverArray(precision=precision, drivers_dict=drivers_dict,
-                        order=3,
-                        wrap=False)
-    wrap = DriverArray(precision=precision, drivers_dict=drivers_dict,
-                        order=3, wrap=True)
+    drivers_dict = {"values": values, "time": times}
+    clamp = DriverArray(
+        precision=precision,
+        drivers_dict=drivers_dict,
+        order=3,
+        wrap=False,
+    )
+    wrap = DriverArray(
+        precision=precision,
+        drivers_dict=drivers_dict,
+        order=3,
+        wrap=True,
+    )
     return clamp, wrap
-
-
-def _cpu_partition(
-    time: float, start: float, inv_res: float, segments: int
-) -> int:
-    """Clamp time to the closest segment index.
-
-    Parameters
-    ----------
-    time : float
-        Query time to partition.
-    start : float
-        Start time of the driver samples.
-    inv_res : float
-        Reciprocal of the temporal resolution.
-    segments : int
-        Number of polynomial segments.
-
-    Returns
-    -------
-    int
-        Clamped segment index.
-    """
-
-    scaled = (time - start) * inv_res
-    idx = math.floor(scaled)
-    if idx < 0:
-        return 0
-    if idx >= segments:
-        return segments - 1
-    return idx
 
 
 def _cpu_evaluate(
@@ -117,15 +99,22 @@ def _cpu_evaluate(
 
     inv_res = 1.0 / resolution
     scaled = (time - start) * inv_res
-    idx = math.floor(scaled)
     if wrap:
-        segment = idx % coefficients.shape[0]
+        segment_float = math.floor(scaled)
+        tau = scaled - segment_float
+        segment = int(segment_float) % coefficients.shape[0]
         if segment < 0:
             segment += coefficients.shape[0]
     else:
-        segment = _cpu_partition(time, start, inv_res, coefficients.shape[0])
-    base_time = start + resolution * float(segment)
-    tau = (time - base_time) * inv_res
+        if scaled < 0.0 or scaled > float(coefficients.shape[0]):
+            return np.zeros(coefficients.shape[1], dtype=coefficients.dtype)
+        segment = math.floor(scaled)
+        if segment < 0:
+            segment = 0
+        elif segment >= coefficients.shape[0]:
+            segment = coefficients.shape[0] - 1
+        base_time = start + resolution * float(segment)
+        tau = (time - base_time) * inv_res
     out = np.empty(coefficients.shape[1], dtype=coefficients.dtype)
     for driver_index in range(coefficients.shape[1]):
         coeffs = coefficients[segment, driver_index]
@@ -191,15 +180,23 @@ def test_build_coefficients_matches_polynomial(quadratic_driver):
             np.ones_like(segment_starts),
         )
     )
-    assert np.allclose(coefficients, expected)
+    np.testing.assert_allclose(
+        coefficients,
+        expected,
+        err_msg=(
+            "device coefficients diverged from quadratic reference\n"
+            f"device:\n{np.array2string(coefficients)}\n"
+            f"expected:\n{np.array2string(expected)}"
+        ),
+    )
 
 
 def test_device_interpolation_matches_cpu(cubic_drivers) -> None:
     """Device evaluation must agree with a CPU Horner evaluation."""
 
     driver = cubic_drivers
-    query_times = (np.arange(driver.num_samples + 2, dtype=np.int32)
-                     * driver.dt)
+    query_times = np.arange(driver.num_samples + 2, dtype=np.int32)
+    query_times = query_times.astype(driver.precision) * driver.dt
 
     coefficients = driver.coefficients
     device_fn = driver.driver_function
@@ -219,7 +216,15 @@ def test_device_interpolation_matches_cpu(cubic_drivers) -> None:
         ]
     )
 
-    assert np.allclose(gpu, cpu)
+    np.testing.assert_allclose(
+        gpu,
+        cpu,
+        err_msg=(
+            "device vs cpu Horner evaluation mismatch\n"
+            f"gpu:\n{np.array2string(gpu)}\n"
+            f"cpu:\n{np.array2string(cpu)}"
+        ),
+    )
 
 
 def test_wrap_vs_clamp_evaluation(wrapping_drivers) -> None:
@@ -227,7 +232,9 @@ def test_wrap_vs_clamp_evaluation(wrapping_drivers) -> None:
 
     clamp_driver, wrap_driver = wrapping_drivers
 
-    query_times = np.array([-0.5, 0.0, 1.5, 4.0, 4.5, 6.2], dtype=np.float64)
+    query_times = np.array(
+        [-0.5, 0.0, 1.5, 4.0, 4.5, 6.2], dtype=clamp_driver.precision
+    )
 
     clamp_gpu = _run_evaluate(
         clamp_driver.driver_function, clamp_driver.coefficients, query_times
@@ -261,6 +268,164 @@ def test_wrap_vs_clamp_evaluation(wrapping_drivers) -> None:
         ]
     )
 
-    assert np.allclose(clamp_gpu, clamp_cpu)
-    assert np.allclose(wrap_gpu, wrap_cpu)
+    np.testing.assert_allclose(
+        clamp_gpu,
+        clamp_cpu,
+        err_msg=(
+            "clamp device evaluation diverged from CPU reference\n"
+            f"gpu:\n{np.array2string(clamp_gpu)}\n"
+            f"cpu:\n{np.array2string(clamp_cpu)}"
+        ),
+    )
+    np.testing.assert_allclose(
+        wrap_gpu,
+        wrap_cpu,
+        err_msg=(
+            "wrap device evaluation diverged from CPU reference\n"
+            f"gpu:\n{np.array2string(wrap_gpu)}\n"
+            f"cpu:\n{np.array2string(wrap_cpu)}"
+        ),
+    )
     assert not np.allclose(clamp_gpu, wrap_gpu)
+
+
+def test_non_wrap_returns_zero_outside_range(quadratic_driver) -> None:
+    """Non-wrapping drivers must output zeros beyond sampled times."""
+
+    driver = quadratic_driver
+    coefficients = driver.coefficients
+    device_fn = driver.driver_function
+    dtype = driver.precision
+    query_times = np.array(
+        [
+            driver.t0 - driver.dt,
+            driver.t0 + 0.5 * driver.dt,
+            driver.t0 + driver.num_segments * driver.dt + driver.dt,
+        ],
+        dtype=dtype,
+    )
+
+    gpu = _run_evaluate(device_fn, coefficients, query_times)
+    np.testing.assert_allclose(
+        gpu[0],
+        0.0,
+        err_msg=(
+            "leading extrapolation should clamp to zero\n"
+            f"gpu:\n{np.array2string(gpu[0])}"
+        ),
+    )
+    np.testing.assert_allclose(
+        gpu[2],
+        0.0,
+        err_msg=(
+            "trailing extrapolation should clamp to zero\n"
+            f"gpu:\n{np.array2string(gpu[2])}"
+        ),
+    )
+    assert not np.allclose(gpu[1], 0.0)
+
+
+def test_wrap_repeats_periodically(wrapping_drivers) -> None:
+    """Wrapping drivers must repeat their samples beyond the final index."""
+
+    _, wrap_driver = wrapping_drivers
+    coefficients = wrap_driver.coefficients
+    device_fn = wrap_driver.driver_function
+    period = wrap_driver.num_segments * wrap_driver.dt
+    dtype = wrap_driver.precision
+    query_times = np.array(
+        [
+            wrap_driver.t0 + 0.25 * period,
+            wrap_driver.t0 + 1.25 * period,
+            wrap_driver.t0 - 0.75 * period,
+        ],
+        dtype=dtype,
+    )
+
+    gpu = _run_evaluate(device_fn, coefficients, query_times)
+    np.testing.assert_allclose(
+        gpu[0],
+        gpu[1],
+        err_msg=(
+            "wrap evaluation should repeat forward period\n"
+            f"gpu0:\n{np.array2string(gpu[0])}\n"
+            f"gpu1:\n{np.array2string(gpu[1])}"
+        ),
+    )
+    np.testing.assert_allclose(
+        gpu[0],
+        gpu[2],
+        err_msg=(
+            "wrap evaluation should repeat backward period\n"
+            f"gpu0:\n{np.array2string(gpu[0])}\n"
+            f"gpu2:\n{np.array2string(gpu[2])}"
+        ),
+    )
+
+
+@pytest.mark.parametrize("order", [1, 2, 3, 4, 5])
+def test_interpolation_exact_for_polynomials(order, precision) -> None:
+    """Interpolation of polynomials up to ``order`` should be exact."""
+
+    times = np.linspace(0.0, 6.0, 25, dtype=precision)
+    coeffs = np.arange(order + 1, dtype=precision) + 1.0
+    values = np.zeros_like(times)
+    for power, coef in enumerate(coeffs):
+        values += coef * times**power
+    drivers_dict = {"values": values, "time": times}
+    driver = DriverArray(
+        precision=precision,
+        drivers_dict=drivers_dict,
+        order=order,
+        wrap=False,
+    )
+    query = np.linspace(times[0], times[-1], 51, dtype=precision)
+    gpu = _run_evaluate(driver.driver_function, driver.coefficients, query)
+    reference = np.zeros_like(query)
+    for power, coef in enumerate(coeffs):
+        reference += coef * query**power
+    eps = np.finfo(precision).eps
+    tol = 1_000.0 * eps
+    np.testing.assert_allclose(
+        gpu[:, 0],
+        reference,
+        rtol=tol,
+        atol=tol,
+        err_msg=(
+            "polynomial interpolation lost exactness\n"
+            f"gpu:\n{np.array2string(gpu[:, 0])}\n"
+            f"reference:\n{np.array2string(reference)}"
+        ),
+    )
+
+
+def test_cubic_matches_scipy_reference(precision) -> None:
+    """Order-three interpolation should match SciPy's cubic spline."""
+
+    scipy = pytest.importorskip("scipy.interpolate")
+    rng = np.random.default_rng(1234)
+    times = np.linspace(0.0, 2.0, 21, dtype=precision)
+    samples = np.sin(2.3 * times) + 0.3 * np.cos(4.1 * times)
+    samples += 0.05 * rng.standard_normal(times.size).astype(precision)
+    drivers_dict = {"drive": samples, "time": times}
+    driver = DriverArray(
+        precision=precision,
+        drivers_dict=drivers_dict,
+        order=3,
+        wrap=False,
+    )
+    query = np.linspace(times[0], times[-1], 257, dtype=precision)
+    gpu = _run_evaluate(driver.driver_function, driver.coefficients, query)
+    spline = scipy.CubicSpline(times, samples, bc_type="natural")
+    scipy_values = np.asarray(spline(query), dtype=precision)
+    np.testing.assert_allclose(
+        gpu[:, 0],
+        scipy_values,
+        rtol=5e-4,
+        atol=5e-4,
+        err_msg=(
+            "cubic interpolation diverged from SciPy reference\n"
+            f"gpu:\n{np.array2string(gpu[:, 0])}\n"
+            f"scipy:\n{np.array2string(scipy_values)}"
+        ),
+    )
