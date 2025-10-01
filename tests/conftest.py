@@ -210,9 +210,22 @@ def step_controller_settings(
         "kp": precision(1/18),
         "ki": precision(1/9),
         "kd": precision(1/18),
+        "deadband_min": precision(1.0),
+        "deadband_max": precision(1.2),
     }
     overrides = {**step_controller_settings_override}
-    float_keys = {"dt", "dt_min", "dt_max", "atol", "rtol", "kp", "ki", "kd"}
+    float_keys = {
+        "dt",
+        "dt_min",
+        "dt_max",
+        "atol",
+        "rtol",
+        "kp",
+        "ki",
+        "kd",
+        "deadband_min",
+        "deadband_max",
+    }
     for key, value in overrides.items():
         if key in float_keys:
             defaults[key] = precision(value)
@@ -327,6 +340,8 @@ def step_controller(precision, step_controller_settings):
                 rtol=settings["rtol"],
                 algorithm_order=int(settings.get("order", 1)),
                 n=int(settings["n"]),
+                deadband_min=float(settings["deadband_min"]),
+                deadband_max=float(settings["deadband_max"]),
         )
     elif kind == "pi":
         controller = AdaptivePIController(
@@ -339,6 +354,8 @@ def step_controller(precision, step_controller_settings):
                 n=int(settings["n"]),
                 kp=float(settings["kp"]),
                 ki=float(settings["ki"]),
+                deadband_min=float(settings["deadband_min"]),
+                deadband_max=float(settings["deadband_max"]),
         )
     elif kind == "pid":
         controller = AdaptivePIDController(
@@ -352,6 +369,8 @@ def step_controller(precision, step_controller_settings):
                 kp=float(settings["kp"]),
                 ki=float(settings["ki"]),
                 kd=float(settings["kd"]),
+                deadband_min=float(settings["deadband_min"]),
+                deadband_max=float(settings["deadband_max"]),
         )
     elif kind == "gustafsson":
         controller = GustafssonController(
@@ -362,6 +381,8 @@ def step_controller(precision, step_controller_settings):
                 rtol=settings["rtol"],
                 algorithm_order=int(settings.get("order", 1)),
                 n=int(settings["n"]),
+                deadband_min=float(settings["deadband_min"]),
+                deadband_max=float(settings["deadband_max"]),
         )
     else:
         raise ValueError(f"Unknown adaptive controller kind '{kind}'.")
@@ -488,6 +509,8 @@ def cpu_step_controller(precision, step_controller_settings):
         rtol=step_controller_settings["rtol"],
         order=step_controller_settings["order"],
         precision=precision,
+        deadband_min=step_controller_settings["deadband_min"],
+        deadband_max=step_controller_settings["deadband_max"],
     )
     if kind == 'pi':
         controller.kp = step_controller_settings["kp"]

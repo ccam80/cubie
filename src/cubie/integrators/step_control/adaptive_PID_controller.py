@@ -13,6 +13,7 @@ from cubie.integrators.step_control.adaptive_step_controller import (
 )
 from cubie.integrators.step_control.adaptive_PI_controller import (
     PIStepControlConfig)
+from cubie.cuda_simsafe import selp
 
 
 @define
@@ -28,7 +29,6 @@ class PIDStepControlConfig(PIStepControlConfig):
     def kd(self) -> float:
         """Return the derivative gain."""
         return self.precision(self._kd)
-
 
 class AdaptivePIDController(BaseAdaptiveStepController):
     """Adaptive PID step size controller."""
@@ -47,6 +47,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         kd: float = 1/18,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
+        deadband_min: float = 1.0,
+        deadband_max: float = 1.2,
     ) -> None:
         """Initialise a proportional–integral–derivative controller.
 
@@ -76,6 +78,10 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             Lower bound for the step size change factor.
         max_gain
             Upper bound for the step size change factor.
+        deadband_min
+            Lower gain threshold for holding the previous step size.
+        deadband_max
+            Upper gain threshold for holding the previous step size.
         """
 
         config = PIDStepControlConfig(
@@ -90,6 +96,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             kp=kp,
             ki=ki,
             kd=kd,
+            deadband_min=deadband_min,
+            deadband_max=deadband_max,
             n=n,
         )
 
@@ -111,6 +119,18 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         return self.compile_settings.kd
 
     @property
+    def deadband_min(self) -> float:
+        """Return the lower gain threshold for the unity deadband."""
+
+        return self.compile_settings.deadband_min
+
+    @property
+    def deadband_max(self) -> float:
+        """Return the upper gain threshold for the unity deadband."""
+
+        return self.compile_settings.deadband_max
+
+    @property
     def local_memory_elements(self) -> int:
         """Return the number of local memory slots required."""
 
@@ -120,9 +140,15 @@ class AdaptivePIDController(BaseAdaptiveStepController):
     def settings_dict(self) -> dict[str, object]:
         """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict
-        settings_dict.update({'kp': self.kp,
-                              'ki': self.ki,
-                              'kd': self.kd})
+        settings_dict.update(
+            {
+                'kp': self.kp,
+                'ki': self.ki,
+                'kd': self.kd,
+                'deadband_min': self.deadband_min,
+                'deadband_max': self.deadband_max,
+            }
+        )
         return settings_dict
 
     def build_controller(
@@ -178,6 +204,13 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         expo1 = precision(kp / (2 * (order + 1)))
         expo2 = precision(ki / (2 * (order + 1)))
         expo3 = precision(kd / (2 * (order + 1)))
+        unity_gain = precision(1.0)
+        deadband_min = precision(self.deadband_min)
+        deadband_max = precision(self.deadband_max)
+        deadband_disabled = (
+            (deadband_min == unity_gain)
+            and (deadband_max == unity_gain)
+        )
 
         @cuda.jit(device=True, inline=True, fastmath=True)
         def controller_PID(
@@ -240,6 +273,12 @@ class AdaptivePIDController(BaseAdaptiveStepController):
                 * (err_prev_prev_safe ** (expo3))
             )
             gain = precision(clamp(gain_new, min_gain, max_gain))
+            if not deadband_disabled:
+                within_deadband = (
+                    (gain >= deadband_min)
+                    and (gain <= deadband_max)
+                )
+                gain = selp(within_deadband, unity_gain, gain)
 
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)

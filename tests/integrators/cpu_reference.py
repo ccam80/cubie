@@ -644,6 +644,8 @@ class CPUAdaptiveController:
         min_gain: float = 0.2,
         max_gain: float = 2.0,
         max_newton_iters: int = 0,
+        deadband_min: float = 1.0,
+        deadband_max: float = 1.2,
     ) -> None:
 
         self.kind = kind.lower()
@@ -666,6 +668,13 @@ class CPUAdaptiveController:
         self.kd = precision(kd)
         self.gamma = precision(gamma)
         self.max_newton_iters = int(max_newton_iters)
+        self.deadband_min = precision(deadband_min)
+        self.deadband_max = precision(deadband_max)
+        self.unity_gain = precision(1.0)
+        self._deadband_disabled = (
+            (self.deadband_min == self.unity_gain)
+            and (self.deadband_max == self.unity_gain)
+        )
         zero = precision(0.0)
         self._history: list = [zero, zero]
         self._step_count = 0
@@ -790,6 +799,9 @@ class CPUAdaptiveController:
             gain = precision(1.0)
 
         gain = min(self.max_gain, max(self.min_gain, gain))
+        if not self._deadband_disabled:
+            if self.deadband_min <= gain <= self.deadband_max:
+                gain = self.unity_gain
         return precision(gain)
 
 

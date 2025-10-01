@@ -89,6 +89,14 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
         default=0.9,
         validator=inrangetype_validator(float, 0, 1),
     )
+    _deadband_min: float = field(
+        default=1.0,
+        validator=inrangetype_validator(float, 0, 1.0),
+    )
+    _deadband_max: float = field(
+        default=1.2,
+        validator=getype_validator(float, 0),
+    )
 
     def __attrs_post_init__(self) -> None:
         """Ensure step limits are coherent after initialisation."""
@@ -103,6 +111,12 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
                 )
             )
             self._dt_max = self._dt_min * 100
+
+        if self._deadband_min > self._deadband_max:
+            self._deadband_min, self._deadband_max = (
+                self._deadband_max,
+                self._deadband_min,
+            )
 
 
     @property
@@ -144,16 +158,34 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
         return self.precision(self._safety)
 
     @property
+    def deadband_min(self) -> float:
+        """Return the lower gain threshold for the unity deadband."""
+
+        return self.precision(self._deadband_min)
+
+    @property
+    def deadband_max(self) -> float:
+        """Return the upper gain threshold for the unity deadband."""
+
+        return self.precision(self._deadband_max)
+
+    @property
     def settings_dict(self) -> dict[str, object]:
         """Return the configuration as a dictionary."""
         settings_dict = super().settings_dict
-        settings_dict.update({'dt_min': self.dt_min,
-                              'dt_max': self.dt_max,
-                              'atol': self.atol,
-                              'rtol': self.rtol,
-                              'min_gain': self.min_gain,
-                              'max_gain': self.max_gain,
-                              'safety': self.safety,})
+        settings_dict.update(
+            {
+                'dt_min': self.dt_min,
+                'dt_max': self.dt_max,
+                'atol': self.atol,
+                'rtol': self.rtol,
+                'min_gain': self.min_gain,
+                'max_gain': self.max_gain,
+                'safety': self.safety,
+                'deadband_min': self.deadband_min,
+                'deadband_max': self.deadband_max,
+            }
+        )
         return settings_dict
 
 class BaseAdaptiveStepController(BaseStepController):
@@ -271,6 +303,18 @@ class BaseAdaptiveStepController(BaseStepController):
         """Return the safety scaling factor."""
 
         return self.compile_settings.safety
+
+    @property
+    def deadband_min(self) -> float:
+        """Return the lower gain threshold for unity selection."""
+
+        return self.compile_settings.deadband_min
+
+    @property
+    def deadband_max(self) -> float:
+        """Return the upper gain threshold for unity selection."""
+
+        return self.compile_settings.deadband_max
 
     @property
     def algorithm_order(self) -> int:
