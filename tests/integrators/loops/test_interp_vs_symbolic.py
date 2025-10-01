@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from cubie.integrators.algorithms import get_algorithm_step
-from cubie.integrators.driver_array import DriverArray
+from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.integrators.loops.ode_loop_config import (
     LoopLocalIndices,
@@ -85,15 +85,15 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
     num_samples = int(np.round(duration / sample_dt)) + 1
     times = np.linspace(0.0, duration, num_samples, dtype=precision)
     values = np.sin(times.astype(np.float64)).astype(precision)
-    drivers_dict = {
+    input_dict = {
         "drive": values,
         "time": times,
+        "order": int(time_driver_solver_settings["driverspline_order"]),
+        "wrap": bool(time_driver_solver_settings["driverspline_wrap"]),
     }
-    driver_array = DriverArray(
+    driver_array = ArrayInterpolator(
         precision=precision,
-        drivers_dict=drivers_dict,
-        order=int(time_driver_solver_settings["driverspline_order"]),
-        wrap=bool(time_driver_solver_settings["driverspline_wrap"]),
+        input_dict=input_dict,
     )
     return driver_array
 
@@ -106,7 +106,7 @@ def _build_loop(system, solver_settings, output_functions, precision, driver_arr
         precision, float(solver_settings["dt_min"])
     )
     driver_fn = (
-        driver_array.driver_function if driver_array is not None else None
+        driver_array.evaluation_function if driver_array is not None else None
     )
     step_object = get_algorithm_step(
         solver_settings["algorithm"],

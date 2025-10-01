@@ -23,7 +23,7 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 ALL_ALGORITHM_STEP_PARAMETERS = {
     # Base parameters
     'precision', 'n', 'dxdt_function', 'observables_function',
-    'driver_function',
+    'evaluation_function',
     'get_solver_helper_fn',
     'observables_function',
     # Explicit algorithm parameters

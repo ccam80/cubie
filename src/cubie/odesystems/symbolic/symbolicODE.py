@@ -4,7 +4,7 @@ from typing import Any, Callable, Iterable, Optional, Set, Union
 
 import numpy as np
 import sympy as sp
-from cubie.integrators.driver_array import DriverArray
+from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.odesystems.symbolic.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,
@@ -237,7 +237,7 @@ class SymbolicODE(BaseODE):
         if isinstance(drivers, dict) and (
             "time" in drivers or "dt" in drivers
         ):
-            DriverArray(precision=precision, drivers_dict=drivers)
+            ArrayInterpolator(precision=precision, drivers_dict=drivers)
 
         sys_components = parse_input(
             states=states,

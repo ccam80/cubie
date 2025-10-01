@@ -297,7 +297,7 @@ class BatchSolverKernel(CUDAFactory):
         driver_coefficients : numpy.ndarray
             Driver spline coefficients with shape
             (num_segments, num_drivers, spline_order). These are produced by
-            :class:`~cubie.integrators.driver_arrays.DriverArray` and are
+            :class:`~cubie.integrators.driver_arrays.ArrayInterpolator` and are
             consumed directly by the integration loops.
         duration : float
             Duration of the simulation.

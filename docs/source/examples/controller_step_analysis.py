@@ -28,7 +28,7 @@ from numpy.typing import NDArray
 
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.memory import default_memmgr
-from cubie.integrators.driver_array import DriverArray
+from cubie.integrators.array_interpolator import ArrayInterpolator
 from tests._utils import _driver_sequence
 from tests.integrators.cpu_reference import (
     Array,
@@ -308,8 +308,8 @@ def create_driver_evaluator(
         solver_settings.get("driverspline_wrap", False)
     )
 
-    # create DriverArray to compute spline coefficients
-    driver_array = DriverArray(
+    # create ArrayInterpolator to compute spline coefficients
+    driver_array = ArrayInterpolator(
         precision=precision,
         drivers_dict=drivers_dict,
         order=order,

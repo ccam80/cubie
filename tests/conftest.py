@@ -20,7 +20,7 @@ from cubie.integrators.step_control.adaptive_PID_controller import (
 from cubie.integrators.step_control.adaptive_PI_controller import AdaptivePIController
 from cubie.integrators.step_control.fixed_step_controller import FixedStepController
 from cubie.integrators.step_control.gustafsson_controller import GustafssonController
-from cubie.integrators.driver_array import DriverArray
+from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.outputhandling.output_sizes import LoopBufferSizes
@@ -198,6 +198,7 @@ def driver_settings(
     }
     drivers_dict["dt"] = float(dt_sample)
     drivers_dict["wrap"] = bool(solver_settings["driverspline_wrap"])
+    drivers_dict["order"] = order
 
     if driver_settings_override:
         for key, value in driver_settings_override.items():
@@ -221,16 +222,16 @@ def driver_array(
     solver_settings,
     precision,
 ):
-    """Instantiate :class:`DriverArray` for the configured system."""
+    """Instantiate :class:`ArrayInterpolator` for the configured system."""
 
     if driver_settings is None:
         return None
 
-    return DriverArray(
+
+
+    return ArrayInterpolator(
         precision=precision,
-        drivers_dict=driver_settings,
-        order=int(solver_settings["driverspline_order"]),
-        wrap=bool(solver_settings["driverspline_wrap"]),
+        input_dict=driver_settings,
     )
 
 
@@ -528,7 +529,7 @@ def loop(
             step_object.persistent_local_required,
     )
 
-    driver_fn = driver_array.driver_function if driver_array is not None else None
+    driver_fn = driver_array.evaluation_function if driver_array is not None else None
 
     return IVPLoop(precision=precision, shared_indices=shared_indices,
                    local_indices=local_indices,
@@ -586,7 +587,7 @@ def step_object(
 ):
     """Return a step object for the given solver settings."""
 
-    driver_fn = driver_array.driver_function if driver_array is not None else None
+    driver_fn = driver_array.evaluation_function if driver_array is not None else None
     if solver_settings["algorithm"].lower() == 'euler':
         solver_kwargs = {
             'dt': solver_settings["dt_min"],
@@ -594,7 +595,7 @@ def step_object(
             'n': system.sizes.states,
             'dxdt_function': system.dxdt_function,
             'observables_function': system.observables_function,
-            'driver_function': driver_fn,
+            'evaluation_function': driver_fn,
         }
     else:
         solver_kwargs = {
@@ -617,7 +618,7 @@ def step_object(
             'newton_max_backtracks': implicit_step_settings[
                 "newton_max_backtracks"
             ],
-            'driver_function': driver_fn,
+            'evaluation_function': driver_fn,
         }
     return get_algorithm_step(solver_settings["algorithm"].lower(), **solver_kwargs)
 
@@ -780,6 +781,6 @@ def device_loop_outputs(
         initial_state=initial_state,
         output_functions=output_functions,
         solver_config=solver_settings,
-        localmem_required=single_integrator_run.local_memory_elements,
+            localmem_required=single_integrator_run.local_memory_elements,
         driver_array=driver_array,
     )

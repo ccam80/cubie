@@ -9,7 +9,7 @@ from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
 from cubie import OutputFunctions
-from cubie.integrators.driver_array import DriverArray
+from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling import OutputArrayHeights
@@ -346,7 +346,7 @@ def run_device_loop(
     output_functions: OutputFunctions,
     solver_config: Mapping[str, float],
     localmem_required: int = 0,
-    driver_array: Optional[DriverArray] = None,
+    driver_array: Optional[ArrayInterpolator] = None,
 ) -> LoopRunResult:
     """Execute ``loop`` on the CUDA simulator and return host-side outputs."""
 
@@ -582,7 +582,7 @@ def _driver_sequence(
 
 
 def evaluate_driver_series(
-    driver: DriverArray,
+    driver: ArrayInterpolator,
     time: float,
     precision,
 ) -> Array:
