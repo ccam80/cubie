@@ -28,12 +28,13 @@ from numpy.typing import NDArray
 
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.memory import default_memmgr
+from cubie.integrators.driver_array import DriverArray
 from tests._utils import _driver_sequence
 from tests.integrators.cpu_reference import (
     Array,
     CPUAdaptiveController,
     CPUODESystem,
-    DriverSampler,
+    DriverEvaluator,
     STATUS_MASK,
     get_ref_step_fn,
     _collect_saved_outputs,
@@ -275,12 +276,62 @@ def generate_inputs(
     }
 
 
+def create_driver_evaluator(
+    solver_settings: Mapping[str, Any],
+    system: Any,
+    precision: type[np.floating[Any]],
+):
+    dt_sample = float(solver_settings["dt_save"]) / 2.0
+    total_span = float(solver_settings["duration"] + solver_settings["warmup"])
+    order = int(solver_settings.get("driverspline_order", 3))
+
+    samples = int(np.ceil(total_span / dt_sample)) + 1
+    samples = max(samples, order + 1)
+    total_time = float(dt_sample) * max(samples - 1, 1)
+
+    # produce sample matrix (samples x n_drivers)
+    driver_matrix = _driver_sequence(
+        samples=samples,
+        total_time=total_time,
+        n_drivers=system.num_drivers,
+        precision=precision,
+    )
+
+    # build drivers dictionary the same way tests do
+    driver_names = list(system.indices.driver_names)
+    drivers_dict = {
+        name: np.array(driver_matrix[:, idx], dtype=precision, copy=True)
+        for idx, name in enumerate(driver_names)
+    }
+    drivers_dict["dt"] = float(dt_sample)
+    drivers_dict["wrap"] = bool(
+        solver_settings.get("driverspline_wrap", False)
+    )
+
+    # create DriverArray to compute spline coefficients
+    driver_array = DriverArray(
+        precision=precision,
+        drivers_dict=drivers_dict,
+        order=order,
+        wrap=bool(drivers_dict["wrap"]),
+    )
+
+    # create CPU evaluator using the computed coefficients
+    return DriverEvaluator(
+            coefficients=np.array(driver_array.coefficients, dtype=precision, copy=True),
+            dt=float(driver_array.dt),
+            t0=float(driver_array.t0),
+            wrap=bool(driver_array.wrap),
+            precision=precision,
+    )
+
 def run_reference_loop_with_history(
     evaluator: CPUODESystem,
     inputs: Mapping[str, Array],
     solver_settings: Mapping[str, Any],
     implicit_step_settings: Mapping[str, Any],
     controller: CPUAdaptiveController,
+    driverevaluator: DriverEvaluator,
     output_functions: OutputFunctions,
     *,
     run_label: str,
@@ -300,7 +351,6 @@ def run_reference_loop_with_history(
     step_records: List[StepRecord] = []
 
     step_fn = get_ref_step_fn(solver_settings["algorithm"])
-    sampler = DriverSampler(forcing_vectors, dt_save, precision)
 
     saved_state_indices = np.asarray(
         solver_settings["saved_state_indices"], dtype=np.int32
@@ -334,7 +384,7 @@ def run_reference_loop_with_history(
         observables = evaluator.observables(
                 state,
                 params,
-                sampler.sample(0),
+                driverevaluator(t),
                 t,
         )
         observable_history.append(observables.copy())
@@ -351,7 +401,7 @@ def run_reference_loop_with_history(
             dt = precision(next_save_time - t)
             do_save = True
 
-        driver_sample = sampler.sample(save_index)
+        driver_sample =  driverevaluator(t)
         drivers_now = driver_sample
         drivers_next = driver_sample
         timenow = perf_counter()
@@ -359,10 +409,9 @@ def run_reference_loop_with_history(
         attempt_dt = float(dt)
         result = step_fn(
             evaluator,
+            driverevaluator,
             state=state,
             params=params,
-            drivers_now=drivers_now,
-            drivers_next=drivers_next,
             dt=dt,
             tol=implicit_step_settings["nonlinear_tolerance"],
             max_iters=max_iters,
@@ -516,6 +565,7 @@ def run_analysis(output_dir: Path, save_figs=True) -> List[Path]:
                     solver_settings=solver_settings,
                     implicit_step_settings=implicit_settings,
                     controller=controller_instance,
+                    driverevaluator=create_driver_evaluator(solver_settings, system, precision),
                     output_functions=output_functions,
                     run_label=label,
                 )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Mapping, Optional
 
 import numpy as np
@@ -8,6 +9,7 @@ from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
 from cubie import OutputFunctions
+from cubie.integrators.driver_array import DriverArray
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.odesystems.baseODE import BaseODE
 from cubie.outputhandling import OutputArrayHeights
@@ -344,6 +346,7 @@ def run_device_loop(
     output_functions: OutputFunctions,
     solver_config: Mapping[str, float],
     localmem_required: int = 0,
+    driver_array: Optional[DriverArray] = None,
 ) -> LoopRunResult:
     """Execute ``loop`` on the CUDA simulator and return host-side outputs."""
 
@@ -381,19 +384,21 @@ def run_device_loop(
         dtype=precision,
         copy=True,
     )
-    drivers = _driver_sequence(
-        samples=save_samples,
-        total_time=total_time,
-        n_drivers=system.num_drivers,
-        precision=precision,
-    )
-
     init_state = np.array(initial_state, dtype=precision, copy=True)
     status = np.zeros(1, dtype=np.int32)
 
     d_init = cuda.to_device(init_state)
     d_params = cuda.to_device(params)
-    d_drivers = cuda.to_device(drivers)
+    if driver_array is None:
+        order = int(solver_config["driverspline_order"])
+        width = system.num_drivers
+        coeff_shape = (1, width, order + 1)
+        driver_coefficients = np.zeros(coeff_shape, dtype=precision)
+    else:
+        driver_coefficients = np.array(
+            driver_array.coefficients, dtype=precision, copy=True
+        )
+    d_driver_coeffs = cuda.to_device(driver_coefficients)
     d_state_out = cuda.to_device(state_output)
     d_obs_out = cuda.to_device(observables_output)
     d_state_sum = cuda.to_device(state_summary_output)
@@ -410,7 +415,7 @@ def run_device_loop(
     def kernel(
         init_vec,
         params_vec,
-        drivers_vec,
+        driver_coeffs_vec,
         state_out_arr,
         obs_out_arr,
         state_sum_arr,
@@ -426,7 +431,7 @@ def run_device_loop(
         status_arr[0] = loop_fn(
             init_vec,
             params_vec,
-            drivers_vec,
+            driver_coeffs_vec,
             shared,
             local,
             state_out_arr,
@@ -441,7 +446,7 @@ def run_device_loop(
     kernel[1, 1, 0, shared_bytes](
         d_init,
         d_params,
-        d_drivers,
+        d_driver_coeffs,
         d_state_out,
         d_obs_out,
         d_state_sum,
@@ -574,3 +579,43 @@ def _driver_sequence(
             drivers[:, idx] = precision(
                 1.0 + np.sin(2 * np.pi * (idx + 1) * times / total_time))
     return drivers
+
+
+def evaluate_driver_series(
+    driver: DriverArray,
+    time: float,
+    precision,
+) -> Array:
+    """Evaluate driver splines on the host at ``time``."""
+
+    coeffs = np.asarray(driver.coefficients)
+    if coeffs.size == 0:
+        width = max(driver.num_drivers, 1)
+        return np.zeros(width, dtype=precision)
+
+    resolution = float(driver.dt)
+    start_time = float(driver.t0)
+    wrap = bool(driver.wrap)
+    num_segments = coeffs.shape[0]
+    inv_res = 1.0 / resolution if resolution != 0.0 else 0.0
+
+    scaled = (time - start_time) * inv_res if resolution != 0.0 else 0.0
+    segment = math.floor(scaled)
+    if wrap and num_segments > 0:
+        segment %= num_segments
+        if segment < 0:
+            segment += num_segments
+    else:
+        segment = max(0, min(num_segments - 1, segment))
+
+    base_time = start_time + resolution * float(segment)
+    tau = (time - base_time) * inv_res if resolution != 0.0 else 0.0
+
+    values = np.zeros(coeffs.shape[1], dtype=precision)
+    for driver_idx in range(coeffs.shape[1]):
+        segment_coeffs = coeffs[segment, driver_idx]
+        acc = 0.0
+        for power in range(segment_coeffs.size - 1, -1, -1):
+            acc = acc * tau + float(segment_coeffs[power])
+        values[driver_idx] = precision(acc)
+    return values

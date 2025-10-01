@@ -7,6 +7,8 @@ import numpy as np
 from attrs import define, field, validators
 from numba import cuda, int32
 from numpy.typing import NDArray
+
+from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 from cubie.cuda_simsafe import selp
 
 from cubie.CUDAFactory import CUDAFactory
@@ -43,7 +45,7 @@ class DriverArrayConfig:
     t0 : float
         start time of driver samples; overwritten if time is supplied as an
         array (defaults to first time in that array).
-    forcingArray : numpy.ndarray
+    driver_array : numpy.ndarray
         Driver sample values. Extracted from ``drivers_dict``.
     dt : numpy.ndarray
         Sampling frequency. Extracted from ``drivers_dict``.
@@ -53,7 +55,7 @@ class DriverArrayConfig:
     _drivers_dict: dict[str, Union[float, bool, FloatArray]] = field(
         validator=validators.instance_of(dict),
     )
-    order: int = field()
+    order: int = field(default=3)
     wrap: bool = field(default=True)
 
     # These are generated from _drivers_dict after init
@@ -73,6 +75,13 @@ class DriverArrayConfig:
     def __attrs_post_init__(self) -> None:
         self._normalise_driver_array()
         self._validate_time_inputs()
+        self._update_order_wrap()
+
+    def _update_order_wrap(self) -> None:
+        if "order" in self._drivers_dict:
+            self.order = self._drivers_dict["order"]
+        if "wrap" in self._drivers_dict:
+            self.wrap = self._drivers_dict["wrap"]
 
     def _normalise_driver_array(self) -> None:
         """Promote the forcing array to the expected dimensionality.
@@ -84,7 +93,7 @@ class DriverArrayConfig:
             when the time array length does not match the driver samples.
         """
         for key, array in self._drivers_dict.items():
-            if key not in ["time", "dt", "wrap"]:
+            if key not in ["time", "dt", "wrap", "order"]:
                 array = np.asarray(array)
                 if array.ndim != 1:
                     raise ValueError(f"Forcing array {key} must be "
@@ -92,7 +101,7 @@ class DriverArrayConfig:
         forcing_vectors = tuple(
             array
             for key, array in self._drivers_dict.items()
-            if key not in ["time", "dt", "wrap"]
+            if key not in ["time", "dt", "wrap", "order"]
         )
         if not all(
             array.shape[0] == forcing_vectors[0].shape[0]
@@ -156,6 +165,7 @@ class DriverArrayConfig:
         self._drivers_dict = updated_dict
         self._normalise_driver_array()
         self._validate_time_inputs()
+        self._update_order_wrap()
 
     @property
     def num_drivers(self) -> int:
@@ -261,6 +271,24 @@ class DriverArray(CUDAFactory):
     def dt(self) -> float:
         """Return the sample spacing."""
         return self.compile_settings.dt
+
+    @staticmethod
+    def check_against_system(self,
+                             drivers_dict: Dict[str, Union[float, bool, FloatArray]],
+                             system: SymbolicODE):
+        driver_keys = [key for key in drivers_dict if key not in ["time",
+                                                                  "dt",
+                                                                  "wrap",
+                                                                  "order"]]
+        system_keys = set(system.indices.drivers.symbol_map.keys())
+        if len(driver_keys) != system.num_drivers:
+            raise ValueError(f"Number of drivers in drivers_dict "
+                             f"({len(driver_keys)}) does not match number of "
+                             f"drivers in system ({system.num_drivers}).")
+        if set(driver_keys) != system_keys:
+            raise ValueError(f"Driver symbols in drivers_dict ("
+                             f"{set(driver_keys)}) do not match driver symbols "
+                             f"in system ({system_keys}).")
 
     def _compute_coefficients(self) -> FloatArray:
         """Compute coefficients via local polynomial interpolation.

@@ -20,12 +20,13 @@ from cubie.integrators.step_control.adaptive_PID_controller import (
 from cubie.integrators.step_control.adaptive_PI_controller import AdaptivePIController
 from cubie.integrators.step_control.fixed_step_controller import FixedStepController
 from cubie.integrators.step_control.gustafsson_controller import GustafssonController
+from cubie.integrators.driver_array import DriverArray
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.outputhandling.output_sizes import LoopBufferSizes
 from tests.integrators.cpu_reference import (CPUODESystem,
                                               run_reference_loop, \
-    CPUAdaptiveController)
+    CPUAdaptiveController, DriverEvaluator)
 from tests._utils import run_device_loop, _driver_sequence
 from tests.integrators.loops.test_ode_loop import Array
 from tests.system_fixtures import (
@@ -132,6 +133,8 @@ def solver_settings(solver_settings_override, precision):
         "mem_proportion": None,
         "step_controller": "fixed",
         "precision": precision,
+        "driverspline_order": 3,
+        "driverspline_wrap": False,
     }
 
     if solver_settings_override:
@@ -153,6 +156,114 @@ def solver_settings(solver_settings_override, precision):
                 defaults[key] = value
 
     return defaults
+
+
+@pytest.fixture(scope="function")
+def driver_settings_override(request):
+    """Optional override for driver array configuration."""
+
+    return request.param if hasattr(request, "param") else None
+
+
+@pytest.fixture(scope="function")
+def driver_settings(
+    driver_settings_override,
+    solver_settings,
+    system,
+    precision,
+):
+    """Return default driver samples mapped to system driver symbols."""
+
+    if system.num_drivers == 0:
+        return None
+
+    dt_sample = float(solver_settings["dt_save"]) / 2.0
+    total_span = float(solver_settings["duration"] + solver_settings["warmup"])
+    order = int(solver_settings["driverspline_order"])
+
+    samples = int(np.ceil(total_span / dt_sample)) + 1
+    samples = max(samples, order + 1)
+    total_time = float(dt_sample) * max(samples - 1, 1)
+
+    driver_matrix = _driver_sequence(
+        samples=samples,
+        total_time=total_time,
+        n_drivers=system.num_drivers,
+        precision=precision,
+    )
+    driver_names = list(system.indices.driver_names)
+    drivers_dict = {
+        name: np.array(driver_matrix[:, idx], dtype=precision, copy=True)
+        for idx, name in enumerate(driver_names)
+    }
+    drivers_dict["dt"] = float(dt_sample)
+    drivers_dict["wrap"] = bool(solver_settings["driverspline_wrap"])
+
+    if driver_settings_override:
+        for key, value in driver_settings_override.items():
+            if key == "time":
+                drivers_dict.pop("dt", None)
+                drivers_dict[key] = np.array(value, dtype=precision, copy=True)
+            elif key == "dt":
+                drivers_dict.pop("time", None)
+                drivers_dict[key] = float(value)
+            elif key == "wrap":
+                drivers_dict[key] = bool(value)
+            else:
+                drivers_dict[key] = np.array(value, dtype=precision, copy=True)
+
+    return drivers_dict
+
+
+@pytest.fixture(scope="function")
+def driver_array(
+    driver_settings,
+    solver_settings,
+    precision,
+):
+    """Instantiate :class:`DriverArray` for the configured system."""
+
+    if driver_settings is None:
+        return None
+
+    return DriverArray(
+        precision=precision,
+        drivers_dict=driver_settings,
+        order=int(solver_settings["driverspline_order"]),
+        wrap=bool(solver_settings["driverspline_wrap"]),
+    )
+
+
+@pytest.fixture(scope="function")
+def cpu_driver_evaluator(
+    driver_settings,
+    driver_array,
+    solver_settings,
+    precision,
+    system,
+) -> DriverEvaluator:
+    """Return a CPU evaluator configured from the driver fixtures."""
+
+    width = system.num_drivers
+    order = int(solver_settings["driverspline_order"])
+    if driver_settings is None or width == 0 or driver_array is None:
+        coeffs = np.zeros((1, width, order + 1), dtype=precision)
+        dt_value = float(solver_settings["dt_save"]) / 2.0
+        t0_value = 0.0
+        wrap_value = bool(solver_settings["driverspline_wrap"])
+    else:
+        coeffs = np.array(driver_array.coefficients, dtype=precision, copy=True)
+        dt_value = float(driver_array.dt)
+        t0_value = float(driver_array.t0)
+        wrap_value = bool(driver_array.wrap)
+
+    return DriverEvaluator(
+        coefficients=coeffs,
+        dt=dt_value,
+        t0=t0_value,
+        wrap=wrap_value,
+        precision=precision,
+    )
 
 
 @pytest.fixture(scope="function")
@@ -400,6 +511,7 @@ def loop(
     output_functions,
     step_controller,
     solver_settings,
+    driver_array,
 ):
     """Construct the :class:`IVPLoop` instance used in loop tests."""
     shared_indices = LoopSharedIndices.from_sizes(
@@ -416,6 +528,8 @@ def loop(
             step_object.persistent_local_required,
     )
 
+    driver_fn = driver_array.driver_function if driver_array is not None else None
+
     return IVPLoop(precision=precision, shared_indices=shared_indices,
                    local_indices=local_indices,
                    compile_flags=output_functions.compile_flags,
@@ -424,6 +538,7 @@ def loop(
                    save_summaries_func=output_functions.save_summary_metrics_func,
                    step_controller_fn=step_controller.device_function,
                    step_fn=step_object.step_function,
+                   driver_fn=driver_fn,
                    observables_fn=system.observables_function,
                    dt_save=solver_settings["dt_save"],
                    dt_summarise=solver_settings["dt_summarise"],
@@ -462,38 +577,49 @@ def cpu_system(system):
 
 
 @pytest.fixture
-def step_object(solver_settings, implicit_step_settings, precision, system):
+def step_object(
+    solver_settings,
+    implicit_step_settings,
+    precision,
+    system,
+    driver_array,
+):
     """Return a step object for the given solver settings."""
+
+    driver_fn = driver_array.driver_function if driver_array is not None else None
     if solver_settings["algorithm"].lower() == 'euler':
         solver_kwargs = {
-                'dt':solver_settings["dt_min"],
-                'precision':precision,
-                'n':system.sizes.states,
-                'dxdt_function':system.dxdt_function,
-                'observables_function':system.observables_function,
-
+            'dt': solver_settings["dt_min"],
+            'precision': precision,
+            'n': system.sizes.states,
+            'dxdt_function': system.dxdt_function,
+            'observables_function': system.observables_function,
+            'driver_function': driver_fn,
         }
     else:
         solver_kwargs = {
             "precision": precision,
             "n": system.sizes.states,
-            'dxdt_function':system.dxdt_function,
-            'observables_function':system.observables_function,
-            'get_solver_helper_fn':system.get_solver_helper,
-            'preconditioner_order':implicit_step_settings[
-            "preconditioner_order"],
-            'linsolve_tolerance':implicit_step_settings["linear_tolerance"],
-            'max_linear_iters':implicit_step_settings["max_linear_iters"],
-            'linear_correction_type':implicit_step_settings[
-            "correction_type"],
-            'nonlinear_tolerance':implicit_step_settings["nonlinear_tolerance"],
-            'max_newton_iters':implicit_step_settings["max_newton_iters"],
-            'newton_damping':implicit_step_settings["newton_damping"],
-            'newton_max_backtracks':implicit_step_settings[
-                "newton_max_backtracks"],
+            'dxdt_function': system.dxdt_function,
+            'observables_function': system.observables_function,
+            'get_solver_helper_fn': system.get_solver_helper,
+            'preconditioner_order': implicit_step_settings[
+                "preconditioner_order"
+            ],
+            'linsolve_tolerance': implicit_step_settings["linear_tolerance"],
+            'max_linear_iters': implicit_step_settings["max_linear_iters"],
+            'linear_correction_type': implicit_step_settings[
+                "correction_type"
+            ],
+            'nonlinear_tolerance': implicit_step_settings["nonlinear_tolerance"],
+            'max_newton_iters': implicit_step_settings["max_newton_iters"],
+            'newton_damping': implicit_step_settings["newton_damping"],
+            'newton_max_backtracks': implicit_step_settings[
+                "newton_max_backtracks"
+            ],
+            'driver_function': driver_fn,
         }
-    return get_algorithm_step(solver_settings["algorithm"].lower(),
-                              **solver_kwargs)
+    return get_algorithm_step(solver_settings["algorithm"].lower(), **solver_kwargs)
 
 
 @pytest.fixture(scope="function")
@@ -561,6 +687,7 @@ def cpu_loop_runner(
     step_controller_settings,
     implicit_step_settings,
     output_functions,
+    cpu_driver_evaluator,
 ):
     """Return a callable for generating CPU reference loop outputs."""
 
@@ -568,39 +695,15 @@ def cpu_loop_runner(
         *,
         initial_values=None,
         parameters=None,
-        forcing_vectors=None,
+        driver_coefficients=None,
     ):
-        if forcing_vectors is None:
-            samples = int(
-                np.ceil(
-                    solver_settings["duration"] / max(solver_settings["dt_save"], 1e-12)
-                )
-            )
-            samples = max(samples, 1)
-            driver_matrix = _driver_sequence(
-                samples=samples,
-                total_time=solver_settings["duration"],
-                n_drivers=system.num_drivers,
-                precision=precision,
-            )
-        else:
-            driver_matrix = np.array(forcing_vectors, dtype=precision, copy=True)
-
-        if driver_matrix.ndim == 2 and system.num_drivers:
-            drivers_first_dim = driver_matrix.shape[0]
-            drivers_second_dim = driver_matrix.shape[1]
-            if drivers_first_dim != system.num_drivers and (
-                drivers_second_dim == system.num_drivers
-            ):
-                driver_matrix = driver_matrix
-
         initial_vec = (
-            np.asarray(initial_values, dtype=precision).copy()
+            np.array(initial_values, dtype=precision, copy=True)
             if initial_values is not None
             else system.initial_values.values_array.astype(precision, copy=True)
         )
         parameter_vec = (
-            np.asarray(parameters, dtype=precision).copy()
+            np.array(parameters, dtype=precision, copy=True)
             if parameters is not None
             else system.parameters.values_array.astype(precision, copy=True)
         )
@@ -608,12 +711,16 @@ def cpu_loop_runner(
         inputs = {
             "initial_values": initial_vec,
             "parameters": parameter_vec,
-            "drivers": driver_matrix,
         }
+        if driver_coefficients is not None:
+            inputs["driver_coefficients"] = np.array(
+                driver_coefficients, dtype=precision, copy=True
+            )
 
         return run_reference_loop(
             evaluator=cpu_system,
             inputs=inputs,
+            driver_evaluator=cpu_driver_evaluator,
             solver_settings=solver_settings,
             implicit_step_settings=implicit_step_settings,
             controller=cpu_step_controller,
@@ -634,22 +741,18 @@ def cpu_loop_outputs(
     solver_settings,
     step_controller_settings,
     output_functions,
+    cpu_driver_evaluator,
 ) -> dict[str, Array]:
     """Execute the CPU reference loop with the provided configuration."""
-    drivers = _driver_sequence(
-            samples=int(np.ceil(
-                    solver_settings["duration"] / solver_settings["dt_save"])),
-            total_time=solver_settings["duration"],
-            n_drivers=system.num_drivers,
-            precision=precision)
-
-    inputs = {'initial_values': initial_state.copy(),
-              'parameters': system.parameters.values_array.copy(),
-              'drivers': drivers}
+    inputs = {
+        'initial_values': initial_state.copy(),
+        'parameters': system.parameters.values_array.copy(),
+    }
 
     return run_reference_loop(
         evaluator=cpu_system,
         inputs=inputs,
+        driver_evaluator=cpu_driver_evaluator,
         solver_settings=solver_settings,
         implicit_step_settings=implicit_step_settings,
         controller=cpu_step_controller,
@@ -668,6 +771,7 @@ def device_loop_outputs(
     step_controller_settings,
     output_functions,
     cpu_system,
+    driver_array,
 ):
     """Execute the device loop with the provided configuration."""
     return  run_device_loop(
@@ -676,5 +780,6 @@ def device_loop_outputs(
         initial_state=initial_state,
         output_functions=output_functions,
         solver_config=solver_settings,
-        localmem_required=single_integrator_run.local_memory_elements
+        localmem_required=single_integrator_run.local_memory_elements,
+        driver_array=driver_array,
     )

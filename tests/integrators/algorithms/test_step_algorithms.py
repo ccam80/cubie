@@ -10,9 +10,11 @@ import pytest
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
-from tests.integrators.cpu_reference import CPUODESystem, get_ref_step_fn
-from tests._utils import assert_integration_outputs, \
-    _driver_sequence
+from tests.integrators.cpu_reference import (
+    CPUODESystem,
+    get_ref_step_fn,
+)
+from tests._utils import assert_integration_outputs
 
 Array = np.ndarray
 STATUS_MASK = 0xFFFF
@@ -78,27 +80,23 @@ def expected_step_properties(system) -> dict[str, Any]:
     return generate_step_props(n_states=system.sizes.states)
 
 @pytest.fixture(scope="function")
-def step_inputs(system, precision, initial_state, solver_settings) -> dict[
-    str,
-Array]:
+def step_inputs(
+    system,
+    precision,
+    initial_state,
+    solver_settings,
+    cpu_driver_evaluator,
+) -> dict[str, Array]:
     """State, parameters, and drivers for a single step execution."""
-    if system.num_drivers > 0:
-        drivers = _driver_sequence(
-            samples=2,
-            total_time=float(solver_settings['dt_min']),
-            n_drivers=system.num_drivers,
-            precision=precision,
-        )
-        drivers_now = np.asarray(drivers[0], dtype=precision)
-        drivers_next = np.asarray(drivers[1], dtype=precision)
-    else:
-        drivers_now = np.zeros(1, dtype=precision)
-        drivers_next = np.zeros(1, dtype=precision)
+    width = system.num_drivers
+    driver_coefficients = np.array(
+        cpu_driver_evaluator.coefficients, dtype=precision, copy=True
+    )
     return {
         "state": initial_state,
         "parameters": system.parameters.values_array.astype(precision),
-        "drivers_now": drivers_now,
-        "drivers_next": drivers_next,
+        "drivers": np.zeros(width, dtype=precision),
+        "driver_coefficients": driver_coefficients,
     }
 
 
@@ -108,6 +106,7 @@ def device_step_results(
     solver_settings,
     precision,
     step_inputs,
+    cpu_driver_evaluator,
     system,
 ) -> StepResult:
     """Execute the CUDA step and collect host-side outputs."""
@@ -117,8 +116,8 @@ def device_step_results(
     n_states = system.sizes.states
     params = step_inputs["parameters"]
     state = step_inputs["state"]
-    driver_key = "drivers_next" if step_object.is_implicit else "drivers_now"
-    drivers = step_inputs[driver_key]
+    drivers = cpu_driver_evaluator.evaluate(precision(0.0))
+    driver_coefficients = step_inputs["driver_coefficients"]
     observables = np.zeros(system.sizes.observables, dtype=precision)
     proposed_state = np.zeros_like(state)
     work_buffer = np.zeros(n_states, dtype=precision)
@@ -136,6 +135,7 @@ def device_step_results(
     d_work = cuda.to_device(work_buffer)
     d_params = cuda.to_device(params)
     d_drivers = cuda.to_device(drivers)
+    d_driver_coeffs = cuda.to_device(driver_coefficients)
     d_observables = cuda.to_device(observables)
     d_proposed_observables = cuda.to_device(observables)
     d_error = cuda.to_device(error)
@@ -147,6 +147,7 @@ def device_step_results(
         proposed_vec,
         work_vec,
         params_vec,
+        driver_coeffs_vec,
         drivers_vec,
         observables_vec,
         proposed_observables_vec,
@@ -165,6 +166,7 @@ def device_step_results(
             proposed_vec,
             work_vec,
             params_vec,
+            driver_coeffs_vec,
             drivers_vec,
             observables_vec,
             proposed_observables_vec,
@@ -181,6 +183,7 @@ def device_step_results(
         d_proposed,
         d_work,
         d_params,
+        d_driver_coeffs,
         d_drivers,
         d_observables,
         d_proposed_observables,
@@ -206,7 +209,8 @@ def cpu_step_results(
     solver_settings,
     cpu_system: CPUODESystem,
     step_inputs,
-    implicit_step_settings
+    implicit_step_settings,
+    cpu_driver_evaluator,
 ) -> StepResult:
     """Execute the CPU reference stepper."""
 
@@ -214,23 +218,22 @@ def cpu_step_results(
     dt = solver_settings["dt_min"]
     state = np.asarray(step_inputs["state"], dtype=cpu_system.precision)
     params = np.asarray(step_inputs["parameters"], dtype=cpu_system.precision)
-    drivers_now = np.asarray(step_inputs["drivers_now"],
-                             dtype=cpu_system.precision
-    )
-    drivers_next = np.asarray(
-        step_inputs["drivers_next"], dtype=cpu_system.precision
-    )
+    if cpu_system.system.num_drivers > 0:
+        driver_evaluator = cpu_driver_evaluator.with_coefficients(
+            step_inputs["driver_coefficients"]
+        )
+    else:
+        driver_evaluator = cpu_driver_evaluator
 
     result = step_fn(
         cpu_system,
+        driver_evaluator,
         state=state,
         params=params,
-        drivers_now=drivers_now,
-        drivers_next=drivers_next,
         dt=dt,
         tol=implicit_step_settings['nonlinear_tolerance'],
         time=0.0,
-        )
+    )
 
     return StepResult(
         state=result.state.astype(cpu_system.precision, copy=True),

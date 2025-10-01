@@ -15,6 +15,7 @@ outputs.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Callable, Dict, Mapping, Sequence, Optional, Set
 import numpy as np
 import sympy as sp
@@ -335,18 +336,22 @@ def _encode_solver_status(converged: bool, niters: int) -> int:
     iter_count = max(0, min(int(niters), STATUS_MASK))
     return (iter_count << 16) | (int(base_code) & STATUS_MASK)
 
+
 def explicit_euler_step(
     evaluator: CPUODESystem,
+    driver_evaluator: DriverEvaluator,
+    *,
     state: Optional[Array] = None,
     params: Optional[Array] = None,
-    drivers_now: Optional[Array] = None,
-    drivers_next: Optional[Array] = None,
     dt: Optional[float] = None,
     tol: Optional[float] = None,
     max_iters: Optional[int] = None,
     time: float = 0.0,
 ) -> StepResult:
     """Explicit Euler integration step."""
+
+    drivers_now = driver_evaluator(time)
+    drivers_next = driver_evaluator(time + dt)
 
     observables_now = evaluator.observables(state, params, drivers_now, time)
     dxdt, _ = evaluator.rhs(
@@ -395,10 +400,10 @@ def _newton_solve(
 
 def backward_euler_step(
     evaluator: CPUODESystem,
+    driver_evaluator: DriverEvaluator,
+    *,
     state: Optional[Array] = None,
     params: Optional[Array] = None,
-    drivers_now: Optional[Array] = None,
-    drivers_next: Optional[Array] = None,
     dt: Optional[float] = None,
     tol: Optional[float] = None,
     initial_guess: Optional[Array] = None,
@@ -408,6 +413,9 @@ def backward_euler_step(
     """Backward Euler step solved via Newton iteration."""
 
     precision = evaluator.precision
+
+    drivers_now = driver_evaluator(time)
+    drivers_next = driver_evaluator(time + dt)
 
     def residual(candidate: Array) -> Array:
         candidate_observables = evaluator.observables(
@@ -469,10 +477,10 @@ def backward_euler_step(
 
 def crank_nicolson_step(
     evaluator: CPUODESystem,
+    driver_evaluator: DriverEvaluator,
+    *,
     state: Optional[Array] = None,
     params: Optional[Array] = None,
-    drivers_now: Optional[Array] = None,
-    drivers_next: Optional[Array] = None,
     dt: Optional[float] = None,
     tol: Optional[float] = None,
     max_iters: int = 25,
@@ -481,6 +489,8 @@ def crank_nicolson_step(
     """Crank–Nicolson step with embedded backward Euler for error estimation."""
 
     precision = evaluator.precision
+    drivers_now = driver_evaluator(time)
+    drivers_next = driver_evaluator(time + dt)
     observables_now = evaluator.observables(
         state,
         params,
@@ -549,12 +559,12 @@ def crank_nicolson_step(
         evaluator=evaluator,
         state=state,
         params=params,
-        drivers_next=drivers_next,
         dt=dt,
         tol=tol,
         initial_guess=next_state,
         max_iters=max_iters,
         time=time,
+        driver_evaluator=driver_evaluator,
     )
     error = next_state - be_result.state
     status = _encode_solver_status(converged, niters)
@@ -562,10 +572,10 @@ def crank_nicolson_step(
 
 def backward_euler_predict_correct_step(
     evaluator: CPUODESystem,
+    driver_evaluator: DriverEvaluator,
+    *,
     state: Optional[Array] = None,
     params: Optional[Array] = None,
-    drivers_now: Optional[Array] = None,
-    drivers_next: Optional[Array] = None,
     dt: Optional[float] = None,
     tol: Optional[float] = None,
     max_iters: int = 25,
@@ -574,6 +584,8 @@ def backward_euler_predict_correct_step(
     """Predict with explicit Euler and correct with backward Euler."""
 
     precision = evaluator.precision
+    drivers_now = driver_evaluator(time)
+    drivers_next = driver_evaluator(time + dt)
     observables_now = evaluator.observables(
         state,
         params,
@@ -592,37 +604,89 @@ def backward_euler_predict_correct_step(
         evaluator=evaluator,
         state=state,
         params=params,
-        drivers_next=drivers_next,
         dt=dt,
         tol=tol,
         initial_guess=predictor,
         max_iters=max_iters,
         time=time,
+        driver_evaluator=driver_evaluator,
     )
 
 
-class DriverSampler:
-    """Utility mapping loop save indices to driver samples."""
+class DriverEvaluator:
+    """Evaluate spline coefficients to recover driver samples on the CPU."""
 
-    def __init__(self, drivers: Array, base_dt: float, precision: np.dtype) -> None:
-        if drivers.size == 0:
-            self._drivers = np.zeros((0, 0), dtype=precision)
+    def __init__(
+        self,
+        coefficients: Optional[Array],
+        dt: float,
+        t0: float,
+        wrap: bool,
+        precision: np.dtype,
+    ) -> None:
+        coeffs = (
+            np.zeros((0, 0, 1), dtype=precision)
+            if coefficients is None
+            else np.array(coefficients, dtype=precision, copy=True)
+        )
+        if coeffs.ndim != 3:
+            raise ValueError(
+                "Driver coefficients must have shape (segments, drivers, order + 1)."
+            )
+
+        self.coefficients = coeffs
+        self.dt = float(dt)
+        self.t0 = float(t0)
+        self.wrap = bool(wrap)
+        self.precision = precision
+        self._segments = coeffs.shape[0]
+        self._width = coeffs.shape[1]
+        self._zero = np.zeros(self._width, dtype=precision)
+
+    def evaluate(self, time: float) -> Array:
+        """Return driver values interpolated at ``time``."""
+
+        if self._width == 0 or self._segments == 0 or self.dt == 0.0:
+            return self._zero.copy()
+
+        scaled = (time - self.t0) / self.dt
+        segment = math.floor(scaled)
+        if self.wrap and self._segments > 0:
+            segment %= self._segments
+            if segment < 0:
+                segment += self._segments
         else:
-            if drivers.ndim != 2:
-                raise ValueError("forcing_vectors must have shape (n_samples, n_drivers)")
-            self._drivers = drivers.astype(precision, copy=True)
-        self._samples = self._drivers.shape[0]
+            if segment < 0:
+                segment = 0
+            elif segment >= self._segments:
+                segment = self._segments - 1
 
-    def sample(self, save_index: int) -> Array:
-        """Return the driver values associated with ``save_index``."""
+        base_time = self.t0 + self.dt * float(segment)
+        tau = (time - base_time) / self.dt
+        values = self._zero.copy()
+        for driver_idx in range(self._width):
+            segment_coeffs = self.coefficients[segment, driver_idx]
+            acc = 0.0
+            for coeff in reversed(segment_coeffs):
+                acc = acc * tau + float(coeff)
+            values[driver_idx] = self.precision(acc)
+        return values
 
-        if self._drivers.size == 0:
-            return np.zeros(0, dtype=self._drivers.dtype)
+    def __call__(self, time: float) -> Array:
+        """Alias for :meth:`evaluate` so instances are callable."""
 
-        index = int(save_index)
-        if self._samples > 0:
-            index %= self._samples
-        return self._drivers[index, :]
+        return self.evaluate(time)
+
+    def with_coefficients(self, coefficients: Optional[Array]) -> DriverEvaluator:
+        """Return a new evaluator with ``coefficients`` but shared timing settings."""
+
+        return DriverEvaluator(
+            coefficients=coefficients,
+            dt=self.dt,
+            t0=self.t0,
+            wrap=self.wrap,
+            precision=self.precision,
+        )
 
 class CPUAdaptiveController:
     """Simple adaptive step controller mirroring GPU heuristics."""
@@ -838,6 +902,7 @@ def _collect_saved_outputs(
 def run_reference_loop(
     evaluator: CPUODESystem,
     inputs: Mapping[str, Array],
+    driver_evaluator: DriverEvaluator,
     solver_settings,
     implicit_step_settings,
     output_functions,
@@ -850,7 +915,6 @@ def run_reference_loop(
 
     initial_state = inputs["initial_values"].astype(precision, copy=True)
     params = inputs["parameters"].astype(precision, copy=True)
-    forcing_vectors = inputs["drivers"].astype(precision, copy=True)
     duration = precision(solver_settings["duration"])
     warmup = precision(solver_settings["warmup"])
     dt_save = precision(solver_settings["dt_save"])
@@ -861,7 +925,9 @@ def run_reference_loop(
 
     step_fn = get_ref_step_fn(solver_settings["algorithm"])
 
-    sampler = DriverSampler(forcing_vectors, dt_save, precision)
+    coefficients = inputs.get("driver_coefficients")
+    if coefficients is not None:
+        driver_evaluator = driver_evaluator.with_coefficients(coefficients)
 
 
     saved_state_indices = _ensure_array(
@@ -887,15 +953,14 @@ def run_reference_loop(
 
     if warmup > zero:
         next_save_time = warmup
-        save_index = 0
     else:
         next_save_time = dt_save
-        save_index = 1
         state_history = [state.copy()]
+        drivers_initial = driver_evaluator(float(t))
         observables = evaluator.observables(
             state,
             params,
-            sampler.sample(0),
+            drivers_initial,
             t,
         )
         observable_history.append(observables.copy())
@@ -921,23 +986,16 @@ def run_reference_loop(
                 fixed_step_count += 1
 
 
-        driver_sample = sampler.sample(save_index)
-
-        #Drivers handling matches devices (poor) approach
-        drivers_now = driver_sample
-        drivers_next = driver_sample
-
         result = step_fn(
-                evaluator,
-                state=state,
-                params=params,
-                drivers_now=drivers_now,
-                drivers_next=drivers_next,
-                dt=dt,
-                tol=implicit_step_settings['nonlinear_tolerance'],
-                max_iters=max_iters,
-                time=float(t),
-            )
+            evaluator,
+            driver_evaluator,
+            state=state,
+            params=params,
+            dt=dt,
+            tol=implicit_step_settings['nonlinear_tolerance'],
+            max_iters=max_iters,
+            time=float(t),
+        )
 
         step_status = int(result.status)
         status_flags |= step_status & STATUS_MASK
@@ -958,7 +1016,6 @@ def run_reference_loop(
                 observable_history.append(result.observables.copy())
                 time_history.append(precision(next_save_time - warmup))
             next_save_time += dt_save
-            save_index += 1
 
 
     state_output = _collect_saved_outputs(

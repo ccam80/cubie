@@ -20,7 +20,7 @@ from cubie.integrators.driver_array import DriverArray
 
 
 def build_wiggly_driver(
-    num_samples: int = 512, duration: float = 32.0
+    num_samples: int = 32, duration: float = 1.0
 ) -> tuple[np.ndarray, np.ndarray]:
     """Construct a long driver array with rapidly changing structure.
 

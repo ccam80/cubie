@@ -87,6 +87,7 @@ class TestSingleIntegratorRun:
         precision,
         initial_state,
         cpu_loop_outputs,
+        driver_array,
     ):
         """Requesting the device loop compiles children and preserves getters."""
 
@@ -268,7 +269,8 @@ class TestSingleIntegratorRun:
             initial_state=initial_state,
             output_functions=run._output_functions,
             solver_config=solver_settings,
-            localmem_required=run.local_memory_elements
+            localmem_required=run.local_memory_elements,
+            driver_array=driver_array,
         )
 
         assert device_outputs.status == cpu_reference["status"]

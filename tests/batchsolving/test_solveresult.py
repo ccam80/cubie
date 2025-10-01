@@ -4,7 +4,7 @@ import pytest
 
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
-from tests._utils import _driver_sequence, extract_state_and_time
+from tests._utils import extract_state_and_time
 
 
 # --------------------------------------------------------------------------- #
@@ -17,25 +17,24 @@ def solver_with_arrays(
     solver_settings,
     system,
     precision,
+    driver_settings,
 ):
     """Solver with actual arrays computed - ready for SolveResult instantiation"""
     inits, params = batch_input_arrays
 
-    samples = max(
-        1,
-        int(np.ceil(solver_settings["duration"] / solver_settings["dt_save"])))
-    drivers = _driver_sequence(
-        samples=samples,
-        total_time=solver_settings["duration"],
-        n_drivers=system.num_drivers,
-        precision=precision,
-    )
+    if driver_settings:
+        driver_inputs = {
+            key: value.copy() if isinstance(value, np.ndarray) else value
+            for key, value in driver_settings.items()
+        }
+    else:
+        driver_inputs = None
 
     solver.kernel.run(
         duration=solver_settings["duration"],
         params=params,
         inits=inits,
-        forcing_vectors=drivers,
+        driver_arrays=driver_inputs,
         blocksize=solver_settings["blocksize"],
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],

@@ -506,7 +506,9 @@ class BatchSolverKernel(CUDAFactory):
                           f32_pad_perrun))
 
         # no cover: start
-        @cuda.jit(precision[:,:,:], precision[:,:,:])
+        @cuda.jit((precision[:,:,:], precision[:,:,:]),
+                  device=True,
+                  inline=True)
         def initialise_driver_coefficients(device_array, constant_array):
             """Copy coefficients from device array into constant memory.
 
