@@ -240,8 +240,8 @@ class SolveResult:
                 "use this feature."
             )
 
-        run_index = self._stride_order.index("run")
-        ndim = len(self._stride_order)
+        run_index = self._stride_order['state'].index("run")
+        ndim = len(self._stride_order['state'])
         time_dfs = []
         summaries_dfs = []
         any_summaries = (
@@ -366,7 +366,7 @@ class SolveResult:
         for offset, label in singlevar_legend.items():
             summ_slice = slice(offset, None, indices_per_var)
             summ_slice = slice_variable_dimension(
-                summ_slice, variable_index, len(self._stride_order)
+                summ_slice, variable_index, len(self._stride_order['state'])
             )
             per_summary_arrays[label] = self.summaries_array[summ_slice].copy()
         per_summary_arrays["summary_legend"] = variable_legend

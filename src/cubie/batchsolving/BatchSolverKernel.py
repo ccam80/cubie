@@ -11,7 +11,7 @@ Created on Tue May 27 17:45:03 2025
 @author: cca79
 """
 
-from typing import Optional
+from typing import Optional, Callable
 from warnings import warn
 
 import numpy as np
@@ -121,6 +121,7 @@ class BatchSolverKernel(CUDAFactory):
         saved_observable_indices: NDArray[np.int_] = None,
         summarised_state_indices: Optional[ArrayLike] = None,
         summarised_observable_indices: Optional[ArrayLike] = None,
+        driver_function: Optional[Callable] = None,
         output_types: list[str] = None,
         profileCUDA: bool = False,
         memory_manager=default_memmgr,
@@ -168,6 +169,7 @@ class BatchSolverKernel(CUDAFactory):
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
+            driver_function=driver_function,
         )
 
         # input/output arrays supressed while refactoring

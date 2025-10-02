@@ -638,43 +638,52 @@ class DriverEvaluator:
             raise ValueError(
                 "Driver coefficients must have shape (segments, drivers, order + 1)."
             )
-
-        self.coefficients = coeffs
-        self.dt = float(dt)
-        self.t0 = float(t0)
-        self.wrap = bool(wrap)
         self.precision = precision
+        self.coefficients = coeffs
+        self.dt = precision(dt)
+        self.t0 = precision(t0)
+        self.wrap = bool(wrap)
         self._segments = coeffs.shape[0]
         self._width = coeffs.shape[1]
         self._zero = np.zeros(self._width, dtype=precision)
 
     def evaluate(self, time: float) -> Array:
         """Return driver values interpolated at ``time``."""
+        precision = self.precision
 
         if self._width == 0 or self._segments == 0 or self.dt == 0.0:
             return self._zero.copy()
 
-        scaled = (time - self.t0) / self.dt
-        segment = math.floor(scaled)
-        if self.wrap and self._segments > 0:
-            segment %= self._segments
-            if segment < 0:
-                segment += self._segments
-        else:
-            if segment < 0:
-                segment = 0
-            elif segment >= self._segments:
-                segment = self._segments - 1
+        inv_res = 1.0 / self.dt
+        scaled = (time - self.t0) * inv_res
+        scaled_floor = math.floor(scaled)
+        idx = int(scaled_floor)
 
-        base_time = self.t0 + self.dt * float(segment)
+        if self.wrap and self._segments > 0:
+            segment = idx % self.coefficients.shape[0]
+            if segment < 0:
+                segment += self.coefficients.shape[0]
+            tau = scaled - scaled_floor
+            in_range = True
+        else:
+            in_range = 0.0 <= scaled <= precision(self.coefficients.shape[0])
+            segment = idx if idx >= 0 else 0
+            if segment >= self.coefficients.shape[0]:
+                segment = self.coefficients.shape[0] - 1
+            tau = scaled - precision(segment)
+
+        base_time = self.t0 + self.dt * precision(segment)
         tau = (time - base_time) / self.dt
         values = self._zero.copy()
         for driver_idx in range(self._width):
             segment_coeffs = self.coefficients[segment, driver_idx]
-            acc = 0.0
+            acc = precision(0.0)
             for coeff in reversed(segment_coeffs):
-                acc = acc * tau + float(coeff)
-            values[driver_idx] = self.precision(acc)
+                acc = acc * tau + precision(coeff)
+            if self.wrap or in_range:
+                values[driver_idx] = acc
+            else:
+                values = self._zero.copy()
         return values
 
     def __call__(self, time: float) -> Array:
@@ -961,7 +970,7 @@ def run_reference_loop(
     else:
         next_save_time = dt_save
         state_history = [state.copy()]
-        drivers_initial = driver_evaluator(float(t))
+        drivers_initial = driver_evaluator(precision(t))
         observables = evaluator.observables(
             state,
             params,
@@ -999,7 +1008,7 @@ def run_reference_loop(
             dt=dt,
             tol=implicit_step_settings['nonlinear_tolerance'],
             max_iters=max_iters,
-            time=float(t),
+            time=precision(t),
         )
 
         step_status = int(result.status)

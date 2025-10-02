@@ -311,7 +311,7 @@ class TestSolveResultFromSolver:
         )
 
         # Test that run dimension is found correctly
-        run_dim = result._stride_order.index("run")
+        run_dim = result._stride_order['state'].index("run")
         assert isinstance(run_dim, int)
         assert 0 <= run_dim < len(result._stride_order)
 
@@ -331,7 +331,9 @@ class TestSolveResultFromSolver:
         """Ensure ``SolveResult`` values match CPU reference integrations."""
 
         result = SolveResult.from_solver(solver_with_arrays, results_type="full")
-        axes = tuple(result._stride_order.index(dim) for dim in ("time", "run", "variable"))
+        axes = tuple(result._stride_order['state'].index(dim) for dim in (
+            "time",
+                                                                  "run", "variable"))
         time_domain = np.transpose(result.time_domain_array, axes)
 
         legend = result.time_domain_legend
@@ -482,7 +484,7 @@ class TestSolveResultProperties:
             # Check run naming
             run_levels = time_df.columns.get_level_values(0).unique()
             expected_runs = result.time_domain_array.shape[
-                result._stride_order.index("run")
+                result._stride_order['state'].index("run")
             ]
             assert len(run_levels) == expected_runs
             for i, run_name in enumerate(run_levels):

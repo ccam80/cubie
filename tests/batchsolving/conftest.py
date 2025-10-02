@@ -106,10 +106,12 @@ def cpu_batch_results(
 
     initial_sets, parameter_sets = batch_input_arrays
     results: list[BatchResult] = []
+    coefficients = driver_array.coefficients if driver_array is not None else None
     for idx in range(initial_sets.shape[0]):
         loop_result = cpu_loop_runner(
             initial_values=initial_sets[idx, :],
             parameters=parameter_sets[idx, :],
+            driver_coefficients=coefficients
         )
         results.append(
             BatchResult(

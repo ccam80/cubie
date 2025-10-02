@@ -574,7 +574,7 @@ def _driver_sequence(
     width = max(n_drivers, 1)
     drivers = np.zeros((samples, width), dtype=precision)
     if n_drivers > 0 and total_time > 0.0:
-        times = np.linspace(0.0, total_time, samples, dtype=float)
+        times = np.linspace(0.0, total_time, samples, dtype=precision)
         for idx in range(n_drivers):
             drivers[:, idx] = precision(
                 1.0 + np.sin(2 * np.pi * (idx + 1) * times / total_time))
@@ -593,8 +593,8 @@ def evaluate_driver_series(
         width = max(driver.num_drivers, 1)
         return np.zeros(width, dtype=precision)
 
-    resolution = float(driver.dt)
-    start_time = float(driver.t0)
+    resolution = precision(driver.dt)
+    start_time = precision(driver.t0)
     wrap = bool(driver.wrap)
     num_segments = coeffs.shape[0]
     inv_res = 1.0 / resolution if resolution != 0.0 else 0.0
@@ -608,7 +608,7 @@ def evaluate_driver_series(
     else:
         segment = max(0, min(num_segments - 1, segment))
 
-    base_time = start_time + resolution * float(segment)
+    base_time = start_time + resolution * precision(segment)
     tau = (time - base_time) * inv_res if resolution != 0.0 else 0.0
 
     values = np.zeros(coeffs.shape[1], dtype=precision)
@@ -616,6 +616,6 @@ def evaluate_driver_series(
         segment_coeffs = coeffs[segment, driver_idx]
         acc = 0.0
         for power in range(segment_coeffs.size - 1, -1, -1):
-            acc = acc * tau + float(segment_coeffs[power])
+            acc = acc * tau + precision(segment_coeffs[power])
         values[driver_idx] = precision(acc)
     return values

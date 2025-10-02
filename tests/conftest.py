@@ -535,15 +535,17 @@ def loop(
                    observables_fn=system.observables_function,
                    dt_save=solver_settings["dt_save"],
                    dt_summarise=solver_settings["dt_summarise"],
-                   dt0=step_controller.dt0, dt_min=step_controller.dt_min,
+                   dt0=step_controller.dt0,
+                   dt_min=step_controller.dt_min,
                    dt_max=step_controller.dt_max,
                    is_adaptive=step_controller.is_adaptive)
 
 @pytest.fixture(scope="function")
-def single_integrator_run(system, solver_settings):
+def single_integrator_run(system, solver_settings, driver_array):
     """Instantiate :class:`SingleIntegratorRun` with test fixtures."""
+    driver_fn = driver_array.evaluation_function if driver_array is not None else None
 
-    return SingleIntegratorRun(
+    run = SingleIntegratorRun(
         system=system,
         algorithm=solver_settings["algorithm"],
         dt_min=solver_settings["dt_min"],
@@ -559,9 +561,11 @@ def single_integrator_run(system, solver_settings):
         summarised_observable_indices=solver_settings[
             "summarised_observable_indices"
         ],
+        driver_function=driver_fn,
         output_types=solver_settings["output_types"],
         step_controller_kind=solver_settings["step_controller"],
     )
+    return run
 
 @pytest.fixture(scope='function')
 def cpu_system(system):
@@ -735,12 +739,15 @@ def cpu_loop_outputs(
     step_controller_settings,
     output_functions,
     cpu_driver_evaluator,
+    driver_array,
 ) -> dict[str, Array]:
     """Execute the CPU reference loop with the provided configuration."""
     inputs = {
         'initial_values': initial_state.copy(),
         'parameters': system.parameters.values_array.copy(),
     }
+    coefficients = driver_array.coefficients if driver_array is not None else None
+    inputs['driver_coefficients'] = coefficients
 
     return run_reference_loop(
         evaluator=cpu_system,
@@ -773,6 +780,6 @@ def device_loop_outputs(
         initial_state=initial_state,
         output_functions=output_functions,
         solver_config=solver_settings,
-            localmem_required=single_integrator_run.local_memory_elements,
+        localmem_required=single_integrator_run.local_memory_elements,
         driver_array=driver_array,
     )

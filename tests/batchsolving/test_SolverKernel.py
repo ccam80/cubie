@@ -63,14 +63,6 @@ def test_run(
     "scorcher" in CI."""
     inits, params = batch_input_arrays
 
-    if driver_settings:
-        driver_inputs = {
-            key: value.copy() if isinstance(value, np.ndarray) else value
-            for key, value in driver_settings.items()
-        }
-    else:
-        driver_inputs = None
-
     solverkernel.run(
         duration=solver_settings["duration"],
         params=params,
