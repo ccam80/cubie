@@ -341,7 +341,7 @@ def run_reference_loop_with_history(
     precision = evaluator.precision
     initial_state = inputs["initial_values"].astype(precision, copy=True)
     params = inputs["parameters"].astype(precision, copy=True)
-    forcing_vectors = inputs["drivers"].astype(precision, copy=True)
+    driver_coefficients = inputs["drivers"].astype(precision, copy=True)
     duration = precision(solver_settings["duration"])
     warmup = precision(solver_settings["warmup"])
     dt_save = precision(solver_settings["dt_save"])

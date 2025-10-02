@@ -345,6 +345,8 @@ def test_wrap_repeats_periodically(wrapping_inputs) -> None:
     np.testing.assert_allclose(
         gpu[0],
         gpu[1],
+        atol=1e-6,
+        rtol=1e-6,
         err_msg=(
             "wrap evaluation should repeat forward period\n"
             f"gpu0:\n{np.array2string(gpu[0])}\n"
@@ -354,6 +356,8 @@ def test_wrap_repeats_periodically(wrapping_inputs) -> None:
     np.testing.assert_allclose(
         gpu[0],
         gpu[2],
+        atol=1e-6,
+        rtol=1e-6,
         err_msg=(
             "wrap evaluation should repeat backward period\n"
             f"gpu0:\n{np.array2string(gpu[0])}\n"

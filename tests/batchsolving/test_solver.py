@@ -78,7 +78,7 @@ def solved_solver_simple(
     result = solver_instance.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=simple_forcing_vectors,
         duration=0.1,
         settling_time=0.0,
         blocksize=32,
@@ -229,7 +229,7 @@ def test_solve_basic(
     result = solver_instance.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=simple_forcing_vectors,
         duration=0.1,
         settling_time=0.0,
         blocksize=32,
@@ -253,7 +253,7 @@ def test_solve_with_different_grid_types(
     result_comb = solver_instance.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=simple_forcing_vectors,
         duration=0.1,
         grid_type="combinatorial",
     )
@@ -276,7 +276,7 @@ def test_solve_with_different_grid_types(
     result_verb = solver_instance.solve(
         initial_values=verbatim_initial_values,
         parameters=verbatim_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=simple_forcing_vectors,
         duration=0.1,
         grid_type="verbatim",
     )
@@ -296,7 +296,7 @@ def test_solve_with_different_result_types(
         result = solver_instance.solve(
             initial_values=simple_initial_values,
             parameters=simple_parameters,
-            forcing_vectors=simple_forcing_vectors,
+            drivers=simple_forcing_vectors,
             duration=0.1,
             results_type=result_type,
         )
@@ -435,7 +435,7 @@ def test_solve_ivp_function(
         system=system,
         y0=simple_initial_values,
         parameters=simple_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=simple_forcing_vectors,
         dt_eval=0.01,
         method="euler",
         duration=0.1,
