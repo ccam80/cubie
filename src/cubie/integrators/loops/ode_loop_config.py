@@ -154,6 +154,8 @@ class LoopSharedIndices:
         Slice covering parameter storage.
     drivers
         Slice covering driver storage.
+    proposed_drivers
+        Slice covering the proposed driver storage.
     state_summaries
         Slice covering aggregated state summaries.
     observable_summaries
@@ -191,6 +193,10 @@ class LoopSharedIndices:
             validator=valid_opt_slice
     )
     drivers: Optional[slice] = field(
+            default=None,
+            validator=valid_opt_slice
+    )
+    proposed_drivers: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
@@ -278,7 +284,8 @@ class LoopSharedIndices:
             observables_proposal_start_idx + n_observables
         )
         drivers_start_index = parameters_start_index + n_parameters
-        state_summ_start_index = drivers_start_index + n_drivers
+        drivers_proposal_start_idx = drivers_start_index + n_drivers
+        state_summ_start_index = drivers_proposal_start_idx + n_drivers
         obs_summ_start_index = (state_summ_start_index +
                                 state_summaries_buffer_height)
         end_index = obs_summ_start_index + observable_summaries_buffer_height
@@ -294,7 +301,10 @@ class LoopSharedIndices:
                 observables_proposal_start_idx, parameters_start_index
             ),
             parameters=slice(parameters_start_index, drivers_start_index),
-            drivers=slice(drivers_start_index, state_summ_start_index),
+            drivers=slice(drivers_start_index, drivers_proposal_start_idx),
+            proposed_drivers=slice(
+                drivers_proposal_start_idx, state_summ_start_index
+            ),
             state_summaries=slice(state_summ_start_index, obs_summ_start_index),
             observable_summaries=slice(obs_summ_start_index, end_index),
             local_end=end_index,

@@ -71,6 +71,7 @@ def _cpu_evaluate(
     start: float,
     resolution: float,
     wrap: bool,
+    boundary_condition: str,
 ) -> np.ndarray:
     """Evaluate all input polynomials on the CPU.
 
@@ -93,22 +94,25 @@ def _cpu_evaluate(
         Evaluated input values at ``time``.
     """
 
+    pad_clamped = (not wrap) and (boundary_condition == "clamped")
+    evaluation_start = start - (resolution if pad_clamped else 0.0)
     inv_res = 1.0 / resolution
-    scaled = (time - start) * inv_res
+    num_segments = coefficients.shape[0]
+    scaled = (time - evaluation_start) * inv_res
     scaled_floor = math.floor(scaled)
     idx = int(scaled_floor)
 
     if wrap:
-        segment = idx % coefficients.shape[0]
+        segment = idx % num_segments
         if segment < 0:
-            segment += coefficients.shape[0]
+            segment += num_segments
         tau = scaled - scaled_floor
         in_range = True
     else:
-        in_range = 0.0 <= scaled <= float(coefficients.shape[0])
+        in_range = 0.0 <= scaled <= float(num_segments)
         segment = idx if idx >= 0 else 0
-        if segment >= coefficients.shape[0]:
-            segment = coefficients.shape[0] - 1
+        if segment >= num_segments:
+            segment = num_segments - 1
         tau = scaled - float(segment)
     zero_value = coefficients.dtype.type(0.0)
     out = np.empty(coefficients.shape[1], dtype=coefficients.dtype)
@@ -168,25 +172,46 @@ def test_build_coefficients_matches_polynomial(quadratic_input):
     """Segment-wise coefficients should reproduce the quadratic exactly."""
 
     coefficients = quadratic_input.coefficients[:, 0, :]
-    segment_starts = (np.arange(
-            quadratic_input.num_segments,
-            dtype=quadratic_input.precision)
-            * quadratic_input.dt)
+    interior = coefficients[1:-1]
+    segment_starts = (
+        np.arange(interior.shape[0], dtype=quadratic_input.precision)
+        * quadratic_input.dt
+    )
     expected = np.column_stack(
-            (
+        (
             segment_starts ** 2,
             2.0 * segment_starts,
             np.ones_like(segment_starts),
         )
     )
     np.testing.assert_allclose(
-        coefficients,
+        interior,
         expected,
         err_msg=(
-            "device coefficients diverged from quadratic reference\n"
-            f"device:\n{np.array2string(coefficients)}\n"
+            "interior coefficients diverged from quadratic reference\n"
+            f"device:\n{np.array2string(interior)}\n"
             f"expected:\n{np.array2string(expected)}"
         ),
+    )
+
+    def _horner(coeffs, tau):
+        value = 0.0
+        for coef in coeffs[::-1]:
+            value = value * tau + coef
+        return value
+
+    leading = coefficients[0]
+    trailing = coefficients[-1]
+    np.testing.assert_allclose(
+        [_horner(leading, tau) for tau in (0.0, 1.0)],
+        [0.0, 0.0],
+        err_msg="leading ghost segment should start and end at zero",
+    )
+    last_sample = quadratic_input.input_array[-1, 0]
+    np.testing.assert_allclose(
+        [_horner(trailing, tau) for tau in (0.0, 1.0)],
+        [last_sample, 0.0],
+        err_msg="trailing ghost segment should decay to zero",
     )
 
 
@@ -210,6 +235,7 @@ def test_device_interpolation_matches_cpu(cubic_inputs) -> None:
                 input.t0,
                 input.dt,
                 wrap=False,
+                boundary_condition=input.boundary_condition,
             )
             for t in query_times
         ]
@@ -250,6 +276,7 @@ def test_wrap_vs_clamp_evaluation(wrapping_inputs) -> None:
                 clamp_input.t0,
                 clamp_input.dt,
                 wrap=False,
+                boundary_condition=clamp_input.boundary_condition,
             )
             for t in query_times
         ]
@@ -262,6 +289,7 @@ def test_wrap_vs_clamp_evaluation(wrapping_inputs) -> None:
                 wrap_input.t0,
                 wrap_input.dt,
                 wrap=True,
+                boundary_condition=wrap_input.boundary_condition,
             )
             for t in query_times
         ]
@@ -295,11 +323,12 @@ def test_non_wrap_returns_zero_outside_range(quadratic_input) -> None:
     coefficients = input.coefficients
     device_fn = input.evaluation_function
     dtype = input.precision
+    end_time = input.t0 + (input.num_samples - 1) * input.dt
     query_times = np.array(
         [
             input.t0 - input.dt,
             input.t0 + 0.5 * input.dt,
-            input.t0 + input.num_segments * input.dt + input.dt,
+            end_time + input.dt,
         ],
         dtype=dtype,
     )
@@ -322,6 +351,12 @@ def test_non_wrap_returns_zero_outside_range(quadratic_input) -> None:
         ),
     )
     assert not np.allclose(gpu[1], 0.0)
+
+
+def test_non_wrap_defaults_to_clamped_boundary(quadratic_input) -> None:
+    """Non-wrapping inputs should apply clamped spline boundaries."""
+
+    assert quadratic_input.boundary_condition == "clamped"
 
 
 def test_wrap_repeats_periodically(wrapping_inputs) -> None:
@@ -367,8 +402,8 @@ def test_wrap_repeats_periodically(wrapping_inputs) -> None:
 
 
 @pytest.mark.parametrize("order", [1, 2, 3, 4, 5])
-def test_interpolation_exact_for_polynomials(order, precision) -> None:
-    """Interpolation of polynomials up to ``order`` should be exact."""
+def test_polynomial_samples_are_reproduced(order, precision) -> None:
+    """Spline evaluation must match supplied samples for polynomial data."""
 
     times = np.linspace(0.0, 6.0, 25, dtype=precision)
     coeffs = np.arange(order + 1, dtype=precision) + 1.0
@@ -380,22 +415,22 @@ def test_interpolation_exact_for_polynomials(order, precision) -> None:
         precision=precision,
         input_dict=input_dict,
     )
-    query = np.linspace(times[0], times[-1], 51, dtype=precision)
-    gpu = _run_evaluate(input.evaluation_function, input.coefficients, query)
-    reference = np.zeros_like(query)
-    for power, coef in enumerate(coeffs):
-        reference += coef * query**power
+    gpu_samples = _run_evaluate(
+        input.evaluation_function,
+        input.coefficients,
+        times,
+    )
     eps = np.finfo(precision).eps
     tol = 1_000.0 * eps
     np.testing.assert_allclose(
-        gpu[:, 0],
-        reference,
+        gpu_samples[:, 0],
+        values,
         rtol=tol,
         atol=tol,
         err_msg=(
-            "polynomial interpolation lost exactness\n"
-            f"gpu:\n{np.array2string(gpu[:, 0])}\n"
-            f"reference:\n{np.array2string(reference)}"
+            "polynomial samples were not reproduced\n"
+            f"gpu:\n{np.array2string(gpu_samples[:, 0])}\n"
+            f"reference:\n{np.array2string(values)}"
         ),
     )
 
@@ -427,13 +462,20 @@ def test_order_three_matches_scipy_reference(precision, bc) -> None:
     )
     query = np.linspace(times[0], times[-1], 257, dtype=precision)
     gpu = _run_evaluate(input.evaluation_function, input.coefficients, query)
-    spline = scipy.CubicSpline(times, samples, bc_type=bc)
+    scipy_samples = samples.copy()
+    scipy_times = times.copy()
+    if not wrap and bc == "clamped":
+        dt = np.diff(times)[0]
+        scipy_samples = np.hstack([precision(0), samples, precision(0)])
+        scipy_times = np.hstack([times[0] - dt, times, times[-1] + dt])
+    spline = scipy.CubicSpline(scipy_times, scipy_samples, bc_type=bc)
     scipy_values = np.asarray(spline(query), dtype=precision)
+
     np.testing.assert_allclose(
         gpu[:, 0],
         scipy_values,
-        rtol=5e-4,
-        atol=5e-4,
+        rtol=1e-5,
+        atol=1e-5,
         err_msg=(
             "cubic interpolation diverged from SciPy reference\n"
             f"gpu:\n{np.array2string(gpu[:, 0])}\n"

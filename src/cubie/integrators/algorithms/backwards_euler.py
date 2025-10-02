@@ -139,6 +139,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -154,6 +155,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             parameters,
             driver_coefficients,
             drivers_buffer,
+            proposed_drivers,
             observables,
             proposed_observables,  # unused here
             error,
@@ -178,6 +180,8 @@ class BackwardsEulerStep(ODEImplicitStep):
                 Device array containing spline driver coefficients.
             drivers_buffer
                 Device array of time-dependent drivers.
+            proposed_drivers
+                Device array receiving proposed driver samples.
             observables
                 Device array storing accepted observable outputs.
             proposed_observables
@@ -207,7 +211,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 driver_function(
                     next_time,
                     driver_coefficients,
-                    drivers_buffer,
+                    proposed_drivers,
                 )
 
             resid = cuda.local.array(n, numba_precision)
@@ -216,7 +220,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             status = solver_fn(
                 proposed_state,
                 parameters,
-                drivers_buffer,
+                proposed_drivers,
                 dt_scalar,
                 a_ij,
                 state,
@@ -230,7 +234,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             observables_function(
                 proposed_state,
                 parameters,
-                drivers_buffer,
+                proposed_drivers,
                 proposed_observables,
                 next_time,
             )

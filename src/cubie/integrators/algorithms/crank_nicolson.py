@@ -146,6 +146,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -161,6 +162,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             parameters,
             driver_coefficients,
             drivers_buffer,
+            proposed_drivers,
             observables,
             proposed_observables,
             error,
@@ -185,6 +187,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                 Device array containing spline driver coefficients.
             drivers_buffer
                 Device array of time-dependent drivers.
+            proposed_drivers
+                Device array receiving proposed driver samples.
             observables
                 Device array storing accepted observable outputs.
             proposed_observables
@@ -236,13 +240,13 @@ class CrankNicolsonStep(ODEImplicitStep):
                 driver_function(
                     mid_time,
                     driver_coefficients,
-                    drivers_buffer,
+                    proposed_drivers,
                 )
 
             status = solver_fn(
                 proposed_state,
                 parameters,
-                drivers_buffer,
+                proposed_drivers,
                 cn_dt,
                 a_ij,
                 error,
@@ -262,13 +266,13 @@ class CrankNicolsonStep(ODEImplicitStep):
                 driver_function(
                     next_time,
                     driver_coefficients,
-                    drivers_buffer,
+                    proposed_drivers,
                 )
 
             status |= solver_fn(
                 error,
                 parameters,
-                drivers_buffer,
+                proposed_drivers,
                 dt_scalar,
                 a_ij,
                 state,
@@ -285,7 +289,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             observables_function(
                 proposed_state,
                 parameters,
-                drivers_buffer,
+                proposed_drivers,
                 proposed_observables,
                 next_time,
             )

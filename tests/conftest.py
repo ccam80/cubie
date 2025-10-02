@@ -256,6 +256,9 @@ def cpu_driver_evaluator(
         t0=t0_value,
         wrap=wrap_value,
         precision=precision,
+        boundary_condition=(
+            None if driver_array is None else driver_array.boundary_condition
+        ),
     )
 
 

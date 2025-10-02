@@ -161,6 +161,7 @@ class IVPLoop(CUDAFactory):
         params_shared_ind = shared_indices.parameters
         obs_summ_shared_ind = shared_indices.observable_summaries
         drivers_shared_ind = shared_indices.drivers
+        drivers_prop_shared_ind = shared_indices.proposed_drivers
         remaining_scratch_ind = shared_indices.scratch
 
         dt_slice = local_indices.dt
@@ -256,6 +257,7 @@ class IVPLoop(CUDAFactory):
             observables_proposal_buffer = shared_scratch[obs_prop_shared_ind]
             parameters_buffer = shared_scratch[params_shared_ind]
             drivers_buffer = shared_scratch[drivers_shared_ind]
+            drivers_proposal_buffer = shared_scratch[drivers_prop_shared_ind]
             state_summary_buffer = shared_scratch[state_summ_shared_ind]
             observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
             remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
@@ -361,6 +363,7 @@ class IVPLoop(CUDAFactory):
                         parameters_buffer,
                         driver_coefficients,
                         drivers_buffer,
+                        drivers_proposal_buffer,
                         observables_buffer,
                         observables_proposal_buffer,
                         error,
@@ -395,6 +398,11 @@ class IVPLoop(CUDAFactory):
                         newv = state_proposal_buffer[i]
                         oldv = state_buffer[i]
                         state_buffer[i] = selp(accept, newv, oldv)
+
+                    for i in range(n_drivers):
+                        new_drv = drivers_proposal_buffer[i]
+                        old_drv = drivers_buffer[i]
+                        drivers_buffer[i] = selp(accept, new_drv, old_drv)
 
                     for i in range(n_observables):
                         new_obs = observables_proposal_buffer[i]

@@ -231,32 +231,22 @@ class Solver:
         tuple of ndarray or None
             Index arrays for each variable list in the order provided.
         """
-        if saved_states is not None:
-            saved_state_indices = self.system_interface.state_indices(
-                saved_states
-            )
-        else:
-            saved_state_indices = None
-        if saved_observables is not None:
-            saved_observable_indices = (
-                self.system_interface.observable_indices(saved_observables)
-            )
-        else:
-            saved_observable_indices = None
-        if summarised_states is not None:
-            summarised_state_indices = self.system_interface.state_indices(
-                summarised_states
-            )
-        else:
-            summarised_state_indices = None
-        if summarised_observables is not None:
-            summarised_observable_indices = (
-                self.system_interface.observable_indices(
-                    summarised_observables
-                )
-            )
-        else:
-            summarised_observable_indices = None
+
+        def _get_indices(getter, items):
+            return getter(items) if items is not None else None
+
+        saved_state_indices = _get_indices(
+            self.system_interface.state_indices, saved_states
+        )
+        saved_observable_indices = _get_indices(
+            self.system_interface.observable_indices, saved_observables
+        )
+        summarised_state_indices = _get_indices(
+            self.system_interface.state_indices, summarised_states
+        )
+        summarised_observable_indices = _get_indices(
+            self.system_interface.observable_indices, summarised_observables
+        )
 
         return (
             saved_state_indices,
@@ -416,35 +406,20 @@ class Solver:
         dict
             Updated dictionary with label lists replaced by index arrays.
         """
-        saved_states = updates_dict.pop("saved_states", None)
-        saved_observables = updates_dict.pop("saved_observables", None)
-        summarised_states = updates_dict.pop("summarised_states", None)
-        summarised_observables = updates_dict.pop(
-            "summarised_observables", None
-        )
+        labels = [
+            ("saved_states", "saved_state_indices"),
+            ("saved_observables", "saved_observable_indices"),
+            ("summarised_states", "summarised_state_indices"),
+            ("summarised_observables", "summarised_observable_indices"),
+        ]
 
-        (
-            saved_state_indices,
-            saved_observable_indices,
-            summarised_state_indices,
-            summarised_observable_indices,
-        ) = self._variable_indices_from_list(
-            saved_states,
-            saved_observables,
-            summarised_states,
-            summarised_observables,
-        )
+        label_values = [updates_dict.pop(label, None) for label, _ in labels]
 
-        if saved_state_indices is not None:
-            updates_dict["saved_state_indices"] = saved_state_indices
-        if saved_observable_indices is not None:
-            updates_dict["saved_observable_indices"] = saved_observable_indices
-        if summarised_state_indices is not None:
-            updates_dict["summarised_state_indices"] = summarised_state_indices
-        if summarised_observable_indices is not None:
-            updates_dict["summarised_observable_indices"] = (
-                summarised_observable_indices
-            )
+        indices = self._variable_indices_from_list(*label_values)
+
+        for (_, key), value in zip(labels, indices):
+            if value is not None:
+                updates_dict[key] = value
 
         return updates_dict
 

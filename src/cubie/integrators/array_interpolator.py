@@ -48,7 +48,9 @@ class ArrayInterpolatorConfig:
     num_inputs : int
         Number of separate input vectors
     num_segments : int
-        Number of polynomial segments, equal to the number of samples - 1.
+        Number of polynomial segments in the coefficient table. For
+        clamped, non-wrapping inputs this includes two ghost segments that
+        transition from and to zero-valued padding samples.
     """
 
     precision: PrecisionDtype = field(validator=precision_validator)
@@ -105,7 +107,7 @@ class ArrayInterpolator(CUDAFactory):
         self.update_from_dict(input_dict)
 
 
-    def update_from_dict(self, input_dict: Dict[str, Any]):
+    def update_from_dict(self, input_dict: Dict[str, Any]) -> bool:
         """Update the factory configuration from a user-supplied dictionary
 
         Parameters
@@ -136,11 +138,12 @@ class ArrayInterpolator(CUDAFactory):
             - ``"order"``: polynomial order for spline interpolation,
             default 3.
             - ``"wrap"``: whether the input should wrap past the final
-            value when the last time index is exceeded. Default is False,
-            which means the input value will be zero before t0 and after
-            the final sample.
+            value when the last time index is exceeded. When False the
+            interpolator clamps to zero before ``t0`` and after the final
+            sample.
             - ``"boundary_condition"``: boundary condition for splines.
-            defaults to "None", if wrap is False, otherwise "periodic".
+            Defaults to ``"clamped"`` when ``"wrap"`` is False and to
+            ``"periodic"`` when wrapping is enabled.
 
         The input arrays must all be one-dimensional and of the same length.
 
@@ -181,15 +184,27 @@ class ArrayInterpolator(CUDAFactory):
             self._input_array = input_array
 
         dt, t0 = self._validate_time_inputs(time)
+        base_segments = self.num_samples - 1
         config.update({'t0': t0,
                        'dt': dt,
-                       'num_inputs': self.num_inputs,
-                       'num_segments': self.num_samples - 1})
+                       'num_inputs': self.num_inputs})
 
         # Final update; invalidates cache if settings have changed.
-        if config.get('wrap', False):
+        wrap_setting = config.get('wrap', self.wrap)
+        if wrap_setting:
             if 'boundary_condition' not in config:
                 config['boundary_condition'] = 'periodic'
+            num_segments = base_segments
+        elif 'boundary_condition' not in config:
+            config['boundary_condition'] = 'clamped'
+            num_segments = base_segments + 2
+        else:
+            boundary = config['boundary_condition']
+            if boundary == 'clamped':
+                num_segments = base_segments + 2
+            else:
+                num_segments = base_segments
+        config['num_segments'] = num_segments
         fn_changed |= any(self.update_compile_settings(config))
         self._coefficients = self._compute_coefficients()
 
@@ -317,7 +332,10 @@ class ArrayInterpolator(CUDAFactory):
         start_time = self.t0
         num_segments = int32(self.num_segments)
         wrap = self.wrap
+        boundary_condition = self.boundary_condition
+        pad_clamped = (not wrap) and (boundary_condition == 'clamped')
         zero_value = self.precision(0.0)
+        evaluation_start = start_time - (resolution if pad_clamped else 0.0)
 
         @cuda.jit(device=True, inline=True)
         def evaluate_all(
@@ -337,7 +355,7 @@ class ArrayInterpolator(CUDAFactory):
                 Output array to populate with evaluated input values.
             """
 
-            scaled = (time - start_time) * inv_resolution
+            scaled = (time - evaluation_start) * inv_resolution
             scaled_floor = math.floor(scaled)
             idx = int32(scaled_floor)
 
@@ -473,10 +491,18 @@ class ArrayInterpolator(CUDAFactory):
             )
 
         precision = self.precision
-        inputs = self.input_array.astype(precision, copy=False)
-        num_segments = self.num_segments
+        base_inputs = self.input_array.astype(precision, copy=False)
         num_inputs = self.num_inputs
         order = self.order
+
+        pad_with_zeros = (not self.wrap) and boundary_condition == "clamped"
+        if pad_with_zeros:
+            zero_row = np.zeros((1, num_inputs), dtype=precision)
+            inputs = np.vstack((zero_row, base_inputs, zero_row))
+        else:
+            inputs = base_inputs
+
+        num_segments = inputs.shape[0] - 1
 
         if boundary_condition == "periodic":
             if not self.wrap:

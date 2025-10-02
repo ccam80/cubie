@@ -102,6 +102,7 @@ class ExplicitEulerStep(ODEExplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -117,6 +118,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             parameters,
             driver_coefficients,
             drivers_buffer,
+            proposed_drivers,
             observables,
             proposed_observables,
             error,
@@ -141,6 +143,8 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Device array containing spline driver coefficients.
             drivers_buffer
                 Device array of time-dependent drivers.
+            proposed_drivers
+                Device array receiving proposed driver samples.
             observables
                 Device array storing accepted observable outputs.
             proposed_observables
@@ -178,12 +182,12 @@ class ExplicitEulerStep(ODEExplicitStep):
                 driver_function(
                     next_time,
                     driver_coefficients,
-                    drivers_buffer,
+                    proposed_drivers,
                 )
             observables_function(
                 proposed_state,
                 parameters,
-                drivers_buffer,
+                proposed_drivers,
                 proposed_observables,
                 next_time,
             )

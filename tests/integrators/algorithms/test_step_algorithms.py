@@ -136,8 +136,11 @@ def device_step_results(
     d_params = cuda.to_device(params)
     d_drivers = cuda.to_device(drivers)
     d_driver_coeffs = cuda.to_device(driver_coefficients)
+    proposed_drivers = np.zeros_like(drivers)
+
     d_observables = cuda.to_device(observables)
     d_proposed_observables = cuda.to_device(observables)
+    d_proposed_drivers = cuda.to_device(proposed_drivers)
     d_error = cuda.to_device(error)
     d_status = cuda.to_device(status)
 
@@ -149,6 +152,7 @@ def device_step_results(
         params_vec,
         driver_coeffs_vec,
         drivers_vec,
+        proposed_drivers_vec,
         observables_vec,
         proposed_observables_vec,
         error_vec,
@@ -168,6 +172,7 @@ def device_step_results(
             params_vec,
             driver_coeffs_vec,
             drivers_vec,
+            proposed_drivers_vec,
             observables_vec,
             proposed_observables_vec,
             error_vec,
@@ -185,6 +190,7 @@ def device_step_results(
         d_params,
         d_driver_coeffs,
         d_drivers,
+        d_proposed_drivers,
         d_observables,
         d_proposed_observables,
         d_error,

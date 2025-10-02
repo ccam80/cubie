@@ -316,11 +316,16 @@ def create_driver_evaluator(
 
     # create CPU evaluator using the computed coefficients
     return DriverEvaluator(
-            coefficients=np.array(driver_array.coefficients, dtype=precision, copy=True),
-            dt=float(driver_array.dt),
-            t0=float(driver_array.t0),
-            wrap=bool(driver_array.wrap),
-            precision=precision,
+        coefficients=np.array(
+            driver_array.coefficients,
+            dtype=precision,
+            copy=True,
+        ),
+        dt=float(driver_array.dt),
+        t0=float(driver_array.t0),
+        wrap=bool(driver_array.wrap),
+        precision=precision,
+        boundary_condition=driver_array.boundary_condition,
     )
 
 def run_reference_loop_with_history(

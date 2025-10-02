@@ -627,6 +627,8 @@ class DriverEvaluator:
         t0: float,
         wrap: bool,
         precision: np.dtype,
+        *,
+        boundary_condition: Optional[str] = "not-a-knot",
     ) -> None:
         coeffs = (
             np.zeros((0, 0, 1), dtype=precision)
@@ -642,9 +644,15 @@ class DriverEvaluator:
         self.dt = precision(dt)
         self.t0 = precision(t0)
         self.wrap = bool(wrap)
+        self.precision = precision
+        self.boundary_condition = boundary_condition
         self._segments = coeffs.shape[0]
         self._width = coeffs.shape[1]
         self._zero = np.zeros(self._width, dtype=precision)
+        pad_clamped = (not self.wrap) and (
+            self.boundary_condition == "clamped"
+        )
+        self._evaluation_start = self.t0 - (self.dt if pad_clamped else 0.0)
 
     def evaluate(self, time: float) -> Array:
         """Return driver values interpolated at ``time``."""
@@ -654,7 +662,7 @@ class DriverEvaluator:
             return self._zero.copy()
 
         inv_res = 1.0 / self.dt
-        scaled = (time - self.t0) * inv_res
+        scaled = (time - self._evaluation_start) * inv_res
         scaled_floor = math.floor(scaled)
         idx = int(scaled_floor)
 
@@ -697,6 +705,7 @@ class DriverEvaluator:
             t0=self.t0,
             wrap=self.wrap,
             precision=self.precision,
+            boundary_condition=self.boundary_condition,
         )
 
 class CPUAdaptiveController:
