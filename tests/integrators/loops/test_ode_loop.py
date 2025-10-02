@@ -40,22 +40,22 @@ Array = NDArray[np.floating]
             'summarised_state_indices': [0,1,2],
             'summarised_observable_indices': [0,1,2],
         },
-        # {
-        #     "algorithm": "crank_nicolson",
-        #     "step_controller": "pid",
-        #     "atol": 1e-6,
-        #     "rtol": 1e-6,
-        #     "dt_min": 1e-6,
-        #     "output_types": [
-        #         "state",
-        #         "time",
-        #         "observables",
-        #         "mean",
-        #         "max",
-        #         "rms",
-        #         "peaks[2]",
-        #     ],
-        # },
+        {
+            "algorithm": "crank_nicolson",
+            "step_controller": "pid",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 1e-6,
+            "output_types": [
+                "state",
+                "time",
+                "observables",
+                "mean",
+                "max",
+                "rms",
+                "peaks[2]",
+            ],
+        },
         {"output_types": ["state", "observables", "time", "mean", "rms"],
           "duration": 0.6},
     ],
@@ -88,8 +88,8 @@ def test_build(loop, step_controller, step_object,
     #CPU test seems machine-dependent, this is a kludge from CI in
     # crank-nicolson
     if loop.is_adaptive:
-        atol = 1e-4
-        rtol = 1e-4
+        atol = 1e-5
+        rtol = 1e-5
     else:
         atol=1e-5
         rtol=1e-5

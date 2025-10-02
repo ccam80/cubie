@@ -36,7 +36,7 @@ from tests.integrators.cpu_reference import (
     CPUODESystem,
     DriverEvaluator,
     STATUS_MASK,
-    get_ref_step_fn,
+    get_ref_step_function,
     _collect_saved_outputs,
 )
 from tests.system_fixtures import (
@@ -348,7 +348,7 @@ def run_reference_loop_with_history(
     zero = precision(0.0)
     step_records: List[StepRecord] = []
 
-    step_fn = get_ref_step_fn(solver_settings["algorithm"])
+    step_function = get_ref_step_function(solver_settings["algorithm"])
 
     saved_state_indices = np.asarray(
         solver_settings["saved_state_indices"], dtype=np.int32
@@ -405,7 +405,7 @@ def run_reference_loop_with_history(
         timenow = perf_counter()
 
         attempt_dt = float(dt)
-        result = step_fn(
+        result = step_function(
             evaluator,
             driverevaluator,
             state=state,

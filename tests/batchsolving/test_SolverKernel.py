@@ -34,8 +34,7 @@ def test_kernel_builds(solverkernel):
                 'summarised_state_indices': [0, 1, 2],
                 'summarised_observable_indices': [0, 1, 2],
             },
-            {},
-        ),
+            {}),
         ({}, {"output_types": ["state", "observables", "time", "mean", "rms"],
           "duration": 0.6}, {})
         # ("three_chamber",

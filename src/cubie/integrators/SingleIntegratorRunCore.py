@@ -398,7 +398,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                        dt0=dt0,
                        dt_min=dt_min,
                        dt_max=dt_max,
-                       driver_fn=driver_function,
+                       driver_function=driver_function,
                        is_adaptive=is_adaptive)
         return loop
 
@@ -578,7 +578,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             'update_summaries_fn': self._output_functions.update_summaries_func,
             'save_summaries_fn': self._output_functions.save_summary_metrics_func,
             'step_controller_fn': self._step_controller.device_function,
-            'step_fn': self._algo_step.step_function,
+            'step_function': self._algo_step.step_function,
             'observables_fn': observables_fn
         }
 

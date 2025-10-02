@@ -105,7 +105,7 @@ def _build_loop(system, solver_settings, output_functions, precision, driver_arr
     step_controller = FixedStepController(
         precision, float(solver_settings["dt_min"])
     )
-    driver_fn = (
+    driver_function = (
         driver_array.evaluation_function if driver_array is not None else None
     )
     step_object = get_algorithm_step(
@@ -115,7 +115,7 @@ def _build_loop(system, solver_settings, output_functions, precision, driver_arr
         n=system.sizes.states,
         dxdt_function=system.dxdt_function,
         observables_function=system.observables_function,
-        driver_function=driver_fn,
+        driver_function=driver_function,
     )
     shared_indices = LoopSharedIndices.from_sizes(
         n_states=loop_buffer_sizes.state,
@@ -139,8 +139,8 @@ def _build_loop(system, solver_settings, output_functions, precision, driver_arr
         update_summaries_func=output_functions.update_summaries_func,
         save_summaries_func=output_functions.save_summary_metrics_func,
         step_controller_fn=step_controller.device_function,
-        step_fn=step_object.step_function,
-        driver_fn=driver_fn,
+        step_function=step_object.step_function,
+        driver_function=driver_function,
         observables_fn=system.observables_function,
         dt_save=float(solver_settings["dt_save"]),
         dt_summarise=float(solver_settings["dt_summarise"]),

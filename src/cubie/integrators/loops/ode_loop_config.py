@@ -355,7 +355,7 @@ class ODELoopConfig:
         Device function that writes summary statistics to output buffers.
     step_controller_fn
         Device function that updates the timestep and acceptance flag.
-    step_fn
+    step_function
         Device function that advances the solution by one tentative step.
     observables_fn
         Device function that evaluates observables for the current state.
@@ -407,11 +407,11 @@ class ODELoopConfig:
         default=None,
         validator=validators.optional(is_device_validator)
     )
-    step_fn: Optional[Callable] = field(
+    step_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
     )
-    driver_fn: Optional[Callable] = field(
+    driver_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
     )

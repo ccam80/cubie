@@ -45,7 +45,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
-        driver_fn = driver_function
+        driver_function = driver_function
 
         @cuda.jit(
             (
@@ -131,7 +131,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
             next_time = time_scalar + dt_scalar
             if has_driver_function:
-                driver_fn(
+                driver_function(
                     next_time,
                     driver_coefficients,
                     drivers_buffer,

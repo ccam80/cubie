@@ -252,7 +252,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     def compiled_loop_step_function(self) -> Callable:
         """Return the compiled algorithm step function."""
 
-        return self._loop.step_fn
+        return self._loop.step_function
 
     # ------------------------------------------------------------------
     # Step controller properties

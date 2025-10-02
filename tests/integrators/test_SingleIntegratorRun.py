@@ -164,7 +164,7 @@ class TestSingleIntegratorRun:
             "update_summaries_fn": "update_summaries_fn",
             "save_summaries_fn": "save_summaries_fn",
             "control_device_function": "step_controller_fn",
-            "compiled_loop_step_function": "step_fn",
+            "compiled_loop_step_function": "step_function",
         }
         controller_props: Dict[str, str] = {
             "local_memory_elements_controller": "local_memory_elements",

@@ -12,7 +12,7 @@ from numpy.testing import assert_allclose
 
 from tests.integrators.cpu_reference import (
     CPUODESystem,
-    get_ref_step_fn,
+    get_ref_step_function,
 )
 from tests._utils import assert_integration_outputs
 
@@ -111,7 +111,7 @@ def device_step_results(
 ) -> StepResult:
     """Execute the CUDA step and collect host-side outputs."""
 
-    step_fn = step_object.step_function
+    step_function = step_object.step_function
     step_size = solver_settings['dt_min']
     n_states = system.sizes.states
     params = step_inputs["parameters"]
@@ -161,7 +161,7 @@ def device_step_results(
             return
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
-        result = step_fn(
+        result = step_function(
             state_vec,
             proposed_vec,
             work_vec,
@@ -214,7 +214,7 @@ def cpu_step_results(
 ) -> StepResult:
     """Execute the CPU reference stepper."""
 
-    step_fn = get_ref_step_fn(solver_settings["algorithm"])
+    step_function = get_ref_step_function(solver_settings["algorithm"])
     dt = solver_settings["dt_min"]
     state = np.asarray(step_inputs["state"], dtype=cpu_system.precision)
     params = np.asarray(step_inputs["parameters"], dtype=cpu_system.precision)
@@ -225,7 +225,7 @@ def cpu_step_results(
     else:
         driver_evaluator = cpu_driver_evaluator
 
-    result = step_fn(
+    result = step_function(
         cpu_system,
         driver_evaluator,
         state=state,
@@ -272,7 +272,7 @@ def test_algorithm(
        ) -> None:
     """Ensure the step function is compiled and callable."""
     # Test that it builds
-    assert callable(step_object.step_function), "step_fn_builds"
+    assert callable(step_object.step_function), "step_function_builds"
 
     # test getters
     properties = expected_step_properties[solver_settings["algorithm"]]

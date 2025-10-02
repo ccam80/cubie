@@ -373,7 +373,9 @@ class TestSolveResultFromSolver:
 
         if result.summaries_array.size:
             summary_axes = tuple(
-                result._stride_order.index(dim) for dim in ("time", "run", "variable")
+                result._stride_order['state'].index(dim) for dim in ("time",
+                                                                 "run",
+                                                             "variable")
             )
             summaries = np.transpose(result.summaries_array, summary_axes)
             summary_legend = result.summaries_legend

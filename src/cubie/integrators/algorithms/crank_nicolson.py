@@ -133,7 +133,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         a_ij = numba_precision(1.0)
         # Backward Euler coefficient for error estimation
         has_driver_function = driver_function is not None
-        driver_fn = driver_function
+        driver_function = driver_function
 
         @cuda.jit(
             (
@@ -233,7 +233,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             # Solve Crank-Nicolson step (main solution)
             mid_time = time_scalar + cn_dt
             if has_driver_function:
-                driver_fn(
+                driver_function(
                     mid_time,
                     driver_coefficients,
                     drivers_buffer,
@@ -259,7 +259,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             # calculate and save observables (wastes some compute)
             next_time = mid_time + cn_dt
             if has_driver_function:
-                driver_fn(
+                driver_function(
                     next_time,
                     driver_coefficients,
                     drivers_buffer,
@@ -289,7 +289,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 proposed_observables,
                 next_time,
             )
-
 
             return status
 

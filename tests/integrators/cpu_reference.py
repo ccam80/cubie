@@ -590,7 +590,6 @@ def backward_euler_predict_correct_step(
 
     precision = evaluator.precision
     drivers_now = driver_evaluator(time)
-    drivers_next = driver_evaluator(time + dt)
     observables_now = evaluator.observables(
         state,
         params,
@@ -672,8 +671,6 @@ class DriverEvaluator:
                 segment = self.coefficients.shape[0] - 1
             tau = scaled - precision(segment)
 
-        base_time = self.t0 + self.dt * precision(segment)
-        tau = (time - base_time) / self.dt
         values = self._zero.copy()
         for driver_idx in range(self._width):
             segment_coeffs = self.coefficients[segment, driver_idx]
@@ -883,7 +880,7 @@ class CPUAdaptiveController:
         return precision(gain)
 
 
-def get_ref_step_fn(
+def get_ref_step_function(
          algorithm: str,
     ) -> Callable:
 
@@ -937,7 +934,7 @@ def run_reference_loop(
     status_flags = 0
     zero = precision(0.0)
 
-    step_fn = get_ref_step_fn(solver_settings["algorithm"])
+    step_function = get_ref_step_function(solver_settings["algorithm"])
 
     coefficients = inputs.get("driver_coefficients")
     if coefficients is not None:
@@ -964,19 +961,19 @@ def run_reference_loop(
     observable_history = []
     time_history: list[float] = []
     t = precision(0.0)
+    drivers_initial = driver_evaluator(precision(t))
+    observables = evaluator.observables(
+            state,
+            params,
+            drivers_initial,
+            t,
+    )
 
     if warmup > zero:
         next_save_time = warmup
     else:
         next_save_time = dt_save
         state_history = [state.copy()]
-        drivers_initial = driver_evaluator(precision(t))
-        observables = evaluator.observables(
-            state,
-            params,
-            drivers_initial,
-            t,
-        )
         observable_history.append(observables.copy())
         time_history = [t]
 
@@ -1000,7 +997,7 @@ def run_reference_loop(
                 fixed_step_count += 1
 
 
-        result = step_fn(
+        result = step_function(
             evaluator,
             driver_evaluator,
             state=state,
@@ -1022,6 +1019,7 @@ def run_reference_loop(
             continue
 
         state = result.state.copy()
+        observables = result.observables.copy()
         t += precision(dt)
 
         if do_save:

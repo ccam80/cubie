@@ -54,9 +54,9 @@ class IVPLoop(CUDAFactory):
         Device function that commits summary statistics to output buffers.
     step_controller_fn
         Device function that updates the timestep and accept flag.
-    step_fn
+    step_function
         Device function that advances the solution by one tentative step.
-    driver_fn
+    driver_function
         Device function that evaluates drivers for a given time.
     """
 
@@ -76,8 +76,8 @@ class IVPLoop(CUDAFactory):
         update_summaries_func: Optional[Callable] = None,
         save_summaries_func: Optional[Callable] = None,
         step_controller_fn: Optional[Callable] = None,
-        step_fn: Optional[Callable] = None,
-        driver_fn: Optional[Callable] = None,
+        step_function: Optional[Callable] = None,
+        driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
     ) -> None:
         super().__init__()
@@ -89,8 +89,8 @@ class IVPLoop(CUDAFactory):
             update_summaries_fn=update_summaries_func,
             save_summaries_fn=save_summaries_func,
             step_controller_fn=step_controller_fn,
-            step_fn=step_fn,
-            driver_fn=driver_fn,
+            step_function=step_function,
+            driver_function=driver_function,
             observables_fn=observables_fn,
             precision=precision,
             compile_flags=compile_flags,
@@ -137,8 +137,8 @@ class IVPLoop(CUDAFactory):
         update_summaries = config.update_summaries_fn
         save_summaries = config.save_summaries_fn
         step_controller = config.step_controller_fn
-        step_fn = config.step_fn
-        driver_fn = config.driver_fn
+        step_function = config.step_function
+        driver_function = config.driver_function
         observables_fn = config.observables_fn
 
         flags = config.compile_flags
@@ -272,8 +272,8 @@ class IVPLoop(CUDAFactory):
                 parameters_buffer[k] = parameters[k]
 
             # Seed initial observables from initial state.
-            if driver_fn is not None and n_drivers > 0:
-                driver_fn(
+            if driver_function is not None and n_drivers > 0:
+                driver_function(
                     t,
                     driver_coefficients,
                     drivers_buffer,
@@ -354,7 +354,7 @@ class IVPLoop(CUDAFactory):
 
                         status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
 
-                    step_status = step_fn(
+                    step_status = step_function(
                         state_buffer,
                         state_proposal_buffer,
                         work_buffer,
@@ -516,16 +516,16 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.step_controller_fn
 
     @property
-    def step_fn(self) -> Optional[Callable]:
+    def step_function(self) -> Optional[Callable]:
         """Return the algorithm step device function used by the loop."""
 
-        return self.compile_settings.step_fn
+        return self.compile_settings.step_function
 
     @property
-    def driver_fn(self) -> Optional[Callable]:
+    def driver_function(self) -> Optional[Callable]:
         """Return the driver evaluation device function used by the loop."""
 
-        return self.compile_settings.driver_fn
+        return self.compile_settings.driver_function
 
     @property
     def observables_fn(self) -> Optional[Callable]:
