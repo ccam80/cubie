@@ -427,11 +427,8 @@ class ArrayInterpolator(CUDAFactory):
         inputs_dict: Dict[str, Union[float, bool, FloatArray]],
         system: "SymbolicODE",
     ):
-        input_keys = [
-            key
-            for key in inputs_dict
-            if key
-            not in (
+        input_keys = [key for key in inputs_dict
+            if key not in (
                 ArrayInterpolator.config_keys + ArrayInterpolator.time_info
             )
         ]
@@ -591,27 +588,38 @@ class ArrayInterpolator(CUDAFactory):
                 derivative += 1
 
         elif boundary_condition == "not-a-knot":
-            not_a_knot_constraints = []
-            powers = []
-            current_power = order
-            while len(powers) < order - 1 and current_power >= 2:
-                powers.append(current_power)
-                if len(powers) < order - 1:
-                    powers.append(current_power)
-                current_power -= 1
-            for index, power in enumerate(powers):
-                side = "start" if index % 2 == 0 else "end"
-                not_a_knot_constraints.append((side, power))
-            for side, power in not_a_knot_constraints:
-                if side == "start":
-                    lhs_index = coeff_index(0, power)
-                    rhs_index = coeff_index(1, power)
-                else:
-                    lhs_index = coeff_index(num_segments - 2, power)
-                    rhs_index = coeff_index(num_segments - 1, power)
-                matrix[row_index, lhs_index] = precision(1.0)
-                matrix[row_index, rhs_index] = -precision(1.0)
+            constraints_needed = order - 1
+            constraints_added = 0
+            highest_power = order
+            for difference_order in range(1, order):
+                if constraints_added >= constraints_needed:
+                    break
+
+                # Enforce vanishing forward difference at the start of the grid.
+                start_row = row_index
+                for offset in range(difference_order + 1):
+                    coefficient = ((-1) ** (difference_order - offset))
+                    coefficient *= math.comb(difference_order, offset)
+                    segment = offset
+                    matrix[start_row, coeff_index(segment, highest_power)] = (
+                        precision(coefficient)
+                    )
                 row_index += 1
+                constraints_added += 1
+                if constraints_added >= constraints_needed:
+                    break
+
+                # Mirror the same finite-difference constraint at the end.
+                end_row = row_index
+                for offset in range(difference_order + 1):
+                    coefficient = ((-1) ** (difference_order - offset))
+                    coefficient *= math.comb(difference_order, offset)
+                    segment = num_segments - 1 - (difference_order - offset)
+                    matrix[end_row, coeff_index(segment, highest_power)] = (
+                        precision(coefficient)
+                    )
+                row_index += 1
+                constraints_added += 1
 
         if row_index != num_coeffs:
             raise ValueError(

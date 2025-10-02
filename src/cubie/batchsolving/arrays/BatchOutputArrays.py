@@ -42,8 +42,8 @@ class OutputArrayContainer(ArrayContainer):
         Summary statistics for state variables.
     observable_summaries : ArrayTypes, optional
         Summary statistics for observable variables.
-    stride_order : tuple[str, ...], default=("time", "run", "variable")
-        Order of array dimensions.
+    stride_order : dict[str, tuple[str, ...]]
+        Mapping of array labels to their stride orders.
     _memory_type : str, default="device"
         Type of memory allocation.
 
@@ -57,8 +57,14 @@ class OutputArrayContainer(ArrayContainer):
     observables: ArrayTypes = attrs.field(default=None)
     state_summaries: ArrayTypes = attrs.field(default=None)
     observable_summaries: ArrayTypes = attrs.field(default=None)
-    stride_order: tuple[str, ...] = attrs.field(
-        default=("time", "run", "variable"), init=False
+    stride_order: dict[str, tuple[str, ...]] = attrs.field(
+        factory=lambda: {
+            "state": ("time", "run", "variable"),
+            "observables": ("time", "run", "variable"),
+            "state_summaries": ("time", "run", "variable"),
+            "observable_summaries": ("time", "run", "variable"),
+        },
+        init=False,
     )
     _memory_type: str = attrs.field(
         default="device",
@@ -404,14 +410,14 @@ class OutputArrays(BaseArrayManager):
         of host arrays. The copy operation may trigger CUDA runtime
         synchronization.
         """
-        chunk_index = self.host.stride_order.index(self._chunk_axis)
-        slice_tuple = slice_variable_dimension(
-            host_indices, chunk_index, len(self.host.stride_order)
-        )
-
         for array_name, array in self.host.__dict__.items():
             if not array_name.startswith("_"):
                 if getattr(self.active_outputs, array_name):
+                    stride_order = self.host.stride_order[array_name]
+                    chunk_index = stride_order.index(self._chunk_axis)
+                    slice_tuple = slice_variable_dimension(
+                        host_indices, chunk_index, len(stride_order)
+                    )
                     array[slice_tuple] = getattr(
                         self.device, array_name
                     ).copy()

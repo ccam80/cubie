@@ -94,7 +94,7 @@ class TestInputArrayContainer:
     def test_container_stride_order(self):
         """Test that stride order is set correctly"""
         container = InputArrayContainer()
-        assert container.stride_order == ("run", "variable")
+        assert container.stride_order['parameters'] == ("run", "variable")
 
     def test_host_factory(self):
         """Test host factory method"""

@@ -169,7 +169,7 @@ class SolveResult:
         time, state_less_time = cls.cleave_time(
             solver.state,
             time_saved=solver.save_time,
-            stride_order=solver.output_stride_order,
+            stride_order=solver.output_stride_order['state'],
         )
 
         time_domain_array = cls.combine_time_domain_arrays(
@@ -355,7 +355,7 @@ class SolveResult:
         ):
             return {}
 
-        variable_index = self._stride_order.index("variable")
+        variable_index = self._stride_order['state'].index("variable")
 
         # Split summaries_array by type
         variable_legend = self.time_domain_legend

@@ -177,8 +177,10 @@ def driver_settings(
     if system.num_drivers == 0:
         return None
 
-    dt_sample = float(solver_settings["dt_save"]) / 2.0
-    total_span = float(solver_settings["duration"] + solver_settings["warmup"])
+    dt_sample = precision(solver_settings["dt_save"]) / 2.0
+    total_span = precision(solver_settings["duration"] / 2.0)
+    t0 = float(solver_settings["warmup"])
+
     order = int(solver_settings["driverspline_order"])
 
     samples = int(np.ceil(total_span / dt_sample)) + 1
@@ -196,22 +198,14 @@ def driver_settings(
         name: np.array(driver_matrix[:, idx], dtype=precision, copy=True)
         for idx, name in enumerate(driver_names)
     }
-    drivers_dict["dt"] = float(dt_sample)
-    drivers_dict["wrap"] = bool(solver_settings["driverspline_wrap"])
+    drivers_dict["dt"] = precision(dt_sample)
+    drivers_dict["wrap"] = solver_settings["driverspline_wrap"]
     drivers_dict["order"] = order
+    drivers_dict["t0"] = t0
 
     if driver_settings_override:
         for key, value in driver_settings_override.items():
-            if key == "time":
-                drivers_dict.pop("dt", None)
-                drivers_dict[key] = np.array(value, dtype=precision, copy=True)
-            elif key == "dt":
-                drivers_dict.pop("time", None)
-                drivers_dict[key] = float(value)
-            elif key == "wrap":
-                drivers_dict[key] = bool(value)
-            else:
-                drivers_dict[key] = np.array(value, dtype=precision, copy=True)
+            drivers_dict[key] = value
 
     return drivers_dict
 
@@ -226,8 +220,6 @@ def driver_array(
 
     if driver_settings is None:
         return None
-
-
 
     return ArrayInterpolator(
         precision=precision,
@@ -595,7 +587,7 @@ def step_object(
             'n': system.sizes.states,
             'dxdt_function': system.dxdt_function,
             'observables_function': system.observables_function,
-            '': driver_fn,
+            'driver_function': driver_fn,
         }
     else:
         solver_kwargs = {
@@ -618,7 +610,7 @@ def step_object(
             'newton_max_backtracks': implicit_step_settings[
                 "newton_max_backtracks"
             ],
-            '': driver_fn,
+            'driver_function': driver_fn,
         }
     return get_algorithm_step(solver_settings["algorithm"].lower(), **solver_kwargs)
 

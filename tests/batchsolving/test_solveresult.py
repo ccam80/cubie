@@ -17,24 +17,17 @@ def solver_with_arrays(
     solver_settings,
     system,
     precision,
-    driver_settings,
+    driver_array,
 ):
     """Solver with actual arrays computed - ready for SolveResult instantiation"""
     inits, params = batch_input_arrays
 
-    if driver_settings:
-        driver_inputs = {
-            key: value.copy() if isinstance(value, np.ndarray) else value
-            for key, value in driver_settings.items()
-        }
-    else:
-        driver_inputs = None
 
     solver.kernel.run(
         duration=solver_settings["duration"],
         params=params,
         inits=inits,
-        driver_arrays=driver_inputs,
+        driver_coefficients=driver_array.coefficients,
         blocksize=solver_settings["blocksize"],
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],

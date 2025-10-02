@@ -796,7 +796,7 @@ class CPUAdaptiveController:
         self._prev_nrm2 = errornorm
 
         if unclamped_dt < self.dt_min:
-            raise ValueError(f"dt < dt_min: {new_dt} < {self.dt_min}"
+            raise ValueError(f"dt < dt_min: {unclamped_dt} < {self.dt_min}"
                              f"exceeded")
 
         return accept

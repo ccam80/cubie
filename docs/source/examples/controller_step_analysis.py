@@ -311,9 +311,7 @@ def create_driver_evaluator(
     # create ArrayInterpolator to compute spline coefficients
     driver_array = ArrayInterpolator(
         precision=precision,
-        drivers_dict=drivers_dict,
-        order=order,
-        wrap=bool(drivers_dict["wrap"]),
+        input_dict=drivers_dict
     )
 
     # create CPU evaluator using the computed coefficients

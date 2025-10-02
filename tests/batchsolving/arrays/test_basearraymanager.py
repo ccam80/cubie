@@ -50,7 +50,10 @@ class TestArrays(ArrayContainer):
 class TestArraysSimple(ArrayContainer):
     arr1 = attrs.field(default=None)
     arr2 = attrs.field(default=None)
-    stride_order = ("time", "run", "variable")
+    stride_order = {
+        'arr1': ("time", "run", "variable"),
+        'arr2': ("time", "run", "variable"),
+    }
     location = "host"
 
 
@@ -63,6 +66,7 @@ def arraytest_overrides(request):
 
 @pytest.fixture(scope="function")
 def arraytest_settings(arraytest_overrides):
+    stride_template = ("time", "run", "variable")
     settings = {
         "hostshape1": (4, 3, 4),
         "hostshape2": (4, 3, 4),
@@ -76,7 +80,15 @@ def arraytest_settings(arraytest_overrides):
         "chunk_axis": "run",
         "dtype": "float32",
         "memory": "device",
-        "_stride_order": ("time", "run", "variable"),
+        "stride_tuple": stride_template,
+        "_stride_order": {
+            "arr1": stride_template,
+            "arr2": stride_template,
+            "state": stride_template,
+            "observables": stride_template,
+            "state_summaries": stride_template,
+            "observable_summaries": stride_template,
+        },
         "stream_group": "default",
         "memory_proportion": None,
     }
@@ -113,7 +125,7 @@ def hostarrays(arraytest_settings):
         empty = mapped_array
     else:
         empty = np.zeros
-    return TestArraysSimple(
+    host = TestArraysSimple(
         arr1=empty(
             arraytest_settings["hostshape1"], dtype=arraytest_settings["dtype"]
         ),
@@ -121,6 +133,11 @@ def hostarrays(arraytest_settings):
             arraytest_settings["hostshape2"], dtype=arraytest_settings["dtype"]
         ),
     )
+    host.stride_order = {
+        "arr1": arraytest_settings["_stride_order"]["arr1"],
+        "arr2": arraytest_settings["_stride_order"]["arr2"],
+    }
+    return host
 
 
 @pytest.fixture(scope="function")
@@ -190,13 +207,13 @@ def array_requests(arraytest_settings, precision):
             shape=arraytest_settings["devshape1"],
             dtype=precision,
             memory=arraytest_settings["memory"],
-            stride_order=arraytest_settings["_stride_order"],
+            stride_order=arraytest_settings["_stride_order"]["arr1"],
         ),
         "arr2": ArrayRequest(
             shape=arraytest_settings["devshape2"],
             dtype=precision,
             memory=arraytest_settings["memory"],
-            stride_order=arraytest_settings["_stride_order"],
+            stride_order=arraytest_settings["_stride_order"]["arr2"],
         ),
     }
 
@@ -209,13 +226,13 @@ def array_requests_sized(arraytest_settings, precision):
             shape=arraytest_settings["devshape1"],
             dtype=precision,
             memory=arraytest_settings["memory"],
-            stride_order=arraytest_settings["_stride_order"],
+            stride_order=arraytest_settings["_stride_order"]["state"],
         ),
         "observables": ArrayRequest(
             shape=arraytest_settings["devshape2"],
             dtype=precision,
             memory=arraytest_settings["memory"],
-            stride_order=arraytest_settings["_stride_order"],
+            stride_order=arraytest_settings["_stride_order"]["observables"],
         ),
     }
 
@@ -561,7 +578,7 @@ def batch_output_sizes(arraytest_settings):
         observables=arraytest_settings["hostshape2"],
         state_summaries=arraytest_settings["hostshape3"],
         observable_summaries=arraytest_settings["hostshape4"],
-        stride_order=arraytest_settings["_stride_order"],
+        stride_order=arraytest_settings["stride_tuple"],
     )
 
 
@@ -581,6 +598,7 @@ def test_arrays_with_stride_order(arraytest_settings):
         ),
     )
     host_arrays.stride_order = arraytest_settings["_stride_order"]
+
 
     device_arrays = TestArrays(
         state=device_array(arraytest_settings["devshape1"], dtype=np.float32),
@@ -732,7 +750,7 @@ class TestCheckSizesAndTypes:
         chunks = arraytest_settings["chunks"]
         test_manager_with_sizing._chunks = arraytest_settings["chunks"]
         test_manager_with_sizing._chunk_axis = chunk_axis
-        chunk_index = stride_order.index(chunk_axis)
+        chunk_index = stride_order["state"].index(chunk_axis)
         expected_shape1 = tuple(
             int(np.ceil(val / chunks)) if i == chunk_index else val
             for i, val in enumerate(arraytest_settings["hostshape1"])
@@ -1032,7 +1050,7 @@ class TestUpdateSizes:
             observables=(12, 6, 3),
             state_summaries=(10, 6, 4),
             observable_summaries=(10, 6, 3),
-            stride_order=arraytest_settings["_stride_order"],
+            stride_order=arraytest_settings["stride_tuple"],
         )
 
         test_manager_with_sizing.update_sizes(new_sizes)

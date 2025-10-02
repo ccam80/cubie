@@ -54,6 +54,7 @@ def test_run(
     cpu_batch_results,
     precision,
     system,
+    driver_array,
     output_functions,
     driver_settings,
 ):
@@ -74,7 +75,7 @@ def test_run(
         duration=solver_settings["duration"],
         params=params,
         inits=inits,
-        driver_arrays=driver_inputs,
+        driver_coefficients=driver_array.coefficients,
         blocksize=solver_settings["blocksize"],
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],

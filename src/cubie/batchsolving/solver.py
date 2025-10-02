@@ -5,7 +5,7 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union, Any
 
 import numpy as np
 
@@ -269,7 +269,7 @@ class Solver:
         self,
         initial_values,
         parameters,
-        drivers: Optional[Dict[str, object]] = None,
+        drivers: Optional[Dict[str, Any]] = None,
         duration=1.0,
         settling_time=0.0,
         blocksize=256,
@@ -321,11 +321,8 @@ class Solver:
             states=initial_values, params=parameters, kind=grid_type
         )
 
-        drivermatch = ArrayInterpolator.check_against_system(drivers,
+        ArrayInterpolator.check_against_system_drivers(drivers,
                                                            self.system)
-        if not drivermatch:
-            raise ValueError("The drivers dict provided for interpolation "
-                             "doesn't match the system's driver configuration")
         fn_changed = self.driver_interpolator.update_from_dict(drivers)
         if fn_changed:
             self.update({"driver_function": (
@@ -754,6 +751,11 @@ class Solver:
     def mem_proportion(self):
         """Returns the memory proportion the solver is assigned."""
         return self.kernel.mem_proportion
+
+    @property
+    def system(self) -> "BaseODE":
+        """Returns the system the solver is associated with."""
+        return self.kernel.system
 
     @property
     def solve_info(self):

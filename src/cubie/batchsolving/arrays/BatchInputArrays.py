@@ -39,8 +39,8 @@ class InputArrayContainer(ArrayContainer):
         Parameter values for the integration.
     driver_coefficients : ArrayTypes, optional
         Interpolant coefficients describing external drivers.
-    stride_order : tuple[str, ...], default=("run", "variable")
-        Order of array dimensions.
+    stride_order : dict[str, tuple[str, ...]]
+        Mapping of array labels to their stride orders.
     _memory_type : str, default="device"
         Type of memory allocation.
     _unchunkable : tuple[str, ...], default=('driver_coefficients',)
@@ -56,8 +56,13 @@ class InputArrayContainer(ArrayContainer):
     initial_values: ArrayTypes = attrs.field(default=None)
     parameters: ArrayTypes = attrs.field(default=None)
     driver_coefficients: ArrayTypes = attrs.field(default=None)
-    stride_order: tuple[str, ...] = attrs.field(
-        default=("run", "variable"), init=False
+    stride_order: dict[str, tuple[str, ...]] = attrs.field(
+        factory=lambda: {
+            "initial_values": ("run", "variable"),
+            "parameters": ("run", "variable"),
+            "driver_coefficients": ("time", "run", "variable"),
+        },
+        init=False,
     )
     _memory_type: str = attrs.field(
         default="device",
@@ -290,10 +295,12 @@ class InputArrays(BaseArrayManager):
         This method copies data from device back to host for the specified
         chunk indices.
         """
-        chunk_index = self.host.stride_order.index(self._chunk_axis)
-        slice_tuple = [slice(None)] * 2
-        slice_tuple[chunk_index] = host_indices
-        slice_tuple = tuple(slice_tuple)
+        stride_order = self.host.stride_order["initial_values"]
+        slice_tuple = [slice(None)] * len(stride_order)
+        if self._chunk_axis in stride_order:
+            chunk_index = stride_order.index(self._chunk_axis)
+            slice_tuple[chunk_index] = host_indices
+            slice_tuple = tuple(slice_tuple)
 
         to_ = [self.host.initial_values[slice_tuple]]
         from_ = [self.device.initial_values]
@@ -320,24 +327,24 @@ class InputArrays(BaseArrayManager):
         if self._chunks <= 1:
             arrays_to_copy = [array for array in self._needs_overwrite]
             self._needs_overwrite = []
-            slice_tuple = tuple([slice(None)] * len(self.host.stride_order))
         else:
             arrays_to_copy = [
                 array
                 for array in self.device.__dict__
                 if not array.startswith("_")
             ]
-            chunk_index = self.host.stride_order.index(self._chunk_axis)
-            slice_tuple = [slice(None)] * len(self.host.stride_order)
-            slice_tuple[chunk_index] = host_indices
-            slice_tuple = tuple(slice_tuple)
 
         for array_name in arrays_to_copy:
             if not array_name.startswith("_"):
                 to_.append(getattr(self.device, array_name))
-                if array_name in self.host._unchunkable:
-                    from_.append(getattr(self.host, array_name))
+                host_array = getattr(self.host, array_name)
+                if self._chunks <= 1 or array_name in self.host._unchunkable:
+                    from_.append(host_array)
                 else:
-                    from_.append(getattr(self.host, array_name)[slice_tuple])
+                    stride_order = self.host.stride_order[array_name]
+                    chunk_index = stride_order.index(self._chunk_axis)
+                    slice_tuple = [slice(None)] * len(stride_order)
+                    slice_tuple[chunk_index] = host_indices
+                    from_.append(host_array[tuple(slice_tuple)])
 
         self.to_device(from_, to_)

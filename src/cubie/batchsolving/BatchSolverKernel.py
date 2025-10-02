@@ -854,7 +854,7 @@ class BatchSolverKernel(CUDAFactory):
         )
 
     @property
-    def system(self):
+    def system(self) -> "BaseODE":
         """
         Get the ODE system.
 

@@ -34,8 +34,9 @@ class ArrayContainer(ABC):
 
     Parameters
     ----------
-    _stride_order : tuple[str, ...], optional
-        Order of array dimensions (e.g., ("time", "run", "variable")).
+    _stride_order : dict[str, tuple[str, ...]]
+        Mapping of array labels to their stride orders (e.g.,
+        {"state": ("time", "run", "variable")}).
     _memory_type : str, default="device"
         Type of memory allocation. Must be one of "device", "mapped",
         "pinned", "managed", or "host".
@@ -49,8 +50,15 @@ class ArrayContainer(ABC):
     so we prefix them and add getters/setters.
     """
 
-    _stride_order: Optional[tuple[str, ...]] = attrs.field(
-        default=None, validator=val.optional(val.instance_of(tuple))
+    _stride_order: dict[str, tuple[str, ...]] = attrs.field(
+        factory=dict,
+        validator=val.deep_mapping(
+            val.instance_of(str),
+            val.deep_iterable(
+                member_validator=val.instance_of(str),
+                iterable_validator=val.instance_of(tuple),
+            ),
+        ),
     )
     _memory_type: str = attrs.field(
         default="device",
@@ -61,26 +69,26 @@ class ArrayContainer(ABC):
     )
 
     @property
-    def stride_order(self):
+    def stride_order(self) -> dict[str, tuple[str, ...]]:
         """
         Get the stride order.
 
         Returns
         -------
-        tuple[str, ...] or None
-            The order of array dimensions.
+        dict[str, tuple[str, ...]]
+            Mapping of array labels to stride orders.
         """
         return self._stride_order
 
     @stride_order.setter
-    def stride_order(self, value):
+    def stride_order(self, value: dict[str, tuple[str, ...]]) -> None:
         """
         Set the stride order.
 
         Parameters
         ----------
-        value : tuple[str, ...]
-            The order of array dimensions.
+        value : dict[str, tuple[str, ...]]
+            Mapping of array labels to stride orders.
         """
         self._stride_order = value
 
@@ -247,12 +255,11 @@ class BaseArrayManager(ABC):
         host arrays, and sets up invalidation hooks.
         """
         self.register_with_memory_manager()
+        stride_orders = self.device.stride_order
         for name, arr in self.host.__dict__.items():
             if not name.startswith("_") and arr is None:
-                shape = (1,) * len(self.device.stride_order)
-                setattr(
-                    self.host, name, np.zeros(shape, dtype=self._precision)
-                )
+                shape = (1,) * len(stride_orders[name])
+                setattr(self.host, name, np.zeros(shape, dtype=self._precision))
         self._invalidate_hook()
 
     @abstractmethod
@@ -480,7 +487,7 @@ class BaseArrayManager(ABC):
             )
         expected_sizes = self._sizes
         source_stride_order = getattr(expected_sizes, "_stride_order", None)
-        target_stride_order = container._stride_order
+        target_stride_orders = container._stride_order
         chunk_axis_name = self._chunk_axis
         matches = {}
 
@@ -494,6 +501,8 @@ class BaseArrayManager(ABC):
                 if expected_size_tuple is None:
                     continue  # No size information for this array
                 expected_shape = list(expected_size_tuple)
+
+                target_stride_order = target_stride_orders[array_name]
 
                 # Reorder expected_shape to match the container's stride order
                 if (
@@ -519,8 +528,8 @@ class BaseArrayManager(ABC):
                     and self._chunks > 0
                     and array_name not in container._unchunkable
                 ):
-                    if chunk_axis_name in container._stride_order:
-                        chunk_axis_index = container._stride_order.index(
+                    if chunk_axis_name in target_stride_order:
+                        chunk_axis_index = target_stride_order.index(
                             chunk_axis_name
                         )
                         if expected_shape[chunk_axis_index] is not None:
@@ -688,7 +697,7 @@ class BaseArrayManager(ABC):
                 shape=host_array.shape,
                 dtype=self._precision,
                 memory=self.device.memory_type,
-                stride_order=self.device.stride_order,
+                stride_order=self.device.stride_order[array_label],
                 unchunkable=(
                     array_label in getattr(self.host, "_unchunkable", tuple())
                 ),
