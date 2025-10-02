@@ -805,7 +805,7 @@ class CPUAdaptiveController:
         self.dt = new_dt
         self._prev_dt = current_dt
         self._prev_prev_nrm2 = self._prev_nrm2
-        self._prev_nrm2 = errornorm
+        self._prev_nrm2 = min(errornorm, self.precision(1e4))
 
         if unclamped_dt < self.dt_min:
             raise ValueError(f"dt < dt_min: {unclamped_dt} < {self.dt_min}"
@@ -858,18 +858,21 @@ class CPUAdaptiveController:
             one = precision(1.0)
             two = precision(2.0)
             M = self.max_newton_iters
+            dt_prev = max(precision(1e-16), self._prev_dt)
+            nrm2_prev = max(precision(1e-16), self._prev_nrm2)
             fac = min(self.gamma, ((one + two * M) * self.gamma) / (
                     niters + two * M))
-            gain_basic = self.safety * fac * (errornorm ** expo_fraction)
+            gain_basic = precision(self.safety * fac * (errornorm **
+                                                     expo_fraction))
 
             use_gus = (accept
                        and (self._prev_dt > 0.0)
                        and (self._prev_nrm2 > 0.0))
             if use_gus:
-                ratio = (errornorm * errornorm) / self._prev_nrm2
+                ratio = (errornorm * errornorm) / nrm2_prev
                 gain_gus = (
                     self.safety
-                    * (current_dt / self._prev_dt)
+                    * (current_dt / dt_prev)
                     * precision(ratio ** expo_fraction)
                     * self.gamma
                 )

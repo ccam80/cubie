@@ -438,6 +438,174 @@ class ArrayInterpolator(CUDAFactory):
         return self._coefficients
 
     # ---------------------------------------------------------------------- #
+    # Inspection interface
+    # ---------------------------------------------------------------------- #
+    def get_input_array(self) -> FloatArray:
+        """Return the input array."""
+
+    def get_interpolated(
+        self,
+        eval_times: NDArray[np.floating],
+    ) -> NDArray[np.floating]:
+        """Evaluate the interpolated drivers on the device.
+
+        Parameters
+        ----------
+        eval_times
+            One-dimensional array of query times.
+
+        Returns
+        -------
+        numpy.ndarray
+            Interpolated driver values with shape ``(len(eval_times),
+            num_inputs)``.
+
+        Raises
+        ------
+        ValueError
+            Raised when ``eval_times`` is not one-dimensional.
+        RuntimeError
+            Raised when interpolation coefficients are unavailable.
+        """
+
+        times = np.asarray(eval_times, dtype=self.precision)
+        if times.ndim != 1:
+            raise ValueError("eval_times must be one-dimensional.")
+
+        num_points = times.size
+        if num_points == 0:
+            return np.empty((0, self.num_inputs), dtype=self.precision)
+
+        coefficients = self.coefficients
+        if coefficients is None:
+            raise RuntimeError(
+                "Interpolation coefficients have not been generated."
+            )
+
+        device_eval = self.evaluation_function
+
+        @cuda.jit
+        def _evaluate_kernel(times_device, coefficients_device, out_device):
+            idx = cuda.grid(1)
+            if idx < times_device.shape[0]:
+                device_eval(
+                    times_device[idx],
+                    coefficients_device,
+                    out_device[idx],
+                )
+
+        times_device = cuda.to_device(times)
+        coefficients_device = cuda.to_device(coefficients)
+        out_device = cuda.device_array(
+            (num_points, self.num_inputs),
+            dtype=self.precision,
+        )
+
+        threads_per_block = 128
+        blocks_per_grid = (num_points + threads_per_block - 1) // (
+            threads_per_block
+        )
+        _evaluate_kernel[blocks_per_grid, threads_per_block](
+            times_device,
+            coefficients_device,
+            out_device,
+        )
+        cuda.synchronize()
+
+        return out_device.copy_to_host()
+
+    def plot_interpolated(
+        self,
+        eval_times: NDArray[np.floating],
+    ) -> Tuple[Any, Any]:
+        """Plot interpolated drivers against the sampled input data.
+
+        Parameters
+        ----------
+        eval_times
+            One-dimensional array of times at which to evaluate the
+            interpolated drivers.
+
+        Returns
+        -------
+        tuple
+            Matplotlib figure and axes containing the plot.
+
+        Raises
+        ------
+        ImportError
+            Raised when :mod:`matplotlib` is not installed.
+        ValueError
+            Raised when ``eval_times`` is not one-dimensional.
+        """
+
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise ImportError(
+                "Optional dependency matplotlib is required for plotting."
+            ) from exc
+
+        times = np.asarray(eval_times, dtype=self.precision)
+        if times.ndim != 1:
+            raise ValueError("eval_times must be one-dimensional.")
+
+        interpolated = self.get_interpolated(times)
+
+        sample_times = self.t0 + self.dt * np.arange(
+            self.num_samples,
+            dtype=self.precision,
+        )
+        sample_values = self.input_array.astype(self.precision, copy=False)
+
+        if self.wrap and times.size:
+            period = self.dt * self.num_samples
+            min_eval = times.min()
+            max_eval = times.max()
+            repeats_before = int(
+                math.ceil(max(0.0, (sample_times[0] - min_eval) / period))
+            )
+            repeats_after = int(
+                math.ceil(max(0.0, (max_eval - sample_times[-1]) / period))
+            )
+            time_tiles = []
+            value_tiles = []
+            for step in range(repeats_before, 0, -1):
+                time_tiles.append(sample_times - step * period)
+                value_tiles.append(sample_values)
+            time_tiles.append(sample_times)
+            value_tiles.append(sample_values)
+            for step in range(1, repeats_after + 1):
+                time_tiles.append(sample_times + step * period)
+                value_tiles.append(sample_values)
+            marker_times = np.concatenate(time_tiles)
+            marker_values = np.vstack(value_tiles)
+        else:
+            marker_times = sample_times
+            marker_values = sample_values
+
+        fig, ax = plt.subplots()
+        for input_index in range(self.num_inputs):
+            ax.plot(
+                times,
+                interpolated[:, input_index],
+                label=f"Input {input_index}",
+            )
+            ax.plot(
+                marker_times,
+                marker_values[:, input_index],
+                linestyle="None",
+                marker="x",
+            )
+
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Driver value")
+        if self.num_inputs > 1:
+            ax.legend()
+
+        return fig, ax
+
+    # ---------------------------------------------------------------------- #
     # System-specific interface
     # ---------------------------------------------------------------------- #
     @staticmethod

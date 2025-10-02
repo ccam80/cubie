@@ -81,8 +81,8 @@ from tests._utils import assert_integration_outputs
         {
             "algorithm": "crank_nicolson",
             "step_controller": "pid",
-            "atol": 1e-6,
-            "rtol": 1e-6,
+            "atol": 1e-9,
+            "rtol": 1e-9,
             "dt_min": 1e-6,
             "output_types": [
                 "state",
@@ -101,8 +101,8 @@ from tests._utils import assert_integration_outputs
         {
             "algorithm": "crank_nicolson",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
+            "atol": 1e-9,
+            "rtol": 1e-9,
             "dt_min": 1e-6,
             "output_types": [
                 "state",
@@ -121,8 +121,8 @@ from tests._utils import assert_integration_outputs
         {
             "algorithm": "crank_nicolson",
             "step_controller": "i",
-            "atol": 1e-6,
-            "rtol": 1e-6,
+            "atol": 1e-9,
+            "rtol": 1e-9,
             "dt_min": 1e-6,
             "output_types": [
                 "state",
@@ -141,8 +141,8 @@ from tests._utils import assert_integration_outputs
         {
             "algorithm": "crank_nicolson",
             "step_controller": "gustafsson",
-            "atol": 1e-6,
-            "rtol": 1e-6,
+            "atol": 1e-9,
+            "rtol": 1e-9,
             "dt_min": 1e-6,
             "output_types": [
                 "state",

@@ -252,6 +252,44 @@ def test_device_interpolation_matches_cpu(cubic_inputs) -> None:
     )
 
 
+def test_get_interpolated_matches_kernel_output(cubic_inputs):
+    """Host helper should agree with explicit device kernel launches."""
+
+    query_times = np.linspace(
+        cubic_inputs.t0,
+        cubic_inputs.t0 + cubic_inputs.dt * (cubic_inputs.num_segments - 1),
+        17,
+        dtype=cubic_inputs.precision,
+    )
+
+    expected = _run_evaluate(
+        cubic_inputs.evaluation_function,
+        cubic_inputs.coefficients,
+        query_times,
+    )
+    observed = cubic_inputs.get_interpolated(query_times)
+
+    np.testing.assert_allclose(
+        observed,
+        expected,
+        rtol=1e-6,
+        atol=1e-6,
+        err_msg=(
+            "get_interpolated diverged from device reference\n"
+            f"observed:\n{np.array2string(observed)}\n"
+            f"expected:\n{np.array2string(expected)}"
+        ),
+    )
+
+
+def test_get_interpolated_requires_one_dimensional_input(cubic_inputs):
+    """Supplying multidimensional evaluation grids should fail."""
+
+    bad_times = np.zeros((2, 2), dtype=cubic_inputs.precision)
+    with pytest.raises(ValueError):
+        cubic_inputs.get_interpolated(bad_times)
+
+
 def test_wrap_vs_clamp_evaluation(wrapping_inputs) -> None:
     """Wrapping alters extrapolation compared to clamping semantics."""
 
@@ -399,6 +437,47 @@ def test_wrap_repeats_periodically(wrapping_inputs) -> None:
             f"gpu2:\n{np.array2string(gpu[2])}"
         ),
     )
+
+
+def test_plot_interpolated_wraps_markers(wrapping_inputs):
+    """Plot helper should repeat markers when wrapping is enabled."""
+
+    plt = pytest.importorskip("matplotlib.pyplot")
+    _, wrap_input = wrapping_inputs
+
+    eval_times = np.linspace(
+        wrap_input.t0 - wrap_input.dt,
+        wrap_input.t0
+        + wrap_input.dt * (wrap_input.num_segments + 1),
+        64,
+        dtype=wrap_input.precision,
+    )
+
+    fig, ax = wrap_input.plot_interpolated(eval_times)
+    try:
+        lines = ax.lines
+        assert len(lines) == 2
+
+        interpolated_line, markers_line = lines
+        assert interpolated_line.get_linestyle() == "-"
+        assert markers_line.get_linestyle() == "None"
+
+        marker_times = markers_line.get_xdata()
+        assert marker_times.min() < wrap_input.t0
+        last_sample_time = (
+            wrap_input.t0 + wrap_input.dt * (wrap_input.num_samples - 1)
+        )
+        assert marker_times.max() > last_sample_time
+
+        np.testing.assert_allclose(
+            wrap_input.get_interpolated(eval_times)[:, 0],
+            interpolated_line.get_ydata(),
+            rtol=1e-6,
+            atol=1e-6,
+            err_msg="plot line diverged from interpolation helper",
+        )
+    finally:
+        plt.close(fig)
 
 
 @pytest.mark.parametrize("order", [1, 2, 3, 4, 5])

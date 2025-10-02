@@ -16,6 +16,7 @@ Array = NDArray[np.floating]
 # setup cost multiple times. Numerical tests are done on pre-updated
 # settings as the fixtures are set up at function start.
 @pytest.mark.parametrize("system_override", ["three_chamber"], indirect=True)
+@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
