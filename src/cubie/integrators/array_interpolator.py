@@ -172,7 +172,7 @@ class ArrayInterpolator(CUDAFactory):
         time = {k: v for k, v in input_dict.items() if k in self.time_info}
 
         # Update order first, for checks  in _normalise_input_array
-        self.update_compile_settings(config)
+        fn_changed = any(self.update_compile_settings(config))
 
         input_array = self._normalise_input_array(inputs)
         if np.array_equal(input_array, self.input_array):
@@ -190,8 +190,10 @@ class ArrayInterpolator(CUDAFactory):
         if config.get('wrap', False):
             if 'boundary_condition' not in config:
                 config['boundary_condition'] = 'periodic'
-        self.update_compile_settings(config)
+        fn_changed |= any(self.update_compile_settings(config))
         self._coefficients = self._compute_coefficients()
+
+        return fn_changed
 
     def _normalise_input_array(
             self, input_dict: Dict[str, FloatArray]

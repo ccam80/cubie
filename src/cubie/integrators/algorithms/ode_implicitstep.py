@@ -145,7 +145,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         numba_precision = config.numba_precision
         n = config.n
         observables_function = config.observables_function
-        driver_function = config.evaluation_function
+        driver_function = config.driver_function
 
         return self.build_step(
             solver_fn,

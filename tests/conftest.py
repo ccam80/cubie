@@ -595,7 +595,7 @@ def step_object(
             'n': system.sizes.states,
             'dxdt_function': system.dxdt_function,
             'observables_function': system.observables_function,
-            'evaluation_function': driver_fn,
+            '': driver_fn,
         }
     else:
         solver_kwargs = {
@@ -618,7 +618,7 @@ def step_object(
             'newton_max_backtracks': implicit_step_settings[
                 "newton_max_backtracks"
             ],
-            'evaluation_function': driver_fn,
+            '': driver_fn,
         }
     return get_algorithm_step(solver_settings["algorithm"].lower(), **solver_kwargs)
 

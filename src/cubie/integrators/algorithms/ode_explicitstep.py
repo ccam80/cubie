@@ -53,7 +53,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
         n = config.n
         fixed_step_size = config.dt
         observables_function = config.observables_function
-        driver_function = config.evaluation_function
+        driver_function = config.driver_function
         return self.build_step(
             dxdt_function,
             observables_function,

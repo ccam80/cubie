@@ -29,7 +29,7 @@ class InputArrayContainer(ArrayContainer):
     Container for batch input arrays.
 
     This container holds the input arrays needed for batch integration,
-    including initial values, parameters, and forcing vectors.
+    including initial values, parameters, and driver coefficients.
 
     Parameters
     ----------
@@ -37,13 +37,13 @@ class InputArrayContainer(ArrayContainer):
         Initial state values for the integration.
     parameters : ArrayTypes, optional
         Parameter values for the integration.
-    forcing_vectors : ArrayTypes, optional
-        Forcing function vectors for the integration.
+    driver_coefficients : ArrayTypes, optional
+        Interpolant coefficients describing external drivers.
     stride_order : tuple[str, ...], default=("run", "variable")
         Order of array dimensions.
     _memory_type : str, default="device"
         Type of memory allocation.
-    _unchunkable : tuple[str, ...], default=('forcing_vectors',)
+    _unchunkable : tuple[str, ...], default=('driver_coefficients',)
         Array names that cannot be chunked.
 
     Notes
@@ -55,7 +55,7 @@ class InputArrayContainer(ArrayContainer):
 
     initial_values: ArrayTypes = attrs.field(default=None)
     parameters: ArrayTypes = attrs.field(default=None)
-    forcing_vectors: ArrayTypes = attrs.field(default=None)
+    driver_coefficients: ArrayTypes = attrs.field(default=None)
     stride_order: tuple[str, ...] = attrs.field(
         default=("run", "variable"), init=False
     )
@@ -63,7 +63,7 @@ class InputArrayContainer(ArrayContainer):
         default="device",
         validator=val.in_(["device", "mapped", "pinned", "managed", "host"]),
     )
-    _unchunkable = attrs.field(default=("forcing_vectors",), init=False)
+    _unchunkable = attrs.field(default=("driver_coefficients",), init=False)
 
     @classmethod
     def host_factory(cls):
@@ -97,7 +97,7 @@ class InputArrays(BaseArrayManager):
 
     This class manages the allocation, transfer, and synchronization of input
     arrays needed for batch integration operations. It handles initial values,
-    parameters, and forcing vectors.
+    parameters, and driver coefficient tables.
 
     Parameters
     ----------
@@ -114,7 +114,7 @@ class InputArrays(BaseArrayManager):
     from a solver instance using the from_solver factory method), which sets
     the allowable array heights from the ODE system's data. Once initialized,
     the object can be updated with arguments (initial_values, parameters,
-    forcing_vectors). Each call to the update method will:
+    driver_coefficients). Each call to the update method will:
 
     - Check if the input array has changed in shape or content since the last update
     - Queue allocation requests with the MemoryManager
@@ -146,10 +146,10 @@ class InputArrays(BaseArrayManager):
         solver_instance,
         initial_values: NDArray,
         parameters: NDArray,
-        forcing_vectors: NDArray,
+        driver_coefficients: Optional[NDArray],
     ) -> None:
         """
-        Set the initial values, parameters, and forcing vectors.
+        Set the initial values, parameters, and driver coefficients.
 
         Queues allocation requests with the MemoryManager for batch processing.
 
@@ -161,14 +161,15 @@ class InputArrays(BaseArrayManager):
             Initial state values for each integration run.
         parameters : NDArray
             Parameter values for each integration run.
-        forcing_vectors : NDArray
-            Forcing vectors for each integration run.
+        driver_coefficients : NDArray, optional
+            Horner-ordered driver interpolation coefficients.
         """
         updates_dict = {
             "initial_values": initial_values,
             "parameters": parameters,
-            "forcing_vectors": forcing_vectors,
         }
+        if driver_coefficients is not None:
+            updates_dict["driver_coefficients"] = driver_coefficients
         self.update_from_solver(solver_instance)
         self.update_host_arrays(updates_dict)
         self.allocate()  # Will queue request if in a stream group
@@ -198,16 +199,10 @@ class InputArrays(BaseArrayManager):
         return self.host.parameters
 
     @property
-    def forcing_vectors(self):
-        """
-        Get host forcing vectors array.
+    def driver_coefficients(self):
+        """Get the host driver coefficient array."""
 
-        Returns
-        -------
-        ArrayTypes
-            The forcing vectors array from the host container.
-        """
-        return self.host.forcing_vectors
+        return self.host.driver_coefficients
 
     @property
     def device_initial_values(self):
@@ -234,16 +229,10 @@ class InputArrays(BaseArrayManager):
         return self.device.parameters
 
     @property
-    def device_forcing_vectors(self):
-        """
-        Get device forcing vectors array.
+    def device_driver_coefficients(self):
+        """Get the device driver coefficient array."""
 
-        Returns
-        -------
-        ArrayTypes
-            The forcing vectors array from the device container.
-        """
-        return self.device.forcing_vectors
+        return self.device.driver_coefficients
 
     @classmethod
     def from_solver(

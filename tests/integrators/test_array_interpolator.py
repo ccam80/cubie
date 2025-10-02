@@ -49,16 +49,18 @@ def cubic_inputs(precision) -> ArrayInterpolator:
 def wrapping_inputs(precision) -> Tuple[ArrayInterpolator, ArrayInterpolator]:
     """Return clamp and wrap input arrays sharing identical samples."""
 
-    times = np.linspace(0.0, 4.0, 5, dtype=precision)
-    values = np.array([0.0, 1.5, -0.75, 2.25, -3.0], dtype=precision)
-    input_dict = {"values": values, "time": times, "order": 3}
+    times = np.linspace(0.0, 4.0, 6, dtype=precision)
+    values = np.array([0.0, 1.5, -0.75, 2.25, -3.0, 0.0], dtype=precision)
+    clamp_input_dict = {"values": values, "time": times, "order": 3,
+                        'wrap': False}
+    wrap_input_dict = {"values": values, "time": times, "order": 3, 'wrap': True}
     clamp = ArrayInterpolator(
         precision=precision,
-        input_dict=input_dict,
+        input_dict=clamp_input_dict,
     )
     wrap = ArrayInterpolator(
         precision=precision,
-        input_dict=input_dict,
+        input_dict=wrap_input_dict,
     )
     return clamp, wrap
 
@@ -93,29 +95,32 @@ def _cpu_evaluate(
 
     inv_res = 1.0 / resolution
     scaled = (time - start) * inv_res
+    scaled_floor = math.floor(scaled)
+    idx = int(scaled_floor)
+
     if wrap:
-        segment_float = math.floor(scaled)
-        tau = scaled - segment_float
-        segment = int(segment_float) % coefficients.shape[0]
+        segment = idx % coefficients.shape[0]
         if segment < 0:
             segment += coefficients.shape[0]
+        tau = scaled - scaled_floor
+        in_range = True
     else:
-        if scaled < 0.0 or scaled > float(coefficients.shape[0]):
-            return np.zeros(coefficients.shape[1], dtype=coefficients.dtype)
-        segment = math.floor(scaled)
-        if segment < 0:
-            segment = 0
-        elif segment >= coefficients.shape[0]:
+        in_range = 0.0 <= scaled <= float(coefficients.shape[0])
+        segment = idx if idx >= 0 else 0
+        if segment >= coefficients.shape[0]:
             segment = coefficients.shape[0] - 1
-        base_time = start + resolution * float(segment)
-        tau = (time - base_time) * inv_res
+        tau = scaled - float(segment)
+    zero_value = coefficients.dtype.type(0.0)
     out = np.empty(coefficients.shape[1], dtype=coefficients.dtype)
     for input_index in range(coefficients.shape[1]):
         coeffs = coefficients[segment, input_index]
-        acc = 0.0
+        acc = zero_value
         for k in range(coeffs.size - 1, -1, -1):
             acc = acc * tau + coeffs[k]
-        out[input_index] = acc
+        if wrap or in_range:
+            out[input_index] = acc
+        else:
+            out[input_index] = zero_value
     return out
 
 
@@ -168,7 +173,7 @@ def test_build_coefficients_matches_polynomial(quadratic_input):
             dtype=quadratic_input.precision)
             * quadratic_input.dt)
     expected = np.column_stack(
-        (
+            (
             segment_starts ** 2,
             2.0 * segment_starts,
             np.ones_like(segment_starts),
@@ -390,8 +395,11 @@ def test_interpolation_exact_for_polynomials(order, precision) -> None:
         ),
     )
 
-@pytest.mark.parametrize("bc", ["natural", "periodic"])
-def test_cubic_matches_scipy_reference(precision, bc) -> None:
+@pytest.mark.parametrize(
+    "bc",
+    ["natural", "periodic", "clamped", "not-a-knot"],
+)
+def test_order_three_matches_scipy_reference(precision, bc) -> None:
     """Order-three interpolation should match SciPy's cubic spline."""
 
     scipy = pytest.importorskip("scipy.interpolate")
@@ -399,8 +407,16 @@ def test_cubic_matches_scipy_reference(precision, bc) -> None:
     times = np.linspace(0.0, 2.0, 21, dtype=precision)
     samples = np.sin(2.3 * times) + 0.3 * np.cos(4.1 * times)
     samples += 0.05 * rng.standard_normal(times.size).astype(precision)
-    samples[0] = samples[-1]
-    input_dict = {"drive": samples, "time": times, "order": 3, "wrap": True, "boundary_condition": bc}
+    wrap = bc == "periodic"
+    if wrap:
+        samples[-1] = samples[0]
+    input_dict = {
+        "drive": samples,
+        "time": times,
+        "order": 3,
+        "wrap": wrap,
+        "boundary_condition": bc,
+    }
     input = ArrayInterpolator(
         precision=precision,
         input_dict=input_dict,

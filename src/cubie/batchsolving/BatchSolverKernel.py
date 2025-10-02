@@ -294,11 +294,9 @@ class BatchSolverKernel(CUDAFactory):
             Initial conditions for each run. Shape should be (n_runs, n_states).
         params : array_like
             Parameters for each run. Shape should be (n_runs, n_params).
-        driver_coefficients : numpy.ndarray
-            Driver spline coefficients with shape
-            (num_segments, num_drivers, spline_order). These are produced by
-            :class:`~cubie.integrators.driver_arrays.ArrayInterpolator` and are
-            consumed directly by the integration loops.
+        driver_coefficients : array_like or None
+            Horner-ordered driver interpolation coefficients with shape
+            ``(num_segments, num_drivers, order + 1)``.
         duration : float
             Duration of the simulation.
         blocksize : int, default=256
