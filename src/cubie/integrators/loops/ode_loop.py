@@ -188,6 +188,7 @@ class IVPLoop(CUDAFactory):
 
         equality_breaker = precision(1e-7) if precision is np.float32 else (
         precision(1e-14))
+
         @cuda.jit(device=True, inline=True)
         def loop_fn(
             initial_states,

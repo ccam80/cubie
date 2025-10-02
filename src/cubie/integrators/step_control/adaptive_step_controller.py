@@ -95,7 +95,7 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
     )
     _deadband_max: float = field(
         default=1.2,
-        validator=getype_validator(float, 0),
+        validator=getype_validator(float, 1.0),
     )
 
     def __attrs_post_init__(self) -> None:

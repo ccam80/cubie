@@ -58,6 +58,7 @@ class StepRecord:
     step_size: float
     accepted: bool
     run_label: str
+    attempt_index: int
 
 
 SYSTEM_BUILDERS: Dict[str, Any] = {
@@ -397,6 +398,7 @@ def run_reference_loop_with_history(
     max_iters = implicit_step_settings["max_newton_iters"]
     timesave = 0
     timenow = 0
+    attempt_index=0
     while t < end_time - precision(1e-12):
         dt = precision(min(controller.dt, end_time - t))
         do_save = False
@@ -405,8 +407,6 @@ def run_reference_loop_with_history(
             do_save = True
 
         driver_sample =  driverevaluator(t)
-        drivers_now = driver_sample
-        drivers_next = driver_sample
         timenow = perf_counter()
 
         attempt_dt = float(dt)
@@ -443,8 +443,10 @@ def run_reference_loop_with_history(
                 step_size=attempt_dt,
                 accepted=accept,
                 run_label=run_label,
+                attempt_index=attempt_index
             )
         )
+        attempt_index+=1
         if not accept:
             continue
 
@@ -606,20 +608,40 @@ if __name__ == "__main__":
         fig.suptitle(f"{system_name} system")
         allfigs.append(fig)
         allaxes.append(axes)
+        xtype="index"
 
         for i, (controller, histories) in enumerate(all_histories.items()):
             records = histories.get(system_name, [])
             axis = allaxes[j][i]
             axis.set_yscale("log")
-            for record in records:
-                marker = "o" if record.accepted else "x"
+            accepted = [r for r in records if r.accepted]
+            rejected = [r for r in records if not r.accepted]
+            if accepted:
+                if xtype =="time":
+                    xdata = [r.time for r in accepted]
+                else:
+                    xdata = [r.attempt_index for r in accepted]
+
                 axis.scatter(
-                    record.time,
-                    record.step_size,
-                    color="tab:blue" if record.accepted else "tab:red",
-                    alpha=0.7,
-                    marker=marker,
-                    s=18,
+                        [r.time for r in accepted],
+                        [r.step_size for r in accepted],
+                        color="tab:blue",
+                        alpha=0.7,
+                        marker="o",
+                        s=18,
+                )
+            if rejected:
+                if xtype =="time":
+                    xdata = [r.time for r in rejected]
+                else:
+                    xdata = [r.attempt_index for r in rejected]
+                axis.scatter(
+                        [r.time for r in rejected],
+                        [r.step_size for r in rejected],
+                        color="tab:red",
+                        alpha=0.7,
+                        marker="x",
+                        s=18,
                 )
 
                 axis.set_title(controller)

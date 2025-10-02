@@ -490,11 +490,8 @@ def crank_nicolson_step(
 
     precision = evaluator.precision
     current_time = precision(time)
-    half_dt = precision(dt) * 0.5
-    mid_time = current_time + half_dt
     next_time = current_time + precision(dt)
     drivers_now = driver_evaluator(current_time)
-    drivers_mid = driver_evaluator(mid_time)
     drivers_next = driver_evaluator(next_time)
     observables_now = evaluator.observables(
         state,
@@ -514,15 +511,15 @@ def crank_nicolson_step(
         candidate_observables = evaluator.observables(
             candidate,
             params,
-            drivers_mid,
-            mid_time,
+            drivers_next,
+            next_time,
         )
         f_candidate, _ = evaluator.rhs(
             candidate,
             params,
-            drivers_mid,
+            drivers_next,
             candidate_observables,
-            mid_time,
+            next_time,
         )
         return candidate - state - precision(0.5) * dt * (f_now + f_candidate)
 
@@ -530,15 +527,15 @@ def crank_nicolson_step(
         candidate_observables = evaluator.observables(
             candidate,
             params,
-            drivers_mid,
-            mid_time,
+            drivers_next,
+            next_time,
         )
         jac = evaluator.jacobian(
             candidate,
             params,
-            drivers_mid,
+            drivers_next,
             candidate_observables,
-            mid_time,
+            next_time,
         )
         identity = np.eye(jac.shape[0], dtype=precision)
         return identity - precision(0.5) * dt * jac
@@ -990,12 +987,14 @@ def run_reference_loop(
     max_iters = implicit_step_settings['max_newton_iters']
     fixed_steps_per_save = int(np.ceil(dt_save / controller.dt_min))
     fixed_step_count = 0
+    equality_breaker = precision(1e-7) if precision is np.float32 else (
+        precision(1e-14))
 
-    while t < end_time - precision(1e-12):
+    while t < end_time - equality_breaker:
         dt = precision(min(controller.dt, end_time - t))
         do_save=False
         if controller.is_adaptive:
-            if t + dt + precision(1e-10) >= next_save_time:
+            if t + dt + equality_breaker >= next_save_time:
                 dt = precision(next_save_time - t)
                 do_save = True
         else:

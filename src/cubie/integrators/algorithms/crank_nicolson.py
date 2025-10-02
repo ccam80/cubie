@@ -129,9 +129,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             Container holding the compiled step function and solver.
         """
 
-        half = numba_precision(0.5)
         a_ij = numba_precision(1.0)
-        # Backward Euler coefficient for error estimation
         has_driver_function = driver_function is not None
         driver_function = driver_function
 
@@ -228,17 +226,18 @@ class CrankNicolsonStep(ODEImplicitStep):
                 time_scalar,
             )
 
-            cn_dt = dt_scalar * half
+            half_dt = dt_scalar * numba_precision(0.5)
+            end_time = time_scalar + dt_scalar
 
             #Reuse error array to store base-adjusted state
             for i in range(n):
-                error[i] = state[i] + cn_dt * resid[i]
+                error[i] = state[i] + half_dt * resid[i]
+
 
             # Solve Crank-Nicolson step (main solution)
-            mid_time = time_scalar + cn_dt
             if has_driver_function:
                 driver_function(
-                    mid_time,
+                    end_time,
                     driver_coefficients,
                     proposed_drivers,
                 )
@@ -247,7 +246,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 proposed_state,
                 parameters,
                 proposed_drivers,
-                cn_dt,
+                half_dt,
                 a_ij,
                 error,
                 work_buffer,
@@ -259,15 +258,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             # Use error vec again for the BE solution's state
             for i in range(n):
                 error[i] = proposed_state[i]
-
-            # calculate and save observables (wastes some compute)
-            next_time = mid_time + cn_dt
-            if has_driver_function:
-                driver_function(
-                    next_time,
-                    driver_coefficients,
-                    proposed_drivers,
-                )
 
             status |= solver_fn(
                 error,
@@ -291,7 +281,7 @@ class CrankNicolsonStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 proposed_observables,
-                next_time,
+                end_time,
             )
 
             return status

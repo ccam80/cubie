@@ -527,24 +527,16 @@ class BatchSolverKernel(CUDAFactory):
             num_drivers = constant_array.shape[1]
             num_orders = constant_array.shape[2]
 
-            for segment_index in range(num_segments):
-                for driver_index in range(num_drivers):
-                    for coefficient_index in range(num_orders):
-                        constant_array[
-                            segment_index,
-                            driver_index,
-                            coefficient_index,
-                        ] = device_array[
-                            segment_index,
-                            driver_index,
-                            coefficient_index,
-                        ]
+            for i in range(num_segments):
+                for j in range(num_drivers):
+                    for k in range(num_orders):
+                        constant_array[i,j,k] = device_array[i,j,k]
 
         @cuda.jit(
             (
                 precision[:, :],
                 precision[:, :],
-                precision[:, :],
+                precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],

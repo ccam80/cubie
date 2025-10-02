@@ -106,8 +106,6 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
         out_local = np.array([
             controller.dt,
             max(errornorm, 1e-4),
-            0.0,
-            getattr(controller, '_last_gain', 1.0)
         ], dtype=precision)
     else:
         out_local = np.zeros(0, dtype=precision)
