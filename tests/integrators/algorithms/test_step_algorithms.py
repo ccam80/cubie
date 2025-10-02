@@ -275,6 +275,7 @@ def test_algorithm(
        cpu_loop_outputs,
        device_loop_outputs,
        output_functions,
+       tolerance,
        ) -> None:
     """Ensure the step function is compiled and callable."""
     # Test that it builds
@@ -323,18 +324,28 @@ def test_algorithm(
         assert config.newton_max_backtracks == implicit_step_settings[
                 "newton_max_backtracks"], "newton_max_backtracks set"
         assert config.linsolve_tolerance == pytest.approx(
-            implicit_step_settings["linear_tolerance"]
+            implicit_step_settings["linear_tolerance"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "linsolve_tolerance set"
         assert config.nonlinear_tolerance == pytest.approx(
-            implicit_step_settings["nonlinear_tolerance"]
+            implicit_step_settings["nonlinear_tolerance"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "nonlinear_tolerance set"
         assert config.newton_damping == pytest.approx(
-            implicit_step_settings["newton_damping"]
+            implicit_step_settings["newton_damping"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "newton_damping set"
         assert callable(system.get_solver_helper)
     else:
         assert step_object.nonlinear_solver_function is None
-        assert step_object.dt == pytest.approx(solver_settings["dt_min"])
+        assert step_object.dt == pytest.approx(
+            solver_settings["dt_min"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
 
     if step_object.is_implicit:
         updates = {
@@ -359,22 +370,35 @@ def test_algorithm(
             "preconditioner_order"
         ], "preconditioner_order update"
         assert config.linsolve_tolerance == pytest.approx(
-            updates["linsolve_tolerance"]
+            updates["linsolve_tolerance"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "linsolve_tolerance update"
         assert config.nonlinear_tolerance == pytest.approx(
-            updates["nonlinear_tolerance"]
+            updates["nonlinear_tolerance"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "nonlinear_tolerance update"
         assert config.newton_damping == pytest.approx(
-            updates["newton_damping"]
+            updates["newton_damping"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "newton_damping update"
     else:
         new_dt = float(solver_settings["dt_min"]) * 0.5
         recognised = step_object.update({"dt": new_dt})
         assert "dt" in recognised, "dt recognised"
-        assert step_object.dt == pytest.approx(new_dt), "dt update"
+        assert step_object.dt == pytest.approx(
+            new_dt,
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        ), "dt update"
 
     # Test equality for a single step
-    tolerances = {"rtol": 1e6, "atol": 1e-6}
+    tolerances = {
+        "rtol": tolerance.rel_tight,
+        "atol": tolerance.abs_tight,
+    }
     assert device_step_results.status == cpu_step_results.status, \
         "status matches"
     assert device_step_results.niters == cpu_step_results.niters, \

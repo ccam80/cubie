@@ -195,6 +195,7 @@ def test_crank_nicolson_step_matches_cpu(
     driver_array,
     cpu_system,
     implicit_step_settings,
+    tolerance,
 ):
     device = _device_step(
         step_object,
@@ -220,18 +221,18 @@ def test_crank_nicolson_step_matches_cpu(
     assert_allclose(
         device["state"],
         cpu["state"],
-        rtol=1e-7,
-        atol=1e-7,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
     ), f"state mismatch: \ndevice={device['state']}\,cpu={cpu['state']}"
     assert_allclose(
         device["observables"],
         cpu["observables"],
-        rtol=1e-7,
-        atol=1e-7,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
     ), f"observables mismatch: \ndevice={device['observables']}\,cpu={cpu['observables']}"
     assert_allclose(
         device["error"],
         cpu["error"],
-        rtol=1e-7,
-        atol=1e-7,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
     ), f"error mismatch: \ndevice={device['error']}\,cpu={cpu['error']}"

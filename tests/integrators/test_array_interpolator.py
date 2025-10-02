@@ -168,7 +168,7 @@ def _run_evaluate(
     return out_host
 
 
-def test_build_coefficients_matches_polynomial(quadratic_input):
+def test_build_coefficients_matches_polynomial(quadratic_input, tolerance):
     """Segment-wise coefficients should reproduce the quadratic exactly."""
 
     coefficients = quadratic_input.coefficients[:, 0, :]
@@ -187,6 +187,8 @@ def test_build_coefficients_matches_polynomial(quadratic_input):
     np.testing.assert_allclose(
         interior,
         expected,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "interior coefficients diverged from quadratic reference\n"
             f"device:\n{np.array2string(interior)}\n"
@@ -205,17 +207,21 @@ def test_build_coefficients_matches_polynomial(quadratic_input):
     np.testing.assert_allclose(
         [_horner(leading, tau) for tau in (0.0, 1.0)],
         [0.0, 0.0],
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg="leading ghost segment should start and end at zero",
     )
     last_sample = quadratic_input.input_array[-1, 0]
     np.testing.assert_allclose(
         [_horner(trailing, tau) for tau in (0.0, 1.0)],
         [last_sample, 0.0],
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg="trailing ghost segment should decay to zero",
     )
 
 
-def test_device_interpolation_matches_cpu(cubic_inputs) -> None:
+def test_device_interpolation_matches_cpu(cubic_inputs, tolerance) -> None:
     """Device evaluation must agree with a CPU Horner evaluation."""
 
     input = cubic_inputs
@@ -244,6 +250,8 @@ def test_device_interpolation_matches_cpu(cubic_inputs) -> None:
     np.testing.assert_allclose(
         gpu,
         cpu,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "device vs cpu Horner evaluation mismatch\n"
             f"gpu:\n{np.array2string(gpu)}\n"
@@ -290,7 +298,7 @@ def test_get_interpolated_requires_one_dimensional_input(cubic_inputs):
         cubic_inputs.get_interpolated(bad_times)
 
 
-def test_wrap_vs_clamp_evaluation(wrapping_inputs) -> None:
+def test_wrap_vs_clamp_evaluation(wrapping_inputs, tolerance) -> None:
     """Wrapping alters extrapolation compared to clamping semantics."""
 
     clamp_input, wrap_input = wrapping_inputs
@@ -336,6 +344,8 @@ def test_wrap_vs_clamp_evaluation(wrapping_inputs) -> None:
     np.testing.assert_allclose(
         clamp_gpu,
         clamp_cpu,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "clamp device evaluation diverged from CPU reference\n"
             f"gpu:\n{np.array2string(clamp_gpu)}\n"
@@ -345,16 +355,23 @@ def test_wrap_vs_clamp_evaluation(wrapping_inputs) -> None:
     np.testing.assert_allclose(
         wrap_gpu,
         wrap_cpu,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "wrap device evaluation diverged from CPU reference\n"
             f"gpu:\n{np.array2string(wrap_gpu)}\n"
             f"cpu:\n{np.array2string(wrap_cpu)}"
         ),
     )
-    assert not np.allclose(clamp_gpu, wrap_gpu)
+    assert not np.allclose(
+        clamp_gpu,
+        wrap_gpu,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
 
-def test_non_wrap_returns_zero_outside_range(quadratic_input) -> None:
+def test_non_wrap_returns_zero_outside_range(quadratic_input, tolerance) -> None:
     """Non-wrapping inputs must output zeros beyond sampled times."""
 
     input = quadratic_input
@@ -375,6 +392,8 @@ def test_non_wrap_returns_zero_outside_range(quadratic_input) -> None:
     np.testing.assert_allclose(
         gpu[0],
         0.0,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "leading extrapolation should clamp to zero\n"
             f"gpu:\n{np.array2string(gpu[0])}"
@@ -383,12 +402,19 @@ def test_non_wrap_returns_zero_outside_range(quadratic_input) -> None:
     np.testing.assert_allclose(
         gpu[2],
         0.0,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "trailing extrapolation should clamp to zero\n"
             f"gpu:\n{np.array2string(gpu[2])}"
         ),
     )
-    assert not np.allclose(gpu[1], 0.0)
+    assert not np.allclose(
+        gpu[1],
+        0.0,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
 
 def test_non_wrap_defaults_to_clamped_boundary(quadratic_input) -> None:
@@ -397,7 +423,7 @@ def test_non_wrap_defaults_to_clamped_boundary(quadratic_input) -> None:
     assert quadratic_input.boundary_condition == "clamped"
 
 
-def test_wrap_repeats_periodically(wrapping_inputs) -> None:
+def test_wrap_repeats_periodically(wrapping_inputs, tolerance) -> None:
     """Wrapping inputs must repeat their samples beyond the final index."""
 
     _, wrap_input = wrapping_inputs
@@ -418,8 +444,8 @@ def test_wrap_repeats_periodically(wrapping_inputs) -> None:
     np.testing.assert_allclose(
         gpu[0],
         gpu[1],
-        atol=1e-6,
-        rtol=1e-6,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "wrap evaluation should repeat forward period\n"
             f"gpu0:\n{np.array2string(gpu[0])}\n"
@@ -429,8 +455,8 @@ def test_wrap_repeats_periodically(wrapping_inputs) -> None:
     np.testing.assert_allclose(
         gpu[0],
         gpu[2],
-        atol=1e-6,
-        rtol=1e-6,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "wrap evaluation should repeat backward period\n"
             f"gpu0:\n{np.array2string(gpu[0])}\n"
@@ -481,7 +507,7 @@ def test_plot_interpolated_wraps_markers(wrapping_inputs):
 
 
 @pytest.mark.parametrize("order", [1, 2, 3, 4, 5])
-def test_polynomial_samples_are_reproduced(order, precision) -> None:
+def test_polynomial_samples_are_reproduced(order, precision, tolerance) -> None:
     """Spline evaluation must match supplied samples for polynomial data."""
 
     times = np.linspace(0.0, 6.0, 25, dtype=precision)
@@ -499,13 +525,11 @@ def test_polynomial_samples_are_reproduced(order, precision) -> None:
         input.coefficients,
         times,
     )
-    eps = np.finfo(precision).eps
-    tol = 1_000.0 * eps
     np.testing.assert_allclose(
         gpu_samples[:, 0],
         values,
-        rtol=tol,
-        atol=tol,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "polynomial samples were not reproduced\n"
             f"gpu:\n{np.array2string(gpu_samples[:, 0])}\n"
@@ -517,7 +541,7 @@ def test_polynomial_samples_are_reproduced(order, precision) -> None:
     "bc",
     ["natural", "periodic", "clamped", "not-a-knot"],
 )
-def test_order_three_matches_scipy_reference(precision, bc) -> None:
+def test_order_three_matches_scipy_reference(precision, bc, tolerance) -> None:
     """Order-three interpolation should match SciPy's cubic spline."""
 
     scipy = pytest.importorskip("scipy.interpolate")
@@ -553,8 +577,8 @@ def test_order_three_matches_scipy_reference(precision, bc) -> None:
     np.testing.assert_allclose(
         gpu[:, 0],
         scipy_values,
-        rtol=1e-5,
-        atol=1e-5,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg=(
             "cubic interpolation diverged from SciPy reference\n"
             f"gpu:\n{np.array2string(gpu[:, 0])}\n"
@@ -593,7 +617,7 @@ def _evaluate_derivative(
     return total / (dt ** derivative)
 
 
-def test_natural_boundary_supports_higher_orders(precision) -> None:
+def test_natural_boundary_supports_higher_orders(precision, tolerance) -> None:
     """Natural constraints should zero high derivatives for any order."""
 
     order = 4
@@ -625,7 +649,8 @@ def test_natural_boundary_supports_higher_orders(precision) -> None:
         np.testing.assert_allclose(
             value,
             0.0,
-            atol=1e-6,
+            rtol=tolerance.rel_tight,
+            atol=tolerance.abs_tight,
             err_msg=(
                 "natural boundary derivative failed to vanish\n"
                 f"segment={segment} derivative={derivative} value={value}"
@@ -637,13 +662,13 @@ def test_natural_boundary_supports_higher_orders(precision) -> None:
     np.testing.assert_allclose(
         gpu[:, 0],
         reference,
-        rtol=1e-6,
-        atol=1e-6,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg="natural boundary spline failed to reproduce samples",
     )
 
 
-def test_periodic_boundary_respects_general_order(precision) -> None:
+def test_periodic_boundary_respects_general_order(precision, tolerance) -> None:
     """Periodic constraints should hold for arbitrary spline order."""
 
     order = 5
@@ -678,7 +703,8 @@ def test_periodic_boundary_respects_general_order(precision) -> None:
         np.testing.assert_allclose(
             left,
             right,
-            atol=1e-6,
+            rtol=tolerance.rel_tight,
+            atol=tolerance.abs_tight,
             err_msg=(
                 "periodic derivative mismatch for sine input\n"
                 f"derivative={derivative} left={left} right={right}"
@@ -698,7 +724,8 @@ def test_periodic_boundary_respects_general_order(precision) -> None:
         np.testing.assert_allclose(
             left,
             right,
-            atol=1e-6,
+            rtol=tolerance.rel_tight,
+            atol=tolerance.abs_tight,
             err_msg=(
                 "periodic derivative mismatch for cosine input\n"
                 f"derivative={derivative} left={left} right={right}"
@@ -710,7 +737,7 @@ def test_periodic_boundary_respects_general_order(precision) -> None:
     np.testing.assert_allclose(
         gpu,
         reference,
-        rtol=1e-6,
-        atol=1e-6,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
         err_msg="periodic spline failed to reproduce samples",
     )

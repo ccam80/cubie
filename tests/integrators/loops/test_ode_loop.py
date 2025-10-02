@@ -125,6 +125,7 @@ def test_initial_observable_seed_matches_reference(
     device_loop_outputs,
     cpu_loop_outputs,
     output_functions,
+    tolerance,
 ):
     """Ensure the initial observable snapshot reflects the initial state."""
     if not output_functions.compile_flags.save_observables:
@@ -133,6 +134,6 @@ def test_initial_observable_seed_matches_reference(
     np.testing.assert_allclose(
         device_loop_outputs.observables[0],
         cpu_loop_outputs["observables"][0],
-        rtol=1e-7,
-        atol=1e-7,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
     )

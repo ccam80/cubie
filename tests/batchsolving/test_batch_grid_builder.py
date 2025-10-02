@@ -563,7 +563,7 @@ def extend_test_array(array, values_object):
     )
 
 
-def test_docstring_examples(grid_builder, system):
+def test_docstring_examples(grid_builder, system, tolerance):
     # Example 1: combinatorial dict
 
     grid_builder = BatchGridBuilder.from_system(system)
@@ -612,8 +612,18 @@ def test_docstring_examples(grid_builder, system):
             [0.2, 20.0, 1.1],
         ]
     )
-    assert_allclose(initial_states, expected_initial_large)
-    assert_allclose(parameters, expected_params_large)
+    assert_allclose(
+        initial_states,
+        expected_initial_large,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
+    assert_allclose(
+        parameters,
+        expected_params_large,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
     # Example 2: verbatim arrays
     params = np.array([[0.1, 0.2], [10, 20]])
@@ -623,8 +633,18 @@ def test_docstring_examples(grid_builder, system):
     )
     expected_initial = np.array([[1.0, 2.0, 1.2], [0.5, 1.5, 1.2]])
     expected_params = np.array([[0.1, 0.2, 1.1], [10.0, 20.0, 1.1]])
-    assert_allclose(initial_states, expected_initial)
-    assert_allclose(parameters, expected_params)
+    assert_allclose(
+        initial_states,
+        expected_initial,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
+    assert_allclose(
+        parameters,
+        expected_params,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
     # Example 3: combinatorial arrays
     initial_states, parameters = grid_builder(
@@ -636,8 +656,18 @@ def test_docstring_examples(grid_builder, system):
     expected_params = np.array(
         [[0.1, 0.2, 1.1], [10.0, 20.0, 1.1], [0.1, 0.2, 1.1], [10.0, 20.0, 1.1]]
     )
-    assert_allclose(initial_states, expected_initial)
-    assert_allclose(parameters, expected_params)
+    assert_allclose(
+        initial_states,
+        expected_initial,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
+    assert_allclose(
+        parameters,
+        expected_params,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
     # Example 4: request dict
     request = {
@@ -649,11 +679,31 @@ def test_docstring_examples(grid_builder, system):
     initial_states, parameters = grid_builder(
         request=request, kind="combinatorial"
     )
-    assert_allclose(initial_states, expected_initial_large)
-    assert_allclose(parameters, expected_params_large)
+    assert_allclose(
+        initial_states,
+        expected_initial_large,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
+    assert_allclose(
+        parameters,
+        expected_params_large,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
     initial_states, parameters = grid_builder(request=request, kind="verbatim")
-    assert_allclose(initial_states, initial_states)
-    assert_allclose(parameters, parameters)
+    assert_allclose(
+        initial_states,
+        initial_states,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
+    assert_allclose(
+        parameters,
+        parameters,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
     # Example 5: request dict with only params
     request = {"p0": [0.1, 0.2]}
@@ -662,5 +712,15 @@ def test_docstring_examples(grid_builder, system):
     )
     expected_params = np.array([[0.1, 0.90, 1.1], [0.2, 0.9, 1.1]])
     expected_initial = np.array([[0.5, -0.25, 1.2], [0.5, -0.25, 1.2]])
-    assert_allclose(initial_states, expected_initial)
-    assert_allclose(parameters, expected_params)
+    assert_allclose(
+        initial_states,
+        expected_initial,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
+    assert_allclose(
+        parameters,
+        expected_params,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )

@@ -24,7 +24,13 @@ def placeholder_operator(precision):
 # Removed placeholder Neumann factory usage; use real generated preconditioner via system_setup
 @pytest.mark.parametrize("order", [1, 2])
 @pytest.mark.parametrize("system_setup", ["linear"], indirect=True)
-def test_neumann_preconditioner(order, system_setup, neumann_kernel, precision):
+def test_neumann_preconditioner(
+    order,
+    system_setup,
+    neumann_kernel,
+    precision,
+    tolerance,
+):
     """Validate Neumann preconditioner equals truncated series on the linear system.
 
     Uses the real generated preconditioner from system_setup and applies it to a
@@ -45,7 +51,12 @@ def test_neumann_preconditioner(order, system_setup, neumann_kernel, precision):
 
     expected_scalar = sum((h * precision(0.5)) ** k for k in range(order + 1))
     expected = np.full(n, expected_scalar, dtype=precision)
-    assert np.allclose(out.copy_to_host(), expected, atol=1e-7)
+    assert np.allclose(
+        out.copy_to_host(),
+        expected,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
 
 @pytest.fixture(scope="function")
@@ -63,7 +74,12 @@ def solver_device(request, placeholder_operator):
 @pytest.mark.parametrize(
     "solver_device", ["steepest_descent", "minimal_residual"], indirect=True
 )
-def test_linear_solver_placeholder(solver_device, solver_kernel, precision):
+def test_linear_solver_placeholder(
+    solver_device,
+    solver_kernel,
+    precision,
+    tolerance,
+):
     """Solve a simple linear system with the placeholder operator."""
 
     rhs = np.array([1.0, 2.0, 3.0], dtype=precision)
@@ -84,7 +100,12 @@ def test_linear_solver_placeholder(solver_device, solver_kernel, precision):
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp, flag)
     assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
-    assert np.allclose(x_dev.copy_to_host(), expected, atol=1e-5)
+    assert np.allclose(
+        x_dev.copy_to_host(),
+        expected,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
 @pytest.mark.parametrize(
     "system_setup", ["linear", "coupled_linear"], indirect=True
@@ -92,7 +113,12 @@ def test_linear_solver_placeholder(solver_device, solver_kernel, precision):
 @pytest.mark.parametrize("correction_type", ["steepest_descent", "minimal_residual"])
 @pytest.mark.parametrize("precond_order", [0, 1, 2])
 def test_linear_solver_symbolic(
-    system_setup, solver_kernel, precision, correction_type, precond_order
+    system_setup,
+    solver_kernel,
+    precision,
+    correction_type,
+    precond_order,
+    tolerance,
 ):
     """Solve systems built from symbolic expressions."""
 
@@ -122,7 +148,12 @@ def test_linear_solver_symbolic(
     flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp, flag)
     assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
-    assert np.allclose(x_dev.copy_to_host(), expected, atol=1e-4)
+    assert np.allclose(
+        x_dev.copy_to_host(),
+        expected,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
 
 def test_linear_solver_max_iters_exceeded(solver_kernel, precision):

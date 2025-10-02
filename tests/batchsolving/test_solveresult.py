@@ -327,6 +327,7 @@ class TestSolveResultFromSolver:
         cpu_batch_results,
         output_functions,
         precision,
+        tolerance,
     ) -> None:
         """Ensure ``SolveResult`` values match CPU reference integrations."""
 
@@ -345,17 +346,12 @@ class TestSolveResultFromSolver:
         ]
         state_ref, time_ref = extract_state_and_time(cpu_batch_results.state, output_functions)
 
-        if precision == np.float32:
-            atol = rtol = 1e-5
-        else:
-            atol = rtol = 1e-12
-
         if state_columns:
             np.testing.assert_allclose(
                 time_domain[:, :, state_columns],
                 state_ref,
-                atol=atol,
-                rtol=rtol,
+                atol=tolerance.abs_tight,
+                rtol=tolerance.rel_tight,
                 err_msg="state mismatch.\n"
                 f"device: {time_domain[:, :, state_columns]}\n"
                 f"reference: {cpu_batch_results.state}\n"
@@ -364,8 +360,8 @@ class TestSolveResultFromSolver:
             np.testing.assert_allclose(
                 time_domain[:, :, observable_columns],
                 cpu_batch_results.observables,
-                atol=atol,
-                rtol=rtol,
+                atol=tolerance.abs_tight,
+                rtol=tolerance.rel_tight,
                 err_msg="observables mismatch.\n"
                         f"device: {time_domain[:, :, observable_columns]}\n"
                         f"reference: {cpu_batch_results.observables}\n"
@@ -396,8 +392,8 @@ class TestSolveResultFromSolver:
                 np.testing.assert_allclose(
                     summaries[:,:, state_summary_columns],
                     cpu_batch_results.state_summaries,
-                    atol=atol,
-                    rtol=rtol,
+                    atol=tolerance.abs_tight,
+                    rtol=tolerance.rel_tight,
                     err_msg="state summaries mismatch.\n"
                         f"device: {summaries[:,:, state_summary_columns]}\n"
                         f"reference: {cpu_batch_results.observables}\n"
@@ -406,8 +402,8 @@ class TestSolveResultFromSolver:
                 np.testing.assert_allclose(
                     summaries[:,:, observable_summary_columns],
                     cpu_batch_results.observable_summaries,
-                    atol=atol,
-                    rtol=rtol,
+                    atol=tolerance.abs_tight,
+                    rtol=tolerance.rel_tight,
                     err_msg="observables summaries mismatch.\n"
                         f"device: {summaries[:,:, observable_summary_columns]}\n"
                         f"reference: {cpu_batch_results.observable_summaries}\n"

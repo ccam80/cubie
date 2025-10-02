@@ -29,7 +29,7 @@ def placeholder_system(precision):
     return residual, operator, base
 
 
-def test_newton_krylov_placeholder(placeholder_system, precision):
+def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
     """Solve a simple implicit Euler step using Newton-Krylov."""
 
     residual, operator, base_state = placeholder_system
@@ -67,7 +67,12 @@ def test_newton_krylov_placeholder(placeholder_system, precision):
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
 
     assert status_code == SolverRetCodes.SUCCESS
-    assert np.allclose(x.copy_to_host(), expected, atol=1e-5)
+    assert np.allclose(
+        x.copy_to_host(),
+        expected,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
+    )
 
 
 @pytest.mark.parametrize(
@@ -82,7 +87,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision):
     indirect=True,
 )
 @pytest.mark.parametrize("precond_order", [0, 1, 2])
-def test_newton_krylov_symbolic(system_setup, precision, precond_order):
+def test_newton_krylov_symbolic(system_setup, precision, precond_order, tolerance):
     """Solve a symbolic system with optional preconditioning provided by fixture."""
 
     n = system_setup["n"]
@@ -135,7 +140,12 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order):
         )
     else:
         assert status_code == SolverRetCodes.SUCCESS
-        assert np.allclose(x.copy_to_host(), expected, atol=1e-4)
+        assert np.allclose(
+            x.copy_to_host(),
+            expected,
+            rtol=tolerance.rel_tight,
+            atol=tolerance.abs_tight,
+        )
 
 
 def test_newton_krylov_failure(precision):

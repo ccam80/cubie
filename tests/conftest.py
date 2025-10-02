@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -62,6 +63,37 @@ def precision(precision_override, system_override):
     if precision_override is not None:
         return precision_override
     return np.float32
+
+
+@pytest.fixture(scope="function")
+def tolerance_override(request):
+    if hasattr(request, "param"):
+        return request.param
+    return None
+
+
+@pytest.fixture(scope="function")
+def tolerance(tolerance_override, precision):
+    if tolerance_override is not None:
+        return tolerance_override
+
+    if precision == np.float32:
+        return SimpleNamespace(
+            abs_loose=1e-5,
+            abs_tight=1e-7,
+            rel_loose=1e-5,
+            rel_tight=1e-7,
+        )
+
+    if precision == np.float64:
+        return SimpleNamespace(
+            abs_loose=1e-9,
+            abs_tight=1e-12,
+            rel_loose=1e-9,
+            rel_tight=1e-12,
+        )
+
+    raise ValueError("Unsupported precision for tolerance fixture")
 
 
 @pytest.fixture(scope="function")

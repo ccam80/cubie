@@ -166,18 +166,46 @@ def test_output_properties(solver_instance):
 
 
 
-def test_solve_info_property(precision, solver_instance, solver_settings):
+def test_solve_info_property(
+    precision,
+    solver_instance,
+    solver_settings,
+    tolerance,
+):
     """Test that solve_info returns a valid SolveSpec."""
     solve_info = solver_instance.solve_info
     assert isinstance(solve_info, SolveSpec)
-    assert solve_info.dt_min == pytest.approx(solver_settings["dt_min"])
+    assert solve_info.dt_min == pytest.approx(
+        solver_settings["dt_min"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
     if solver_instance.kernel.single_integrator.is_adaptive:
-        assert solve_info.dt_max == pytest.approx(solver_settings["dt_max"])
-        assert solve_info.atol == pytest.approx(solver_settings["atol"])
-        assert solve_info.rtol == pytest.approx(solver_settings["rtol"])
-    assert solve_info.dt_save == pytest.approx(solver_settings["dt_save"])
-    assert solve_info.dt_summarise == pytest.approx(solver_settings[
-                                                        "dt_summarise"])
+        assert solve_info.dt_max == pytest.approx(
+            solver_settings["dt_max"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
+        assert solve_info.atol == pytest.approx(
+            solver_settings["atol"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
+        assert solve_info.rtol == pytest.approx(
+            solver_settings["rtol"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
+    assert solve_info.dt_save == pytest.approx(
+        solver_settings["dt_save"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
+    assert solve_info.dt_summarise == pytest.approx(
+        solver_settings["dt_summarise"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
 
     assert solve_info.algorithm == solver_settings["algorithm"]
     assert solve_info.output_types ==  solver_settings["output_types"]
@@ -307,16 +335,26 @@ def test_update_basic(solver_instance):
     assert solver_instance.kernel.duration != original_duration
 
 
-def test_update_with_kwargs(solver_instance):
+def test_update_with_kwargs(solver_instance, tolerance):
     """Test update with keyword arguments."""
     original_dt = solver_instance.kernel.single_integrator.dt0
 
     updated_keys = solver_instance.update({}, dt=1e-8)
 
     assert "dt" in updated_keys
-    assert solver_instance.kernel.single_integrator.dt0 == pytest.approx(1e-8)
-    assert (solver_instance.kernel.single_integrator.dt0 !=
-            pytest.approx(original_dt))
+    assert solver_instance.kernel.single_integrator.dt0 == pytest.approx(
+        1e-8,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
+    assert (
+        solver_instance.kernel.single_integrator.dt0
+        != pytest.approx(
+            original_dt,
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
+    )
 
 def test_update_unrecognized_keys(solver_instance):
     """Test that update raises KeyError for unrecognized keys."""

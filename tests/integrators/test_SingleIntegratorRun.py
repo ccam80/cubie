@@ -13,12 +13,16 @@ from tests._utils import assert_integration_outputs, run_device_loop
 
 
 
-def _compare_scalar(actual, expected):
+def _compare_scalar(actual, expected, tolerance):
     if expected is None:
         assert actual is None
         return
     if isinstance(expected, (float, np.floating)):
-        assert actual == pytest.approx(float(expected))
+        assert actual == pytest.approx(
+            float(expected),
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
         return
     if isinstance(expected, (int, np.integer)):
         assert int(actual) == int(expected)
@@ -30,11 +34,11 @@ def _compare_array(actual, expected):
     np.testing.assert_array_equal(np.asarray(actual), np.asarray(expected))
 
 
-def _compare_generic(actual, expected):
+def _compare_generic(actual, expected, tolerance):
     if isinstance(expected, np.ndarray):
         _compare_array(actual, expected)
     elif isinstance(expected, (float, np.floating, int, np.integer)):
-        _compare_scalar(actual, expected)
+        _compare_scalar(actual, expected, tolerance)
     elif expected is None:
         assert actual is None
     elif callable(expected):
@@ -88,6 +92,7 @@ class TestSingleIntegratorRun:
         initial_state,
         cpu_loop_outputs,
         driver_array,
+        tolerance,
     ):
         """Requesting the device loop compiles children and preserves getters."""
 
@@ -109,24 +114,58 @@ class TestSingleIntegratorRun:
         expected_controller = solver_settings["step_controller"].lower()
         assert run.step_controller_kind == expected_controller
 
-        assert run.dt_save == pytest.approx(solver_settings["dt_save"])
-        assert run.dt_summarise == pytest.approx(solver_settings["dt_summarise"])
+        assert run.dt_save == pytest.approx(
+            solver_settings["dt_save"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
+        assert run.dt_summarise == pytest.approx(
+            solver_settings["dt_summarise"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
 
         dt_min = solver_settings["dt_min"]
-        assert run.dt_min == pytest.approx(dt_min)
+        assert run.dt_min == pytest.approx(
+            dt_min,
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
         if run.is_adaptive:
-            assert run.dt_max == pytest.approx(solver_settings["dt_max"])
+            assert run.dt_max == pytest.approx(
+                solver_settings["dt_max"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            )
         else:
-            assert run.dt_max == pytest.approx(dt_min)
-            assert run.fixed_step_size == pytest.approx(dt_min)
+            assert run.dt_max == pytest.approx(
+                dt_min,
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            )
+            assert run.fixed_step_size == pytest.approx(
+                dt_min,
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            )
 
         # Controller tolerances are only defined for adaptive controllers.
         if run.atol is not None:
             target = np.asarray(solver_settings["atol"], dtype=precision)
-            np.testing.assert_allclose(run.atol, target)
+            np.testing.assert_allclose(
+                run.atol,
+                target,
+                rtol=tolerance.rel_tight,
+                atol=tolerance.abs_tight,
+            )
         if run.rtol is not None:
             target = np.asarray(solver_settings["rtol"], dtype=precision)
-            np.testing.assert_allclose(run.rtol, target)
+            np.testing.assert_allclose(
+                run.rtol,
+                target,
+                rtol=tolerance.rel_tight,
+                atol=tolerance.abs_tight,
+            )
 
         # Saved indices and counts mirror the configured output selections.
 
@@ -236,17 +275,17 @@ class TestSingleIntegratorRun:
         for prop_name, attr_name in loop_props.items():
             actual = getattr(run, prop_name)
             expected = getattr(run._loop, attr_name)
-            _compare_generic(actual, expected)
+            _compare_generic(actual, expected, tolerance)
 
         for prop_name, attr_name in controller_props.items():
             actual = getattr(run, prop_name)
             expected = getattr(run._step_controller, attr_name, None)
-            _compare_generic(actual, expected)
+            _compare_generic(actual, expected, tolerance)
 
         for prop_name, attr_name in algo_props.items():
             actual = getattr(run, prop_name)
             expected = getattr(run._algo_step, attr_name, None)
-            _compare_generic(actual, expected)
+            _compare_generic(actual, expected, tolerance)
 
         for prop_name, attr_name in output_props.items():
             actual = getattr(run, prop_name)
@@ -259,7 +298,7 @@ class TestSingleIntegratorRun:
             }:
                 _compare_array(actual, expected)
             else:
-                _compare_generic(actual, expected)
+                _compare_generic(actual, expected, tolerance)
 
         # Numerical equivalence with the CPU reference loop.
         cpu_reference = cpu_loop_outputs
@@ -278,13 +317,18 @@ class TestSingleIntegratorRun:
             reference=cpu_reference,
             device=device_outputs,
             output_functions=run._output_functions,
-            rtol=precision(1e-5),
-            atol=precision(1e-5),
+            rtol=tolerance.rel_tight,
+            atol=tolerance.abs_tight,
         )
 
 
 @pytest.mark.parametrize("system_override", ["linear"], indirect=True)
-def test_update_routes_to_children(single_integrator_run, solver_settings, system):
+def test_update_routes_to_children(
+    single_integrator_run,
+    solver_settings,
+    system,
+    tolerance,
+):
     """All components receive updates and report the new configuration."""
 
     run = single_integrator_run
@@ -314,9 +358,21 @@ def test_update_routes_to_children(single_integrator_run, solver_settings, syste
     assert expected_keys.issubset(recognized)
     assert run.cache_valid is False
 
-    assert run.fixed_step_size == pytest.approx(new_dt)
-    assert run.dt_min == pytest.approx(new_dt)
-    assert run.dt_max == pytest.approx(new_dt)
+    assert run.fixed_step_size == pytest.approx(
+        new_dt,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
+    assert run.dt_min == pytest.approx(
+        new_dt,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
+    assert run.dt_max == pytest.approx(
+        new_dt,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
 
     flags = run.output_compile_flags
     expected_saved_states = (
@@ -356,10 +412,22 @@ def test_update_routes_to_children(single_integrator_run, solver_settings, syste
 
     controller_settings = _settings_to_dict(run._step_controller.settings_dict)
     algo_settings = _settings_to_dict(run._algo_step.settings_dict)
-    assert controller_settings["dt"] == pytest.approx(new_dt)
-    assert algo_settings["dt"] == pytest.approx(new_dt)
+    assert controller_settings["dt"] == pytest.approx(
+        new_dt,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
+    assert algo_settings["dt"] == pytest.approx(
+        new_dt,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
 
-    assert float(system.constants.values_array[0]) == pytest.approx(new_constant)
+    assert float(system.constants.values_array[0]) == pytest.approx(
+        new_constant,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
 
     expected_local = (
         run._loop.local_memory_elements
