@@ -429,8 +429,8 @@ def test_algorithm(
         reference=cpu_loop_outputs,
         device=device_loop_outputs,
         output_functions=output_functions,
-        rtol=tolerances["rtol"],
-        atol=tolerances["atol"],
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )
     assert device_loop_outputs.status == 0
 

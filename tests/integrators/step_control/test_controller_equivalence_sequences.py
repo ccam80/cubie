@@ -220,10 +220,8 @@ class TestControllerEquivalence:
                         dtype=dtype,
                     )
                 elif isinstance(step_controller, GustafssonController):
-                    prev_norm = max(
-                        cpu_step_controller._prev_nrm2,
-                        dtype(1e-4),
-                    )
+                    prev_norm = cpu_step_controller._prev_nrm2
+
                     mem_cpu = np.array(
                         [
                             cpu_step_controller.dt,
@@ -263,15 +261,16 @@ class TestControllerEquivalence:
             atol=1e-7,
         )
         if step_controller.local_memory_elements:
-            for gpu_mem, cpu_mem in zip(
+            for i, (gpu_mem, cpu_mem) in enumerate(zip(
                 gpu_trace.local_memory,
                 cpu_trace.local_memory,
-            ):
+            )):
                 np.testing.assert_allclose(
                     gpu_mem[: cpu_mem.size],
                     cpu_mem,
                     rtol=1e-7,
                     atol=1e-7,
+                    err_msg=f"local memory mismatch at step {i}",
                 )
 
     def test_rejection_retains_previous_state(

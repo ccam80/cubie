@@ -805,7 +805,7 @@ class CPUAdaptiveController:
         self.dt = new_dt
         self._prev_dt = current_dt
         self._prev_prev_nrm2 = self._prev_nrm2
-        self._prev_nrm2 = min(errornorm, self.precision(1e4))
+        self._prev_nrm2 = errornorm
 
         if unclamped_dt < self.dt_min:
             raise ValueError(f"dt < dt_min: {unclamped_dt} < {self.dt_min}"

@@ -263,7 +263,7 @@ class GustafssonController(BaseAdaptiveStepController):
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 
             local_temp[0] = dt[0]
-            local_temp[1] = min(nrm2, precision(1e4))
+            local_temp[1] = nrm2
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 
