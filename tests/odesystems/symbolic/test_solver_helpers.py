@@ -72,7 +72,16 @@ def operator_kernel(precision):
         (0.5, 2.0, 1.0, np.array([[1.0, 0.5], [0.5, 2.0]])),
     ],
 )
-def test_operator_apply_dense(beta, gamma, h, M, operator_factory, operator_kernel, precision):
+def test_operator_apply_dense(
+    beta,
+    gamma,
+    h,
+    M,
+    operator_factory,
+    operator_kernel,
+    precision,
+    tolerance,
+):
     """Evaluate operator_apply for specific scalings and mass matrices."""
 
     op = operator_factory(beta, gamma, M)
@@ -82,7 +91,12 @@ def test_operator_apply_dense(beta, gamma, h, M, operator_factory, operator_kern
     kernel[1, 1](precision(h), v, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     expected = beta * M @ v - gamma * h * J @ v
-    assert np.allclose(out, expected, atol=1e-6)
+    assert np.allclose(
+        out,
+        expected,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
 
 
 def test_operator_apply_constant_unpacking(operator_system):
@@ -142,13 +156,25 @@ def neumann_kernel(precision):
 
 
 @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
-@pytest.mark.parametrize("beta,gamma,h,order", [
-    (1.0, 1.0, 0.25, 0),
-    (1.0, 1.0, 0.25, 1),
-    (1.0, 1.0, 0.25, 2),
-    (0.5, 2.0, 0.1, 3),
-])
-def test_neumann_preconditioner_expression(beta, gamma, h, order, neumann_factory, neumann_kernel, precision):
+@pytest.mark.parametrize(
+    "beta,gamma,h,order",
+    [
+        (1.0, 1.0, 0.25, 0),
+        (1.0, 1.0, 0.25, 1),
+        (1.0, 1.0, 0.25, 2),
+        (0.5, 2.0, 0.1, 3),
+    ],
+)
+def test_neumann_preconditioner_expression(
+    beta,
+    gamma,
+    h,
+    order,
+    neumann_factory,
+    neumann_kernel,
+    precision,
+    tolerance,
+):
     """Validate Neumann preconditioner equals truncated series on a known system.
 
     System: dx/dt = J x with J = [[a, b], [c, d]] = [[1, 2], [3, 4]].
@@ -175,7 +201,12 @@ def test_neumann_preconditioner_expression(beta, gamma, h, order, neumann_factor
         expected += Tk_v
     expected = beta_inv * expected
 
-    assert np.allclose(out, expected, atol=1e-6)
+    assert np.allclose(
+        out,
+        expected,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
 
 
 @pytest.fixture(scope="function")
@@ -255,7 +286,16 @@ def residual_kernel(precision):
         (0.5, 2.0, 1.0, np.array([[1.0, 0.5], [0.5, 2.0]])),
     ],
 )
-def test_residual_end_state(beta, gamma, h, M, end_residual_factory, residual_kernel, precision):
+def test_residual_end_state(
+    beta,
+    gamma,
+    h,
+    M,
+    end_residual_factory,
+    residual_kernel,
+    precision,
+    tolerance,
+):
     residual = end_residual_factory(beta, gamma, M)
     kernel = residual_kernel(residual)
     state = np.array([1.0, -1.0], dtype=precision)
@@ -264,7 +304,12 @@ def test_residual_end_state(beta, gamma, h, M, end_residual_factory, residual_ke
     kernel[1, 1](precision(h), precision(1.0), state, base, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     expected = beta * M @ (state - base) - gamma * h * (J @ state)
-    assert np.allclose(out, expected, atol=1e-6)
+    assert np.allclose(
+        out,
+        expected,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
 
 
 @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
@@ -276,7 +321,17 @@ def test_residual_end_state(beta, gamma, h, M, end_residual_factory, residual_ke
         (0.5, 2.0, 1.0, 0.25, np.array([[1.0, 0.5], [0.5, 2.0]])),
     ],
 )
-def test_stage_residual(beta, gamma, h, a_ii, M, stage_residual_factory, residual_kernel, precision):
+def test_stage_residual(
+    beta,
+    gamma,
+    h,
+    a_ii,
+    M,
+    stage_residual_factory,
+    residual_kernel,
+    precision,
+    tolerance,
+):
     residual = stage_residual_factory(beta, gamma, a_ii, M)
     kernel = residual_kernel(residual)
     stage = np.array([0.5, -0.3], dtype=precision)
@@ -286,4 +341,9 @@ def test_stage_residual(beta, gamma, h, a_ii, M, stage_residual_factory, residua
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     eval_point = base + a_ii * stage
     expected = beta * (M @ stage) - gamma * h * (J @ eval_point)
-    assert np.allclose(out, expected, atol=1e-6)
+    assert np.allclose(
+        out,
+        expected,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )

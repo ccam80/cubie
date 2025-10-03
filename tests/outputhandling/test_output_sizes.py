@@ -524,7 +524,7 @@ class TestBatchInputSizes:
                 {
                     "initial_values": (5, 3),
                     "parameters": (5, 2),
-                    "forcing_vectors": (2, None),
+                    "driver_coefficients": (2, None),
                 },
                 id="normal_values",
             ),
@@ -532,7 +532,7 @@ class TestBatchInputSizes:
                 {
                     "initial_values": (0, 0),
                     "parameters": (0, 0),
-                    "forcing_vectors": (0, None),
+                    "driver_coefficients": (0, None),
                 },
                 id="zeros",
             ),
@@ -544,20 +544,20 @@ class TestBatchInputSizes:
 
         assert sizes.initial_values == test_data["initial_values"]
         assert sizes.parameters == test_data["parameters"]
-        assert sizes.forcing_vectors == test_data["forcing_vectors"]
+        assert sizes.driver_coefficients == test_data["driver_coefficients"]
 
     def test_nonzero_functionality(self):
         """Test that nonzero property works correctly"""
         sizes = BatchInputSizes(
-            initial_values=(0, 0), parameters=(0, 0), forcing_vectors=(0, None)
+            initial_values=(0, 0), parameters=(0, 0), driver_coefficients=(0, None)
         )
         nonzero_sizes = sizes.nonzero
 
         # All tuple values should have elements >= 1
         assert all(v >= 1 for v in nonzero_sizes.initial_values)
         assert all(v >= 1 for v in nonzero_sizes.parameters)
-        assert nonzero_sizes.forcing_vectors[0] == 1
-        assert nonzero_sizes.forcing_vectors[1] == 1
+        assert nonzero_sizes.driver_coefficients[0] == 1
+        assert nonzero_sizes.driver_coefficients[1] == 1
 
     def test_stride_order_default(self):
         """Test that _stride_order has correct default value"""

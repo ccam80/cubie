@@ -11,6 +11,7 @@ from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
 from cubie._utils import getype_validator, inrangetype_validator
+from cubie.cuda_simsafe import selp
 
 @define
 class GustafssonStepControlConfig(AdaptiveStepControlConfig):
@@ -65,6 +66,8 @@ class GustafssonController(BaseAdaptiveStepController):
         max_gain: float = 5.0,
         gamma: float = 0.9,
         max_newton_iters: int = 0,
+        deadband_min: float = 1.0,
+        deadband_max: float = 1.2,
     ) -> None:
         """Initialise a Gustafsson predictive controller.
 
@@ -92,6 +95,10 @@ class GustafssonController(BaseAdaptiveStepController):
             Gustafsson damping factor applied to the gain.
         max_newton_iters
             Maximum number of Newton iterations expected during solves.
+        deadband_min
+            Lower gain threshold for holding the previous step size.
+        deadband_max
+            Upper gain threshold for holding the previous step size.
         """
 
         config = GustafssonStepControlConfig(
@@ -106,6 +113,8 @@ class GustafssonController(BaseAdaptiveStepController):
             n=n,
             gamma=gamma,
             max_newton_iters=max_newton_iters,
+            deadband_min=deadband_min,
+            deadband_max=deadband_max,
         )
 
         super().__init__(config)
@@ -178,6 +187,13 @@ class GustafssonController(BaseAdaptiveStepController):
         gamma = precision(self.gamma)
         max_newton_iters = int(self.max_newton_iters)
         gain_numerator = precision((1 + 2 * max_newton_iters)) * gamma
+        unity_gain = precision(1.0)
+        deadband_min = precision(self.deadband_min)
+        deadband_max = precision(self.deadband_max)
+        deadband_disabled = (
+            (deadband_min == unity_gain)
+            and (deadband_max == unity_gain)
+        )
 
         @cuda.jit(device=True, inline=True, fastmath=True)
         def controller_gustafsson(
@@ -237,11 +253,17 @@ class GustafssonController(BaseAdaptiveStepController):
                 gain_basic)
 
             gain = clamp(gain, min_gain, max_gain)
+            if not deadband_disabled:
+                within_deadband = (
+                    (gain >= deadband_min)
+                    and (gain <= deadband_max)
+                )
+                gain = selp(within_deadband, unity_gain, gain)
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 
             local_temp[0] = dt[0]
-            local_temp[1] = min(nrm2, precision(1e4))
+            local_temp[1] = nrm2
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret
 

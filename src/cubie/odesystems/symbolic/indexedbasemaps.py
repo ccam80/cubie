@@ -1,10 +1,8 @@
 """Helpers that build indexed SymPy arrays for symbolic ODE metadata."""
 
-from typing import Dict, Iterable, Optional, Union
+from typing import Any, Dict, Iterable, Optional, Union
 
 import sympy as sp
-from numpy import asarray
-from numpy.typing import ArrayLike, NDArray
 
 
 class IndexedBaseMap:
@@ -14,7 +12,7 @@ class IndexedBaseMap:
         self,
         base_name: str,
         symbol_labels: Iterable[str],
-        input_defaults: Optional[Union[ArrayLike, NDArray]] = None,
+        input_defaults: Optional[Iterable[Any]] = None,
         length: int = 0,
         real: bool = True,
     ) -> None:
@@ -38,8 +36,9 @@ class IndexedBaseMap:
         -------
         None
         """
+        labels = list(symbol_labels)
         if length == 0:
-            length = len(list(symbol_labels))
+            length = len(labels)
 
         self.length = length
         self.base_name = base_name
@@ -47,29 +46,47 @@ class IndexedBaseMap:
         self.base = sp.IndexedBase(base_name, shape=(length,), real=real)
         self.index_map = {
             sp.Symbol(name, real=real): index
-            for index, name in enumerate(symbol_labels)
+            for index, name in enumerate(labels)
         }
         self.ref_map = {
             sp.Symbol(name, real=real): self.base[index]
-            for index, name in enumerate(symbol_labels)
+            for index, name in enumerate(labels)
         }
-        self.symbol_map = {
-            name: sp.Symbol(name, real=real) for name in symbol_labels
-        }
+        self.symbol_map = {name: sp.Symbol(name, real=real) for name in labels}
+
+        self._passthrough_defaults = False
         if input_defaults is None:
-            input_defaults = asarray([0.0] * length)
-        elif len(input_defaults) != length:
-            raise ValueError(
-                "Input defaults must be the same length as the list of symbols"
-            )
-        self.default_values = dict(zip(self.ref_map.keys(), input_defaults))
+            defaults = [0.0] * length
+            self.default_values = dict(zip(self.ref_map.keys(), defaults))
+            self.defaults = {
+                str(symbol): value
+                for symbol, value in self.default_values.items()
+            }
+        elif isinstance(input_defaults, dict):
+            self._passthrough_defaults = True
+            self.default_values = input_defaults
+            self.defaults = input_defaults
+        else:
+            defaults = list(input_defaults)
+            if len(defaults) != length:
+                raise ValueError(
+                    "Input defaults must be the same length as the list of "
+                    "symbols"
+                )
+            self.default_values = dict(zip(self.ref_map.keys(), defaults))
+            self.defaults = {
+                str(symbol): value
+                for symbol, value in self.default_values.items()
+            }
 
     def pop(self, sym: sp.Symbol) -> None:
         """Remove a symbol from the indexed base."""
         self.ref_map.pop(sym)
         self.index_map.pop(sym)
         self.symbol_map.pop(str(sym))
-        self.default_values.pop(sym)
+        if not self._passthrough_defaults:
+            self.default_values.pop(sym)
+            self.defaults.pop(str(sym))
         self.base = sp.IndexedBase(
             self.base_name, shape=(len(self.ref_map),), real=self.real
         )
@@ -85,7 +102,9 @@ class IndexedBaseMap:
         self.ref_map[sym] = self.base[index]
         self.index_map[sym] = index
         self.symbol_map[str(sym)] = sym
-        self.default_values[sym] = default_value
+        if not self._passthrough_defaults:
+            self.default_values[sym] = default_value
+            self.defaults[str(sym)] = default_value
 
     def update_values(
         self,
@@ -110,6 +129,9 @@ class IndexedBaseMap:
         -----
         Silently ignores keys that are not found in the indexed base map.
         """
+        if self._passthrough_defaults:
+            return
+
         if updates_dict is None:
             updates_dict = {}
         updates_dict = updates_dict.copy()
@@ -133,7 +155,15 @@ class IndexedBaseMap:
 
         for sym, val in symbol_update_dict.items():
             self.default_values[sym] = val
+            self.defaults[str(sym)] = val
         return
+
+    def set_passthrough_defaults(self, defaults: dict[str, Any]) -> None:
+        """Replace defaults with a direct dictionary mapping."""
+
+        self._passthrough_defaults = True
+        self.default_values = defaults
+        self.defaults = defaults
 
 
 class IndexedBases:

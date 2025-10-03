@@ -10,9 +10,11 @@ import pytest
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
-from tests.integrators.cpu_reference import CPUODESystem, get_ref_step_fn
-from tests._utils import assert_integration_outputs, \
-    _driver_sequence
+from tests.integrators.cpu_reference import (
+    CPUODESystem,
+    get_ref_step_function,
+)
+from tests._utils import assert_integration_outputs
 
 Array = np.ndarray
 STATUS_MASK = 0xFFFF
@@ -78,27 +80,23 @@ def expected_step_properties(system) -> dict[str, Any]:
     return generate_step_props(n_states=system.sizes.states)
 
 @pytest.fixture(scope="function")
-def step_inputs(system, precision, initial_state, solver_settings) -> dict[
-    str,
-Array]:
+def step_inputs(
+    system,
+    precision,
+    initial_state,
+    solver_settings,
+    cpu_driver_evaluator,
+) -> dict[str, Array]:
     """State, parameters, and drivers for a single step execution."""
-    if system.num_drivers > 0:
-        drivers = _driver_sequence(
-            samples=2,
-            total_time=float(solver_settings['dt_min']),
-            n_drivers=system.num_drivers,
-            precision=precision,
-        )
-        drivers_now = np.asarray(drivers[0], dtype=precision)
-        drivers_next = np.asarray(drivers[1], dtype=precision)
-    else:
-        drivers_now = np.zeros(1, dtype=precision)
-        drivers_next = np.zeros(1, dtype=precision)
+    width = system.num_drivers
+    driver_coefficients = np.array(
+        cpu_driver_evaluator.coefficients, dtype=precision, copy=True
+    )
     return {
         "state": initial_state,
         "parameters": system.parameters.values_array.astype(precision),
-        "drivers_now": drivers_now,
-        "drivers_next": drivers_next,
+        "drivers": np.zeros(width, dtype=precision),
+        "driver_coefficients": driver_coefficients,
     }
 
 
@@ -108,17 +106,18 @@ def device_step_results(
     solver_settings,
     precision,
     step_inputs,
+    cpu_driver_evaluator,
     system,
 ) -> StepResult:
     """Execute the CUDA step and collect host-side outputs."""
 
-    step_fn = step_object.step_function
+    step_function = step_object.step_function
     step_size = solver_settings['dt_min']
     n_states = system.sizes.states
     params = step_inputs["parameters"]
     state = step_inputs["state"]
-    driver_key = "drivers_next" if step_object.is_implicit else "drivers_now"
-    drivers = step_inputs[driver_key]
+    drivers = cpu_driver_evaluator.evaluate(precision(0.0))
+    driver_coefficients = step_inputs["driver_coefficients"]
     observables = np.zeros(system.sizes.observables, dtype=precision)
     proposed_state = np.zeros_like(state)
     work_buffer = np.zeros(n_states, dtype=precision)
@@ -136,8 +135,12 @@ def device_step_results(
     d_work = cuda.to_device(work_buffer)
     d_params = cuda.to_device(params)
     d_drivers = cuda.to_device(drivers)
+    d_driver_coeffs = cuda.to_device(driver_coefficients)
+    proposed_drivers = np.zeros_like(drivers)
+
     d_observables = cuda.to_device(observables)
     d_proposed_observables = cuda.to_device(observables)
+    d_proposed_drivers = cuda.to_device(proposed_drivers)
     d_error = cuda.to_device(error)
     d_status = cuda.to_device(status)
 
@@ -147,7 +150,9 @@ def device_step_results(
         proposed_vec,
         work_vec,
         params_vec,
+        driver_coeffs_vec,
         drivers_vec,
+        proposed_drivers_vec,
         observables_vec,
         proposed_observables_vec,
         error_vec,
@@ -160,12 +165,14 @@ def device_step_results(
             return
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
-        result = step_fn(
+        result = step_function(
             state_vec,
             proposed_vec,
             work_vec,
             params_vec,
+            driver_coeffs_vec,
             drivers_vec,
+            proposed_drivers_vec,
             observables_vec,
             proposed_observables_vec,
             error_vec,
@@ -181,7 +188,9 @@ def device_step_results(
         d_proposed,
         d_work,
         d_params,
+        d_driver_coeffs,
         d_drivers,
+        d_proposed_drivers,
         d_observables,
         d_proposed_observables,
         d_error,
@@ -206,31 +215,31 @@ def cpu_step_results(
     solver_settings,
     cpu_system: CPUODESystem,
     step_inputs,
-    implicit_step_settings
+    implicit_step_settings,
+    cpu_driver_evaluator,
 ) -> StepResult:
     """Execute the CPU reference stepper."""
 
-    step_fn = get_ref_step_fn(solver_settings["algorithm"])
+    step_function = get_ref_step_function(solver_settings["algorithm"])
     dt = solver_settings["dt_min"]
     state = np.asarray(step_inputs["state"], dtype=cpu_system.precision)
     params = np.asarray(step_inputs["parameters"], dtype=cpu_system.precision)
-    drivers_now = np.asarray(step_inputs["drivers_now"],
-                             dtype=cpu_system.precision
-    )
-    drivers_next = np.asarray(
-        step_inputs["drivers_next"], dtype=cpu_system.precision
-    )
+    if cpu_system.system.num_drivers > 0:
+        driver_evaluator = cpu_driver_evaluator.with_coefficients(
+            step_inputs["driver_coefficients"]
+        )
+    else:
+        driver_evaluator = cpu_driver_evaluator
 
-    result = step_fn(
+    result = step_function(
         cpu_system,
+        driver_evaluator,
         state=state,
         params=params,
-        drivers_now=drivers_now,
-        drivers_next=drivers_next,
         dt=dt,
         tol=implicit_step_settings['nonlinear_tolerance'],
         time=0.0,
-        )
+    )
 
     return StepResult(
         state=result.state.astype(cpu_system.precision, copy=True),
@@ -247,9 +256,9 @@ def cpu_step_results(
     [
         {"algorithm": "euler", 'step_controller': 'fixed'},
         {"algorithm": "backwards_euler"},
-        {"algorithm": "backwards_euler_pc"},
+        {"algorithm": "backwards_euler_pc", "dt_min": 0.0025},
         {"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
-            1e-6, 'rtol': 1e-6, 'dt_min': 0.001},
+            1e-6, 'rtol': 1e-6, 'dt_min': 1e-6},
     ],
     ids=["euler", "backwards_euler", "backwards_euler_pc", "crank_nicolson"],
     indirect=True,
@@ -266,10 +275,11 @@ def test_algorithm(
        cpu_loop_outputs,
        device_loop_outputs,
        output_functions,
+       tolerance,
        ) -> None:
     """Ensure the step function is compiled and callable."""
     # Test that it builds
-    assert callable(step_object.step_function), "step_fn_builds"
+    assert callable(step_object.step_function), "step_function_builds"
 
     # test getters
     properties = expected_step_properties[solver_settings["algorithm"]]
@@ -314,18 +324,28 @@ def test_algorithm(
         assert config.newton_max_backtracks == implicit_step_settings[
                 "newton_max_backtracks"], "newton_max_backtracks set"
         assert config.linsolve_tolerance == pytest.approx(
-            implicit_step_settings["linear_tolerance"]
+            implicit_step_settings["linear_tolerance"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "linsolve_tolerance set"
         assert config.nonlinear_tolerance == pytest.approx(
-            implicit_step_settings["nonlinear_tolerance"]
+            implicit_step_settings["nonlinear_tolerance"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "nonlinear_tolerance set"
         assert config.newton_damping == pytest.approx(
-            implicit_step_settings["newton_damping"]
+            implicit_step_settings["newton_damping"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "newton_damping set"
         assert callable(system.get_solver_helper)
     else:
         assert step_object.nonlinear_solver_function is None
-        assert step_object.dt == pytest.approx(solver_settings["dt_min"])
+        assert step_object.dt == pytest.approx(
+            solver_settings["dt_min"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
 
     if step_object.is_implicit:
         updates = {
@@ -350,22 +370,35 @@ def test_algorithm(
             "preconditioner_order"
         ], "preconditioner_order update"
         assert config.linsolve_tolerance == pytest.approx(
-            updates["linsolve_tolerance"]
+            updates["linsolve_tolerance"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "linsolve_tolerance update"
         assert config.nonlinear_tolerance == pytest.approx(
-            updates["nonlinear_tolerance"]
+            updates["nonlinear_tolerance"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "nonlinear_tolerance update"
         assert config.newton_damping == pytest.approx(
-            updates["newton_damping"]
+            updates["newton_damping"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
         ), "newton_damping update"
     else:
         new_dt = float(solver_settings["dt_min"]) * 0.5
         recognised = step_object.update({"dt": new_dt})
         assert "dt" in recognised, "dt recognised"
-        assert step_object.dt == pytest.approx(new_dt), "dt update"
+        assert step_object.dt == pytest.approx(
+            new_dt,
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        ), "dt update"
 
     # Test equality for a single step
-    tolerances = {"rtol": 1e6, "atol": 1e-6}
+    tolerances = {
+        "rtol": tolerance.rel_tight,
+        "atol": tolerance.abs_tight,
+    }
     assert device_step_results.status == cpu_step_results.status, \
         "status matches"
     assert device_step_results.niters == cpu_step_results.niters, \
@@ -396,8 +429,8 @@ def test_algorithm(
         reference=cpu_loop_outputs,
         device=device_loop_outputs,
         output_functions=output_functions,
-        rtol=tolerances["rtol"],
-        atol=tolerances["atol"],
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
     )
     assert device_loop_outputs.status == 0
 

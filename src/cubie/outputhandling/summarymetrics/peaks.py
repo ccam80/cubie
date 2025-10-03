@@ -95,7 +95,7 @@ class Peaks(SummaryMetric):
             ):
                 if prev > value and prev_prev < prev:
                     # Bingo
-                    buffer[3 + peak_counter] = float(current_index - 1)
+                    buffer[3 + peak_counter] = (current_index - 1)
                     buffer[2] = float(int(buffer[2]) + 1)
             buffer[0] = value  # Update previous value
             buffer[1] = prev  # Update previous previous value

@@ -240,7 +240,7 @@ class CUDAFactory(ABC):
                 f"Output '{output_name}' not found in cached outputs."
             )
         cache_contents = getattr(self._cache, output_name)
-        if cache_contents == -1:
+        if type(cache_contents) is int and cache_contents == -1:
             raise NotImplementedError(
                 f"Output '{output_name}' is not implemented in this class."
             )

@@ -33,7 +33,7 @@ ALL_STEP_CONTROLLER_PARAMETERS = {
     # PI controller parameters
     'kp', 'ki',
     # PID controller parameters (kd in addition to PI)
-    'kd',
+    'kd', 'deadband_min', 'deadband_max',
     # Gustafsson controller parameters
     'gamma', 'max_newton_iters'
 }

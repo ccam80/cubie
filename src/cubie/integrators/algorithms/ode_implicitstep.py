@@ -1,7 +1,7 @@
 """Infrastructure for implicit integration step implementations."""
 
 from abc import abstractmethod
-from typing import Callable, Union
+from typing import Callable, Optional, Union
 
 import attrs
 import numpy as np
@@ -145,11 +145,13 @@ class ODEImplicitStep(BaseAlgorithmStep):
         numba_precision = config.numba_precision
         n = config.n
         observables_function = config.observables_function
+        driver_function = config.driver_function
 
         return self.build_step(
             solver_fn,
             dxdt_fn,
             observables_function,
+            driver_function,
             numba_precision,
             n,
         )
@@ -160,6 +162,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         solver_fn: Callable,
         dxdt_fn: Callable,
         observables_function: Callable,
+        driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
     ) -> StepCache:
@@ -173,6 +176,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Device derivative function for the ODE system.
         observables_function
             Device observable computation helper.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
         numba_precision
             Numba precision for compiled device buffers.
         n

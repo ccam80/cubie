@@ -4,7 +4,7 @@ import pytest
 
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
-from tests._utils import _driver_sequence, extract_state_and_time
+from tests._utils import extract_state_and_time
 
 
 # --------------------------------------------------------------------------- #
@@ -17,25 +17,17 @@ def solver_with_arrays(
     solver_settings,
     system,
     precision,
+    driver_array,
 ):
     """Solver with actual arrays computed - ready for SolveResult instantiation"""
     inits, params = batch_input_arrays
 
-    samples = max(
-        1,
-        int(np.ceil(solver_settings["duration"] / solver_settings["dt_save"])))
-    drivers = _driver_sequence(
-        samples=samples,
-        total_time=solver_settings["duration"],
-        n_drivers=system.num_drivers,
-        precision=precision,
-    )
 
     solver.kernel.run(
         duration=solver_settings["duration"],
         params=params,
         inits=inits,
-        forcing_vectors=drivers,
+        driver_coefficients=driver_array.coefficients,
         blocksize=solver_settings["blocksize"],
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],
@@ -319,7 +311,7 @@ class TestSolveResultFromSolver:
         )
 
         # Test that run dimension is found correctly
-        run_dim = result._stride_order.index("run")
+        run_dim = result._stride_order['state'].index("run")
         assert isinstance(run_dim, int)
         assert 0 <= run_dim < len(result._stride_order)
 
@@ -335,11 +327,14 @@ class TestSolveResultFromSolver:
         cpu_batch_results,
         output_functions,
         precision,
+        tolerance,
     ) -> None:
         """Ensure ``SolveResult`` values match CPU reference integrations."""
 
         result = SolveResult.from_solver(solver_with_arrays, results_type="full")
-        axes = tuple(result._stride_order.index(dim) for dim in ("time", "run", "variable"))
+        axes = tuple(result._stride_order['state'].index(dim) for dim in (
+            "time",
+                                                                  "run", "variable"))
         time_domain = np.transpose(result.time_domain_array, axes)
 
         legend = result.time_domain_legend
@@ -351,27 +346,22 @@ class TestSolveResultFromSolver:
         ]
         state_ref, time_ref = extract_state_and_time(cpu_batch_results.state, output_functions)
 
-        if precision == np.float32:
-            atol = rtol = 1e-5
-        else:
-            atol = rtol = 1e-12
-
         if state_columns:
             np.testing.assert_allclose(
                 time_domain[:, :, state_columns],
                 state_ref,
-                atol=atol,
-                rtol=rtol,
+                atol=tolerance.abs_loose,
+                rtol=tolerance.rel_loose,
                 err_msg="state mismatch.\n"
                 f"device: {time_domain[:, :, state_columns]}\n"
-                f"reference: {cpu_batch_results.state}\n"
+                f"reference: {cpu_batch_results.state}\n",
             )
         if observable_columns:
             np.testing.assert_allclose(
                 time_domain[:, :, observable_columns],
                 cpu_batch_results.observables,
-                atol=atol,
-                rtol=rtol,
+                atol=tolerance.abs_loose,
+                rtol=tolerance.rel_loose,
                 err_msg="observables mismatch.\n"
                         f"device: {time_domain[:, :, observable_columns]}\n"
                         f"reference: {cpu_batch_results.observables}\n"
@@ -379,7 +369,9 @@ class TestSolveResultFromSolver:
 
         if result.summaries_array.size:
             summary_axes = tuple(
-                result._stride_order.index(dim) for dim in ("time", "run", "variable")
+                result._stride_order['state'].index(dim) for dim in ("time",
+                                                                 "run",
+                                                             "variable")
             )
             summaries = np.transpose(result.summaries_array, summary_axes)
             summary_legend = result.summaries_legend
@@ -398,20 +390,20 @@ class TestSolveResultFromSolver:
 
             if state_summary_columns:
                 np.testing.assert_allclose(
-                    summaries[:,:, state_summary_columns],
+                    summaries[:, :, state_summary_columns],
                     cpu_batch_results.state_summaries,
-                    atol=atol,
-                    rtol=rtol,
+                    atol=tolerance.abs_loose,
+                    rtol=tolerance.rel_loose,
                     err_msg="state summaries mismatch.\n"
-                        f"device: {summaries[:,:, state_summary_columns]}\n"
-                        f"reference: {cpu_batch_results.observables}\n"
+                    f"device: {summaries[:, :, state_summary_columns]}\n"
+                    f"reference: {cpu_batch_results.observables}\n",
                 )
             if observable_summary_columns:
                 np.testing.assert_allclose(
                     summaries[:,:, observable_summary_columns],
                     cpu_batch_results.observable_summaries,
-                    atol=atol,
-                    rtol=rtol,
+                    atol=tolerance.abs_loose,
+                    rtol=tolerance.rel_loose,
                     err_msg="observables summaries mismatch.\n"
                         f"device: {summaries[:,:, observable_summary_columns]}\n"
                         f"reference: {cpu_batch_results.observable_summaries}\n"
@@ -490,7 +482,7 @@ class TestSolveResultProperties:
             # Check run naming
             run_levels = time_df.columns.get_level_values(0).unique()
             expected_runs = result.time_domain_array.shape[
-                result._stride_order.index("run")
+                result._stride_order['state'].index("run")
             ]
             assert len(run_levels) == expected_runs
             for i, run_name in enumerate(run_levels):

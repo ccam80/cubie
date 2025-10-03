@@ -378,12 +378,18 @@ def is_device_validator(instance, attribute, value):
 
 
 def float_array_validator(instance, attribute, value):
-    """Validate that a value is a Numba CUDA device function."""
-    if isinstance(value, np.ndarray) and value.dtype.kind == 'f':
-        pass
-    else:
-        raise TypeError(f"{attribute} must be a numpy array of floats,"
-                        f"got {type(value)}.")
+    """Validate that a value is a NumPy floating-point array with finite values.
+
+    Raises a TypeError if the value is not a NumPy ndarray of floats, and a
+    ValueError if any elements are NaN or infinite.
+    """
+    if not isinstance(value, np.ndarray):
+        raise TypeError(f"{attribute} must be a numpy array of floats, got {type(value)}.")
+    if value.dtype.kind != 'f':
+        raise TypeError(f"{attribute} must be a numpy array of floats, got dtype {value.dtype}.")
+    if not np.all(np.isfinite(value)):
+        raise ValueError(f"{attribute} must not contain NaNs or infinities.")
+
 
 def inrangetype_validator(dtype, min_, max_):
     return validators.and_(

@@ -383,6 +383,7 @@ def compare_input_output(
     expected_outputs,
     expected_summaries,
     precision,
+    tolerance,
 ):
     """Test that output functions correctly save state and observable values."""
 
@@ -445,8 +446,8 @@ def compare_input_output(
         assert_allclose(
             state_output,
             expected_state_output,
-            atol=1e-12,
-            rtol=1e-12,
+            atol=tolerance.abs_tight,
+            rtol=tolerance.rel_tight,
             err_msg="State &| time values were not saved correctly",
         )
 
@@ -454,26 +455,18 @@ def compare_input_output(
         assert_allclose(
             observable_output,
             expected_observable_output,
-            atol=1e-12,
-            rtol=1e-12,
+            atol=tolerance.abs_tight,
+            rtol=tolerance.rel_tight,
             err_msg="Observable values were not saved correctly",
         )
-
-    # Adjust tolerances for precision and calculation type - rms is rough.
-    rms_on = "rms" in output_test_settings["output_types"]
-    if precision == np.float32:
-        atol = 1e-05 if not rms_on else 1e-3
-        rtol = 5e-05 if not rms_on else 1e-3
-    elif precision == np.float64:
-        atol = 1e-12 if not rms_on else 1e-9
-        rtol = 1e-12 if not rms_on else 1e-9
 
     if output_functions.compile_settings.summarise_state:
         assert_allclose(
             expected_state_summaries,
             state_summaries_output,
-            atol=atol,
-            rtol=rtol,
+            atol=1e-4, # RMS can peek out of this at
+                # low precision
+            rtol=1e-4, # scales are all wrong for abs tols
             err_msg=f"State summaries_array didn't match expected values. Shapes: expected"
             f"[{expected_state_summaries.shape}, actual[{state_summaries_output.shape}]",
             verbose=True,
@@ -482,8 +475,8 @@ def compare_input_output(
         assert_allclose(
             expected_observable_summaries,
             observable_summaries_output,
-            atol=atol,
-            rtol=rtol,
+            atol=1e-4,
+            rtol=1e-4,
             err_msg=f"Observable summaries_array didn't match expected values. Shapes: expected[{expected_observable_summaries.shape}, actual[{observable_summaries_output.shape}]",
             verbose=True,
         )

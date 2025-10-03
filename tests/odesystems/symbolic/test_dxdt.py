@@ -332,6 +332,7 @@ class TestObservablesDeviceParity:
         param_values,
         driver_value,
         precision,
+        tolerance,
     ):
         """dxdt should consume, not overwrite, the observables buffer."""
 
@@ -398,16 +399,20 @@ class TestObservablesDeviceParity:
         expected_dy = expected_rate * x_val + const_value
 
         np.testing.assert_allclose(
-            observables_buffer, expected_observables, rtol=1e-6
+            observables_buffer,
+            expected_observables,
+            rtol=tolerance.rel_tight,
+            atol=tolerance.abs_tight,
         )
         np.testing.assert_allclose(
             out,
             np.array([expected_dx, expected_dy], dtype=precision),
-            rtol=1e-6,
+            rtol=tolerance.rel_tight,
+            atol=tolerance.abs_tight,
         )
 
 
-def test_recompile_updates_constants(precision):
+def test_recompile_updates_constants(precision, tolerance):
     """Recompiling with new constants updates the device function."""
 
     system = SymbolicODE.create(
@@ -444,5 +449,13 @@ def test_recompile_updates_constants(precision):
     system.set_constants({"c": precision(3.0)})
     res2 = run_dxdt(system)
 
-    assert res1 == pytest.approx(2.0)
-    assert res2 == pytest.approx(3.0)
+    assert res1 == pytest.approx(
+        2.0,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
+    assert res2 == pytest.approx(
+        3.0,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )

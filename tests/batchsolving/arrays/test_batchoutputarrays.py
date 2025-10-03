@@ -111,7 +111,7 @@ class TestOutputArrayContainer:
     def test_container_stride_order(self):
         """Test that stride order is set correctly"""
         container = OutputArrayContainer()
-        assert container.stride_order == ("time", "run", "variable")
+        assert container.stride_order['state'] == ("time", "run", "variable")
 
     def test_container_memory_type_default(self):
         """Test default memory type"""

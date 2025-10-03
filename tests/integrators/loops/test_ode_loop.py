@@ -16,6 +16,7 @@ Array = NDArray[np.floating]
 # setup cost multiple times. Numerical tests are done on pre-updated
 # settings as the fixtures are set up at function start.
 @pytest.mark.parametrize("system_override", ["three_chamber"], indirect=True)
+@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
@@ -88,8 +89,8 @@ def test_build(loop, step_controller, step_object,
     #CPU test seems machine-dependent, this is a kludge from CI in
     # crank-nicolson
     if loop.is_adaptive:
-        atol = 1e-4
-        rtol = 1e-4
+        atol = 1e-5
+        rtol = 1e-5
     else:
         atol=1e-5
         rtol=1e-5
@@ -124,6 +125,7 @@ def test_initial_observable_seed_matches_reference(
     device_loop_outputs,
     cpu_loop_outputs,
     output_functions,
+    tolerance,
 ):
     """Ensure the initial observable snapshot reflects the initial state."""
     if not output_functions.compile_flags.save_observables:
@@ -132,6 +134,6 @@ def test_initial_observable_seed_matches_reference(
     np.testing.assert_allclose(
         device_loop_outputs.observables[0],
         cpu_loop_outputs["observables"][0],
-        rtol=1e-7,
-        atol=1e-7,
+        rtol=tolerance.rel_tight,
+        atol=tolerance.abs_tight,
     )

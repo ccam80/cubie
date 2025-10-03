@@ -154,6 +154,8 @@ class LoopSharedIndices:
         Slice covering parameter storage.
     drivers
         Slice covering driver storage.
+    proposed_drivers
+        Slice covering the proposed driver storage.
     state_summaries
         Slice covering aggregated state summaries.
     observable_summaries
@@ -191,6 +193,10 @@ class LoopSharedIndices:
             validator=valid_opt_slice
     )
     drivers: Optional[slice] = field(
+            default=None,
+            validator=valid_opt_slice
+    )
+    proposed_drivers: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
@@ -278,7 +284,8 @@ class LoopSharedIndices:
             observables_proposal_start_idx + n_observables
         )
         drivers_start_index = parameters_start_index + n_parameters
-        state_summ_start_index = drivers_start_index + n_drivers
+        drivers_proposal_start_idx = drivers_start_index + n_drivers
+        state_summ_start_index = drivers_proposal_start_idx + n_drivers
         obs_summ_start_index = (state_summ_start_index +
                                 state_summaries_buffer_height)
         end_index = obs_summ_start_index + observable_summaries_buffer_height
@@ -294,7 +301,10 @@ class LoopSharedIndices:
                 observables_proposal_start_idx, parameters_start_index
             ),
             parameters=slice(parameters_start_index, drivers_start_index),
-            drivers=slice(drivers_start_index, state_summ_start_index),
+            drivers=slice(drivers_start_index, drivers_proposal_start_idx),
+            proposed_drivers=slice(
+                drivers_proposal_start_idx, state_summ_start_index
+            ),
             state_summaries=slice(state_summ_start_index, obs_summ_start_index),
             observable_summaries=slice(obs_summ_start_index, end_index),
             local_end=end_index,
@@ -355,7 +365,7 @@ class ODELoopConfig:
         Device function that writes summary statistics to output buffers.
     step_controller_fn
         Device function that updates the timestep and acceptance flag.
-    step_fn
+    step_function
         Device function that advances the solution by one tentative step.
     observables_fn
         Device function that evaluates observables for the current state.
@@ -407,7 +417,11 @@ class ODELoopConfig:
         default=None,
         validator=validators.optional(is_device_validator)
     )
-    step_fn: Optional[Callable] = field(
+    step_function: Optional[Callable] = field(
+        default=None,
+        validator=validators.optional(is_device_validator)
+    )
+    driver_function: Optional[Callable] = field(
         default=None,
         validator=validators.optional(is_device_validator)
     )
@@ -459,17 +473,17 @@ class ODELoopConfig:
     @property
     def dt0(self) -> float:
         """Return the initial timestep."""
-        return float(self._dt0)
+        return self.precision(self._dt0)
 
     @property
     def dt_min(self) -> float:
         """Return the minimum allowable timestep."""
-        return float(self._dt_min)
+        return self.precision(self._dt_min)
 
     @property
     def dt_max(self) -> float:
         """Return the maximum allowable timestep."""
-        return float(self._dt_max)
+        return self.precision(self._dt_max)
 
     @property
     def loop_shared_elements(self) -> int:

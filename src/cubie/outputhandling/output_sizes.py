@@ -435,8 +435,10 @@ class BatchInputSizes(ArraySizingClass):
         Shape of initial values array as (n_runs, n_states).
     parameters : tuple[int, int], default (1, 1)
         Shape of parameters array as (n_runs, n_parameters).
-    forcing_vectors : tuple[int, int or None], default (1, None)
-        Shape of forcing vectors array as (n_drivers, time_steps).
+    driver_coefficients : tuple[int or None, int, int or None],
+        default (1, 1, 1)
+        Shape of the driver coefficient array as
+        (num_segments, num_drivers, polynomial_degree).
     stride_order : tuple[str, ...], default ("run", "variable")
         Order of dimensions in the input arrays.
     """
@@ -447,8 +449,8 @@ class BatchInputSizes(ArraySizingClass):
     parameters: Tuple[int, int] = attrs.field(
         default=(1, 1), validator=attrs.validators.instance_of(Tuple)
     )
-    forcing_vectors: Tuple[int, Optional[int]] = attrs.field(
-        default=(1, None), validator=attrs.validators.instance_of(Tuple)
+    driver_coefficients: Tuple[Optional[int], int, Optional[int]] = attrs.field(
+        default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
     )
 
     stride_order: Tuple[str, ...] = attrs.field(
@@ -478,9 +480,9 @@ class BatchInputSizes(ArraySizingClass):
         num_runs = solver_instance.num_runs
         initial_values = (num_runs, loopBufferSizes.state)
         parameters = (num_runs, loopBufferSizes.parameters)
-        forcing_vectors = (loopBufferSizes.drivers, None)
+        driver_coefficients = (None, loopBufferSizes.drivers, None)
 
-        obj = cls(initial_values, parameters, forcing_vectors)
+        obj = cls(initial_values, parameters, driver_coefficients)
         return obj
 
 

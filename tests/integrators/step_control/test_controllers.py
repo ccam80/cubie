@@ -106,8 +106,6 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
         out_local = np.array([
             controller.dt,
             max(errornorm, 1e-4),
-            0.0,
-            getattr(controller, '_last_gain', 1.0)
         ], dtype=precision)
     else:
         out_local = np.zeros(0, dtype=precision)
@@ -136,7 +134,13 @@ class TestControllers:
                                {'dt0': 0.001, 'error': np.asarray([1e12, 1e12, 1e12])})),
                              ids=("max_limit", "min_limit"),
                              indirect=True)
-    def test_dt_clamps(self, step_controller_settings, step_setup, device_step_results):
+    def test_dt_clamps(
+        self,
+        step_controller_settings,
+        step_setup,
+        device_step_results,
+        tolerance,
+    ):
         dt0 = step_setup['dt0']
         dt_min = step_controller_settings['dt_min']
         dt_max = step_controller_settings['dt_max']
@@ -146,7 +150,11 @@ class TestControllers:
             expected = dt_max
         else:
             expected = dt0
-        assert device_step_results.dt == pytest.approx(expected, abs=1e-3, rel=1e-3)
+        assert device_step_results.dt == pytest.approx(
+            expected,
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
 
     @pytest.mark.parametrize(
         'step_controller_settings_override, step_setup',
@@ -181,12 +189,22 @@ class TestControllers:
         ids=("gain_max_clamp", "gain_min_clamp"),
         indirect=True,
     )
-    def test_gain_clamps(self, step_controller_settings, step_setup, device_step_results):
+    def test_gain_clamps(
+        self,
+        step_controller_settings,
+        step_setup,
+        device_step_results,
+        tolerance,
+    ):
         dt0 = step_setup['dt0']
         min_gain = step_controller_settings['min_gain']
         max_gain = step_controller_settings['max_gain']
         expected = dt0 * (max_gain if float(step_setup['error'][0]) < 1e-6 else min_gain)
-        assert device_step_results.dt == pytest.approx(expected, rel=1e-4, abs=1e-6)
+        assert device_step_results.dt == pytest.approx(
+            expected,
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
 
     @pytest.mark.parametrize(
         'step_setup',
@@ -201,18 +219,38 @@ class TestControllers:
     )
     @pytest.mark.parametrize('step_controller_settings_override',
                              [{'dt_min': 1e-6}], indirect=True)
-    def test_matches_cpu(self, step_controller, step_controller_settings, step_setup, cpu_step_results, device_step_results):
-
-        assert device_step_results.dt == pytest.approx(cpu_step_results.dt, abs=1e-6, rel=1e-6)
+    def test_matches_cpu(
+        self,
+        step_controller,
+        step_controller_settings,
+        step_setup,
+        cpu_step_results,
+        device_step_results,
+        tolerance,
+    ):
+        assert device_step_results.dt == pytest.approx(
+            cpu_step_results.dt,
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
         valid_localmem = step_controller.local_memory_elements
-        assert np.allclose(device_step_results.local_mem[:valid_localmem], cpu_step_results.local_mem[:valid_localmem], rtol=1e-6, atol=1e-6)
+        assert np.allclose(
+            device_step_results.local_mem[:valid_localmem],
+            cpu_step_results.local_mem[:valid_localmem],
+            rtol=tolerance.rel_tight,
+            atol=tolerance.abs_tight,
+        )
 
+    @pytest.mark.parametrize('step_controller_settings_override',
+                             ({'dt_min': 1e-4, 'dt_max': 0.2},),
+                             indirect=True)
     def test_cpu_gpu_sequence_agree(
         self,
         step_controller,
         cpu_step_controller,
         precision,
         system,
+        tolerance,
     ):
         n_states = system.sizes.states
         dtype = precision
@@ -282,8 +320,8 @@ class TestControllers:
             assert device_result.accepted == int(accept_cpu), f"Step {i} accept mismatch"
             assert current_dt_gpu == pytest.approx(
                 dt_cpu,
-                rel=1e-5,
-                abs=1e-6,
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
             ), f"Step {i} dt mismatch"
 
             if accept_cpu:

@@ -3,8 +3,7 @@ import pytest
 
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.outputhandling.output_sizes import BatchOutputSizes
-from tests._utils import _driver_sequence, assert_integration_outputs, \
-    LoopRunResult
+from tests._utils import assert_integration_outputs, LoopRunResult
 
 
 def test_kernel_builds(solverkernel):
@@ -35,8 +34,7 @@ def test_kernel_builds(solverkernel):
                 'summarised_state_indices': [0, 1, 2],
                 'summarised_observable_indices': [0, 1, 2],
             },
-            {},
-        ),
+            {}),
         ({}, {"output_types": ["state", "observables", "time", "mean", "rms"],
           "duration": 0.6}, {})
         # ("three_chamber",
@@ -55,28 +53,20 @@ def test_run(
     cpu_batch_results,
     precision,
     system,
+    driver_array,
     output_functions,
+    driver_settings,
 ):
     """Big integration test. Runs a batch integration and checks outputs
     match expected. Expensive, don't run
     "scorcher" in CI."""
     inits, params = batch_input_arrays
 
-    samples = int(max(1,
-            np.ceil(solver_settings["duration"] / solver_settings["dt_save"])))
-
-    drivers = _driver_sequence(
-        samples=samples,
-        total_time=solver_settings["duration"],
-        n_drivers=system.num_drivers,
-        precision=precision,
-    )
-
     solverkernel.run(
         duration=solver_settings["duration"],
         params=params,
         inits=inits,
-        forcing_vectors=drivers,
+        driver_coefficients=driver_array.coefficients,
         blocksize=solver_settings["blocksize"],
         stream=solver_settings["stream"],
         warmup=solver_settings["warmup"],
