@@ -35,6 +35,20 @@ in calls to __init__. Attrs handles both internally.
 #### src/cubie
 ##### src/cubie/batchsolving
 ###### src/cubie/batchsolving/arrays
+- Base utilities in ``BaseArrayManager`` register array containers with
+  :mod:`cubie.memory` and centralisea chunk-aware transfer helpers that concrete
+  input and output managers reuse for host/device copies.
+- ``BatchInputArrays`` and ``BatchOutputArrays`` wrap attrs containers so
+  solvers expose host views while device buffers stay synchronised via the
+  memory manager and stream groups.
+- ``BatchInputArrays`` defines input containers plus ``InputArrays`` managers
+  that size initial values, parameters, and driver tables from solver metadata.
+- ``BatchOutputArrays`` provides output containers for state, observables, state 
+- summaries, and observable summaries, ``ActiveOutputs`` flags,
+  and ``OutputArrays`` managers that collect device trajectories and summaries.
+- Modules lean on :mod:`cubie.outputhandling.output_sizes` for stride metadata
+  and :mod:`cubie._utils` helpers for slicing variable dimensions.
+
 ##### src/cubie/integrators
 - Package root highlights ``SingleIntegratorRun`` and
   ``IntegratorReturnCodes``. Support modules such as

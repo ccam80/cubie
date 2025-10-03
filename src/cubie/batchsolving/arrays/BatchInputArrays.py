@@ -1,16 +1,10 @@
-"""
-Batch Input Arrays Module.
-
-This module provides classes for managing input arrays in batch integration
-operations, including containers for storing arrays and managers for handling
-memory allocation and data transfer between host and device.
-"""
+"""Manage host and device input arrays for batch integrations."""
 
 import attrs
 import attrs.validators as val
 
 from numpy.typing import NDArray
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -25,32 +19,28 @@ from cubie.batchsolving import ArrayTypes
 
 @attrs.define(slots=False)
 class InputArrayContainer(ArrayContainer):
-    """
-    Container for batch input arrays.
-
-    This container holds the input arrays needed for batch integration,
-    including initial values, parameters, and driver coefficients.
+    """Container for batch input arrays used by solver kernels.
 
     Parameters
     ----------
-    initial_values : ArrayTypes, optional
+    initial_values
         Initial state values for the integration.
-    parameters : ArrayTypes, optional
+    parameters
         Parameter values for the integration.
-    driver_coefficients : ArrayTypes, optional
+    driver_coefficients
         Interpolant coefficients describing external drivers.
-    stride_order : dict[str, tuple[str, ...]]
+    stride_order
         Mapping of array labels to their stride orders.
-    _memory_type : str, default="device"
+    _memory_type
         Type of memory allocation.
-    _unchunkable : tuple[str, ...], default=('driver_coefficients',)
+    _unchunkable
         Array names that cannot be chunked.
 
     Notes
     -----
-    This class uses attrs for automatic initialization and validation.
-    The _unchunkable attribute specifies which arrays should not be
-    divided into chunks during memory management.
+    This container keeps attrs-managed metadata describing which arrays are
+    chunkable and how dimensions map to batching axes so the array manager can
+    transfer slices correctly.
     """
 
     initial_values: ArrayTypes = attrs.field(default=None)
@@ -71,59 +61,47 @@ class InputArrayContainer(ArrayContainer):
     _unchunkable = attrs.field(default=("driver_coefficients",), init=False)
 
     @classmethod
-    def host_factory(cls):
-        """
-        Create a new host memory container.
+    def host_factory(cls) -> "InputArrayContainer":
+        """Create a container configured for host memory transfers.
 
         Returns
         -------
         InputArrayContainer
-            A new container configured for host memory.
+            Host-side container instance.
         """
         return cls(memory_type="host")
 
     @classmethod
-    def device_factory(cls):
-        """
-        Create a new device memory container.
+    def device_factory(cls) -> "InputArrayContainer":
+        """Create a container configured for device memory transfers.
 
         Returns
         -------
         InputArrayContainer
-            A new container configured for device memory.
+            Device-side container instance.
         """
         return cls(memory_type="device")
 
 
 @attrs.define
 class InputArrays(BaseArrayManager):
-    """
-    Manage batch integration input arrays between host and device.
-
-    This class manages the allocation, transfer, and synchronization of input
-    arrays needed for batch integration operations. It handles initial values,
-    parameters, and driver coefficient tables.
+    """Manage allocation and transfer of batch input arrays.
 
     Parameters
     ----------
-    _sizes : BatchInputSizes, optional
+    _sizes
         Size specifications for the input arrays.
-    host : InputArrayContainer
+    host
         Container for host-side arrays.
-    device : InputArrayContainer
+    device
         Container for device-side arrays.
 
     Notes
     -----
-    This class is initialized with a BatchInputSizes instance (which is drawn
-    from a solver instance using the from_solver factory method), which sets
-    the allowable array heights from the ODE system's data. Once initialized,
-    the object can be updated with arguments (initial_values, parameters,
-    driver_coefficients). Each call to the update method will:
-
-    - Check if the input array has changed in shape or content since the last update
-    - Queue allocation requests with the MemoryManager
-    - Attach allocated arrays once received from MemoryManager
+    Instances are configured from :class:`~cubie.batchsolving.BatchSolverKernel`
+    metadata. Updates request memory through the shared manager, ensure array
+    heights match solver expectations, and attach received buffers prior to
+    device transfers.
     """
 
     _sizes: Optional[BatchInputSizes] = attrs.field(
@@ -141,33 +119,42 @@ class InputArrays(BaseArrayManager):
         init=False,
     )
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
+        """Ensure host and device containers use explicit memory types.
+
+        Returns
+        -------
+        None
+            This method mutates container configuration in place.
+        """
         super().__attrs_post_init__()
         self.host._memory_type = "host"
         self.device._memory_type = "device"
 
     def update(
         self,
-        solver_instance,
+        solver_instance: "BatchSolverKernel",
         initial_values: NDArray,
         parameters: NDArray,
         driver_coefficients: Optional[NDArray],
     ) -> None:
-        """
-        Set the initial values, parameters, and driver coefficients.
-
-        Queues allocation requests with the MemoryManager for batch processing.
+        """Set host arrays and request device allocations.
 
         Parameters
         ----------
-        solver_instance : BatchSolverKernel
+        solver_instance
             The solver instance providing configuration and sizing information.
-        initial_values : NDArray
+        initial_values
             Initial state values for each integration run.
-        parameters : NDArray
+        parameters
             Parameter values for each integration run.
-        driver_coefficients : NDArray, optional
+        driver_coefficients
             Horner-ordered driver interpolation coefficients.
+
+        Returns
+        -------
+        None
+            This method updates internal references and enqueues allocations.
         """
         updates_dict = {
             "initial_values": initial_values,
@@ -180,62 +167,34 @@ class InputArrays(BaseArrayManager):
         self.allocate()  # Will queue request if in a stream group
 
     @property
-    def initial_values(self):
-        """
-        Get host initial values array.
-
-        Returns
-        -------
-        ArrayTypes
-            The initial values array from the host container.
-        """
+    def initial_values(self) -> ArrayTypes:
+        """Host initial values array."""
         return self.host.initial_values
 
     @property
-    def parameters(self):
-        """
-        Get host parameters array.
-
-        Returns
-        -------
-        ArrayTypes
-            The parameters array from the host container.
-        """
+    def parameters(self) -> ArrayTypes:
+        """Host parameters array."""
         return self.host.parameters
 
     @property
-    def driver_coefficients(self):
-        """Get the host driver coefficient array."""
+    def driver_coefficients(self) -> ArrayTypes:
+        """Host driver coefficients array."""
 
         return self.host.driver_coefficients
 
     @property
-    def device_initial_values(self):
-        """
-        Get device initial values array.
-
-        Returns
-        -------
-        ArrayTypes
-            The initial values array from the device container.
-        """
+    def device_initial_values(self) -> ArrayTypes:
+        """Device initial values array."""
         return self.device.initial_values
 
     @property
-    def device_parameters(self):
-        """
-        Get device parameters array.
-
-        Returns
-        -------
-        ArrayTypes
-            The parameters array from the device container.
-        """
+    def device_parameters(self) -> ArrayTypes:
+        """Device parameters array."""
         return self.device.parameters
 
     @property
-    def device_driver_coefficients(self):
-        """Get the device driver coefficient array."""
+    def device_driver_coefficients(self) -> ArrayTypes:
+        """Device driver coefficients array."""
 
         return self.device.driver_coefficients
 
@@ -252,7 +211,7 @@ class InputArrays(BaseArrayManager):
 
         Parameters
         ----------
-        solver_instance : BatchSolverKernel
+        solver_instance
             The solver instance to extract configuration from.
 
         Returns
@@ -268,27 +227,35 @@ class InputArrays(BaseArrayManager):
             stream_group=solver_instance.stream_group,
         )
 
-    def update_from_solver(self, solver_instance: "BatchSolverKernel"):
-        """
-        Update size and precision from solver instance.
+    def update_from_solver(self, solver_instance: "BatchSolverKernel") -> None:
+        """Refresh size, precision, and chunk axis from the solver.
 
         Parameters
         ----------
-        solver_instance : BatchSolverKernel
+        solver_instance
             The solver instance to update from.
+
+        Returns
+        -------
+        None
+            This method mutates cached solver metadata in place.
         """
         self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
         self._chunk_axis = solver_instance.chunk_axis
 
-    def finalise(self, host_indices):
-        """
-        Copy out final states if they're required.
+    def finalise(self, host_indices: Union[slice, NDArray]) -> None:
+        """Copy final state slices back to host arrays when requested.
 
         Parameters
         ----------
-        host_indices : slice or array-like
+        host_indices
             Indices for the chunk being finalized.
+
+        Returns
+        -------
+        None
+            Device buffers are read into host arrays in place.
 
         Notes
         -----
@@ -307,14 +274,18 @@ class InputArrays(BaseArrayManager):
 
         self.from_device(self, from_, to_)
 
-    def initialise(self, host_indices):
-        """
-        Copy chunk of data to device.
+    def initialise(self, host_indices: Union[slice, NDArray]) -> None:
+        """Copy a batch chunk of host data to device buffers.
 
         Parameters
         ----------
-        host_indices : slice or array-like
+        host_indices
             Indices for the chunk being initialized.
+
+        Returns
+        -------
+        None
+            Host slices are staged into device arrays in place.
 
         Notes
         -----

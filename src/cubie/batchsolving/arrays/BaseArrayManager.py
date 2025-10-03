@@ -1,20 +1,19 @@
-"""
-Base Array Manager Module.
+"""Base utilities for managing batch arrays on host and device.
 
-This module provides abstract base classes for managing arrays between host and
-device memory in batch operations. It includes container classes for storing
-arrays and manager classes for handling memory allocation, transfer, and
-synchronization.
+Notes
+-----
+Defines :class:`ArrayContainer` and :class:`BaseArrayManager`, which surface
+stride metadata, register with :mod:`cubie.memory`, and orchestrate queued CUDA
+allocations for batch solver workflows.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict
+from typing import Dict, List, Optional
 from warnings import warn
 
 import attrs
 import attrs.validators as val
 import numpy as np
-from numba.core.types import NoneType
 from numpy import float32
 from numpy.typing import NDArray
 
@@ -26,28 +25,23 @@ from cubie.outputhandling.output_sizes import ArraySizingClass
 
 @attrs.define(slots=False)
 class ArrayContainer(ABC):
-    """
-    Base class for storing arrays in CUDA array managers.
-
-    Any CUDA array manager should have one subclass of this for both host
-    and device arrays.
+    """Store stride metadata and array references for a CUDA manager.
 
     Parameters
     ----------
-    _stride_order : dict[str, tuple[str, ...]]
-        Mapping of array labels to their stride orders (e.g.,
-        {"state": ("time", "run", "variable")}).
-    _memory_type : str, default="device"
-        Type of memory allocation. Must be one of "device", "mapped",
+    _stride_order
+        Mapping of array labels to stride orders such as
+        {"state": ("time", "run", "variable")}.
+    _memory_type
+        Memory allocation type. Must be one of "device", "mapped",
         "pinned", "managed", or "host".
-    _unchunkable : tuple[str], default=()
+    _unchunkable
         Names of arrays that cannot be chunked during memory management.
 
     Notes
     -----
-    Underscored attributes are not really private, but we want to be able
-    to filter them in methods which use __dict__ to get attributes,
-    so we prefix them and add getters/setters.
+    Underscored attributes are filtered when scanning ``__dict__`` so that
+    helper methods can focus on user-facing arrays.
     """
 
     _stride_order: dict[str, tuple[str, ...]] = attrs.field(
@@ -70,14 +64,7 @@ class ArrayContainer(ABC):
 
     @property
     def stride_order(self) -> dict[str, tuple[str, ...]]:
-        """
-        Get the stride order.
-
-        Returns
-        -------
-        dict[str, tuple[str, ...]]
-            Mapping of array labels to stride orders.
-        """
+        """Stride order mapping for managed arrays."""
         return self._stride_order
 
     @stride_order.setter
@@ -87,36 +74,29 @@ class ArrayContainer(ABC):
 
         Parameters
         ----------
-        value : dict[str, tuple[str, ...]]
+        value
             Mapping of array labels to stride orders.
         """
         self._stride_order = value
 
     @property
-    def memory_type(self):
-        """
-        Get the memory type.
-
-        Returns
-        -------
-        str
-            The type of memory allocation.
-        """
+    def memory_type(self) -> str:
+        """Memory allocation type for attached arrays."""
         return self._memory_type
 
     @memory_type.setter
-    def memory_type(self, value):
+    def memory_type(self, value: str) -> None:
         """
         Set the memory type.
 
         Parameters
         ----------
-        value : str
+        value
             The type of memory allocation.
         """
         self._memory_type = value
 
-    def delete_all(self):
+    def delete_all(self) -> None:
         """
         Delete all array references.
 
@@ -124,6 +104,11 @@ class ArrayContainer(ABC):
         -----
         This method removes all non-private, non-callable attributes,
         effectively clearing all stored arrays.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         for attr_name in list(self.__dict__.keys()):
             if not attr_name.startswith("_") and not callable(
@@ -131,21 +116,26 @@ class ArrayContainer(ABC):
             ):
                 setattr(self, attr_name, None)
 
-    def attach(self, label, array):
+    def attach(self, label: str, array: NDArray) -> None:
         """
         Attach an array to this container.
 
         Parameters
         ----------
-        label : str
-            The name/label for the array.
-        array : array_like
+        label
+            The name or label for the array.
+        array
             The array to attach.
 
         Warns
         -----
         UserWarning
             If the specified label does not exist as an attribute.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         if hasattr(self, label):
             setattr(self, label, array)
@@ -155,19 +145,24 @@ class ArrayContainer(ABC):
                 UserWarning,
             )
 
-    def delete(self, label):
+    def delete(self, label: str) -> None:
         """
         Delete reference to an array.
 
         Parameters
         ----------
-        label : str
-            The name/label of the array to delete.
+        label
+            The name or label of the array to delete.
 
         Warns
         -----
         UserWarning
             If the specified label does not exist as an attribute.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         if hasattr(self, label):
             setattr(self, label, None)
@@ -179,44 +174,39 @@ class ArrayContainer(ABC):
 
 @attrs.define
 class BaseArrayManager(ABC):
-    """
-    Common base class for managing arrays between host and device.
-
-    This class provides a unified interface for MemoryManager integration,
-    allocation/deallocation patterns, stream management, change detection
-    and caching, and queued allocation support.
+    """Coordinate allocation and transfer for batch host and device arrays.
 
     Parameters
     ----------
-    _precision : type, default=float32
-        Numerical precision type for arrays.
-    _sizes : ArraySizingClass, optional
+    _precision
+        Precision factory used to create new arrays.
+    _sizes
         Size specifications for arrays managed by this instance.
-    device : ArrayContainer
+    device
         Container for device-side arrays.
-    host : ArrayContainer
+    host
         Container for host-side arrays.
-    _chunks : int, default=0
+    _chunks
         Number of chunks for memory management.
-    _chunk_axis : str, default="run"
+    _chunk_axis
         Axis along which to perform chunking. Must be one of "run",
         "variable", or "time".
-    _stream_group : str, default="default"
+    _stream_group
         Stream group identifier for CUDA operations.
-    _memory_proportion : float, optional
+    _memory_proportion
         Proportion of available memory to use.
-    _needs_reallocation : list[str]
-        List of array names that need reallocation.
-    _needs_overwrite : list[str]
-        List of array names that need data overwriting.
-    _memory_manager : MemoryManager
+    _needs_reallocation
+        Array names that require device reallocation.
+    _needs_overwrite
+        Array names that require host overwrite.
+    _memory_manager
         Memory manager instance for handling GPU memory.
 
     Notes
     -----
-    This is an abstract base class that provides common functionality for
-    managing arrays between host and device memory. Subclasses must implement
-    the abstract methods: update, finalise, and initialise.
+    Subclasses must implement :meth:`update`, :meth:`finalise`, and
+    :meth:`initialise` to wire batching behaviour into host and device
+    execution paths.
     """
 
     _precision: type = attrs.field(
@@ -245,7 +235,7 @@ class BaseArrayManager(ABC):
     _needs_overwrite: list[str] = attrs.field(factory=list, init=False)
     _memory_manager: MemoryManager = attrs.field(default=default_memmgr)
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
         """
         Initialize the array manager after attrs initialization.
 
@@ -253,6 +243,11 @@ class BaseArrayManager(ABC):
         -----
         This method registers with the memory manager, initializes default
         host arrays, and sets up invalidation hooks.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         self.register_with_memory_manager()
         stride_orders = self.device.stride_order
@@ -263,7 +258,7 @@ class BaseArrayManager(ABC):
         self._invalidate_hook()
 
     @abstractmethod
-    def update(self, *args, **kwargs):
+    def update(self, *args: object, **kwargs: object) -> None:
         """
         Update arrays from external data.
 
@@ -273,23 +268,28 @@ class BaseArrayManager(ABC):
         Parameters
         ----------
         *args
-            Variable length argument list.
+            Positional arguments passed by subclasses.
         **kwargs
-            Arbitrary keyword arguments.
+            Keyword arguments passed by subclasses.
 
         Notes
         -----
         This is an abstract method that must be implemented by subclasses
         with the desired behavior for updating arrays from external data.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
 
-    def _on_allocation_complete(self, response: ArrayResponse):
+    def _on_allocation_complete(self, response: ArrayResponse) -> None:
         """
         Callback for when the allocation response is received.
 
         Parameters
         ----------
-        response : ArrayResponse
+        response
             Response object containing allocated arrays and metadata.
 
         Warns
@@ -309,6 +309,11 @@ class BaseArrayManager(ABC):
         If you get this warning, check for the possibility of two
         different classes calling allocate_queue in between "init" and
         "initialise".
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
 
         for array_label in self._needs_reallocation:
@@ -326,7 +331,7 @@ class BaseArrayManager(ABC):
         self._chunk_axis = response.chunk_axis
         self._needs_reallocation.clear()
 
-    def register_with_memory_manager(self):
+    def register_with_memory_manager(self) -> None:
         """
         Register this instance with the MemoryManager.
 
@@ -334,6 +339,11 @@ class BaseArrayManager(ABC):
         -----
         This method sets up the necessary hooks and callbacks for memory
         management integration.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         self._memory_manager.register(
             self,
@@ -347,16 +357,16 @@ class BaseArrayManager(ABC):
         self,
         request: dict[str, ArrayRequest],
         force_type: Optional[str] = None,
-    ):
+    ) -> None:
         """
         Send a request for allocation of device arrays.
 
         Parameters
         ----------
-        request : dict[str, ArrayRequest]
+        request
             Dictionary mapping array names to allocation requests.
-        force_type : str, optional
-            Force request type to "single" or "group". If None, the type
+        force_type
+            Force request type to "single" or "group". If ``None``, the type
             is determined automatically based on stream group membership.
 
         Notes
@@ -368,6 +378,11 @@ class BaseArrayManager(ABC):
         grouped with other requests in the same group, until one of the
         instances calls "process_queue" to process the queue. This behaviour
         can be overridden by setting force_type to "single" or "group".
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         request_type = force_type
         if request_type is None:
@@ -380,7 +395,7 @@ class BaseArrayManager(ABC):
         else:
             self._memory_manager.queue_request(self, request)
 
-    def _invalidate_hook(self):
+    def _invalidate_hook(self) -> None:
         """
         Drop all references and assign all arrays for reallocation.
 
@@ -388,6 +403,11 @@ class BaseArrayManager(ABC):
         -----
         This method is called when the memory cache needs to be invalidated.
         It clears all device array references and marks them for reallocation.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         self._needs_reallocation.clear()
         self._needs_overwrite.clear()
@@ -408,33 +428,38 @@ class BaseArrayManager(ABC):
 
         Parameters
         ----------
-        arr1 : NDArray or None
-            First array to compare.
-        arr2 : NDArray or None
-            Second array to compare.
+        arr1
+            First array or ``None``.
+        arr2
+            Second array or ``None``.
 
         Returns
         -------
         bool
-            True if arrays are equal, False otherwise.
+            ``True`` if arrays are equal, ``False`` otherwise.
         """
         if arr1 is None or arr2 is None:
             return arr1 is arr2
         return np.array_equal(arr1, arr2)
 
-    def update_sizes(self, sizes: ArraySizingClass):
+    def update_sizes(self, sizes: ArraySizingClass) -> None:
         """
         Update the expected sizes for arrays in this manager.
 
         Parameters
         ----------
-        sizes : ArraySizingClass
-            An ArraySizingClass instance with new sizes.
+        sizes
+            Array sizing configuration with new dimensions.
 
         Raises
         ------
         TypeError
             If the new sizes object is not the same size as the existing one.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         if not isinstance(sizes, type(self._sizes)):
             raise TypeError(
@@ -450,14 +475,14 @@ class BaseArrayManager(ABC):
 
         Parameters
         ----------
-        arrays : Dict[str, NDArray]
-            Dictionary of array_name -> array.
+        arrays
+            Dictionary mapping array names to arrays.
 
         Returns
         -------
         Dict[str, bool]
-            Dictionary mapping array names to boolean values indicating
-            whether each array matches the expected precision.
+            Dictionary indicating whether each array matches the expected
+            precision.
         """
         matches = {}
         for array_name, array in arrays.items():
@@ -470,14 +495,26 @@ class BaseArrayManager(ABC):
     def check_sizes(
         self, new_arrays: Dict[str, NDArray], location: str = "host"
     ) -> Dict[str, bool]:
-        """Check if provided arrays match the system along the "variable" axis.
+        """
+        Check whether arrays match configured sizes and stride order.
 
-        Args:
-            new_arrays: Dictionary of array_name -> array
-            location: 'host' or 'device'
+        Parameters
+        ----------
+        new_arrays
+            Dictionary mapping array names to arrays.
+        location
+            ``"host"`` or ``"device"`` indicating which container to inspect.
 
-        Returns:
-            True if all arrays match their expected sizes, False otherwise
+        Returns
+        -------
+        Dict[str, bool]
+            Dictionary indicating whether each array matches its expected
+            shape.
+
+        Raises
+        ------
+        AttributeError
+            If the location is neither ``"host"`` nor ``"device"``.
         """
         try:
             container = getattr(self, location)
@@ -557,30 +594,54 @@ class BaseArrayManager(ABC):
         return matches
 
     @abstractmethod
-    def finalise(self, indices):
-        """Override with the desired behaviour after a chunk is executed.
+    def finalise(self, indices: List[int]) -> None:
+        """
+        Execute post-chunk behaviour for device outputs.
 
-        For most output arrays, this is a copy back to the host,
-        and potentially a remap if mapped.
-        For input arrays, this is a typically no-op."""
+        Parameters
+        ----------
+        indices
+            Chunk indices processed by the device execution path.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
 
     @abstractmethod
-    def initialise(self, indices):
-        """Override with the desired behaviour before a chunk is executed.
+    def initialise(self, indices: List[int]) -> None:
+        """
+        Execute pre-chunk behaviour for device inputs.
 
-        For most input arrays, this is a copy to device.
-        For output arrays, this is typically a no-op."""
+        Parameters
+        ----------
+        indices
+            Chunk indices about to run on the device.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
 
     def check_incoming_arrays(
         self, arrays: Dict[str, NDArray], location: str = "host"
     ) -> Dict[str, bool]:
-        """Check dimensions and dtype of provided arrays match expected sizes and precision.
+        """
+        Validate shape and precision for incoming arrays.
 
-        Args:
-            arrays: Dictionary of array_name -> array to check
-            location: "host" or "device" - which container to check against
-        Returns:
-            True if all arrays match expected sizes and precision, False otherwise
+        Parameters
+        ----------
+        arrays
+            Dictionary mapping array names to arrays.
+        location
+            ``"host"`` or ``"device"`` indicating the target container.
+
+        Returns
+        -------
+        Dict[str, bool]
+            Dictionary indicating whether each array is ready for attachment.
         """
         dims_ok = self.check_sizes(arrays, location=location)
         types_ok = self.check_type(arrays)
@@ -592,14 +653,20 @@ class BaseArrayManager(ABC):
     def attach_external_arrays(
         self, arrays: Dict[str, NDArray], location: str = "host"
     ) -> bool:
-        """Attach existing arrays to the specified container (host or device).
+        """
+        Attach existing arrays to a host or device container.
 
-        Args:
-            arrays: Dictionary of array_name -> array to attach
-            location: "host" or "device" - which container to attach to
+        Parameters
+        ----------
+        arrays
+            Dictionary mapping array names to arrays.
+        location
+            ``"host"`` or ``"device"`` indicating the target container.
 
-        Returns:
-            True if arrays were successfully attached, False if validation failed
+        Returns
+        -------
+        bool
+            ``True`` if arrays pass validation, ``False`` otherwise.
         """
         matches = self.check_incoming_arrays(arrays, location=location)
         container = getattr(self, location)
@@ -611,21 +678,38 @@ class BaseArrayManager(ABC):
                 not_attached.append(array_name)
         if not_attached:
             warn(
-                f"The following arrays did not match the expected data "
-                f"type and size, and so were not used"
+                f"The following arrays did not match the expected precision "
+                f"and size, and so were not used"
                 f" {', '.join(not_attached)}",
                 UserWarning,
             )
         return True
 
     def _update_host_array(
-        self, new_array: NDArray, current_array: NDArray, label: str
-    ) -> NoneType:
-        """Assign for reallocation or overwriting by shape/value change.
+        self, new_array: NDArray, current_array: Optional[NDArray], label: str
+    ) -> None:
+        """
+        Mark host arrays for overwrite or reallocation based on updates.
 
-        Check for equality and shape equality, append to reallocation or
-        overwrite lists accordingly. Attaches changed array to host array
-        container."""
+        Parameters
+        ----------
+        new_array
+            Updated array that should replace the stored host array.
+        current_array
+            Previously stored host array or ``None``.
+        label
+            Array name used to index tracking lists.
+
+        Raises
+        ------
+        ValueError
+            If ``new_array`` is ``None``.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
         if new_array is None:
             raise ValueError("New array is None")
         elif current_array is None:
@@ -645,14 +729,19 @@ class BaseArrayManager(ABC):
             self.host.attach(label, new_array)
         return None
 
-    def update_host_arrays(self, new_arrays: Dict[str, NDArray]):
-        """Updates host arrays with new data, assigns for realloc or overwrite.
+    def update_host_arrays(self, new_arrays: Dict[str, NDArray]) -> None:
+        """
+        Update host arrays and record allocation requirements.
 
-        Args:
-            new_arrays: Dictionary of array_name -> new_array
+        Parameters
+        ----------
+        new_arrays
+            Dictionary mapping array names to new host arrays.
 
-        Returns:
-            None
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         badnames = [
             array_name
@@ -681,12 +770,19 @@ class BaseArrayManager(ABC):
                 new_arrays[array_name], current_array, array_name
             )
 
-    def allocate(self):
-        """Queue allocation requests for arrays that need reallocation.
+    def allocate(self) -> None:
+        """
+        Queue allocation requests for arrays that need reallocation.
 
-        Builds ArrayRequest objects for all arrays marked for reallocation.
-        Passes an 'unchunkable' hint for arrays listed in the host container's
-        _unchunkable tuple so the memory manager can avoid chunking them.
+        Notes
+        -----
+        Builds :class:`ArrayRequest` objects for arrays marked for
+        reallocation and sets the ``unchunkable`` hint based on host metadata.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
         """
         requests = {}
         for array_label in list(set(self._needs_reallocation)):
@@ -706,8 +802,15 @@ class BaseArrayManager(ABC):
         if requests:
             self.request_allocation(requests)
 
-    def initialize_device_zeros(self):
-        """Initialize device arrays to zero values."""
+    def initialize_device_zeros(self) -> None:
+        """
+        Initialize device arrays to zero values.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
         for name, array in self.device.__dict__.items():
             if not name.startswith("_") and array is not None:
                 if len(array.shape) >= 3:
@@ -715,17 +818,56 @@ class BaseArrayManager(ABC):
                 elif len(array.shape) >= 2:
                     array[:, :] = self._precision(0.0)
 
-    def reset(self):
-        """Clear all cached arrays and reset allocation tracking."""
+    def reset(self) -> None:
+        """
+        Clear all cached arrays and reset allocation tracking.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
         self.host.delete_all()
         self.device.delete_all()
         self._needs_reallocation.clear()
         self._needs_overwrite.clear()
 
-    def to_device(self, from_arrays: list, to_arrays: list):
+    def to_device(self, from_arrays: List[str], to_arrays: List[str]) -> None:
+        """
+        Copy host arrays to the device using the memory manager.
+
+        Parameters
+        ----------
+        from_arrays
+            Names of host arrays to copy.
+        to_arrays
+            Names of destination device arrays.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
         self._memory_manager.to_device(self, from_arrays, to_arrays)
 
     def from_device(
-        self, instance: object, from_arrays: list, to_arrays: list
-    ):
+        self, instance: object, from_arrays: List[str], to_arrays: List[str]
+    ) -> None:
+        """
+        Copy device arrays back to the host using the memory manager.
+
+        Parameters
+        ----------
+        instance
+            Object requesting the transfer.
+        from_arrays
+            Names of device arrays to copy.
+        to_arrays
+            Names of destination host arrays.
+
+        Returns
+        -------
+        None
+            Nothing is returned.
+        """
         self._memory_manager.from_device(self, from_arrays, to_arrays)
