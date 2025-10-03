@@ -13,6 +13,7 @@ value problems. The source code is available on `Github
    systems
    cuda
    userfunctions
+   drivers
    Algorithms
    api/index
 
