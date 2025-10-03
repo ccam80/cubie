@@ -1,0 +1,397 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.SymbolicODE &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.SymbolicODE</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/project_structure/generated/cubie.odesystems.SymbolicODE.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="cubie-odesystems-symbolicode">
+<h1>cubie.odesystems.SymbolicODE<a class="headerlink" href="#cubie-odesystems-symbolicode" title="Link to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.odesystems.SymbolicODE">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.odesystems.</span></span><span class="sig-name descname"><span class="pre">SymbolicODE</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">equations:</span> <span class="pre">~typing.Iterable[tuple[~sympy.core.symbol.Symbol,</span> <span class="pre">~sympy.core.expr.Expr]],</span> <span class="pre">all_indexed_bases:</span> <span class="pre">~cubie.odesystems.symbolic.indexedbasemaps.IndexedBases,</span> <span class="pre">all_symbols:</span> <span class="pre">dict[str,</span> <span class="pre">~sympy.core.symbol.Symbol]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">precision:</span> <span class="pre">type[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float64]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float64]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float64'&gt;,</span> <span class="pre">fn_hash:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">user_functions:</span> <span class="pre">dict[str,</span> <span class="pre">~typing.Callable]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">name:</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/symbolicODE.html#SymbolicODE"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.SymbolicODE" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="../../api/generated/cubie.odesystems.baseODE.html#cubie.odesystems.baseODE.BaseODE" title="cubie.odesystems.baseODE.BaseODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseODE</span></code></a></p>
+<p>Symbolic representation of an ODE system.</p>
+<p>Parameters are provided as SymPy symbols and the differential equations are
+supplied as <code class="docutils literal notranslate"><span class="pre">(lhs,</span> <span class="pre">rhs)</span></code> tuples where the left-hand side is a derivative
+or observable symbol. Right-hand sides combine states, parameters,
+constants, and intermediate observables.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – Ordered symbolic equations describing the system dynamics.</p></li>
+<li><p><strong>all_indexed_bases</strong> – Indexed base collections providing access to state, parameter,
+constant, and observable metadata.</p></li>
+<li><p><strong>all_symbols</strong> – Mapping from symbol names to their <code class="xref py py-class docutils literal notranslate"><span class="pre">sympy.Symbol</span></code> instances.</p></li>
+<li><p><strong>precision</strong> – Target floating-point precision used for generated kernels.</p></li>
+<li><p><strong>fn_hash</strong> – Precomputed system hash. When omitted it is derived from the equations
+and constants.</p></li>
+<li><p><strong>user_functions</strong> – Runtime callables referenced within the symbolic expressions.</p></li>
+<li><p><strong>name</strong> – Identifier used for generated modules.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.SymbolicODE.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">equations:</span> <span class="pre">~typing.Iterable[tuple[~sympy.core.symbol.Symbol,</span> <span class="pre">~sympy.core.expr.Expr]],</span> <span class="pre">all_indexed_bases:</span> <span class="pre">~cubie.odesystems.symbolic.indexedbasemaps.IndexedBases,</span> <span class="pre">all_symbols:</span> <span class="pre">dict[str,</span> <span class="pre">~sympy.core.symbol.Symbol]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">precision:</span> <span class="pre">type[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float64]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float64]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float64'&gt;,</span> <span class="pre">fn_hash:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">user_functions:</span> <span class="pre">dict[str,</span> <span class="pre">~typing.Callable]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">name:</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/symbolicODE.html#SymbolicODE.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.SymbolicODE.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialise the symbolic system instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – Ordered symbolic equations describing the system dynamics.</p></li>
+<li><p><strong>all_indexed_bases</strong> – Indexed base collections providing access to state, parameter,
+constant, and observable metadata.</p></li>
+<li><p><strong>all_symbols</strong> – Mapping from symbol names to their <code class="xref py py-class docutils literal notranslate"><span class="pre">sympy.Symbol</span></code> instances.</p></li>
+<li><p><strong>precision</strong> – Target floating-point precision used for generated kernels.</p></li>
+<li><p><strong>fn_hash</strong> – Precomputed system hash. When omitted it is derived from the
+equations and constants.</p></li>
+<li><p><strong>user_functions</strong> – Runtime callables referenced within the symbolic expressions.</p></li>
+<li><p><strong>name</strong> – Identifier used for generated modules.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Methods</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id0" title="cubie.odesystems.SymbolicODE.__init__"><code class="xref py py-obj docutils literal notranslate"><span class="pre">__init__</span></code></a>(equations, all_indexed_bases[, ...])</p></td>
+<td><p>Initialise the symbolic system instance.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.odesystems.SymbolicODE.build" title="cubie.odesystems.SymbolicODE.build"><code class="xref py py-obj docutils literal notranslate"><span class="pre">build</span></code></a>()</p></td>
+<td><p>Compile the <code class="docutils literal notranslate"><span class="pre">dxdt</span></code> factory and refresh the cache.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">correct_answer_python</span></code>(states, parameters, ...)</p></td>
+<td><p>Python reference <code class="docutils literal notranslate"><span class="pre">dxdt</span></code> for testing.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.odesystems.SymbolicODE.create" title="cubie.odesystems.SymbolicODE.create"><code class="xref py py-obj docutils literal notranslate"><span class="pre">create</span></code></a>(dxdt[, states, observables, ...])</p></td>
+<td><p>Parse user inputs and instantiate a <a class="reference internal" href="#cubie.odesystems.SymbolicODE" title="cubie.odesystems.SymbolicODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_cached_output</span></code>(output_name)</p></td>
+<td><p>Return a named cached output.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.odesystems.SymbolicODE.get_solver_helper" title="cubie.odesystems.SymbolicODE.get_solver_helper"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_solver_helper</span></code></a>(func_type[, beta, gamma, ...])</p></td>
+<td><p>Return a generated solver helper device function.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.odesystems.SymbolicODE.set_constants" title="cubie.odesystems.SymbolicODE.set_constants"><code class="xref py py-obj docutils literal notranslate"><span class="pre">set_constants</span></code></a>([updates_dict, silent])</p></td>
+<td><p>Update constant values in-place.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">setup_compile_settings</span></code>(compile_settings)</p></td>
+<td><p>Attach a container of compile-critical settings to the object.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">update</span></code>(updates_dict[, silent])</p></td>
+<td><p>Update compile settings through the <code class="xref py py-class docutils literal notranslate"><span class="pre">CUDAFactory</span></code> interface.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">update_compile_settings</span></code>([updates_dict, silent])</p></td>
+<td><p>Update compile settings with new values.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Attributes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">cache_valid</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">True</span></code> if cached outputs are up to date.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">compile_settings</span></code></p></td>
+<td><p>Return the current compile settings object.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">constants</span></code></p></td>
+<td><p>Constant values configured for the system.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">device_function</span></code></p></td>
+<td><p>Return the compiled CUDA device function.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">dxdt_function</span></code></p></td>
+<td><p>Compiled CUDA device function for <code class="docutils literal notranslate"><span class="pre">dxdt</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">initial_values</span></code></p></td>
+<td><p>Alias for <code class="xref py py-attr docutils literal notranslate"><span class="pre">states</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">num_constants</span></code></p></td>
+<td><p>Number of constants.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">num_drivers</span></code></p></td>
+<td><p>Number of driver variables.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">num_observables</span></code></p></td>
+<td><p>Number of observable variables.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">num_parameters</span></code></p></td>
+<td><p>Number of parameters.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">num_states</span></code></p></td>
+<td><p>Number of state variables.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">numba_precision</span></code></p></td>
+<td><p>Numba representation of the configured precision.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">observables</span></code></p></td>
+<td><p>Observable definitions configured for the system.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">observables_function</span></code></p></td>
+<td><p>Return the compiled observables device function.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">parameters</span></code></p></td>
+<td><p>Parameter values configured for the system.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">precision</span></code></p></td>
+<td><p>Precision factory configured for the system.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">simsafe_precision</span></code></p></td>
+<td><p>Precision promoted for CUDA simulator compatibility.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">sizes</span></code></p></td>
+<td><p>System component sizes cached for solvers.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">states</span></code></p></td>
+<td><p>Initial state values configured for the system.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py method">
+<dt class="sig sig-object py" id="id0">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">equations:</span> <span class="pre">~typing.Iterable[tuple[~sympy.core.symbol.Symbol,</span> <span class="pre">~sympy.core.expr.Expr]],</span> <span class="pre">all_indexed_bases:</span> <span class="pre">~cubie.odesystems.symbolic.indexedbasemaps.IndexedBases,</span> <span class="pre">all_symbols:</span> <span class="pre">dict[str,</span> <span class="pre">~sympy.core.symbol.Symbol]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">precision:</span> <span class="pre">type[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float64]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float64]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float64'&gt;,</span> <span class="pre">fn_hash:</span> <span class="pre">int</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">user_functions:</span> <span class="pre">dict[str,</span> <span class="pre">~typing.Callable]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">name:</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/symbolicODE.html#SymbolicODE.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd><p>Initialise the symbolic system instance.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – Ordered symbolic equations describing the system dynamics.</p></li>
+<li><p><strong>all_indexed_bases</strong> – Indexed base collections providing access to state, parameter,
+constant, and observable metadata.</p></li>
+<li><p><strong>all_symbols</strong> – Mapping from symbol names to their <code class="xref py py-class docutils literal notranslate"><span class="pre">sympy.Symbol</span></code> instances.</p></li>
+<li><p><strong>precision</strong> – Target floating-point precision used for generated kernels.</p></li>
+<li><p><strong>fn_hash</strong> – Precomputed system hash. When omitted it is derived from the
+equations and constants.</p></li>
+<li><p><strong>user_functions</strong> – Runtime callables referenced within the symbolic expressions.</p></li>
+<li><p><strong>name</strong> – Identifier used for generated modules.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.SymbolicODE.build">
+<span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../api/generated/cubie.odesystems.baseODE.html#cubie.odesystems.baseODE.ODECache" title="cubie.odesystems.baseODE.ODECache"><span class="pre">ODECache</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/symbolicODE.html#SymbolicODE.build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.SymbolicODE.build" title="Link to this definition"></a></dt>
+<dd><p>Compile the <code class="docutils literal notranslate"><span class="pre">dxdt</span></code> factory and refresh the cache.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Cache populated with the compiled <code class="docutils literal notranslate"><span class="pre">dxdt</span></code> callable.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.odesystems.ODECache.html#cubie.odesystems.ODECache" title="cubie.odesystems.ODECache">ODECache</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.SymbolicODE.create">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">create</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">dxdt:</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">~typing.Iterable[str],</span> <span class="pre">states:</span> <span class="pre">dict[str,</span> <span class="pre">float]</span> <span class="pre">|</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">observables:</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">parameters:</span> <span class="pre">dict[str,</span> <span class="pre">float]</span> <span class="pre">|</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">constants:</span> <span class="pre">dict[str,</span> <span class="pre">float]</span> <span class="pre">|</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">drivers:</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">dict[str,</span> <span class="pre">~typing.Any]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">user_functions:</span> <span class="pre">dict[str,</span> <span class="pre">~typing.Callable]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">name:</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">precision:</span> <span class="pre">type[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float64]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float64]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float32'&gt;,</span> <span class="pre">strict:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="cubie.odesystems.symbolic.symbolicODE.html#cubie.odesystems.symbolic.symbolicODE.SymbolicODE" title="cubie.odesystems.symbolic.symbolicODE.SymbolicODE"><span class="pre">SymbolicODE</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/symbolicODE.html#SymbolicODE.create"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.SymbolicODE.create" title="Link to this definition"></a></dt>
+<dd><p>Parse user inputs and instantiate a <a class="reference internal" href="#cubie.odesystems.SymbolicODE" title="cubie.odesystems.SymbolicODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>dxdt</strong> – System equations defined as either a single string or an iterable
+of equation strings in <code class="docutils literal notranslate"><span class="pre">lhs</span> <span class="pre">=</span> <span class="pre">rhs</span></code> form.</p></li>
+<li><p><strong>states</strong> – State labels either as an iterable or as a mapping to default
+initial values.</p></li>
+<li><p><strong>observables</strong> – Observable variable labels to expose from the generated system.</p></li>
+<li><p><strong>parameters</strong> – Parameter labels either as an iterable or as a mapping to default
+values.</p></li>
+<li><p><strong>constants</strong> – Constant labels either as an iterable or as a mapping to default
+values.</p></li>
+<li><p><strong>drivers</strong> – External driver variable labels required at runtime. May be an
+iterable of driver labels or a dictionary describing driver
+defaults or driver-array samples alongside configuration entries.</p></li>
+<li><p><strong>user_functions</strong> – Custom callables referenced within <code class="docutils literal notranslate"><span class="pre">dxdt</span></code> expressions.</p></li>
+<li><p><strong>name</strong> – Identifier used for generated files. Defaults to the hash of the
+system definition.</p></li>
+<li><p><strong>precision</strong> – Target floating-point precision used when compiling the system.</p></li>
+<li><p><strong>strict</strong> – When <code class="docutils literal notranslate"><span class="pre">True</span></code> require every symbol to be explicitly categorised.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Fully constructed symbolic system ready for compilation.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cubie.odesystems.SymbolicODE" title="cubie.odesystems.SymbolicODE">SymbolicODE</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.SymbolicODE.get_solver_helper">
+<span class="sig-name descname"><span class="pre">get_solver_helper</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">func_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">beta</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gamma</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">preconditioner_order</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mass</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">MutableDenseMatrix</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/symbolicODE.html#SymbolicODE.get_solver_helper"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.SymbolicODE.get_solver_helper" title="Link to this definition"></a></dt>
+<dd><p>Return a generated solver helper device function.</p>
+<p>Solvers use a linear operator, preconditioner, and residual function.
+The operator is parameterised as
+<code class="docutils literal notranslate"><span class="pre">(beta</span> <span class="pre">*</span> <span class="pre">M</span> <span class="pre">+</span> <span class="pre">a_ij</span> <span class="pre">*</span> <span class="pre">h</span> <span class="pre">*</span> <span class="pre">gamma</span> <span class="pre">*</span> <span class="pre">J)(v)</span></code> where <code class="docutils literal notranslate"><span class="pre">M</span></code> is an optional
+mass matrix, <code class="docutils literal notranslate"><span class="pre">J</span></code> is the Jacobian, and <code class="docutils literal notranslate"><span class="pre">a_ij</span></code> and <code class="docutils literal notranslate"><span class="pre">h</span></code> are supplied
+at runtime. Preconditioners and residual functions use subsets of these
+parameters.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>func_type</strong> – Helper identifier. Supported values are <code class="docutils literal notranslate"><span class="pre">&quot;linear_operator&quot;</span></code>,
+<code class="docutils literal notranslate"><span class="pre">&quot;neumann_preconditioner&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;end_residual&quot;</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">&quot;stage_residual&quot;</span></code>.</p></li>
+<li><p><strong>beta</strong> – Shift parameter for the linear operator.</p></li>
+<li><p><strong>gamma</strong> – Weight applied to the Jacobian term in the linear operator.</p></li>
+<li><p><strong>preconditioner_order</strong> – Polynomial order of the Neumann preconditioner.</p></li>
+<li><p><strong>mass</strong> – Mass matrix applied by the linear operator. When omitted the
+identity matrix is assumed.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>CUDA device function implementing the requested helper.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#NotImplementedError" title="(in Python v3.13)"><strong>NotImplementedError</strong></a> – Raised when <code class="docutils literal notranslate"><span class="pre">func_type</span></code> does not correspond to a supported
+    helper.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.SymbolicODE.set_constants">
+<span class="sig-name descname"><span class="pre">set_constants</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">updates_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">silent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Set" title="(in Python v3.13)"><span class="pre">Set</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/symbolicODE.html#SymbolicODE.set_constants"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.SymbolicODE.set_constants" title="Link to this definition"></a></dt>
+<dd><p>Update constant values in-place.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>updates_dict</strong> – Mapping from constant names to replacement values.</p></li>
+<li><p><strong>silent</strong> – When <code class="docutils literal notranslate"><span class="pre">True</span></code> suppress warnings for unknown labels.</p></li>
+<li><p><strong>**kwargs</strong> – Additional constant overrides supplied as keyword arguments.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Labels that were recognised and updated.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#set" title="(in Python v3.13)">set</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Constants are first updated in the indexed base map before delegating
+to <a class="reference internal" href="cubie.odesystems.BaseODE.html#cubie.odesystems.BaseODE.set_constants" title="cubie.odesystems.BaseODE.set_constants"><code class="xref py py-meth docutils literal notranslate"><span class="pre">BaseODE.set_constants()</span></code></a> for cache management.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

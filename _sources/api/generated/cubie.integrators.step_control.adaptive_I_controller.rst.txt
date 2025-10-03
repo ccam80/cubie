@@ -1,0 +1,12 @@
+cubie.integrators.step\_control.adaptive\_I\_controller
+=======================================================
+
+.. automodule:: cubie.integrators.step_control.adaptive_I_controller
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      AdaptiveIController
+   

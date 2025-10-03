@@ -1,0 +1,241 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.step_control.fixed_step_controller &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">cubie.integrators.step_control.fixed_step_controller</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/project_structure/generated/cubie.integrators.step_control.fixed_step_controller.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.integrators.step_control.fixed_step_controller">
+<span id="cubie-integrators-step-control-fixed-step-controller"></span><h1>cubie.integrators.step_control.fixed_step_controller<a class="headerlink" href="#module-cubie.integrators.step_control.fixed_step_controller" title="Link to this heading"></a></h1>
+<p>Fixed step-size controller implementations.</p>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig" title="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FixedStepControlConfig</span></code></a>(precision, n, dt)</p></td>
+<td><p>Configuration for fixed-step integrator loops.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepController" title="cubie.integrators.step_control.fixed_step_controller.FixedStepController"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FixedStepController</span></code></a>(precision, dt)</p></td>
+<td><p>Controller that enforces a constant time step.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.integrators.step_control.fixed_step_controller.</span></span><span class="sig-name descname"><span class="pre">FixedStepControlConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">precision:</span> <span class="pre">type[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float64]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float64]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float32'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">0.001</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/fixed_step_controller.html#FixedStepControlConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="cubie.integrators.step_control.base_step_controller.html#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig" title="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseStepControllerConfig</span></code></a></p>
+<p>Configuration for fixed-step integrator loops.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.precision">
+<span class="sig-name descname"><span class="pre">precision</span></span><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.precision" title="Link to this definition"></a></dt>
+<dd><p>Precision used for numerical operations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)">type</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.n">
+<span class="sig-name descname"><span class="pre">n</span></span><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.n" title="Link to this definition"></a></dt>
+<dd><p>Number of state variables controlled per step.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig._validate_config">
+<span class="sig-name descname"><span class="pre">_validate_config</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/fixed_step_controller.html#FixedStepControlConfig._validate_config"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig._validate_config" title="Link to this definition"></a></dt>
+<dd><p>Confirm that the configuration is internally consistent.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.dt">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.dt" title="Link to this definition"></a></dt>
+<dd><p>Return the fixed step size.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.dt0">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt0</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.dt0" title="Link to this definition"></a></dt>
+<dd><p>Return the initial step size used at loop start.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.dt_max">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_max</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.dt_max" title="Link to this definition"></a></dt>
+<dd><p>Return the maximum step size.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.dt_min">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_min</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.dt_min" title="Link to this definition"></a></dt>
+<dd><p>Return the minimum time step size.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.is_adaptive">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_adaptive</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.is_adaptive" title="Link to this definition"></a></dt>
+<dd><p>Return <code class="docutils literal notranslate"><span class="pre">False</span></code> because the controller is not adaptive.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.settings_dict">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">settings_dict</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepControlConfig.settings_dict" title="Link to this definition"></a></dt>
+<dd><p>Return the configuration as a dictionary.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepController">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.integrators.step_control.fixed_step_controller.</span></span><span class="sig-name descname"><span class="pre">FixedStepController</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">precision</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/fixed_step_controller.html#FixedStepController"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepController" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="cubie.integrators.step_control.base_step_controller.html#cubie.integrators.step_control.base_step_controller.BaseStepController" title="cubie.integrators.step_control.base_step_controller.BaseStepController"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseStepController</span></code></a></p>
+<p>Controller that enforces a constant time step.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepController.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">precision</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/fixed_step_controller.html#FixedStepController.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepController.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialise the fixed step controller.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>precision</strong> – Precision used for controller calculations.</p></li>
+<li><p><strong>dt</strong> – Fixed step size to apply on every iteration.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepController.build">
+<span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span></span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/fixed_step_controller.html#FixedStepController.build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepController.build" title="Link to this definition"></a></dt>
+<dd><p>Return a device function that always accepts with fixed step.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>CUDA device function that keeps the step size constant.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepController.dt">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepController.dt" title="Link to this definition"></a></dt>
+<dd><p>Return the fixed step size used by the controller.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.fixed_step_controller.FixedStepController.local_memory_elements">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">local_memory_elements</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.fixed_step_controller.FixedStepController.local_memory_elements" title="Link to this definition"></a></dt>
+<dd><p>Amount of local memory required by the controller.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,239 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic.sym_utils &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.odesystems.symbolic.symbolicODE" href="cubie.odesystems.symbolic.symbolicODE.html" />
+    <link rel="prev" title="cubie.odesystems.symbolic.solver_helpers" href="cubie.odesystems.symbolic.solver_helpers.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#subpackages">Subpackages</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.BaseODE"><code class="docutils literal notranslate"><span class="pre">BaseODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.ODECache"><code class="docutils literal notranslate"><span class="pre">ODECache</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.ODEData"><code class="docutils literal notranslate"><span class="pre">ODEData</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.SymbolicODE"><code class="docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.SystemSizes"><code class="docutils literal notranslate"><span class="pre">SystemSizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.SystemValues"><code class="docutils literal notranslate"><span class="pre">SystemValues</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.create_ODE_system"><code class="docutils literal notranslate"><span class="pre">create_ODE_system()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.ODEData.html">cubie.odesystems.ODEData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.SystemValues.html">cubie.odesystems.SystemValues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.baseODE.html">cubie.odesystems.baseODE</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="cubie.odesystems.symbolic.html">cubie.odesystems.symbolic</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.cellml.html">cubie.odesystems.symbolic.cellml</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.dxdt.html">cubie.odesystems.symbolic.dxdt</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html">cubie.odesystems.symbolic.indexedbasemaps</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.jacobian.html">cubie.odesystems.symbolic.jacobian</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.numba_cuda_printer.html">cubie.odesystems.symbolic.numba_cuda_printer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.odefile.html">cubie.odesystems.symbolic.odefile</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.parser.html">cubie.odesystems.symbolic.parser</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.solver_helpers.html">cubie.odesystems.symbolic.solver_helpers</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">cubie.odesystems.symbolic.sym_utils</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.symbolicODE.html">cubie.odesystems.symbolic.symbolicODE</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.odesystems.html">cubie.odesystems</a></li>
+          <li class="breadcrumb-item"><a href="cubie.odesystems.symbolic.html">cubie.odesystems.symbolic</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic.sym_utils</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.odesystems.symbolic.sym_utils.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.odesystems.symbolic.sym_utils">
+<span id="cubie-odesystems-symbolic-sym-utils"></span><h1>cubie.odesystems.symbolic.sym_utils<a class="headerlink" href="#module-cubie.odesystems.symbolic.sym_utils" title="Link to this heading"></a></h1>
+<p>Utility helpers for symbolic ODE construction.</p>
+<p class="rubric">Functions</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.sym_utils.html#cubie.odesystems.symbolic.sym_utils.cse_and_stack" title="cubie.odesystems.symbolic.sym_utils.cse_and_stack"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cse_and_stack</span></code></a>(equations[, symbol])</p></td>
+<td><p>Perform common subexpression elimination and stack the results.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.sym_utils.html#cubie.odesystems.symbolic.sym_utils.hash_system_definition" title="cubie.odesystems.symbolic.sym_utils.hash_system_definition"><code class="xref py py-obj docutils literal notranslate"><span class="pre">hash_system_definition</span></code></a>(dxdt[, constants])</p></td>
+<td><p>Generate a hash that captures equations and constant definitions.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.sym_utils.html#cubie.odesystems.symbolic.sym_utils.topological_sort" title="cubie.odesystems.symbolic.sym_utils.topological_sort"><code class="xref py py-obj docutils literal notranslate"><span class="pre">topological_sort</span></code></a>(assignments)</p></td>
+<td><p>Return assignments sorted by their dependency order.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.sym_utils.cse_and_stack">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.sym_utils.</span></span><span class="sig-name descname"><span class="pre">cse_and_stack</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">equations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">symbol</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/sym_utils.html#cse_and_stack"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.sym_utils.cse_and_stack" title="Link to this definition"></a></dt>
+<dd><p>Perform common subexpression elimination and stack the results.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – <code class="docutils literal notranslate"><span class="pre">(symbol,</span> <span class="pre">expression)</span></code> pairs that define the system.</p></li>
+<li><p><strong>symbol</strong> – Prefix to use for the generated common-subexpression symbols. Defaults
+to <code class="docutils literal notranslate"><span class="pre">&quot;_cse&quot;</span></code> when not provided.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Combined list of original expressions rewritten in terms of CSE
+symbols followed by the generated common subexpressions.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[sympy.Symbol, sympy.Expr]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.sym_utils.hash_system_definition">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.sym_utils.</span></span><span class="sig-name descname"><span class="pre">hash_system_definition</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dxdt</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constants</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/sym_utils.html#hash_system_definition"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.sym_utils.hash_system_definition" title="Link to this definition"></a></dt>
+<dd><p>Generate a hash that captures equations and constant definitions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>dxdt</strong> – Representation of the system right-hand sides. Accepts either a single
+string or an iterable of equation strings.</p></li>
+<li><p><strong>constants</strong> – Mapping or iterable describing constant names and values. Iterables are
+interpreted as constant names using their default values.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Deterministic hash string that reflects both equations and constants.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The hash concatenates normalised differential equations with the sorted
+constant name-value pairs. Any change to either component produces a new
+hash so cached artifacts can be refreshed.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.sym_utils.topological_sort">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.sym_utils.</span></span><span class="sig-name descname"><span class="pre">topological_sort</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">assignments</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/sym_utils.html#topological_sort"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.sym_utils.topological_sort" title="Link to this definition"></a></dt>
+<dd><p>Return assignments sorted by their dependency order.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>assignments</strong> – Either an iterable of <code class="docutils literal notranslate"><span class="pre">(symbol,</span> <span class="pre">expression)</span></code> pairs or a mapping from
+each symbol to its defining expression.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Assignments ordered such that dependencies are defined before use.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[sympy.Symbol, sympy.Expr]]</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – Raised when a circular dependency prevents topological sorting.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Uses Kahn’s algorithm for topological sorting. Refer to the Wikipedia
+article on topological sorting for additional background.</p>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.odesystems.symbolic.solver_helpers.html" class="btn btn-neutral float-left" title="cubie.odesystems.symbolic.solver_helpers" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.odesystems.symbolic.symbolicODE.html" class="btn btn-neutral float-right" title="cubie.odesystems.symbolic.symbolicODE" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

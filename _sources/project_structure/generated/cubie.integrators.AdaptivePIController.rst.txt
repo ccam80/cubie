@@ -1,0 +1,56 @@
+﻿cubie.integrators.AdaptivePIController
+======================================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: AdaptivePIController
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~AdaptivePIController.__init__
+      ~AdaptivePIController.build
+      ~AdaptivePIController.build_controller
+      ~AdaptivePIController.get_cached_output
+      ~AdaptivePIController.setup_compile_settings
+      ~AdaptivePIController.update
+      ~AdaptivePIController.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~AdaptivePIController.algorithm_order
+      ~AdaptivePIController.atol
+      ~AdaptivePIController.cache_valid
+      ~AdaptivePIController.compile_settings
+      ~AdaptivePIController.deadband_max
+      ~AdaptivePIController.deadband_min
+      ~AdaptivePIController.device_function
+      ~AdaptivePIController.dt0
+      ~AdaptivePIController.dt_max
+      ~AdaptivePIController.dt_min
+      ~AdaptivePIController.is_adaptive
+      ~AdaptivePIController.ki
+      ~AdaptivePIController.kp
+      ~AdaptivePIController.local_memory_elements
+      ~AdaptivePIController.max_gain
+      ~AdaptivePIController.min_gain
+      ~AdaptivePIController.n
+      ~AdaptivePIController.numba_precision
+      ~AdaptivePIController.precision
+      ~AdaptivePIController.rtol
+      ~AdaptivePIController.safety
+      ~AdaptivePIController.settings_dict
+      ~AdaptivePIController.simsafe_precision
+   
+   

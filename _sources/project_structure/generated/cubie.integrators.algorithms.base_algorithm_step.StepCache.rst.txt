@@ -1,0 +1,29 @@
+﻿cubie.integrators.algorithms.base\_algorithm\_step.StepCache
+============================================================
+
+.. currentmodule:: cubie.integrators.algorithms.base_algorithm_step
+
+.. autoclass:: StepCache
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~StepCache.__init__
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~StepCache.step
+      ~StepCache.nonlinear_solver
+   
+   

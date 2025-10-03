@@ -1,0 +1,42 @@
+﻿cubie.outputhandling.summarymetrics.metrics.SummaryMetrics
+==========================================================
+
+.. currentmodule:: cubie.outputhandling.summarymetrics.metrics
+
+.. autoclass:: SummaryMetrics
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~SummaryMetrics.__init__
+      ~SummaryMetrics.buffer_offsets
+      ~SummaryMetrics.buffer_sizes
+      ~SummaryMetrics.legend
+      ~SummaryMetrics.output_offsets
+      ~SummaryMetrics.output_offsets_dict
+      ~SummaryMetrics.output_sizes
+      ~SummaryMetrics.params
+      ~SummaryMetrics.parse_string_for_params
+      ~SummaryMetrics.preprocess_request
+      ~SummaryMetrics.register_metric
+      ~SummaryMetrics.save_functions
+      ~SummaryMetrics.summaries_buffer_height
+      ~SummaryMetrics.summaries_output_height
+      ~SummaryMetrics.update_functions
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~SummaryMetrics.implemented_metrics
+   
+   

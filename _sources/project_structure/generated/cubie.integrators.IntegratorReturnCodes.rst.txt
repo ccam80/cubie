@@ -1,0 +1,45 @@
+﻿cubie.integrators.IntegratorReturnCodes
+=======================================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: IntegratorReturnCodes
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~IntegratorReturnCodes.conjugate
+      ~IntegratorReturnCodes.bit_length
+      ~IntegratorReturnCodes.bit_count
+      ~IntegratorReturnCodes.to_bytes
+      ~IntegratorReturnCodes.from_bytes
+      ~IntegratorReturnCodes.as_integer_ratio
+      ~IntegratorReturnCodes.is_integer
+      ~IntegratorReturnCodes.__init__
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~IntegratorReturnCodes.real
+      ~IntegratorReturnCodes.imag
+      ~IntegratorReturnCodes.numerator
+      ~IntegratorReturnCodes.denominator
+      ~IntegratorReturnCodes.SUCCESS
+      ~IntegratorReturnCodes.NEWTON_BACKTRACKING_NO_SUITABLE_STEP
+      ~IntegratorReturnCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
+      ~IntegratorReturnCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
+      ~IntegratorReturnCodes.STEP_TOO_SMALL
+      ~IntegratorReturnCodes.DT_EFF_EFFECTIVELY_ZERO
+      ~IntegratorReturnCodes.MAX_LOOP_ITERS_EXCEEDED
+   
+   

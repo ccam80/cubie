@@ -1,0 +1,57 @@
+﻿cubie.integrators.AdaptivePIDController
+=======================================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: AdaptivePIDController
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~AdaptivePIDController.__init__
+      ~AdaptivePIDController.build
+      ~AdaptivePIDController.build_controller
+      ~AdaptivePIDController.get_cached_output
+      ~AdaptivePIDController.setup_compile_settings
+      ~AdaptivePIDController.update
+      ~AdaptivePIDController.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~AdaptivePIDController.algorithm_order
+      ~AdaptivePIDController.atol
+      ~AdaptivePIDController.cache_valid
+      ~AdaptivePIDController.compile_settings
+      ~AdaptivePIDController.deadband_max
+      ~AdaptivePIDController.deadband_min
+      ~AdaptivePIDController.device_function
+      ~AdaptivePIDController.dt0
+      ~AdaptivePIDController.dt_max
+      ~AdaptivePIDController.dt_min
+      ~AdaptivePIDController.is_adaptive
+      ~AdaptivePIDController.kd
+      ~AdaptivePIDController.ki
+      ~AdaptivePIDController.kp
+      ~AdaptivePIDController.local_memory_elements
+      ~AdaptivePIDController.max_gain
+      ~AdaptivePIDController.min_gain
+      ~AdaptivePIDController.n
+      ~AdaptivePIDController.numba_precision
+      ~AdaptivePIDController.precision
+      ~AdaptivePIDController.rtol
+      ~AdaptivePIDController.safety
+      ~AdaptivePIDController.settings_dict
+      ~AdaptivePIDController.simsafe_precision
+   
+   

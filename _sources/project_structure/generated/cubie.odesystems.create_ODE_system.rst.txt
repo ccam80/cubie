@@ -1,0 +1,6 @@
+﻿cubie.odesystems.create\_ODE\_system
+====================================
+
+.. currentmodule:: cubie.odesystems
+
+.. autofunction:: create_ODE_system

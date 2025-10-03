@@ -1,0 +1,38 @@
+﻿cubie.integrators.loops.ode\_loop\_config.LoopLocalIndices
+==========================================================
+
+.. currentmodule:: cubie.integrators.loops.ode_loop_config
+
+.. autoclass:: LoopLocalIndices
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~LoopLocalIndices.__init__
+      ~LoopLocalIndices.empty
+      ~LoopLocalIndices.from_sizes
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~LoopLocalIndices.dt
+      ~LoopLocalIndices.accept
+      ~LoopLocalIndices.error
+      ~LoopLocalIndices.controller
+      ~LoopLocalIndices.algorithm
+      ~LoopLocalIndices.loop_end
+      ~LoopLocalIndices.total_end
+      ~LoopLocalIndices.all
+      ~LoopLocalIndices.loop_elements
+   
+   

@@ -1,0 +1,890 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic.parser &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic.parser</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.odesystems.symbolic.parser</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Parse symbolic ODE descriptions into structured SymPy objects.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">Any</span><span class="p">,</span>
+    <span class="n">Callable</span><span class="p">,</span>
+    <span class="n">Dict</span><span class="p">,</span>
+    <span class="n">Iterable</span><span class="p">,</span>
+    <span class="n">List</span><span class="p">,</span>
+    <span class="n">Optional</span><span class="p">,</span>
+    <span class="n">Sequence</span><span class="p">,</span>
+    <span class="n">Tuple</span><span class="p">,</span>
+    <span class="n">Union</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">warnings</span><span class="w"> </span><span class="kn">import</span> <span class="n">warn</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">sympy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sympy.parsing.sympy_parser</span><span class="w"> </span><span class="kn">import</span> <span class="n">T</span><span class="p">,</span> <span class="n">parse_expr</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sympy.core.function</span><span class="w"> </span><span class="kn">import</span> <span class="n">AppliedUndef</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.indexedbasemaps</span><span class="w"> </span><span class="kn">import</span> <span class="n">IndexedBases</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.sym_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">hash_system_definition</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie._utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_devfunc</span>
+
+<span class="c1"># Lambda notation, Auto-number, factorial notation, implicit multiplication</span>
+<span class="n">PARSE_TRANSORMS</span> <span class="o">=</span> <span class="p">(</span><span class="n">T</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">T</span><span class="p">[</span><span class="mi">3</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">T</span><span class="p">[</span><span class="mi">4</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">T</span><span class="p">[</span><span class="mi">8</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+
+<span class="n">TIME_SYMBOL</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">DRIVER_SETTING_KEYS</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;time&quot;</span><span class="p">,</span> <span class="s2">&quot;dt&quot;</span><span class="p">,</span> <span class="s2">&quot;wrap&quot;</span><span class="p">,</span> <span class="s2">&quot;order&quot;</span><span class="p">}</span>
+
+<span class="n">KNOWN_FUNCTIONS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="c1"># Basic mathematical functions</span>
+    <span class="s1">&#39;exp&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">exp</span><span class="p">,</span>
+    <span class="s1">&#39;log&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">log</span><span class="p">,</span>
+    <span class="s1">&#39;sqrt&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">sqrt</span><span class="p">,</span>
+    <span class="s1">&#39;pow&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Pow</span><span class="p">,</span>
+
+    <span class="c1"># Trigonometric functions</span>
+    <span class="s1">&#39;sin&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">sin</span><span class="p">,</span>
+    <span class="s1">&#39;cos&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">cos</span><span class="p">,</span>
+    <span class="s1">&#39;tan&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">tan</span><span class="p">,</span>
+    <span class="s1">&#39;asin&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">asin</span><span class="p">,</span>
+    <span class="s1">&#39;acos&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">acos</span><span class="p">,</span>
+    <span class="s1">&#39;atan&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">atan</span><span class="p">,</span>
+    <span class="s1">&#39;atan2&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">atan2</span><span class="p">,</span>
+
+    <span class="c1"># Hyperbolic functions</span>
+    <span class="s1">&#39;sinh&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">sinh</span><span class="p">,</span>
+    <span class="s1">&#39;cosh&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">cosh</span><span class="p">,</span>
+    <span class="s1">&#39;tanh&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">tanh</span><span class="p">,</span>
+    <span class="s1">&#39;asinh&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">asinh</span><span class="p">,</span>
+    <span class="s1">&#39;acosh&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">acosh</span><span class="p">,</span>
+    <span class="s1">&#39;atanh&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">atanh</span><span class="p">,</span>
+
+    <span class="c1"># Special functions</span>
+    <span class="s1">&#39;erf&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">erf</span><span class="p">,</span>
+    <span class="s1">&#39;erfc&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">erfc</span><span class="p">,</span>
+    <span class="s1">&#39;gamma&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">gamma</span><span class="p">,</span>
+    <span class="s1">&#39;lgamma&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">loggamma</span><span class="p">,</span>
+
+    <span class="c1"># Rounding and absolute</span>
+    <span class="s1">&#39;Abs&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Abs</span><span class="p">,</span>
+    <span class="s1">&#39;abs&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Abs</span><span class="p">,</span>
+    <span class="s1">&#39;floor&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">floor</span><span class="p">,</span>
+    <span class="s1">&#39;ceil&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">ceiling</span><span class="p">,</span>
+    <span class="s1">&#39;ceiling&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">ceiling</span><span class="p">,</span>
+
+    <span class="c1"># Min/Max</span>
+    <span class="s1">&#39;Min&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Min</span><span class="p">,</span>
+    <span class="s1">&#39;Max&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Max</span><span class="p">,</span>
+    <span class="s1">&#39;min&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Min</span><span class="p">,</span>
+    <span class="s1">&#39;max&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Max</span><span class="p">,</span>
+
+    <span class="c1"># Functions that need custom handling - placeholder will not</span>
+    <span class="c1"># work for differentiation.</span>
+    <span class="c1"># &#39;log10&#39;: sp.Function(&#39;log10&#39;),</span>
+    <span class="c1"># &#39;log2&#39;: sp.Function(&#39;log2&#39;),</span>
+    <span class="c1"># &#39;log1p&#39;: sp.Function(&#39;log1p&#39;),</span>
+    <span class="c1"># &#39;hypot&#39;: sp.Function(&#39;hypot&#39;),</span>
+    <span class="c1"># &#39;expm1&#39;: sp.Function(&#39;expm1&#39;),</span>
+    <span class="c1"># &#39;copysign&#39;: sp.Function(&#39;copysign&#39;),</span>
+    <span class="c1"># &#39;fmod&#39;: sp.Function(&#39;fmod&#39;),</span>
+    <span class="c1"># &#39;modf&#39;: sp.Function(&#39;modf&#39;),</span>
+    <span class="c1"># &#39;frexp&#39;: sp.Function(&#39;frexp&#39;),</span>
+    <span class="c1"># &#39;ldexp&#39;: sp.Function(&#39;ldexp&#39;),</span>
+    <span class="c1"># &#39;remainder&#39;: sp.Function(&#39;remainder&#39;),</span>
+    <span class="c1"># &#39;fabs&#39;: sp.Abs,</span>
+    <span class="c1"># &#39;isnan&#39;: sp.Function(&#39;isnan&#39;),</span>
+    <span class="c1"># &#39;isinf&#39;: sp.Function(&#39;isinf&#39;),</span>
+    <span class="c1"># &#39;isfinite&#39;: sp.Function(&#39;isfinite&#39;),</span>
+
+    <span class="s1">&#39;Piecewise&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Piecewise</span><span class="p">,</span>
+    <span class="s1">&#39;sign&#39;</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">sign</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<div class="viewcode-block" id="EquationWarning">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser.EquationWarning">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">EquationWarning</span><span class="p">(</span><span class="ne">Warning</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Warning raised for recoverable issues in equation definitions.&quot;&quot;&quot;</span></div>
+
+
+<span class="n">_func_call_re</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;\b([A-Za-z_]\w*)\s*\(&quot;</span><span class="p">)</span>
+
+<span class="c1"># ---------------------------- Input cleaning ------------------------------- #</span>
+<div class="viewcode-block" id="_sanitise_input_math">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser._sanitise_input_math">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_sanitise_input_math</span><span class="p">(</span><span class="n">expr_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert Python conditional syntax into SymPy-compatible constructs.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    expr_str</span>
+<span class="sd">        Expression string to sanitise before parsing.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    str</span>
+<span class="sd">        SymPy-compatible expression string.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">expr_str</span> <span class="o">=</span> <span class="n">_replace_if</span><span class="p">(</span><span class="n">expr_str</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">expr_str</span></div>
+
+
+<div class="viewcode-block" id="_replace_if">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser._replace_if">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_replace_if</span><span class="p">(</span><span class="n">expr_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Recursively replace ternary conditionals with ``Piecewise`` blocks.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    expr_str</span>
+<span class="sd">        Expression string that may contain inline conditional expressions.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    str</span>
+<span class="sd">        Expression with ternary conditionals rewritten for SymPy parsing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">match</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="sa">r</span><span class="s2">&quot;(.+?) if (.+?) else (.+)&quot;</span><span class="p">,</span> <span class="n">expr_str</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">match</span><span class="p">:</span>
+        <span class="n">true_str</span> <span class="o">=</span> <span class="n">_replace_if</span><span class="p">(</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+        <span class="n">cond_str</span> <span class="o">=</span> <span class="n">_replace_if</span><span class="p">(</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+        <span class="n">false_str</span> <span class="o">=</span> <span class="n">_replace_if</span><span class="p">(</span><span class="n">match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;Piecewise((</span><span class="si">{</span><span class="n">true_str</span><span class="si">}</span><span class="s2">, </span><span class="si">{</span><span class="n">cond_str</span><span class="si">}</span><span class="s2">), (</span><span class="si">{</span><span class="n">false_str</span><span class="si">}</span><span class="s2">, True))&quot;</span>
+    <span class="k">return</span> <span class="n">expr_str</span></div>
+
+
+<span class="c1"># ---------------------------- Function handling --------------------------- #</span>
+
+<div class="viewcode-block" id="_rename_user_calls">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser._rename_user_calls">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_rename_user_calls</span><span class="p">(</span>
+    <span class="n">lines</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">user_functions</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Rename user-defined callables to avoid collisions with SymPy names.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    lines</span>
+<span class="sd">        Raw equation strings to inspect for function calls.</span>
+<span class="sd">    user_functions</span>
+<span class="sd">        Mapping of user-defined names to callables referenced in the</span>
+<span class="sd">        equations.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        Sanitised lines and a mapping from original names to suffixed names.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">user_functions</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">lines</span><span class="p">),</span> <span class="p">{}</span>
+    <span class="n">rename</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">_&quot;</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">user_functions</span><span class="o">.</span><span class="n">keys</span><span class="p">()}</span>
+    <span class="n">renamed_lines</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="c1"># Replace only function-call tokens: name( -&gt; name_(</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+        <span class="n">new_line</span> <span class="o">=</span> <span class="n">line</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">underscored</span> <span class="ow">in</span> <span class="n">rename</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">new_line</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="sa">rf</span><span class="s2">&quot;\b</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">\s*\(&quot;</span><span class="p">,</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">underscored</span><span class="si">}</span><span class="s2">(&quot;</span><span class="p">,</span> <span class="n">new_line</span><span class="p">)</span>
+        <span class="n">renamed_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_line</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">renamed_lines</span><span class="p">,</span> <span class="n">rename</span></div>
+
+
+
+<div class="viewcode-block" id="_build_sympy_user_functions">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser._build_sympy_user_functions">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_build_sympy_user_functions</span><span class="p">(</span>
+    <span class="n">user_functions</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]],</span>
+    <span class="n">rename</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span>
+    <span class="n">user_function_derivatives</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create SymPy ``Function`` placeholders for user-defined callables.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    user_functions</span>
+<span class="sd">        Mapping of user-provided callable names to their implementations.</span>
+<span class="sd">    rename</span>
+<span class="sd">        Mapping from original user function names to temporary suffixed names</span>
+<span class="sd">        used during parsing.</span>
+<span class="sd">    user_function_derivatives</span>
+<span class="sd">        Mapping from user function names to callables that evaluate analytic</span>
+<span class="sd">        derivatives.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        Parsing locals, pretty-name aliases, and device-function flags.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Device functions or user functions with derivative helpers are wrapped in</span>
+<span class="sd">    dynamic ``Function`` subclasses whose ``fdiff`` method yields symbolic</span>
+<span class="sd">    derivative placeholders so that downstream printers can emit gradient</span>
+<span class="sd">    kernels.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parse_locals</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">alias_map</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">is_device_map</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">for</span> <span class="n">orig_name</span><span class="p">,</span> <span class="n">func</span> <span class="ow">in</span> <span class="p">(</span><span class="n">user_functions</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">sym_name</span> <span class="o">=</span> <span class="n">rename</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">orig_name</span><span class="p">,</span> <span class="n">orig_name</span><span class="p">)</span>
+        <span class="n">alias_map</span><span class="p">[</span><span class="n">sym_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">orig_name</span>
+        <span class="n">dev</span> <span class="o">=</span> <span class="n">is_devfunc</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="n">is_device_map</span><span class="p">[</span><span class="n">sym_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">dev</span>
+        <span class="c1"># Resolve derivative print name (if provided)</span>
+        <span class="n">deriv_callable</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">user_function_derivatives</span> <span class="ow">and</span> <span class="n">orig_name</span> <span class="ow">in</span> <span class="n">user_function_derivatives</span><span class="p">:</span>
+            <span class="n">deriv_callable</span> <span class="o">=</span> <span class="n">user_function_derivatives</span><span class="p">[</span><span class="n">orig_name</span><span class="p">]</span>
+        <span class="n">deriv_print_name</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">deriv_callable</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">deriv_print_name</span> <span class="o">=</span> <span class="n">deriv_callable</span><span class="o">.</span><span class="vm">__name__</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="n">deriv_print_name</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">should_wrap</span> <span class="o">=</span> <span class="n">dev</span> <span class="ow">or</span> <span class="n">deriv_callable</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">should_wrap</span><span class="p">:</span>
+            <span class="c1"># Build a dynamic Function subclass with name sym_name and fdiff</span>
+            <span class="c1"># that generates &lt;deriv_print_name or d_orig&gt;(args..., argindex-1)</span>
+            <span class="k">def</span><span class="w"> </span><span class="nf">_make_class</span><span class="p">(</span><span class="n">sym_name</span><span class="o">=</span><span class="n">sym_name</span><span class="p">,</span> <span class="n">orig_name</span><span class="o">=</span><span class="n">orig_name</span><span class="p">,</span> <span class="n">deriv_print_name</span><span class="o">=</span><span class="n">deriv_print_name</span><span class="p">):</span>
+                <span class="k">class</span><span class="w"> </span><span class="nc">_UserDevFunc</span><span class="p">(</span><span class="n">sp</span><span class="o">.</span><span class="n">Function</span><span class="p">):</span>
+                    <span class="n">nargs</span> <span class="o">=</span> <span class="kc">None</span>
+                    <span class="nd">@classmethod</span>
+                    <span class="k">def</span><span class="w"> </span><span class="nf">eval</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+                        <span class="k">return</span> <span class="kc">None</span>
+                    <span class="k">def</span><span class="w"> </span><span class="nf">fdiff</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">argindex</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+                        <span class="n">target_name</span> <span class="o">=</span> <span class="n">deriv_print_name</span> <span class="ow">or</span> <span class="sa">f</span><span class="s2">&quot;d_</span><span class="si">{</span><span class="n">orig_name</span><span class="si">}</span><span class="s2">&quot;</span>
+                        <span class="n">deriv_func</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Function</span><span class="p">(</span><span class="n">target_name</span><span class="p">)</span>
+                        <span class="k">return</span> <span class="n">deriv_func</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Integer</span><span class="p">(</span><span class="n">argindex</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span>
+                <span class="n">_UserDevFunc</span><span class="o">.</span><span class="vm">__name__</span> <span class="o">=</span> <span class="n">sym_name</span>
+                <span class="k">return</span> <span class="n">_UserDevFunc</span>
+            <span class="n">parse_locals</span><span class="p">[</span><span class="n">sym_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">_make_class</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">parse_locals</span><span class="p">[</span><span class="n">sym_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Function</span><span class="p">(</span><span class="n">sym_name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">parse_locals</span><span class="p">,</span> <span class="n">alias_map</span><span class="p">,</span> <span class="n">is_device_map</span></div>
+
+
+
+<div class="viewcode-block" id="_inline_nondevice_calls">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser._inline_nondevice_calls">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_inline_nondevice_calls</span><span class="p">(</span>
+    <span class="n">expr</span><span class="p">:</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">,</span>
+    <span class="n">user_functions</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">],</span>
+    <span class="n">rename</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Inline callable results for non-device user functions when possible.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    expr</span>
+<span class="sd">        Expression potentially containing calls to user-defined functions.</span>
+<span class="sd">    user_functions</span>
+<span class="sd">        Mapping from user-provided function names to their implementations.</span>
+<span class="sd">    rename</span>
+<span class="sd">        Mapping from original user function names to suffixed parser names.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    sympy.Expr</span>
+<span class="sd">        Expression with inlineable calls replaced by their evaluated result.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">user_functions</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">expr</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_try_inline</span><span class="p">(</span><span class="n">applied</span><span class="p">):</span>
+        <span class="c1"># applied is an AppliedUndef or similar; get its name</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">applied</span><span class="o">.</span><span class="n">func</span><span class="o">.</span><span class="vm">__name__</span>
+        <span class="c1"># reverse-map if this is an underscored user function</span>
+        <span class="n">orig_name</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">rename</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">v</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="n">orig_name</span> <span class="o">=</span> <span class="n">k</span>
+                <span class="k">break</span>
+        <span class="k">if</span> <span class="n">orig_name</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">applied</span>
+        <span class="n">fn</span> <span class="o">=</span> <span class="n">user_functions</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">orig_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fn</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">is_devfunc</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">applied</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Try evaluate on SymPy args</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="n">fn</span><span class="p">(</span><span class="o">*</span><span class="n">applied</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+            <span class="c1"># Ensure it&#39;s a SymPy expression</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="p">(</span><span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">)):</span>
+                <span class="k">return</span> <span class="n">val</span>
+            <span class="c1"># Fall back to keeping symbolic call</span>
+            <span class="k">return</span> <span class="n">applied</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">applied</span>
+
+    <span class="c1"># Replace any AppliedUndef whose name matches an underscored function</span>
+    <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">sym_name</span> <span class="ow">in</span> <span class="n">rename</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Function</span><span class="p">(</span><span class="n">sym_name</span><span class="p">)</span>
+        <span class="n">expr</span> <span class="o">=</span> <span class="n">expr</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="k">lambda</span> <span class="n">e</span><span class="p">:</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">AppliedUndef</span><span class="p">)</span> <span class="ow">and</span> <span class="n">e</span><span class="o">.</span><span class="n">func</span> <span class="o">==</span> <span class="n">f</span><span class="p">,</span> <span class="n">_try_inline</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">expr</span></div>
+
+
+
+<div class="viewcode-block" id="_process_calls">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser._process_calls">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_process_calls</span><span class="p">(</span>
+    <span class="n">equations_input</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">user_functions</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Resolve callable names referenced in the user equations.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    equations_input</span>
+<span class="sd">        Equations describing the system dynamics.</span>
+<span class="sd">    user_functions</span>
+<span class="sd">        Mapping from user-provided function names to callables.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    dict</span>
+<span class="sd">        Resolved callables keyed by their names as they appear in equations.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">calls</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">user_functions</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">user_functions</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">equations_input</span><span class="p">:</span>
+        <span class="n">calls</span> <span class="o">|=</span> <span class="nb">set</span><span class="p">(</span><span class="n">_func_call_re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="n">line</span><span class="p">))</span>
+    <span class="n">funcs</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">calls</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">user_functions</span><span class="p">:</span>
+            <span class="n">funcs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">user_functions</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">KNOWN_FUNCTIONS</span><span class="p">:</span>
+            <span class="n">funcs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">KNOWN_FUNCTIONS</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Your dxdt code contains a call to a &quot;</span>
+                             <span class="sa">f</span><span class="s2">&quot;function </span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">() that isn&#39;t part of Sympy &quot;</span>
+                             <span class="sa">f</span><span class="s2">&quot;and wasn&#39;t provided in the user_functions &quot;</span>
+                             <span class="sa">f</span><span class="s2">&quot;dict.&quot;</span><span class="p">)</span>
+    <span class="c1"># Tests: non-listed sympy function errors</span>
+    <span class="c1"># Tests: user function passes</span>
+    <span class="c1"># Tests: user function overrides listed sympy function</span>
+    <span class="k">return</span> <span class="n">funcs</span></div>
+
+
+<div class="viewcode-block" id="_process_parameters">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser._process_parameters">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_process_parameters</span><span class="p">(</span>
+    <span class="n">states</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
+    <span class="n">parameters</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
+    <span class="n">constants</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
+    <span class="n">observables</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">drivers</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">IndexedBases</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Convert user-specified symbols into ``IndexedBases`` structures.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    states</span>
+<span class="sd">        State symbols or mapping to initial values.</span>
+<span class="sd">    parameters</span>
+<span class="sd">        Parameter symbols or mapping to default values.</span>
+<span class="sd">    constants</span>
+<span class="sd">        Constant symbols or mapping to default values.</span>
+<span class="sd">    observables</span>
+<span class="sd">        Observable symbol names supplied by the user.</span>
+<span class="sd">    drivers</span>
+<span class="sd">        External driver symbol names.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    IndexedBases</span>
+<span class="sd">        Structured representation of all indexed symbol collections.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">indexed_bases</span> <span class="o">=</span> <span class="n">IndexedBases</span><span class="o">.</span><span class="n">from_user_inputs</span><span class="p">(</span><span class="n">states</span><span class="p">,</span>
+                                                  <span class="n">parameters</span><span class="p">,</span>
+                                                  <span class="n">constants</span><span class="p">,</span>
+                                                  <span class="n">observables</span><span class="p">,</span>
+                                                  <span class="n">drivers</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">indexed_bases</span></div>
+
+
+
+<div class="viewcode-block" id="_lhs_pass">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser._lhs_pass">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_lhs_pass</span><span class="p">(</span>
+    <span class="n">lines</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">indexed_bases</span><span class="p">:</span> <span class="n">IndexedBases</span><span class="p">,</span>
+    <span class="n">strict</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Validate left-hand sides and infer anonymous auxiliaries.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    lines</span>
+<span class="sd">        Equations supplied by the user.</span>
+<span class="sd">    indexed_bases</span>
+<span class="sd">        Indexed symbol collections constructed from user inputs.</span>
+<span class="sd">    strict</span>
+<span class="sd">        When ``False``, unknown state derivatives are inferred automatically</span>
+<span class="sd">        but other assignments remain anonymous auxiliaries.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    dict</span>
+<span class="sd">        Symbols for auxiliary observables introduced implicitly in equations.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Anonymous auxiliaries ease model authoring but are not persisted as</span>
+<span class="sd">    saved observables; tracking them ensures generated SymPy code remains</span>
+<span class="sd">    consistent with the equations.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">anonymous_auxiliaries</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">assigned_obs</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="n">underived_states</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">indexed_bases</span><span class="o">.</span><span class="n">dxdt_names</span><span class="p">)</span>
+    <span class="n">state_names</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">indexed_bases</span><span class="o">.</span><span class="n">state_names</span><span class="p">)</span>
+    <span class="n">observable_names</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">indexed_bases</span><span class="o">.</span><span class="n">observable_names</span><span class="p">)</span>
+    <span class="n">param_names</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">indexed_bases</span><span class="o">.</span><span class="n">parameter_names</span><span class="p">)</span>
+    <span class="n">constant_names</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">indexed_bases</span><span class="o">.</span><span class="n">constant_names</span><span class="p">)</span>
+    <span class="n">driver_names</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">indexed_bases</span><span class="o">.</span><span class="n">driver_names</span><span class="p">)</span>
+    <span class="n">states</span> <span class="o">=</span> <span class="n">indexed_bases</span><span class="o">.</span><span class="n">states</span>
+    <span class="n">observables</span> <span class="o">=</span> <span class="n">indexed_bases</span><span class="o">.</span><span class="n">observables</span>
+    <span class="n">dxdt</span> <span class="o">=</span> <span class="n">indexed_bases</span><span class="o">.</span><span class="n">dxdt</span>
+
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+        <span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;=&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="n">lhs</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">&quot;d&quot;</span><span class="p">):</span>
+            <span class="n">state_name</span> <span class="o">=</span> <span class="n">lhs</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+            <span class="n">s_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="n">state_name</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">state_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">state_names</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">state_name</span> <span class="ow">in</span> <span class="n">observable_names</span><span class="p">:</span>
+                    <span class="n">warn</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Your equation included d</span><span class="si">{</span><span class="n">state_name</span><span class="si">}</span><span class="s2">, but &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">state_name</span><span class="si">}</span><span class="s2"> was listed as an observable. It has&quot;</span>
+                        <span class="s2">&quot;been converted into a state.&quot;</span><span class="p">,</span>
+                        <span class="n">EquationWarning</span><span class="p">,</span>
+                    <span class="p">)</span>
+                    <span class="n">states</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="n">s_sym</span><span class="p">)</span>
+                    <span class="n">dxdt</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;d</span><span class="si">{</span><span class="n">state_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+                    <span class="n">observables</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">s_sym</span><span class="p">)</span>
+                    <span class="n">state_names</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">state_name</span><span class="p">)</span>
+                    <span class="n">observable_names</span><span class="o">.</span><span class="n">discard</span><span class="p">(</span><span class="n">state_name</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">strict</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                            <span class="sa">f</span><span class="s2">&quot;Unknown state derivative: </span><span class="si">{</span><span class="n">lhs</span><span class="si">}</span><span class="s2">. &quot;</span>
+                            <span class="sa">f</span><span class="s2">&quot;No state or observable called </span><span class="si">{</span><span class="n">state_name</span><span class="si">}</span><span class="s2"> found.&quot;</span>
+                        <span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">states</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="n">s_sym</span><span class="p">)</span>
+                        <span class="n">dxdt</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;d</span><span class="si">{</span><span class="n">state_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span>
+                        <span class="n">state_names</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">state_name</span><span class="p">)</span>
+                        <span class="n">underived_states</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;d</span><span class="si">{</span><span class="n">state_name</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">underived_states</span> <span class="o">-=</span> <span class="p">{</span><span class="n">lhs</span><span class="p">}</span>
+
+        <span class="k">elif</span> <span class="n">lhs</span> <span class="ow">in</span> <span class="n">state_names</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;State </span><span class="si">{</span><span class="n">lhs</span><span class="si">}</span><span class="s2"> cannot be assigned directly. All &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;states must be defined as derivatives with d&quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">lhs</span><span class="si">}</span><span class="s2"> = [...]&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">elif</span> <span class="p">(</span>
+            <span class="n">lhs</span> <span class="ow">in</span> <span class="n">param_names</span>
+            <span class="ow">or</span> <span class="n">lhs</span> <span class="ow">in</span> <span class="n">constant_names</span>
+            <span class="ow">or</span> <span class="n">lhs</span> <span class="ow">in</span> <span class="n">driver_names</span>
+        <span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">lhs</span><span class="si">}</span><span class="s2"> was entered as an immutable &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;input (constant, parameter, or driver)&quot;</span>
+                <span class="s2">&quot;, but it is being assigned to. Cubie &quot;</span>
+                <span class="s2">&quot;can&#39;t handle this - if it&#39;s being &quot;</span>
+                <span class="s2">&quot;assigned to, it must be either a state, an &quot;</span>
+                <span class="s2">&quot;observable, or undefined.&quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">lhs</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">observable_names</span><span class="p">:</span>
+                <span class="n">warn</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;The intermediate variable </span><span class="si">{</span><span class="n">lhs</span><span class="si">}</span><span class="s2"> was assigned to &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;but not listed as an observable. It will be treated &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;as an anonymous auxiliary and its trajectory will &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;not be saved.&quot;</span><span class="p">,</span>
+                    <span class="n">EquationWarning</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="n">anonymous_auxiliaries</span><span class="p">[</span><span class="n">lhs</span><span class="p">]</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="n">lhs</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">lhs</span> <span class="ow">in</span> <span class="n">observable_names</span><span class="p">:</span>
+                <span class="n">assigned_obs</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">lhs</span><span class="p">)</span>
+
+    <span class="n">missing_obs</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">indexed_bases</span><span class="o">.</span><span class="n">observable_names</span><span class="p">)</span> <span class="o">-</span> <span class="n">assigned_obs</span>
+    <span class="k">if</span> <span class="n">missing_obs</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Observables </span><span class="si">{</span><span class="n">missing_obs</span><span class="si">}</span><span class="s2"> are never assigned &quot;</span>
+                         <span class="sa">f</span><span class="s2">&quot;to.&quot;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">underived_states</span><span class="p">:</span>
+        <span class="n">warn</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;States </span><span class="si">{</span><span class="n">underived_states</span><span class="si">}</span><span class="s2"> have no associated derivative &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;term. In the Cubie world, this makes it an &#39;observable&#39;. &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">underived_states</span><span class="si">}</span><span class="s2"> have been moved from states to observables.&quot;</span><span class="p">,</span>
+            <span class="n">EquationWarning</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">underived_states</span><span class="p">:</span>
+            <span class="n">s_sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">state</span> <span class="ow">in</span> <span class="n">observables</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">&quot;State </span><span class="si">{</span><span class="n">state</span><span class="si">}</span><span class="s2"> is already both observable and state. &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;It needs to be an observable if it has no derivative&quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;term.&quot;</span>
+                <span class="p">)</span>
+            <span class="n">observables</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="n">s_sym</span><span class="p">)</span>
+            <span class="n">states</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">s_sym</span><span class="p">)</span>
+            <span class="n">dxdt</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">s_sym</span><span class="p">)</span>
+            <span class="n">observable_names</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">state</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">anonymous_auxiliaries</span></div>
+
+
+<div class="viewcode-block" id="_rhs_pass">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser._rhs_pass">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_rhs_pass</span><span class="p">(</span>
+    <span class="n">lines</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">all_symbols</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">],</span>
+    <span class="n">user_funcs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">user_function_derivatives</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">strict</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">],</span> <span class="n">List</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse right-hand sides, validating symbols and callable usage.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    lines</span>
+<span class="sd">        Equations supplied by the user.</span>
+<span class="sd">    all_symbols</span>
+<span class="sd">        Mapping from symbol names to SymPy symbols.</span>
+<span class="sd">    user_funcs</span>
+<span class="sd">        Optional mapping of user-provided callables referenced in equations.</span>
+<span class="sd">    user_function_derivatives</span>
+<span class="sd">        Optional mapping of user-provided derivative helpers.</span>
+<span class="sd">    strict</span>
+<span class="sd">        When ``False``, unknown symbols are inferred from expressions.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        Parsed expressions, callable mapping, and any inferred symbols.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">expressions</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="c1"># Detect all calls as before for erroring on unknown names and for returning funcs</span>
+    <span class="n">funcs</span> <span class="o">=</span> <span class="n">_process_calls</span><span class="p">(</span><span class="n">lines</span><span class="p">,</span> <span class="n">user_funcs</span><span class="p">)</span>
+
+    <span class="c1"># Prepare user function environment with underscore renaming to avoid collisions</span>
+    <span class="n">sanitized_lines</span><span class="p">,</span> <span class="n">rename</span> <span class="o">=</span> <span class="n">_rename_user_calls</span><span class="p">(</span><span class="n">lines</span><span class="p">,</span> <span class="n">user_funcs</span> <span class="ow">or</span> <span class="p">{})</span>
+    <span class="n">parse_locals</span><span class="p">,</span> <span class="n">alias_map</span><span class="p">,</span> <span class="n">dev_map</span> <span class="o">=</span> <span class="n">_build_sympy_user_functions</span><span class="p">(</span>
+        <span class="n">user_funcs</span> <span class="ow">or</span> <span class="p">{},</span> <span class="n">rename</span><span class="p">,</span> <span class="n">user_function_derivatives</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Expose mapping for the printer via special key in all_symbols (copied by caller)</span>
+    <span class="n">local_dict</span> <span class="o">=</span> <span class="n">all_symbols</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">local_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">parse_locals</span><span class="p">)</span>
+    <span class="n">local_dict</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">,</span> <span class="n">TIME_SYMBOL</span><span class="p">)</span>
+    <span class="n">new_symbols</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">raw_line</span><span class="p">,</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">lines</span><span class="p">,</span> <span class="n">sanitized_lines</span><span class="p">):</span>
+        <span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;=&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)]</span>
+        <span class="n">rhs_expr</span> <span class="o">=</span> <span class="n">_sanitise_input_math</span><span class="p">(</span><span class="n">rhs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">strict</span><span class="p">:</span>
+            <span class="c1"># don&#39;t auto-add symbols</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">rhs_expr</span> <span class="o">=</span> <span class="n">parse_expr</span><span class="p">(</span>
+                        <span class="n">rhs_expr</span><span class="p">,</span>
+                        <span class="n">transformations</span><span class="o">=</span><span class="n">PARSE_TRANSORMS</span><span class="p">,</span>
+                        <span class="n">local_dict</span><span class="o">=</span><span class="n">local_dict</span><span class="p">)</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">NameError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="c1"># Provide the original (unsanitized) line in message</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Undefined symbols in equation &#39;</span><span class="si">{</span><span class="n">raw_line</span><span class="si">}</span><span class="s2">&#39;&quot;</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">e</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">rhs_expr</span> <span class="o">=</span> <span class="n">parse_expr</span><span class="p">(</span>
+                <span class="n">rhs_expr</span><span class="p">,</span>
+                <span class="n">local_dict</span><span class="o">=</span><span class="n">local_dict</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">new_inputs</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">sym</span> <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="n">rhs_expr</span><span class="o">.</span><span class="n">free_symbols</span> <span class="k">if</span> <span class="n">sym</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">local_dict</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+            <span class="p">]</span>
+            <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="n">new_inputs</span><span class="p">:</span>
+                <span class="n">new_symbols</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span>
+
+        <span class="c1"># Attempt to inline non-device functions that can accept SymPy args</span>
+        <span class="n">rhs_expr</span> <span class="o">=</span> <span class="n">_inline_nondevice_calls</span><span class="p">(</span><span class="n">rhs_expr</span><span class="p">,</span> <span class="n">user_funcs</span> <span class="ow">or</span> <span class="p">{},</span> <span class="n">rename</span><span class="p">)</span>
+
+        <span class="n">expressions</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="n">local_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+                    <span class="n">lhs</span><span class="p">,</span>
+                    <span class="n">all_symbols</span><span class="p">[</span><span class="n">lhs</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="n">lhs</span> <span class="ow">in</span> <span class="n">all_symbols</span>
+                    <span class="k">else</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="n">lhs</span><span class="p">,</span> <span class="n">real</span><span class="o">=</span><span class="kc">True</span><span class="p">),</span>
+                <span class="p">),</span>
+                <span class="n">rhs_expr</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+
+    <span class="n">declared_symbols</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">value</span> <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">all_symbols</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">)</span>
+    <span class="p">}</span>
+    <span class="n">new_symbol_set</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">new_symbols</span><span class="p">)</span>
+    <span class="n">rhs_symbols</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">symbol</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">expression</span> <span class="ow">in</span> <span class="n">expressions</span> <span class="k">for</span> <span class="n">symbol</span> <span class="ow">in</span> <span class="n">expression</span><span class="o">.</span><span class="n">free_symbols</span>
+    <span class="p">}</span>
+    <span class="n">unresolved_symbols</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
+        <span class="nb">str</span><span class="p">(</span><span class="n">symbol</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">symbol</span> <span class="ow">in</span> <span class="n">rhs_symbols</span>
+        <span class="k">if</span> <span class="n">symbol</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">declared_symbols</span> <span class="ow">and</span> <span class="n">symbol</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">new_symbol_set</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">unresolved_symbols</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">&quot;Equations reference undefined symbols: &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">unresolved_symbols</span><span class="si">}</span><span class="s2">.&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">expressions</span><span class="p">,</span> <span class="n">funcs</span><span class="p">,</span> <span class="n">new_symbols</span></div>
+
+
+<div class="viewcode-block" id="parse_input">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.parser.html#cubie.odesystems.symbolic.parser.parse_input">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_input</span><span class="p">(</span>
+    <span class="n">dxdt</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
+    <span class="n">states</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">observables</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">parameters</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">constants</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">drivers</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">user_functions</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">user_function_derivatives</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">strict</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span>
+    <span class="n">IndexedBases</span><span class="p">,</span>
+    <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">object</span><span class="p">],</span>
+    <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Callable</span><span class="p">],</span>
+    <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="nb">str</span><span class="p">,</span>
+<span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Process user equations and symbol metadata into structured components.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    dxdt</span>
+<span class="sd">        System equations, either as a newline-delimited string or iterable of</span>
+<span class="sd">        strings.</span>
+<span class="sd">    states</span>
+<span class="sd">        State variables provided as names or a mapping to initial values.</span>
+<span class="sd">    observables</span>
+<span class="sd">        Observable variable names whose trajectories should be saved.</span>
+<span class="sd">    parameters</span>
+<span class="sd">        Parameter names or mapping to default values.</span>
+<span class="sd">    constants</span>
+<span class="sd">        Constant names or mapping to default values that remain fixed across</span>
+<span class="sd">        runs.</span>
+<span class="sd">    drivers</span>
+<span class="sd">        Driver variable names supplied at runtime. Accepts either an iterable</span>
+<span class="sd">        of driver labels or a dictionary mapping driver labels to default</span>
+<span class="sd">        values and, when using driver arrays, configuration entries such as</span>
+<span class="sd">        ``time``, ``dt``, ``wrap``, and ``order``.</span>
+<span class="sd">    user_functions</span>
+<span class="sd">        Mapping of callable names used in equations to their implementations.</span>
+<span class="sd">    user_function_derivatives</span>
+<span class="sd">        Mapping of callable names to derivative helper functions.</span>
+<span class="sd">    strict</span>
+<span class="sd">        When ``False``, infer missing symbol declarations from equation usage.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    tuple</span>
+<span class="sd">        Indexed bases, combined symbol mapping, callable mapping, parsed</span>
+<span class="sd">        equations, and the system hash.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    When ``strict`` is ``False``, undeclared variables inferred from equation</span>
+<span class="sd">    usage are added automatically, except for anonymous auxiliaries that are</span>
+<span class="sd">    retained for intermediate computation but not persisted as observables.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">states</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">states</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">strict</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;No state symbols were provided - if you want to build a model &quot;</span>
+                <span class="s2">&quot;from a set of equations alone, set strict=False&quot;</span>
+            <span class="p">)</span>
+    <span class="k">if</span> <span class="n">observables</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">observables</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="n">parameters</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">parameters</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">if</span> <span class="n">constants</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">constants</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">driver_dict</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">drivers</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">drivers</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">drivers</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">driver_dict</span> <span class="o">=</span> <span class="n">drivers</span>
+        <span class="n">drivers</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">key</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">drivers</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span> <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">DRIVER_SETTING_KEYS</span>
+        <span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">drivers</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Driver dictionary must include at least one driver symbol.&quot;</span>
+            <span class="p">)</span>
+
+    <span class="n">index_map</span> <span class="o">=</span> <span class="n">_process_parameters</span><span class="p">(</span>
+        <span class="n">states</span><span class="o">=</span><span class="n">states</span><span class="p">,</span>
+        <span class="n">parameters</span><span class="o">=</span><span class="n">parameters</span><span class="p">,</span>
+        <span class="n">constants</span><span class="o">=</span><span class="n">constants</span><span class="p">,</span>
+        <span class="n">observables</span><span class="o">=</span><span class="n">observables</span><span class="p">,</span>
+        <span class="n">drivers</span><span class="o">=</span><span class="n">drivers</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dxdt</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">dxdt</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()</span> <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="p">]</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dxdt</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dxdt</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">dxdt</span> <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;dxdt must be a string or a list/tuple of strings&quot;</span><span class="p">)</span>
+
+    <span class="n">constants</span> <span class="o">=</span> <span class="n">index_map</span><span class="o">.</span><span class="n">constants</span><span class="o">.</span><span class="n">default_values</span>
+    <span class="n">fn_hash</span> <span class="o">=</span> <span class="n">hash_system_definition</span><span class="p">(</span><span class="n">dxdt</span><span class="p">,</span> <span class="n">constants</span><span class="p">)</span>
+    <span class="n">anon_aux</span> <span class="o">=</span> <span class="n">_lhs_pass</span><span class="p">(</span><span class="n">lines</span><span class="p">,</span> <span class="n">index_map</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="n">strict</span><span class="p">)</span>
+    <span class="n">all_symbols</span> <span class="o">=</span> <span class="n">index_map</span><span class="o">.</span><span class="n">all_symbols</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">all_symbols</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;t&quot;</span><span class="p">,</span> <span class="n">TIME_SYMBOL</span><span class="p">)</span>
+    <span class="n">all_symbols</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">anon_aux</span><span class="p">)</span>
+
+    <span class="n">equation_map</span><span class="p">,</span> <span class="n">funcs</span><span class="p">,</span> <span class="n">new_params</span> <span class="o">=</span> <span class="n">_rhs_pass</span><span class="p">(</span>
+        <span class="n">lines</span><span class="o">=</span><span class="n">lines</span><span class="p">,</span>
+        <span class="n">all_symbols</span><span class="o">=</span><span class="n">all_symbols</span><span class="p">,</span>
+        <span class="n">user_funcs</span><span class="o">=</span><span class="n">user_functions</span><span class="p">,</span>
+        <span class="n">user_function_derivatives</span><span class="o">=</span><span class="n">user_function_derivatives</span><span class="p">,</span>
+        <span class="n">strict</span><span class="o">=</span><span class="n">strict</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">param</span> <span class="ow">in</span> <span class="n">new_params</span><span class="p">:</span>
+        <span class="n">index_map</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="n">param</span><span class="p">)</span>
+        <span class="n">all_symbols</span><span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">param</span><span class="p">)]</span> <span class="o">=</span> <span class="n">param</span>
+
+    <span class="k">if</span> <span class="n">driver_dict</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">index_map</span><span class="o">.</span><span class="n">drivers</span><span class="o">.</span><span class="n">set_passthrough_defaults</span><span class="p">(</span><span class="n">driver_dict</span><span class="p">)</span>
+
+    <span class="c1"># Expose user functions in the returned symbols dict (original names)</span>
+    <span class="c1"># and alias mapping for the printer under a special key</span>
+    <span class="k">if</span> <span class="n">user_functions</span><span class="p">:</span>
+        <span class="n">all_symbols</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="n">name</span><span class="p">:</span> <span class="n">fn</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">fn</span> <span class="ow">in</span> <span class="n">user_functions</span><span class="o">.</span><span class="n">items</span><span class="p">()})</span>
+        <span class="c1"># Also expose derivative callables if provided</span>
+        <span class="k">if</span> <span class="n">user_function_derivatives</span><span class="p">:</span>
+            <span class="n">all_symbols</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="n">fn</span><span class="o">.</span><span class="vm">__name__</span><span class="p">:</span> <span class="n">fn</span>
+                    <span class="k">for</span> <span class="n">fn</span> <span class="ow">in</span> <span class="n">user_function_derivatives</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="nb">callable</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+        <span class="c1"># Build alias map underscored -&gt; original for the printer</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">rename</span> <span class="o">=</span> <span class="n">_rename_user_calls</span><span class="p">(</span><span class="n">lines</span><span class="p">,</span> <span class="n">user_functions</span> <span class="ow">or</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">rename</span><span class="p">:</span>
+            <span class="n">alias_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">rename</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+            <span class="n">all_symbols</span><span class="p">[</span><span class="s1">&#39;__function_aliases__&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">alias_map</span>
+
+    <span class="k">return</span> <span class="n">index_map</span><span class="p">,</span> <span class="n">all_symbols</span><span class="p">,</span> <span class="n">funcs</span><span class="p">,</span> <span class="n">equation_map</span><span class="p">,</span> <span class="n">fn_hash</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

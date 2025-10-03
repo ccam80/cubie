@@ -1,0 +1,54 @@
+﻿cubie.integrators.AdaptiveIController
+=====================================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: AdaptiveIController
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~AdaptiveIController.__init__
+      ~AdaptiveIController.build
+      ~AdaptiveIController.build_controller
+      ~AdaptiveIController.get_cached_output
+      ~AdaptiveIController.setup_compile_settings
+      ~AdaptiveIController.update
+      ~AdaptiveIController.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~AdaptiveIController.algorithm_order
+      ~AdaptiveIController.atol
+      ~AdaptiveIController.cache_valid
+      ~AdaptiveIController.compile_settings
+      ~AdaptiveIController.deadband_max
+      ~AdaptiveIController.deadband_min
+      ~AdaptiveIController.device_function
+      ~AdaptiveIController.dt0
+      ~AdaptiveIController.dt_max
+      ~AdaptiveIController.dt_min
+      ~AdaptiveIController.is_adaptive
+      ~AdaptiveIController.local_memory_elements
+      ~AdaptiveIController.max_gain
+      ~AdaptiveIController.min_gain
+      ~AdaptiveIController.n
+      ~AdaptiveIController.numba_precision
+      ~AdaptiveIController.precision
+      ~AdaptiveIController.rtol
+      ~AdaptiveIController.safety
+      ~AdaptiveIController.settings_dict
+      ~AdaptiveIController.simsafe_precision
+   
+   

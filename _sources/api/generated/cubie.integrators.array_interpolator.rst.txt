@@ -1,0 +1,13 @@
+cubie.integrators.array\_interpolator
+=====================================
+
+.. automodule:: cubie.integrators.array_interpolator
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      ArrayInterpolator
+      ArrayInterpolatorConfig
+   

@@ -1,0 +1,53 @@
+﻿cubie.batchsolving.arrays.BatchInputArrays.InputArrays
+======================================================
+
+.. currentmodule:: cubie.batchsolving.arrays.BatchInputArrays
+
+.. autoclass:: InputArrays
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~InputArrays.__init__
+      ~InputArrays.allocate
+      ~InputArrays.attach_external_arrays
+      ~InputArrays.check_incoming_arrays
+      ~InputArrays.check_sizes
+      ~InputArrays.check_type
+      ~InputArrays.finalise
+      ~InputArrays.from_device
+      ~InputArrays.from_solver
+      ~InputArrays.initialise
+      ~InputArrays.initialize_device_zeros
+      ~InputArrays.register_with_memory_manager
+      ~InputArrays.request_allocation
+      ~InputArrays.reset
+      ~InputArrays.to_device
+      ~InputArrays.update
+      ~InputArrays.update_from_solver
+      ~InputArrays.update_host_arrays
+      ~InputArrays.update_sizes
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~InputArrays.device
+      ~InputArrays.device_driver_coefficients
+      ~InputArrays.device_initial_values
+      ~InputArrays.device_parameters
+      ~InputArrays.driver_coefficients
+      ~InputArrays.host
+      ~InputArrays.initial_values
+      ~InputArrays.parameters
+   
+   

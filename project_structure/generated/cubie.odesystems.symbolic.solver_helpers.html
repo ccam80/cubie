@@ -1,0 +1,349 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic.solver_helpers &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic.solver_helpers</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/project_structure/generated/cubie.odesystems.symbolic.solver_helpers.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.odesystems.symbolic.solver_helpers">
+<span id="cubie-odesystems-symbolic-solver-helpers"></span><h1>cubie.odesystems.symbolic.solver_helpers<a class="headerlink" href="#module-cubie.odesystems.symbolic.solver_helpers" title="Link to this heading"></a></h1>
+<p>Code generation helpers for implicit solver linear operators and residuals.</p>
+<p>The mass matrix <code class="docutils literal notranslate"><span class="pre">M</span></code> is provided at code-generation time either as a NumPy
+array or a SymPy matrix. Its entries are embedded directly into the generated
+device routine to avoid extra passes or buffers.</p>
+<p class="rubric">Functions</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.solver_helpers.generate_neumann_preconditioner_code" title="cubie.odesystems.symbolic.solver_helpers.generate_neumann_preconditioner_code"><code class="xref py py-obj docutils literal notranslate"><span class="pre">generate_neumann_preconditioner_code</span></code></a>(...[, ...])</p></td>
+<td><p>Generate the Neumann preconditioner factory.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code" title="cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code"><code class="xref py py-obj docutils literal notranslate"><span class="pre">generate_operator_apply_code</span></code></a>(equations, ...)</p></td>
+<td><p>Generate the linear operator factory from system equations.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code_from_jvp" title="cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code_from_jvp"><code class="xref py py-obj docutils literal notranslate"><span class="pre">generate_operator_apply_code_from_jvp</span></code></a>(...[, ...])</p></td>
+<td><p>Emit the operator apply factory from precomputed JVP expressions.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.solver_helpers.generate_residual_code" title="cubie.odesystems.symbolic.solver_helpers.generate_residual_code"><code class="xref py py-obj docutils literal notranslate"><span class="pre">generate_residual_code</span></code></a>(equations, index_map)</p></td>
+<td><p>Emit the residual factory for Newton--Krylov integration.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.solver_helpers.generate_residual_end_state_code" title="cubie.odesystems.symbolic.solver_helpers.generate_residual_end_state_code"><code class="xref py py-obj docutils literal notranslate"><span class="pre">generate_residual_end_state_code</span></code></a>(equations, ...)</p></td>
+<td><p>Generate the end-state residual factory.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.solver_helpers.generate_stage_residual_code" title="cubie.odesystems.symbolic.solver_helpers.generate_stage_residual_code"><code class="xref py py-obj docutils literal notranslate"><span class="pre">generate_stage_residual_code</span></code></a>(equations, ...)</p></td>
+<td><p>Generate the stage residual factory.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.solver_helpers._build_body_from_jvp">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.solver_helpers.</span></span><span class="sig-name descname"><span class="pre">_build_body_from_jvp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">jvp_exprs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><span class="pre">IndexedBases</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">MutableDenseMatrix</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/solver_helpers.html#_build_body_from_jvp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.solver_helpers._build_body_from_jvp" title="Link to this definition"></a></dt>
+<dd><p>Build the CUDA body computing <code class="docutils literal notranslate"><span class="pre">β·M·v</span> <span class="pre">−</span> <span class="pre">γ·h·J·v</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>jvp_exprs</strong> – Expressions yielding the Jacobian-vector product components.</p></li>
+<li><p><strong>index_map</strong> – Symbol indexing helpers produced by the parser.</p></li>
+<li><p><strong>M</strong> – Mass matrix to embed into the generated operator.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Indented CUDA code statements implementing the operator body.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.solver_helpers._build_residual_lines">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.solver_helpers.</span></span><span class="sig-name descname"><span class="pre">_build_residual_lines</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">equations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><span class="pre">IndexedBases</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">MutableDenseMatrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_stage</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">cse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/solver_helpers.html#_build_residual_lines"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.solver_helpers._build_residual_lines" title="Link to this definition"></a></dt>
+<dd><p>Construct CUDA code lines for the requested residual mode.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – Differential equation tuples or dictionary defining <code class="docutils literal notranslate"><span class="pre">dx/dt</span></code>.</p></li>
+<li><p><strong>index_map</strong> – Symbol indexing helpers produced by the parser.</p></li>
+<li><p><strong>M</strong> – Mass matrix to embed into the generated residual.</p></li>
+<li><p><strong>is_stage</strong> – Flag selecting stage or end-state residual evaluation.</p></li>
+<li><p><strong>cse</strong> – Apply common subexpression elimination before emission.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Indented CUDA code statements for the residual body.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Derivative symbols are rewritten to <code class="docutils literal notranslate"><span class="pre">dx_</span></code> indices and observables to
+<code class="docutils literal notranslate"><span class="pre">aux_</span></code> indices to mirror Jacobian-vector product emission.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.solver_helpers._split_jvp_expressions">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.solver_helpers.</span></span><span class="sig-name descname"><span class="pre">_split_jvp_expressions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exprs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/solver_helpers.html#_split_jvp_expressions"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.solver_helpers._split_jvp_expressions" title="Link to this definition"></a></dt>
+<dd><p>Split topologically sorted expressions into auxiliaries and JVP terms.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>exprs</strong> – Expression pairs ordered for evaluation.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Auxiliary assignments followed by the indexed JVP expressions.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a> of list and dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.solver_helpers.generate_neumann_preconditioner_code">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.solver_helpers.</span></span><span class="sig-name descname"><span class="pre">generate_neumann_preconditioner_code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">equations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><span class="pre">IndexedBases</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">func_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'neumann_preconditioner_factory'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/solver_helpers.html#generate_neumann_preconditioner_code"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.solver_helpers.generate_neumann_preconditioner_code" title="Link to this definition"></a></dt>
+<dd><p>Generate the Neumann preconditioner factory.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – Differential equations defining the system.</p></li>
+<li><p><strong>index_map</strong> – Symbol indexing helpers produced by the parser.</p></li>
+<li><p><strong>func_name</strong> – Name assigned to the emitted factory.</p></li>
+<li><p><strong>cse</strong> – Apply common subexpression elimination before emission.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source code for the Neumann preconditioner factory.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.solver_helpers.</span></span><span class="sig-name descname"><span class="pre">generate_operator_apply_code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">equations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><span class="pre">IndexedBases</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">MutableDenseMatrix</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">func_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'operator_apply_factory'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/solver_helpers.html#generate_operator_apply_code"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code" title="Link to this definition"></a></dt>
+<dd><p>Generate the linear operator factory from system equations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – Differential equation tuples defining <code class="docutils literal notranslate"><span class="pre">dx/dt</span></code>.</p></li>
+<li><p><strong>index_map</strong> – Symbol indexing helpers produced by the parser.</p></li>
+<li><p><strong>M</strong> – Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
+identity matrix when omitted.</p></li>
+<li><p><strong>func_name</strong> – Name assigned to the emitted factory.</p></li>
+<li><p><strong>cse</strong> – Apply common subexpression elimination before emission.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source code for the linear operator factory.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code_from_jvp">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.solver_helpers.</span></span><span class="sig-name descname"><span class="pre">generate_operator_apply_code_from_jvp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">jvp_exprs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><span class="pre">IndexedBases</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">MutableDenseMatrix</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">func_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'operator_apply_factory'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/solver_helpers.html#generate_operator_apply_code_from_jvp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.solver_helpers.generate_operator_apply_code_from_jvp" title="Link to this definition"></a></dt>
+<dd><p>Emit the operator apply factory from precomputed JVP expressions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>jvp_exprs</strong> – Topologically ordered Jacobian-vector product expressions.</p></li>
+<li><p><strong>index_map</strong> – Symbol indexing helpers produced by the parser.</p></li>
+<li><p><strong>M</strong> – Mass matrix to embed into the generated operator.</p></li>
+<li><p><strong>func_name</strong> – Name assigned to the emitted factory.</p></li>
+<li><p><strong>cse</strong> – Unused placeholder kept for signature stability.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source code for the linear operator factory.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The emitted factory expects <code class="docutils literal notranslate"><span class="pre">constants</span></code> as a mapping from names to values
+and embeds each constant as a standalone variable in the generated device
+function.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.solver_helpers.generate_residual_code">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.solver_helpers.</span></span><span class="sig-name descname"><span class="pre">generate_residual_code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">equations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><span class="pre">IndexedBases</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">MutableDenseMatrix</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_stage</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">func_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'residual_factory'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/solver_helpers.html#generate_residual_code"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.solver_helpers.generate_residual_code" title="Link to this definition"></a></dt>
+<dd><p>Emit the residual factory for Newton–Krylov integration.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – Differential equation tuples defining <code class="docutils literal notranslate"><span class="pre">dx/dt</span></code>.</p></li>
+<li><p><strong>index_map</strong> – Symbol indexing helpers produced by the parser.</p></li>
+<li><p><strong>M</strong> – Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
+identity matrix when omitted.</p></li>
+<li><p><strong>is_stage</strong> – Generate the stage residual when <code class="docutils literal notranslate"><span class="pre">True</span></code>; otherwise emit the
+end-state residual.</p></li>
+<li><p><strong>func_name</strong> – Name assigned to the emitted factory.</p></li>
+<li><p><strong>cse</strong> – Apply common subexpression elimination before emission.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source code for the residual factory.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.solver_helpers.generate_residual_end_state_code">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.solver_helpers.</span></span><span class="sig-name descname"><span class="pre">generate_residual_end_state_code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">equations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><span class="pre">IndexedBases</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">MutableDenseMatrix</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">func_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'end_residual'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/solver_helpers.html#generate_residual_end_state_code"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.solver_helpers.generate_residual_end_state_code" title="Link to this definition"></a></dt>
+<dd><p>Generate the end-state residual factory.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – Differential equation tuples defining <code class="docutils literal notranslate"><span class="pre">dx/dt</span></code>.</p></li>
+<li><p><strong>index_map</strong> – Symbol indexing helpers produced by the parser.</p></li>
+<li><p><strong>M</strong> – Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
+identity matrix when omitted.</p></li>
+<li><p><strong>func_name</strong> – Name assigned to the emitted factory.</p></li>
+<li><p><strong>cse</strong> – Apply common subexpression elimination before emission.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source code for the residual factory.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.solver_helpers.generate_stage_residual_code">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.solver_helpers.</span></span><span class="sig-name descname"><span class="pre">generate_stage_residual_code</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">equations</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">index_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><span class="pre">IndexedBases</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">M</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">MutableDenseMatrix</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">func_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'stage_residual'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cse</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/solver_helpers.html#generate_stage_residual_code"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.solver_helpers.generate_stage_residual_code" title="Link to this definition"></a></dt>
+<dd><p>Generate the stage residual factory.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>equations</strong> – Differential equation tuples defining <code class="docutils literal notranslate"><span class="pre">dx/dt</span></code>.</p></li>
+<li><p><strong>index_map</strong> – Symbol indexing helpers produced by the parser.</p></li>
+<li><p><strong>M</strong> – Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
+identity matrix when omitted.</p></li>
+<li><p><strong>func_name</strong> – Name assigned to the emitted factory.</p></li>
+<li><p><strong>cse</strong> – Apply common subexpression elimination before emission.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source code for the residual factory.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

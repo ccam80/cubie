@@ -1,0 +1,693 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.batchsolving.BatchGridBuilder &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.batchsolving.BatchSolverConfig" href="cubie.batchsolving.BatchSolverConfig.html" />
+    <link rel="prev" title="cubie.batchsolving" href="cubie.batchsolving.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.html#cubie.batchsolving.Solver"><code class="docutils literal notranslate"><span class="pre">Solver</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.html#cubie.batchsolving.solve_ivp"><code class="docutils literal notranslate"><span class="pre">solve_ivp()</span></code></a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">cubie.batchsolving.BatchGridBuilder</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder"><code class="docutils literal notranslate"><span class="pre">BatchGridBuilder</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.combinatorial_grid"><code class="docutils literal notranslate"><span class="pre">combinatorial_grid()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.combine_grids"><code class="docutils literal notranslate"><span class="pre">combine_grids()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.extend_grid_to_array"><code class="docutils literal notranslate"><span class="pre">extend_grid_to_array()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.generate_array"><code class="docutils literal notranslate"><span class="pre">generate_array()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.generate_grid"><code class="docutils literal notranslate"><span class="pre">generate_grid()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.unique_cartesian_product"><code class="docutils literal notranslate"><span class="pre">unique_cartesian_product()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.verbatim_grid"><code class="docutils literal notranslate"><span class="pre">verbatim_grid()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.BatchSolverConfig.html">cubie.batchsolving.BatchSolverConfig</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.BatchSolverKernel.html">cubie.batchsolving.BatchSolverKernel</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.SystemInterface.html">cubie.batchsolving.SystemInterface</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.arrays.html">cubie.batchsolving.arrays</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.solver.html">cubie.batchsolving.solver</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.batchsolving.solveresult.html">cubie.batchsolving.solveresult</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+      <li class="breadcrumb-item active">cubie.batchsolving.BatchGridBuilder</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.batchsolving.BatchGridBuilder.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.batchsolving.BatchGridBuilder">
+<span id="cubie-batchsolving-batchgridbuilder"></span><h1>cubie.batchsolving.BatchGridBuilder<a class="headerlink" href="#module-cubie.batchsolving.BatchGridBuilder" title="Link to this heading"></a></h1>
+<p>Batch Grid Builder Module.</p>
+<p>This module provides utilities for building grids of state and parameter values.
+The BatchGridBuilder class converts user-supplied dictionaries or arrays into
+the 2D numpy arrays expected by the solver.</p>
+<p class="rubric">Notes</p>
+<p>The user primarily interacts with this class through the Solver class, unless
+they have very specific needs. Interaction with the BatchConfigurator is
+primarily through the <cite>__call__</cite> method, which accepts four arguments:</p>
+<ul>
+<li><p><cite>request</cite>: A dictionary of (potentially mixed) parameter and state names
+mapped to sequences of values. Says: “Integrate from combinations of
+these named variables”</p></li>
+<li><p>‘params’: A dictionary of purely parameter variable names, a 1D sequence to
+set one set of values for every integration, or a 2D array of all
+combinations to integrate from.</p></li>
+<li><p>‘states’: A dictionary of purely state variable names, a 1D sequence to
+set one set of values for every integration, or a 2D array of all
+combinations to integrate from.</p></li>
+<li><p>‘kind’: A string indicating how to combine the parameters and states.
+- ‘combinatorial’ constructs a grid of all combinations of the values</p>
+<blockquote>
+<div><p>provided</p>
+</div></blockquote>
+<ul class="simple">
+<li><p>‘verbatim’ constructs a grid of [[all variables[0]],[all variables[1]],…]
+when the combinations have been intentionally constructed already.</p></li>
+</ul>
+</li>
+</ul>
+<p>There is a subtle difference between a ‘combinatorial’ combination of two
+input arrays the same values given as per-variable arrays in a dict,
+as demonstrated in the examples above. If the user provides arrays as an
+argument, it is assumed that all within-array combinations have already been
+constructed. When the user provides a dict, it is assumed that they want a
+combinatorial combination of the values. In the array case, the method will
+return arrays which contain all combinations of the rows of the arrays (
+i.e. nrows x nrows combinations). The dictionary case first constructs
+combinations of values, resulting in an array of height nvals1 * nvals2 *
+… * nvalsk for k variables, then combines these in the same fashion as
+the array case.</p>
+<p>For more fine-grained control, you can call the grid_arrays and
+combine_grids methods directly, or construct the full arrays outside of
+this method and let them pass through verbatim.</p>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">cubie.batchsolving.BatchGridBuilder</span><span class="w"> </span><span class="kn">import</span> <span class="n">BatchGridBuilder</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.systems.decays</span><span class="w"> </span><span class="kn">import</span> <span class="n">Decays</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">system</span> <span class="o">=</span> <span class="n">Decays</span><span class="p">(</span><span class="n">coefficients</span><span class="o">=</span><span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">grid_builder</span> <span class="o">=</span> <span class="n">BatchGridBuilder</span><span class="o">.</span><span class="n">from_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">params</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;p0&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">],</span> <span class="s2">&quot;p1&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">]}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">states</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;x0&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="s2">&quot;x1&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">]}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">inits</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">grid_builder</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">states</span><span class="o">=</span><span class="n">states</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;combinatorial&quot;</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inits</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(16, 2)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inits</span><span class="p">)</span>
+<span class="go">[[1.  0.5]</span>
+<span class="go"> [1.  0.5]</span>
+<span class="go"> [1.  0.5]</span>
+<span class="go"> [1.  0.5]</span>
+<span class="go"> [1.  1.5]</span>
+<span class="go"> [1.  1.5]</span>
+<span class="go"> [1.  1.5]</span>
+<span class="go"> [1.  1.5]</span>
+<span class="go"> [2.  0.5]</span>
+<span class="go"> [2.  0.5]</span>
+<span class="go"> [2.  0.5]</span>
+<span class="go"> [2.  0.5]</span>
+<span class="go"> [2.  1.5]</span>
+<span class="go"> [2.  1.5]</span>
+<span class="go"> [2.  1.5]</span>
+<span class="go"> [2.  1.5]]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(16, 2)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+<span class="go">[[ 0.1 10. ]</span>
+<span class="go"> [ 0.1 20. ]</span>
+<span class="go"> [ 0.2 10. ]</span>
+<span class="go"> [ 0.2 20. ]</span>
+<span class="go"> [ 0.1 10. ]</span>
+<span class="go"> [ 0.1 20. ]</span>
+<span class="go"> [ 0.2 10. ]</span>
+<span class="go"> [ 0.2 20. ]</span>
+<span class="go"> [ 0.1 10. ]</span>
+<span class="go"> [ 0.1 20. ]</span>
+<span class="go"> [ 0.2 10. ]</span>
+<span class="go"> [ 0.2 20. ]</span>
+<span class="go"> [ 0.1 10. ]</span>
+<span class="go"> [ 0.1 20. ]</span>
+<span class="go"> [ 0.2 10. ]</span>
+<span class="go"> [ 0.2 20. ]]</span>
+</pre></div>
+</div>
+<p>Example 2: verbatim arrays</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">params</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">],</span> <span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">]])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">states</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span> <span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">]])</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">inits</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">grid_builder</span><span class="p">(</span><span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">states</span><span class="o">=</span><span class="n">states</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;verbatim&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inits</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(2, 2)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inits</span><span class="p">)</span>
+<span class="go">[[1.  2. ]</span>
+<span class="go"> [0.5 1.5]]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(2, 2)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+<span class="go">[[ 0.1  0.2]</span>
+<span class="go"> [10.  20. ]]</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">inits</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">grid_builder</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">states</span><span class="o">=</span><span class="n">states</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;combinatorial&quot;</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inits</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(4, 2)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inits</span><span class="p">)</span>
+<span class="go">[[1.  2. ]</span>
+<span class="go"> [1.  2. ]</span>
+<span class="go"> [0.5 1.5]</span>
+<span class="go"> [0.5 1.5]]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(4, 2)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+<span class="go">[[ 0.1  0.2]</span>
+<span class="go"> [10.  20. ]</span>
+<span class="go"> [ 0.1  0.2]</span>
+<span class="go"> [10.  20. ]]</span>
+</pre></div>
+</div>
+<p>Same as individual dictionaries</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">request</span> <span class="o">=</span> <span class="p">{</span>
+<span class="gp">... </span>    <span class="s2">&quot;p0&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">],</span>
+<span class="gp">... </span>    <span class="s2">&quot;p1&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">],</span>
+<span class="gp">... </span>    <span class="s2">&quot;x0&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">],</span>
+<span class="gp">... </span>    <span class="s2">&quot;x1&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.5</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">],</span>
+<span class="gp">... </span><span class="p">}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">inits</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">grid_builder</span><span class="p">(</span><span class="n">request</span><span class="o">=</span><span class="n">request</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;combinatorial&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inits</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(16, 2)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(16, 2)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">request</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;p0&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">]}</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">inits</span><span class="p">,</span> <span class="n">params</span> <span class="o">=</span> <span class="n">grid_builder</span><span class="p">(</span><span class="n">request</span><span class="o">=</span><span class="n">request</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="s2">&quot;combinatorial&quot;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inits</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(2, 2)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">inits</span><span class="p">)</span>  <span class="c1"># unspecified variables are filled with defaults from system</span>
+<span class="go">[[1. 1.]</span>
+<span class="go"> [1. 1.]]</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+<span class="go">(2, 2)</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+<span class="go">[[0.1 2. ]</span>
+<span class="go"> [0.2 2. ]]</span>
+</pre></div>
+</div>
+<p class="rubric">Functions</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.combinatorial_grid" title="cubie.batchsolving.BatchGridBuilder.combinatorial_grid"><code class="xref py py-obj docutils literal notranslate"><span class="pre">combinatorial_grid</span></code></a>(request, values_instance)</p></td>
+<td><p>Build a grid of all unique combinations of values from a request dictionary.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.combine_grids" title="cubie.batchsolving.BatchGridBuilder.combine_grids"><code class="xref py py-obj docutils literal notranslate"><span class="pre">combine_grids</span></code></a>(grid1, grid2[, kind])</p></td>
+<td><p>Combine two grids into extended grids.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.extend_grid_to_array" title="cubie.batchsolving.BatchGridBuilder.extend_grid_to_array"><code class="xref py py-obj docutils literal notranslate"><span class="pre">extend_grid_to_array</span></code></a>(grid, indices, ...)</p></td>
+<td><p>Join a grid with default values to create complete parameter arrays.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.generate_array" title="cubie.batchsolving.BatchGridBuilder.generate_array"><code class="xref py py-obj docutils literal notranslate"><span class="pre">generate_array</span></code></a>(request, values_instance[, kind])</p></td>
+<td><p>Create a complete 2D array from a request dictionary.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.generate_grid" title="cubie.batchsolving.BatchGridBuilder.generate_grid"><code class="xref py py-obj docutils literal notranslate"><span class="pre">generate_grid</span></code></a>(request, values_instance[, ...])</p></td>
+<td><p>Generate a parameter grid for batch runs from a request dictionary.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.unique_cartesian_product" title="cubie.batchsolving.BatchGridBuilder.unique_cartesian_product"><code class="xref py py-obj docutils literal notranslate"><span class="pre">unique_cartesian_product</span></code></a>(arrays)</p></td>
+<td><p>Return unique combinations of elements from input arrays.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.verbatim_grid" title="cubie.batchsolving.BatchGridBuilder.verbatim_grid"><code class="xref py py-obj docutils literal notranslate"><span class="pre">verbatim_grid</span></code></a>(request, values_instance[, silent])</p></td>
+<td><p>Build a grid where parameters vary together, not combinatorially.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder" title="cubie.batchsolving.BatchGridBuilder.BatchGridBuilder"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BatchGridBuilder</span></code></a>(interface)</p></td>
+<td><p>Build grids of parameter and state values for batch runs.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.BatchGridBuilder">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchGridBuilder.</span></span><span class="sig-name descname"><span class="pre">BatchGridBuilder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">interface</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.batchsolving.SystemInterface.html#cubie.batchsolving.SystemInterface.SystemInterface" title="cubie.batchsolving.SystemInterface.SystemInterface"><span class="pre">SystemInterface</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#BatchGridBuilder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Build grids of parameter and state values for batch runs.</p>
+<p>This class converts user-supplied dictionaries or arrays into the 2D
+numpy arrays expected by the solver for batch integration runs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>interface</strong> (<a class="reference internal" href="cubie.batchsolving.SystemInterface.html#cubie.batchsolving.SystemInterface.SystemInterface" title="cubie.batchsolving.SystemInterface.SystemInterface"><em>SystemInterface</em></a>) – System interface containing parameter and state information.</p>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.parameters">
+<span class="sig-name descname"><span class="pre">parameters</span></span><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.parameters" title="Link to this definition"></a></dt>
+<dd><p>Parameter values and metadata from the interface.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues">SystemValues</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.states">
+<span class="sig-name descname"><span class="pre">states</span></span><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.states" title="Link to this definition"></a></dt>
+<dd><p>State values and metadata from the interface.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues">SystemValues</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.BatchGridBuilder._sanitise_arraylike">
+<span class="sig-name descname"><span class="pre">_sanitise_arraylike</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values_object</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues.SystemValues"><span class="pre">SystemValues</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#BatchGridBuilder._sanitise_arraylike"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder._sanitise_arraylike" title="Link to this definition"></a></dt>
+<dd><p>Convert to 2D array if needed and ensure correct dimensions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>arr</strong> (<em>array_like</em>) – Input array-like object to be sanitized.</p></li>
+<li><p><strong>values_object</strong> (<a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues"><em>SystemValues</em></a>) – System values object containing size and default information.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Properly sized 2D array, or None if input array is empty.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>np.ndarray or None</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If input has more than 2 dimensions.</p>
+</dd>
+<dt class="field-odd">Warns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>UserWarning</strong> – If provided input data has incorrect number of columns.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.BatchGridBuilder._trim_or_extend">
+<span class="sig-name descname"><span class="pre">_trim_or_extend</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">_ScalarType_co</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values_object</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues.SystemValues"><span class="pre">SystemValues</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#BatchGridBuilder._trim_or_extend"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder._trim_or_extend" title="Link to this definition"></a></dt>
+<dd><p>Extend incomplete arrays with defaults or trim extra values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>arr</strong> (<em>NDArray</em>) – Input array to be trimmed or extended.</p></li>
+<li><p><strong>values_object</strong> (<a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues"><em>SystemValues</em></a>) – System values object containing default values and size information.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Array with correct dimensions, either trimmed or extended.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>NDArray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.from_system">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_system</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">system</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="cubie.odesystems.baseODE.html#cubie.odesystems.baseODE.BaseODE" title="cubie.odesystems.baseODE.BaseODE"><span class="pre">BaseODE</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#BatchGridBuilder.from_system"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.from_system" title="Link to this definition"></a></dt>
+<dd><p>Create a BatchGridBuilder from a system model.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>system</strong> (<a class="reference internal" href="../../project_structure/generated/cubie.odesystems.BaseODE.html#cubie.odesystems.BaseODE" title="cubie.odesystems.BaseODE"><em>BaseODE</em></a>) – The system model to create the grid builder from.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new BatchGridBuilder instance configured for the given system.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder" title="cubie.batchsolving.BatchGridBuilder.BatchGridBuilder">BatchGridBuilder</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.grid_arrays">
+<span class="sig-name descname"><span class="pre">grid_arrays</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Buffer" title="(in Python v3.13)"><span class="pre">Buffer</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'combinatorial'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#BatchGridBuilder.grid_arrays"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.grid_arrays" title="Link to this definition"></a></dt>
+<dd><p>Build parameter and state grids from a mixed request dictionary.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>request</strong> (<em>Dict</em><em>[</em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>]</em><em>, </em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>ArrayLike</em><em>, </em><em>np.ndarray</em><em>]</em><em>]</em>) – Dictionary keyed by parameter or state name or index, with values
+being the parameter/state values for the grid.</p></li>
+<li><p><strong>kind</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default='combinatorial'</em>) – The type of grid to generate. Can be ‘combinatorial’ or ‘verbatim’.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><ul class="simple">
+<li><p><strong>initial_values_array</strong> (<em>np.ndarray</em>) – 2D state array for input into the integrator.</p></li>
+<li><p><strong>params_array</strong> (<em>np.ndarray</em>) – 2D parameter array for input into the integrator.</p></li>
+</ul>
+</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.combinatorial_grid">
+<span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchGridBuilder.</span></span><span class="sig-name descname"><span class="pre">combinatorial_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Buffer" title="(in Python v3.13)"><span class="pre">Buffer</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values_instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues.SystemValues"><span class="pre">SystemValues</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">silent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#combinatorial_grid"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.combinatorial_grid" title="Link to this definition"></a></dt>
+<dd><p>Build a grid of all unique combinations of values from a request dictionary.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>request</strong> (<em>Dict</em><em>[</em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>]</em><em>, </em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>ArrayLike</em><em>, </em><em>np.ndarray</em><em>]</em><em>]</em>) – Dictionary where keys are parameter names or indices, and values are
+either a single value or an array of values for that parameter.
+For a combinatorial grid, the arrays of values need not be equal in
+length.</p></li>
+<li><p><strong>values_instance</strong> (<a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues"><em>SystemValues</em></a>) – The SystemValues instance in which to find the indices for the keys
+in the request.</p></li>
+<li><p><strong>silent</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>default=False</em>) – If True, suppress warnings about unrecognized parameters in the
+request.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><ul class="simple">
+<li><p><strong>indices</strong> (<em>np.ndarray</em>) – A 1D array of indices corresponding to the gridded parameters.</p></li>
+<li><p><strong>grid</strong> (<em>np.ndarray</em>) – A 2D array of shape (n_runs, n_requested_parameters) where each row
+corresponds to a set of parameters for a run.</p></li>
+</ul>
+</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Unspecified parameters are filled with their default values from the
+system. n_runs is the combinatorial product of the lengths of all of the
+value arrays - for example, if the request contains two parameters with
+3, 2, and 4 values, then n_runs would be 3 * 2 * 4 = 24.</p>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">combinatorial_grid</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="p">{</span><span class="s2">&quot;param1&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">],</span> <span class="s2">&quot;param2&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">]},</span> <span class="n">system</span><span class="o">.</span><span class="n">parameters</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="go">(array([0, 1]),</span>
+<span class="go"> array([[ 0.1, 10. ],</span>
+<span class="go">        [ 0.1, 20. ],</span>
+<span class="go">        [ 0.2, 10. ],</span>
+<span class="go">        [ 0.2, 20. ],</span>
+<span class="go">        [ 0.3, 10. ],</span>
+<span class="go">        [ 0.3, 20. ]]))</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.combine_grids">
+<span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchGridBuilder.</span></span><span class="sig-name descname"><span class="pre">combine_grids</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grid1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'combinatorial'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#combine_grids"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.combine_grids" title="Link to this definition"></a></dt>
+<dd><p>Combine two grids into extended grids.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>grid1</strong> (<em>np.ndarray</em>) – First grid (e.g., parameter grid).</p></li>
+<li><p><strong>grid2</strong> (<em>np.ndarray</em>) – Second grid (e.g., state grid).</p></li>
+<li><p><strong>kind</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default='combinatorial'</em>) – ‘combinatorial’ for cartesian product, ‘verbatim’ for row-wise pairing.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><ul class="simple">
+<li><p><strong>grid1_extended</strong> (<em>np.ndarray</em>) – Extended first grid.</p></li>
+<li><p><strong>grid2_extended</strong> (<em>np.ndarray</em>) – Extended second grid.</p></li>
+</ul>
+</p>
+</dd>
+<dt class="field-odd">Raises<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If kind is ‘verbatim’ and grids have different numbers of rows.
+    If kind is not ‘combinatorial’ or ‘verbatim’.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.extend_grid_to_array">
+<span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchGridBuilder.</span></span><span class="sig-name descname"><span class="pre">extend_grid_to_array</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grid</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">indices</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_values</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#extend_grid_to_array"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.extend_grid_to_array" title="Link to this definition"></a></dt>
+<dd><p>Join a grid with default values to create complete parameter arrays.</p>
+<p>Creates a 2D array where each row has a full set of parameters, and
+non-gridded parameters are set to their default values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>grid</strong> (<em>np.ndarray</em>) – A 2D array of shape (n_runs, n_requested_parameters) where each row
+corresponds to a set of parameters for a run.</p></li>
+<li><p><strong>indices</strong> (<em>np.ndarray</em>) – A 1D array of indices corresponding to the gridded parameters.</p></li>
+<li><p><strong>default_values</strong> (<em>np.ndarray</em>) – A 1D array of default values for the parameters.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>array</strong> – A 2D array of shape (n_runs, n_parameters) where each row
+corresponds to a set of parameters for a run. Parameters not
+specified in the grid are filled with their default values from
+the system.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>np.ndarray</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If grid shape does not match indices shape.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.generate_array">
+<span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchGridBuilder.</span></span><span class="sig-name descname"><span class="pre">generate_array</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Buffer" title="(in Python v3.13)"><span class="pre">Buffer</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values_instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues.SystemValues"><span class="pre">SystemValues</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'combinatorial'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#generate_array"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.generate_array" title="Link to this definition"></a></dt>
+<dd><p>Create a complete 2D array from a request dictionary.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>request</strong> (<em>Dict</em><em>[</em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>]</em><em>, </em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>ArrayLike</em><em>, </em><em>np.ndarray</em><em>]</em><em>]</em>) – Dictionary where keys are parameter names or indices, and values are
+either a single value or an array of values for that parameter.</p></li>
+<li><p><strong>values_instance</strong> (<a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues"><em>SystemValues</em></a>) – The SystemValues instance in which to find the indices for the keys
+in the request.</p></li>
+<li><p><strong>kind</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default='combinatorial'</em>) – The type of grid to generate. Can be ‘combinatorial’ or ‘verbatim’.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>array</strong> – A 2D array of shape (n_runs, n_parameters) where each row
+corresponds to a set of parameters for a run. Parameters not
+specified in the request are filled with their default values from
+the system.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>np.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.generate_grid">
+<span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchGridBuilder.</span></span><span class="sig-name descname"><span class="pre">generate_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Buffer" title="(in Python v3.13)"><span class="pre">Buffer</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values_instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues.SystemValues"><span class="pre">SystemValues</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">kind</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">'combinatorial'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">silent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#generate_grid"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.generate_grid" title="Link to this definition"></a></dt>
+<dd><p>Generate a parameter grid for batch runs from a request dictionary.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>request</strong> (<em>Dict</em><em>[</em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>]</em><em>, </em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>ArrayLike</em><em>, </em><em>np.ndarray</em><em>]</em><em>]</em>) – Dictionary where keys are parameter names or indices, and values are
+either a single value or an array of values for that parameter.</p></li>
+<li><p><strong>values_instance</strong> (<a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues"><em>SystemValues</em></a>) – The SystemValues instance in which to find the indices for the keys
+in the request.</p></li>
+<li><p><strong>kind</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><em>default='combinatorial'</em>) – The type of grid to generate. Can be ‘combinatorial’ or ‘verbatim’.</p></li>
+<li><p><strong>silent</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>default=False</em>) – If True, suppress warnings about unrecognized parameters in the
+request.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><ul class="simple">
+<li><p><strong>indices</strong> (<em>np.ndarray</em>) – A 1D array of indices corresponding to the gridded parameters.</p></li>
+<li><p><strong>grid</strong> (<em>np.ndarray</em>) – A 2D array of shape (n_runs, n_requested_parameters) where each row
+corresponds to a set of parameters for a run.</p></li>
+</ul>
+</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The <cite>kind</cite> parameter determines how the grid is constructed:
+- ‘combinatorial’: see combinatorial_grid function
+- ‘verbatim’: see verbatim_grid function</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.unique_cartesian_product">
+<span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchGridBuilder.</span></span><span class="sig-name descname"><span class="pre">unique_cartesian_product</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arrays</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#unique_cartesian_product"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.unique_cartesian_product" title="Link to this definition"></a></dt>
+<dd><p>Return unique combinations of elements from input arrays.</p>
+<p>Each input array can have duplicates, but the output will not contain
+any duplicate rows. The order of the input arrays is preserved, and the
+output will have the same order of elements as the input.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>arrays</strong> (<em>List</em><em>[</em><em>np.ndarray</em><em>]</em>) – A list of 1D numpy arrays, each containing elements to be combined.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><strong>combos</strong> – A 2D numpy array where each row is a unique combination of elements
+from the inputs.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>np.ndarray</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This function removes duplicates by creating a dict with the elements of
+the input array as keys. It then casts that to a list, getting the
+de-duplicated values. It then uses <cite>itertools.product</cite> to generate the
+Cartesian product of the input arrays.</p>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">unique_cartesian_product</span><span class="p">([</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">2</span><span class="p">]),</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">])])</span>
+<span class="go">array([[1, 3],</span>
+<span class="go">       [1, 4],</span>
+<span class="go">       [2, 3],</span>
+<span class="go">       [2, 4]])</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.batchsolving.BatchGridBuilder.verbatim_grid">
+<span class="sig-prename descclassname"><span class="pre">cubie.batchsolving.BatchGridBuilder.</span></span><span class="sig-name descname"><span class="pre">verbatim_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/collections.abc.html#collections.abc.Buffer" title="(in Python v3.13)"><span class="pre">Buffer</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><span class="pre">_SupportsArray</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">_NestedSequence</span><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.13)"><span class="pre">complex</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#bytes" title="(in Python v3.13)"><span class="pre">bytes</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">values_instance</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues.SystemValues"><span class="pre">SystemValues</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">silent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><span class="pre">ndarray</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/batchsolving/BatchGridBuilder.html#verbatim_grid"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.batchsolving.BatchGridBuilder.verbatim_grid" title="Link to this definition"></a></dt>
+<dd><p>Build a grid where parameters vary together, not combinatorially.</p>
+<p>Parameters vary together, but not combinatorially. All value arrays
+must be of equal length.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>request</strong> (<em>Dict</em><em>[</em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><em>int</em></a><em>]</em><em>, </em><em>Union</em><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><em>float</em></a><em>, </em><em>ArrayLike</em><em>, </em><em>NDArray</em><em>]</em><em>]</em>) – Dictionary where keys are parameter names or indices, and values are
+either a single value or an array of values for that parameter.</p></li>
+<li><p><strong>values_instance</strong> (<a class="reference internal" href="../../project_structure/generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues"><em>SystemValues</em></a>) – The SystemValues instance in which to find the indices for the keys
+in the request.</p></li>
+<li><p><strong>silent</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><em>bool</em></a><em>, </em><em>default=False</em>) – If True, suppress warnings about unrecognized parameters in the
+request.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><ul class="simple">
+<li><p><strong>indices</strong> (<em>np.ndarray</em>) – A 1D array of indices corresponding to the gridded parameters.</p></li>
+<li><p><strong>grid</strong> (<em>np.ndarray</em>) – A 2D array of shape (n_runs, n_requested_parameters) where each row
+corresponds to a set of parameters for a run.</p></li>
+</ul>
+</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Unspecified parameters are filled with their default values from the
+system. n_runs is the length of all value arrays, which must be equal.</p>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">verbatim_grid</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="p">{</span><span class="s2">&quot;param1&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">],</span> <span class="s2">&quot;param2&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">30</span><span class="p">]},</span>
+<span class="gp">... </span>    <span class="n">system</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span>
+<span class="gp">... </span><span class="p">)</span>
+<span class="go">(array([0, 1]),</span>
+<span class="go"> array([[ 0.1, 10. ],</span>
+<span class="go">        [ 0.2, 20. ],</span>
+<span class="go">        [ 0.3, 30. ]]))</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.batchsolving.html" class="btn btn-neutral float-left" title="cubie.batchsolving" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.batchsolving.BatchSolverConfig.html" class="btn btn-neutral float-right" title="cubie.batchsolving.BatchSolverConfig" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,291 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.matrix_free_solvers.linear_solver &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+          <li class="breadcrumb-item"><a href="../../integrators.html">cubie.integrators</a></li>
+          <li class="breadcrumb-item"><a href="../matrix_free_solvers.html">cubie.integrators.matrix_free_solvers</a></li>
+      <li class="breadcrumb-item active">cubie.integrators.matrix_free_solvers.linear_solver</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.integrators.matrix_free_solvers.linear_solver</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Matrix-free preconditioned linear solver.</span>
+
+<span class="sd">This module builds CUDA device functions that implement steepest-descent or</span>
+<span class="sd">minimal-residual iterations without forming Jacobian matrices explicitly.</span>
+<span class="sd">The helpers interact with the nonlinear solvers in :mod:`cubie.integrators`</span>
+<span class="sd">and expect caller-supplied operator and preconditioner callbacks.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Optional</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">numba</span><span class="w"> </span><span class="kn">import</span> <span class="n">cuda</span><span class="p">,</span> <span class="n">int32</span><span class="p">,</span> <span class="n">from_dtype</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie._utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">PrecisionDtype</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.cuda_simsafe</span><span class="w"> </span><span class="kn">import</span> <span class="n">activemask</span><span class="p">,</span> <span class="n">all_sync</span><span class="p">,</span> <span class="n">selp</span>
+
+
+<div class="viewcode-block" id="linear_solver_factory">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.integrators.matrix_free_solvers.linear_solver.html#cubie.integrators.linear_solver_factory">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">linear_solver_factory</span><span class="p">(</span>
+    <span class="n">operator_apply</span><span class="p">:</span> <span class="n">Callable</span><span class="p">,</span>
+    <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+    <span class="n">preconditioner</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">correction_type</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;minimal_residual&quot;</span><span class="p">,</span>
+    <span class="n">tolerance</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+    <span class="n">max_iters</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">100</span><span class="p">,</span>
+    <span class="n">precision</span><span class="p">:</span> <span class="n">PrecisionDtype</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a CUDA device function implementing steepest-descent or MR.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    operator_apply</span>
+<span class="sd">        Callback that overwrites its output vector with ``F @ v``.</span>
+<span class="sd">    n</span>
+<span class="sd">        Length of the one-dimensional residual and search-direction vectors.</span>
+<span class="sd">    preconditioner</span>
+<span class="sd">        Approximate inverse preconditioner invoked as ``(state, parameters,</span>
+<span class="sd">        drivers, h, residual, z, scratch)``. ``scratch`` can be overwritten.</span>
+<span class="sd">        If ``None`` the identity preconditioner is used.</span>
+<span class="sd">    correction_type</span>
+<span class="sd">        Line-search strategy. Must be ``&quot;steepest_descent&quot;`` or</span>
+<span class="sd">        ``&quot;minimal_residual&quot;``.</span>
+<span class="sd">    tolerance</span>
+<span class="sd">        Target on the squared residual norm that signals convergence.</span>
+<span class="sd">    max_iters</span>
+<span class="sd">        Maximum number of iterations permitted.</span>
+<span class="sd">    precision</span>
+<span class="sd">        Floating-point precision used when building the device function.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    Callable</span>
+<span class="sd">        CUDA device function returning ``0`` on convergence and ``4`` when the</span>
+<span class="sd">        iteration limit is reached.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The operator typically has the form ``F = β M - γ h J`` where ``M`` is the</span>
+<span class="sd">    mass matrix (often the identity), ``J`` is the Jacobian, ``h`` is the step</span>
+<span class="sd">    size, and ``β`` and ``γ`` are scalar parameters captured in the closure.</span>
+<span class="sd">    The solver maintains only vector workspaces and reuses the ``temp``</span>
+<span class="sd">    buffer as the scratch space expected by the optional preconditioner.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">sd_flag</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">correction_type</span> <span class="o">==</span> <span class="s2">&quot;steepest_descent&quot;</span> <span class="k">else</span> <span class="mi">0</span>
+    <span class="n">mr_flag</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">correction_type</span> <span class="o">==</span> <span class="s2">&quot;minimal_residual&quot;</span> <span class="k">else</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="n">correction_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;steepest_descent&quot;</span><span class="p">,</span> <span class="s2">&quot;minimal_residual&quot;</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">&quot;Correction type must be &#39;steepest_descent&#39; or &#39;minimal_residual&#39;.&quot;</span>
+        <span class="p">)</span>
+    <span class="n">preconditioned</span> <span class="o">=</span> <span class="mi">1</span> <span class="k">if</span> <span class="n">preconditioner</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="mi">0</span>
+
+    <span class="n">precision_dtype</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dtype</span><span class="p">(</span><span class="n">precision</span><span class="p">)</span>
+    <span class="n">precision_scalar</span> <span class="o">=</span> <span class="n">from_dtype</span><span class="p">(</span><span class="n">precision_dtype</span><span class="p">)</span>
+    <span class="n">typed_zero</span> <span class="o">=</span> <span class="n">precision_scalar</span><span class="p">(</span><span class="mf">0.0</span><span class="p">)</span>
+    <span class="n">tol_squared</span> <span class="o">=</span> <span class="n">tolerance</span> <span class="o">*</span> <span class="n">tolerance</span>
+
+    <span class="c1"># no cover: start</span>
+    <span class="nd">@cuda</span><span class="o">.</span><span class="n">jit</span><span class="p">(</span><span class="n">device</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">linear_solver</span><span class="p">(</span>
+        <span class="n">state</span><span class="p">,</span>
+        <span class="n">parameters</span><span class="p">,</span>
+        <span class="n">drivers</span><span class="p">,</span>
+        <span class="n">h</span><span class="p">,</span>
+        <span class="n">rhs</span><span class="p">,</span>
+        <span class="n">x</span><span class="p">,</span>
+        <span class="n">z</span><span class="p">,</span>
+        <span class="n">temp</span><span class="p">,</span>
+    <span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Run one preconditioned steepest-descent or minimal-residual solve.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        state</span>
+<span class="sd">            State vector forwarded to the operator and preconditioner.</span>
+<span class="sd">        parameters</span>
+<span class="sd">            Model parameters forwarded to the operator and preconditioner.</span>
+<span class="sd">        drivers</span>
+<span class="sd">            External drivers forwarded to the operator and preconditioner.</span>
+<span class="sd">        h</span>
+<span class="sd">            Step size used by the operator evaluation.</span>
+<span class="sd">        rhs</span>
+<span class="sd">            Right-hand side of the linear system. Overwritten with the current</span>
+<span class="sd">            residual.</span>
+<span class="sd">        x</span>
+<span class="sd">            Iterand provided as the initial guess and overwritten with the</span>
+<span class="sd">            final solution.</span>
+<span class="sd">        z</span>
+<span class="sd">            Working vector storing the preconditioned direction.</span>
+<span class="sd">        temp</span>
+<span class="sd">            Working vector storing the operator action.</span>
+<span class="sd">            Reused as scratch space for the preconditioner.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        int</span>
+<span class="sd">            ``0`` on convergence or ``4`` when the iteration limit is reached.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        ``rhs`` is updated in place to hold the running residual, and ``temp``</span>
+<span class="sd">        is reused as the scratch vector passed to the preconditioner. The</span>
+<span class="sd">        iteration therefore keeps just two auxiliary vectors of length ``n``.</span>
+<span class="sd">        The operator, preconditioner behaviour, and correction strategy are</span>
+<span class="sd">        fixed by the factory closure, while ``state``, ``parameters``, and</span>
+<span class="sd">        ``drivers`` are treated as read-only context values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">operator_apply</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">parameters</span><span class="p">,</span> <span class="n">drivers</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">temp</span><span class="p">)</span>
+        <span class="n">acc</span> <span class="o">=</span> <span class="n">typed_zero</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="n">residual_value</span> <span class="o">=</span> <span class="n">rhs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">temp</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">rhs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">residual_value</span>
+            <span class="n">acc</span> <span class="o">+=</span> <span class="n">residual_value</span> <span class="o">*</span> <span class="n">residual_value</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">activemask</span><span class="p">()</span>
+        <span class="n">converged</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">&lt;=</span> <span class="n">tol_squared</span>
+
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_iters</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">preconditioned</span><span class="p">:</span>
+                <span class="n">preconditioner</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">parameters</span><span class="p">,</span> <span class="n">drivers</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">rhs</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">temp</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                    <span class="n">z</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">rhs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+            <span class="n">operator_apply</span><span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">parameters</span><span class="p">,</span> <span class="n">drivers</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">z</span><span class="p">,</span> <span class="n">temp</span><span class="p">)</span>
+            <span class="n">numerator</span> <span class="o">=</span> <span class="n">typed_zero</span>
+            <span class="n">denominator</span> <span class="o">=</span> <span class="n">typed_zero</span>
+            <span class="k">if</span> <span class="n">sd_flag</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                    <span class="n">zi</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                    <span class="n">numerator</span> <span class="o">+=</span> <span class="n">rhs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">zi</span>
+                    <span class="n">denominator</span> <span class="o">+=</span> <span class="n">temp</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="n">zi</span>
+            <span class="k">elif</span> <span class="n">mr_flag</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                    <span class="n">ti</span> <span class="o">=</span> <span class="n">temp</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                    <span class="n">numerator</span> <span class="o">+=</span> <span class="n">ti</span> <span class="o">*</span> <span class="n">rhs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                    <span class="n">denominator</span> <span class="o">+=</span> <span class="n">ti</span> <span class="o">*</span> <span class="n">ti</span>
+
+            <span class="n">alpha</span> <span class="o">=</span> <span class="n">selp</span><span class="p">(</span>
+                <span class="n">denominator</span> <span class="o">!=</span> <span class="n">typed_zero</span><span class="p">,</span>
+                <span class="n">numerator</span> <span class="o">/</span> <span class="n">denominator</span><span class="p">,</span>
+                <span class="n">typed_zero</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">alpha_effective</span> <span class="o">=</span> <span class="n">selp</span><span class="p">(</span><span class="n">converged</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">alpha</span><span class="p">)</span>
+
+            <span class="n">acc</span> <span class="o">=</span> <span class="n">typed_zero</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+                <span class="n">x</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+=</span> <span class="n">alpha_effective</span> <span class="o">*</span> <span class="n">z</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="n">rhs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-=</span> <span class="n">alpha_effective</span> <span class="o">*</span> <span class="n">temp</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="n">residual_value</span> <span class="o">=</span> <span class="n">rhs</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="n">acc</span> <span class="o">+=</span> <span class="n">residual_value</span> <span class="o">*</span> <span class="n">residual_value</span>
+            <span class="n">converged</span> <span class="o">=</span> <span class="n">converged</span> <span class="ow">or</span> <span class="p">(</span><span class="n">acc</span> <span class="o">&lt;=</span> <span class="n">tol_squared</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">all_sync</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">converged</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">int32</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">int32</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+
+    <span class="c1"># no cover: end</span>
+    <span class="k">return</span> <span class="n">linear_solver</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

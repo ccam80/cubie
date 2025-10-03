@@ -1,0 +1,55 @@
+﻿cubie.odesystems.SymbolicODE
+============================
+
+.. currentmodule:: cubie.odesystems
+
+.. autoclass:: SymbolicODE
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~SymbolicODE.__init__
+      ~SymbolicODE.build
+      ~SymbolicODE.correct_answer_python
+      ~SymbolicODE.create
+      ~SymbolicODE.get_cached_output
+      ~SymbolicODE.get_solver_helper
+      ~SymbolicODE.set_constants
+      ~SymbolicODE.setup_compile_settings
+      ~SymbolicODE.update
+      ~SymbolicODE.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~SymbolicODE.cache_valid
+      ~SymbolicODE.compile_settings
+      ~SymbolicODE.constants
+      ~SymbolicODE.device_function
+      ~SymbolicODE.dxdt_function
+      ~SymbolicODE.initial_values
+      ~SymbolicODE.num_constants
+      ~SymbolicODE.num_drivers
+      ~SymbolicODE.num_observables
+      ~SymbolicODE.num_parameters
+      ~SymbolicODE.num_states
+      ~SymbolicODE.numba_precision
+      ~SymbolicODE.observables
+      ~SymbolicODE.observables_function
+      ~SymbolicODE.parameters
+      ~SymbolicODE.precision
+      ~SymbolicODE.simsafe_precision
+      ~SymbolicODE.sizes
+      ~SymbolicODE.states
+   
+   

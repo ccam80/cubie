@@ -1,0 +1,41 @@
+cubie.odesystems.ODEData
+========================
+
+.. currentmodule:: cubie.odesystems
+
+.. autoclass:: ODEData
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~ODEData.__init__
+      ~ODEData.from_BaseODE_initargs
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~ODEData.constants
+      ~ODEData.parameters
+      ~ODEData.initial_states
+      ~ODEData.observables
+      ~ODEData.precision
+      ~ODEData.num_drivers
+      ~ODEData.num_constants
+      ~ODEData.num_observables
+      ~ODEData.num_parameters
+      ~ODEData.num_states
+      ~ODEData.numba_precision
+      ~ODEData.simsafe_precision
+      ~ODEData.sizes
+   
+   

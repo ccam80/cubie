@@ -1,0 +1,37 @@
+﻿cubie.integrators.algorithms.ExplicitStepConfig
+===============================================
+
+.. currentmodule:: cubie.integrators.algorithms
+
+.. autoclass:: ExplicitStepConfig
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~ExplicitStepConfig.__init__
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~ExplicitStepConfig.dt
+      ~ExplicitStepConfig.driver_function
+      ~ExplicitStepConfig.dxdt_function
+      ~ExplicitStepConfig.get_solver_helper_fn
+      ~ExplicitStepConfig.n
+      ~ExplicitStepConfig.numba_precision
+      ~ExplicitStepConfig.observables_function
+      ~ExplicitStepConfig.precision
+      ~ExplicitStepConfig.settings_dict
+      ~ExplicitStepConfig.simsafe_precision
+   
+   

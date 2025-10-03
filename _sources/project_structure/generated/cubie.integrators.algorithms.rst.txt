@@ -1,0 +1,25 @@
+﻿cubie.integrators.algorithms
+============================
+
+.. automodule:: cubie.integrators.algorithms
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      get_algorithm_step
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   backwards_euler
+   backwards_euler_predict_correct
+   base_algorithm_step
+   crank_nicolson
+   explicit_euler
+   ode_explicitstep
+   ode_implicitstep

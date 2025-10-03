@@ -1,0 +1,36 @@
+﻿cubie.integrators.algorithms.base\_algorithm\_step.BaseStepConfig
+=================================================================
+
+.. currentmodule:: cubie.integrators.algorithms.base_algorithm_step
+
+.. autoclass:: BaseStepConfig
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~BaseStepConfig.__init__
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~BaseStepConfig.precision
+      ~BaseStepConfig.n
+      ~BaseStepConfig.dxdt_function
+      ~BaseStepConfig.observables_function
+      ~BaseStepConfig.driver_function
+      ~BaseStepConfig.get_solver_helper_fn
+      ~BaseStepConfig.numba_precision
+      ~BaseStepConfig.settings_dict
+      ~BaseStepConfig.simsafe_precision
+   
+   

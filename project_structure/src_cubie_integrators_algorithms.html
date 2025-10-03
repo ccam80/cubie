@@ -1,0 +1,191 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>src/cubie/integrators/algorithms &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">src/cubie/integrators/algorithms</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/project_structure/src_cubie_integrators_algorithms.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="src-cubie-integrators-algorithms">
+<h1>src/cubie/integrators/algorithms<a class="headerlink" href="#src-cubie-integrators-algorithms" title="Link to this heading"></a></h1>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading"></a></h2>
+<p>Factories in <a class="reference internal" href="generated/cubie.integrators.algorithms.html#module-cubie.integrators.algorithms" title="cubie.integrators.algorithms"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.integrators.algorithms</span></code></a> assemble explicit and
+implicit step implementations that plug into the CUDA-based integrator loop.
+Explicit steps wrap direct right-hand-side evaluations, while implicit steps
+couple user-supplied device callbacks with matrix-free Newton–Krylov helpers
+to satisfy nonlinear solves. Precision handling is central: every factory
+propagates the configured precision through compiled device helpers and the
+shared linear and nonlinear solver stack.</p>
+</section>
+<section id="public-api">
+<h2>Public API<a class="headerlink" href="#public-api" title="Link to this heading"></a></h2>
+<section id="base-infrastructure">
+<h3>Base infrastructure<a class="headerlink" href="#base-infrastructure" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.base_algorithm_step.BaseStepConfig.html#cubie.integrators.algorithms.base_algorithm_step.BaseStepConfig" title="cubie.integrators.algorithms.base_algorithm_step.BaseStepConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">base_algorithm_step.BaseStepConfig</span></code></a>(...)</p></td>
+<td><p>Configuration shared by explicit and implicit integration steps.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.base_algorithm_step.BaseAlgorithmStep.html#cubie.integrators.algorithms.base_algorithm_step.BaseAlgorithmStep" title="cubie.integrators.algorithms.base_algorithm_step.BaseAlgorithmStep"><code class="xref py py-obj docutils literal notranslate"><span class="pre">base_algorithm_step.BaseAlgorithmStep</span></code></a>(config)</p></td>
+<td><p>Base class implementing cache and configuration handling for steps.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.base_algorithm_step.StepCache.html#cubie.integrators.algorithms.base_algorithm_step.StepCache" title="cubie.integrators.algorithms.base_algorithm_step.StepCache"><code class="xref py py-obj docutils literal notranslate"><span class="pre">base_algorithm_step.StepCache</span></code></a>(step[, ...])</p></td>
+<td><p>Container for compiled device helpers used by an algorithm step.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="explicit-steps">
+<h3>Explicit steps<a class="headerlink" href="#explicit-steps" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.ExplicitStepConfig.html#cubie.integrators.algorithms.ExplicitStepConfig" title="cubie.integrators.algorithms.ExplicitStepConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ExplicitStepConfig</span></code></a>(precision, n, ...)</p></td>
+<td><p>Configuration settings for explicit integration steps.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.ExplicitEulerStep.html#cubie.integrators.algorithms.ExplicitEulerStep" title="cubie.integrators.algorithms.ExplicitEulerStep"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ExplicitEulerStep</span></code></a>(dxdt_function, ...[, ...])</p></td>
+<td><p>Forward Euler integration step for explicit ODE updates.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="implicit-steps">
+<h3>Implicit steps<a class="headerlink" href="#implicit-steps" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.ImplicitStepConfig.html#cubie.integrators.algorithms.ImplicitStepConfig" title="cubie.integrators.algorithms.ImplicitStepConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ImplicitStepConfig</span></code></a>(precision, n, ...)</p></td>
+<td><p>Configuration settings for implicit integration steps.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.BackwardsEulerStep.html#cubie.integrators.algorithms.BackwardsEulerStep" title="cubie.integrators.algorithms.BackwardsEulerStep"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BackwardsEulerStep</span></code></a>(precision, n, ...[, ...])</p></td>
+<td><p>Backward Euler step solved with matrix-free Newton–Krylov.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.BackwardsEulerPCStep.html#cubie.integrators.algorithms.BackwardsEulerPCStep" title="cubie.integrators.algorithms.BackwardsEulerPCStep"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BackwardsEulerPCStep</span></code></a>(precision, n, ...[, ...])</p></td>
+<td><p>Backward Euler with a predictor-corrector refinement.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.CrankNicolsonStep.html#cubie.integrators.algorithms.CrankNicolsonStep" title="cubie.integrators.algorithms.CrankNicolsonStep"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CrankNicolsonStep</span></code></a>(precision, n, ...[, ...])</p></td>
+<td><p>Crank–Nicolson step with embedded backward Euler error estimation.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="factory-helpers">
+<h3>Factory helpers<a class="headerlink" href="#factory-helpers" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.get_algorithm_step.html#cubie.integrators.algorithms.get_algorithm_step" title="cubie.integrators.algorithms.get_algorithm_step"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_algorithm_step</span></code></a>(name, **kwargs)</p></td>
+<td><p>Instantiate an algorithm step implementation.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading"></a></h2>
+<p>Implicit steps depend on <a class="reference internal" href="src_cubie_integrators_matrix_free_solvers.html#module-cubie.integrators.matrix_free_solvers" title="cubie.integrators.matrix_free_solvers"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.integrators.matrix_free_solvers</span></code></a> for the
+linear and Newton–Krylov factories and reuse <code class="xref py py-class docutils literal notranslate"><span class="pre">cubie.CUDAFactory</span></code>
+utilities for JIT compilation and caching. All algorithms expect caller
+supplied device callbacks for time derivatives, operator assembly, and
+observable evaluation, and they operate on preallocated device buffers whose
+precision matches the configured integration precision.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

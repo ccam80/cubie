@@ -1,0 +1,12 @@
+cubie.integrators.algorithms.backwards\_euler
+=============================================
+
+.. automodule:: cubie.integrators.algorithms.backwards_euler
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      BackwardsEulerStep
+   

@@ -1,0 +1,47 @@
+﻿cubie.integrators.ImplicitStepConfig
+====================================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: ImplicitStepConfig
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~ImplicitStepConfig.__init__
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~ImplicitStepConfig.M
+      ~ImplicitStepConfig.preconditioner_order
+      ~ImplicitStepConfig.max_linear_iters
+      ~ImplicitStepConfig.linear_correction_type
+      ~ImplicitStepConfig.max_newton_iters
+      ~ImplicitStepConfig.newton_max_backtracks
+      ~ImplicitStepConfig.beta
+      ~ImplicitStepConfig.driver_function
+      ~ImplicitStepConfig.dxdt_function
+      ~ImplicitStepConfig.gamma
+      ~ImplicitStepConfig.get_solver_helper_fn
+      ~ImplicitStepConfig.linsolve_tolerance
+      ~ImplicitStepConfig.n
+      ~ImplicitStepConfig.newton_damping
+      ~ImplicitStepConfig.nonlinear_tolerance
+      ~ImplicitStepConfig.numba_precision
+      ~ImplicitStepConfig.observables_function
+      ~ImplicitStepConfig.precision
+      ~ImplicitStepConfig.settings_dict
+      ~ImplicitStepConfig.simsafe_precision
+   
+   

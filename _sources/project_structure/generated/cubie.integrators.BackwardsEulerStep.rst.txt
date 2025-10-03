@@ -1,0 +1,66 @@
+﻿cubie.integrators.BackwardsEulerStep
+====================================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: BackwardsEulerStep
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~BackwardsEulerStep.__init__
+      ~BackwardsEulerStep.build
+      ~BackwardsEulerStep.build_implicit_helpers
+      ~BackwardsEulerStep.build_step
+      ~BackwardsEulerStep.get_cached_output
+      ~BackwardsEulerStep.setup_compile_settings
+      ~BackwardsEulerStep.update
+      ~BackwardsEulerStep.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~BackwardsEulerStep.beta
+      ~BackwardsEulerStep.cache_valid
+      ~BackwardsEulerStep.compile_settings
+      ~BackwardsEulerStep.device_function
+      ~BackwardsEulerStep.dxdt_function
+      ~BackwardsEulerStep.gamma
+      ~BackwardsEulerStep.get_solver_helper_fn
+      ~BackwardsEulerStep.is_adaptive
+      ~BackwardsEulerStep.is_implicit
+      ~BackwardsEulerStep.is_multistage
+      ~BackwardsEulerStep.linear_correction_type
+      ~BackwardsEulerStep.linsolve_tolerance
+      ~BackwardsEulerStep.local_scratch_required
+      ~BackwardsEulerStep.mass_matrix
+      ~BackwardsEulerStep.max_linear_iters
+      ~BackwardsEulerStep.max_newton_iters
+      ~BackwardsEulerStep.n
+      ~BackwardsEulerStep.newton_damping
+      ~BackwardsEulerStep.newton_max_backtracks
+      ~BackwardsEulerStep.nonlinear_solver_function
+      ~BackwardsEulerStep.nonlinear_tolerance
+      ~BackwardsEulerStep.numba_precision
+      ~BackwardsEulerStep.observables_function
+      ~BackwardsEulerStep.order
+      ~BackwardsEulerStep.persistent_local_required
+      ~BackwardsEulerStep.precision
+      ~BackwardsEulerStep.preconditioner_order
+      ~BackwardsEulerStep.settings_dict
+      ~BackwardsEulerStep.shared_memory_required
+      ~BackwardsEulerStep.simsafe_precision
+      ~BackwardsEulerStep.step_function
+      ~BackwardsEulerStep.threads_per_step
+   
+   

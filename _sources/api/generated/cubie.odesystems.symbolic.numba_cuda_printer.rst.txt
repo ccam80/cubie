@@ -1,0 +1,19 @@
+cubie.odesystems.symbolic.numba\_cuda\_printer
+==============================================
+
+.. automodule:: cubie.odesystems.symbolic.numba_cuda_printer
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      print_cuda
+      print_cuda_multiple
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      CUDAPrinter
+   

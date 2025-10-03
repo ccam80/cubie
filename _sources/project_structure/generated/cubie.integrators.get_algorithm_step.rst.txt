@@ -1,0 +1,6 @@
+﻿cubie.integrators.get\_algorithm\_step
+======================================
+
+.. currentmodule:: cubie.integrators
+
+.. autofunction:: get_algorithm_step

@@ -1,0 +1,32 @@
+﻿cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer
+=========================================================
+
+.. currentmodule:: cubie.batchsolving.arrays.BaseArrayManager
+
+.. autoclass:: ArrayContainer
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~ArrayContainer.__init__
+      ~ArrayContainer.attach
+      ~ArrayContainer.delete
+      ~ArrayContainer.delete_all
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~ArrayContainer.memory_type
+      ~ArrayContainer.stride_order
+   
+   

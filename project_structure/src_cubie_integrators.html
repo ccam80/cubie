@@ -1,0 +1,218 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>src/cubie/integrators &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">src/cubie/integrators</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/project_structure/src_cubie_integrators.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="src-cubie-integrators">
+<h1>src/cubie/integrators<a class="headerlink" href="#src-cubie-integrators" title="Link to this heading"></a></h1>
+<p>The <a class="reference internal" href="generated/cubie.integrators.SingleIntegratorRun.html#cubie.integrators.SingleIntegratorRun" title="cubie.integrators.SingleIntegratorRun"><code class="xref py py-class docutils literal notranslate"><span class="pre">SingleIntegratorRun</span></code></a> façade is the primary entry point. It
+creates a loop callable by wiring controller, algorithm, and loop
+submodules according to the supplied
+<a class="reference internal" href="../api/generated/cubie.integrators.IntegratorRunSettings.html#cubie.integrators.IntegratorRunSettings.IntegratorRunSettings" title="cubie.integrators.IntegratorRunSettings.IntegratorRunSettings"><code class="xref py py-class docutils literal notranslate"><span class="pre">cubie.integrators.IntegratorRunSettings.IntegratorRunSettings</span></code></a>.</p>
+<p>The <a class="reference internal" href="../api/generated/cubie.integrators.html#module-cubie.integrators" title="cubie.integrators"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.integrators</span></code></a> package coordinates CUDA-based initial value
+problem (IVP) integrations. It bundles algorithm factories, controller
+builders, matrix-free solver helpers, and loop orchestrators that combine
+CUDA device functions from ODE systems with adaptive or fixed step control.</p>
+<section id="subpackages">
+<h2>Subpackages<a class="headerlink" href="#subpackages" title="Link to this heading"></a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.algorithms.html#module-cubie.integrators.algorithms" title="cubie.integrators.algorithms"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.integrators.algorithms</span></code></a></p></td>
+<td><p>Factories for explicit and implicit algorithm step implementations.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.loops.html#module-cubie.integrators.loops" title="cubie.integrators.loops"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.integrators.loops</span></code></a></p></td>
+<td><p>Loop factories that coordinate CUDA-based integration runs.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="src_cubie_integrators_matrix_free_solvers.html#module-cubie.integrators.matrix_free_solvers" title="cubie.integrators.matrix_free_solvers"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.integrators.matrix_free_solvers</span></code></a></p></td>
+<td><p>Matrix-free solver factories used by integrator kernels.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.step_control.html#module-cubie.integrators.step_control" title="cubie.integrators.step_control"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.integrators.step_control</span></code></a></p></td>
+<td><p>Public entry points for step-size controllers.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="core-api">
+<h2>Core API<a class="headerlink" href="#core-api" title="Link to this heading"></a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.SingleIntegratorRun.html#cubie.integrators.SingleIntegratorRun" title="cubie.integrators.SingleIntegratorRun"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SingleIntegratorRun</span></code></a>(system[, algorithm, ...])</p></td>
+<td><p>Expose aggregated read-only properties for integrator runs.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.IntegratorReturnCodes.html#cubie.integrators.IntegratorReturnCodes" title="cubie.integrators.IntegratorReturnCodes"><code class="xref py py-obj docutils literal notranslate"><span class="pre">IntegratorReturnCodes</span></code></a>(*values)</p></td>
+<td><p>Enumerate outcomes returned by integrator kernels.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="factories-and-helpers">
+<h2>Factories and helpers<a class="headerlink" href="#factories-and-helpers" title="Link to this heading"></a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.get_algorithm_step.html#cubie.integrators.get_algorithm_step" title="cubie.integrators.get_algorithm_step"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_algorithm_step</span></code></a>(name, **kwargs)</p></td>
+<td><p>Instantiate an algorithm step implementation.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.ExplicitStepConfig.html#cubie.integrators.ExplicitStepConfig" title="cubie.integrators.ExplicitStepConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ExplicitStepConfig</span></code></a>(precision, n, ...)</p></td>
+<td><p>Configuration settings for explicit integration steps.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.ImplicitStepConfig.html#cubie.integrators.ImplicitStepConfig" title="cubie.integrators.ImplicitStepConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ImplicitStepConfig</span></code></a>(precision, n, ...)</p></td>
+<td><p>Configuration settings for implicit integration steps.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.ExplicitEulerStep.html#cubie.integrators.ExplicitEulerStep" title="cubie.integrators.ExplicitEulerStep"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ExplicitEulerStep</span></code></a>(dxdt_function, ...[, ...])</p></td>
+<td><p>Forward Euler integration step for explicit ODE updates.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.BackwardsEulerStep.html#cubie.integrators.BackwardsEulerStep" title="cubie.integrators.BackwardsEulerStep"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BackwardsEulerStep</span></code></a>(precision, n, ...[, ...])</p></td>
+<td><p>Backward Euler step solved with matrix-free Newton–Krylov.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.BackwardsEulerPCStep.html#cubie.integrators.BackwardsEulerPCStep" title="cubie.integrators.BackwardsEulerPCStep"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BackwardsEulerPCStep</span></code></a>(precision, n, ...[, ...])</p></td>
+<td><p>Backward Euler with a predictor-corrector refinement.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.CrankNicolsonStep.html#cubie.integrators.CrankNicolsonStep" title="cubie.integrators.CrankNicolsonStep"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CrankNicolsonStep</span></code></a>(precision, n, ...[, ...])</p></td>
+<td><p>Crank–Nicolson step with embedded backward Euler error estimation.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.IVPLoop.html#cubie.integrators.IVPLoop" title="cubie.integrators.IVPLoop"><code class="xref py py-obj docutils literal notranslate"><span class="pre">IVPLoop</span></code></a>(precision, shared_indices, ...[, ...])</p></td>
+<td><p>Factory for CUDA device loops that advance an IVP integration.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.linear_solver_factory.html#cubie.integrators.linear_solver_factory" title="cubie.integrators.linear_solver_factory"><code class="xref py py-obj docutils literal notranslate"><span class="pre">linear_solver_factory</span></code></a>(operator_apply, n[, ...])</p></td>
+<td><p>Create a CUDA device function implementing steepest-descent or MR.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.newton_krylov_solver_factory.html#cubie.integrators.newton_krylov_solver_factory" title="cubie.integrators.newton_krylov_solver_factory"><code class="xref py py-obj docutils literal notranslate"><span class="pre">newton_krylov_solver_factory</span></code></a>(...[, damping, ...])</p></td>
+<td><p>Create a damped Newton--Krylov solver device function.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.AdaptiveIController.html#cubie.integrators.AdaptiveIController" title="cubie.integrators.AdaptiveIController"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AdaptiveIController</span></code></a>(precision, dt_min[, ...])</p></td>
+<td><p>Integral step-size controller using only previous error.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.AdaptivePIController.html#cubie.integrators.AdaptivePIController" title="cubie.integrators.AdaptivePIController"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AdaptivePIController</span></code></a>(precision, dt_min[, ...])</p></td>
+<td><p>Proportional–integral step-size controller.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.AdaptivePIDController.html#cubie.integrators.AdaptivePIDController" title="cubie.integrators.AdaptivePIDController"><code class="xref py py-obj docutils literal notranslate"><span class="pre">AdaptivePIDController</span></code></a>(precision, dt_min[, ...])</p></td>
+<td><p>Adaptive PID step size controller.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.FixedStepController.html#cubie.integrators.FixedStepController" title="cubie.integrators.FixedStepController"><code class="xref py py-obj docutils literal notranslate"><span class="pre">FixedStepController</span></code></a>(precision, dt)</p></td>
+<td><p>Controller that enforces a constant time step.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.integrators.GustafssonController.html#cubie.integrators.GustafssonController" title="cubie.integrators.GustafssonController"><code class="xref py py-obj docutils literal notranslate"><span class="pre">GustafssonController</span></code></a>(precision, dt_min[, ...])</p></td>
+<td><p>Adaptive controller using Gustafsson acceleration.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.integrators.get_controller.html#cubie.integrators.get_controller" title="cubie.integrators.get_controller"><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_controller</span></code></a>(kind, **kwargs)</p></td>
+<td><p>Return a controller instance based on <code class="docutils literal notranslate"><span class="pre">kind</span></code>.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Implicit algorithms obtain Newton–Krylov helpers from
+<a class="reference internal" href="src_cubie_integrators_matrix_free_solvers.html#module-cubie.integrators.matrix_free_solvers" title="cubie.integrators.matrix_free_solvers"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.integrators.matrix_free_solvers</span></code></a> via <code class="docutils literal notranslate"><span class="pre">get_solver_helper_fn</span></code>
+closures.</p></li>
+<li><p>Loop factories depend on <a class="reference internal" href="../api/generated/cubie.outputhandling.html#module-cubie.outputhandling" title="cubie.outputhandling"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.outputhandling</span></code></a> for compile flags and
+saving callbacks generated by <a class="reference internal" href="../api/generated/cubie.outputhandling.output_functions.html#cubie.outputhandling.output_functions.OutputFunctions" title="cubie.outputhandling.output_functions.OutputFunctions"><code class="xref py py-class docutils literal notranslate"><span class="pre">cubie.outputhandling.output_functions.OutputFunctions</span></code></a>.</p></li>
+<li><p>Controllers operate in concert with algorithm step objects exposed by
+<a class="reference internal" href="generated/cubie.integrators.algorithms.html#module-cubie.integrators.algorithms" title="cubie.integrators.algorithms"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.integrators.algorithms</span></code></a> to manage adaptive step sizes.</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

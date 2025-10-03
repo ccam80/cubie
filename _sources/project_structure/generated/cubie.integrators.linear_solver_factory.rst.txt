@@ -1,0 +1,6 @@
+﻿cubie.integrators.linear\_solver\_factory
+=========================================
+
+.. currentmodule:: cubie.integrators
+
+.. autofunction:: linear_solver_factory

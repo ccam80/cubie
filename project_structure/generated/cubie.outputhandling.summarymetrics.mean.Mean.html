@@ -1,0 +1,191 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.outputhandling.summarymetrics.mean.Mean &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">cubie.outputhandling.summarymetrics.mean.Mean</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/project_structure/generated/cubie.outputhandling.summarymetrics.mean.Mean.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="cubie-outputhandling-summarymetrics-mean-mean">
+<h1>cubie.outputhandling.summarymetrics.mean.Mean<a class="headerlink" href="#cubie-outputhandling-summarymetrics-mean-mean" title="Link to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.mean.Mean">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.outputhandling.summarymetrics.mean.</span></span><span class="sig-name descname"><span class="pre">Mean</span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/mean.html#Mean"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.mean.Mean" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="cubie.outputhandling.summarymetrics.metrics.SummaryMetric.html#cubie.outputhandling.summarymetrics.metrics.SummaryMetric" title="cubie.outputhandling.summarymetrics.metrics.SummaryMetric"><code class="xref py py-class docutils literal notranslate"><span class="pre">SummaryMetric</span></code></a></p>
+<p>Summary metric that calculates the arithmetic mean of a variable.</p>
+<p class="rubric">Notes</p>
+<p>The metric uses a single buffer slot per variable to accumulate the sum
+of values and divides by the number of integration steps when the results
+are saved.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.mean.Mean.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/mean.html#Mean.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.mean.Mean.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialise the Mean summary metric with fixed buffer sizes.</p>
+</dd></dl>
+
+<p class="rubric">Methods</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id0" title="cubie.outputhandling.summarymetrics.mean.Mean.__init__"><code class="xref py py-obj docutils literal notranslate"><span class="pre">__init__</span></code></a>()</p></td>
+<td><p>Initialise the Mean summary metric with fixed buffer sizes.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.outputhandling.summarymetrics.mean.Mean.build" title="cubie.outputhandling.summarymetrics.mean.Mean.build"><code class="xref py py-obj docutils literal notranslate"><span class="pre">build</span></code></a>()</p></td>
+<td><p>Generate CUDA device functions for mean value calculation.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">get_cached_output</span></code>(output_name)</p></td>
+<td><p>Return a named cached output.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">setup_compile_settings</span></code>(compile_settings)</p></td>
+<td><p>Attach a container of compile-critical settings to the object.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">update_compile_settings</span></code>([updates_dict, silent])</p></td>
+<td><p>Update compile settings with new values.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Attributes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">cache_valid</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">True</span></code> if cached outputs are up to date.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">compile_settings</span></code></p></td>
+<td><p>Return the current compile settings object.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">device_function</span></code></p></td>
+<td><p>Return the compiled CUDA device function.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">save_device_func</span></code></p></td>
+<td><p>CUDA device save function for the metric.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">update_device_func</span></code></p></td>
+<td><p>CUDA device update function for the metric.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py method">
+<dt class="sig sig-object py" id="id0">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/mean.html#Mean.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd><p>Initialise the Mean summary metric with fixed buffer sizes.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.mean.Mean.build">
+<span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache.html#cubie.outputhandling.summarymetrics.metrics.MetricFuncCache" title="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache"><span class="pre">MetricFuncCache</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/mean.html#Mean.build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.mean.Mean.build" title="Link to this definition"></a></dt>
+<dd><p>Generate CUDA device functions for mean value calculation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Cache containing the device update and save callbacks.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache.html#cubie.outputhandling.summarymetrics.metrics.MetricFuncCache" title="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache">MetricFuncCache</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The update callback accumulates the running sum while the save
+callback divides by <code class="docutils literal notranslate"><span class="pre">summarise_every</span></code> and resets the buffer.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

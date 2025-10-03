@@ -1,0 +1,38 @@
+﻿cubie.batchsolving.arrays.BatchOutputArrays.OutputArrayContainer
+================================================================
+
+.. currentmodule:: cubie.batchsolving.arrays.BatchOutputArrays
+
+.. autoclass:: OutputArrayContainer
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~OutputArrayContainer.__init__
+      ~OutputArrayContainer.attach
+      ~OutputArrayContainer.delete
+      ~OutputArrayContainer.delete_all
+      ~OutputArrayContainer.device_factory
+      ~OutputArrayContainer.host_factory
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~OutputArrayContainer.memory_type
+      ~OutputArrayContainer.stride_order
+      ~OutputArrayContainer.state
+      ~OutputArrayContainer.observables
+      ~OutputArrayContainer.state_summaries
+      ~OutputArrayContainer.observable_summaries
+   
+   

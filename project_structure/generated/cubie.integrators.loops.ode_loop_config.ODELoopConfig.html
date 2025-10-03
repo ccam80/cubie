@@ -1,0 +1,499 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.loops.ode_loop_config.ODELoopConfig &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">cubie.integrators.loops.ode_loop_config.ODELoopConfig</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/project_structure/generated/cubie.integrators.loops.ode_loop_config.ODELoopConfig.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="cubie-integrators-loops-ode-loop-config-odeloopconfig">
+<h1>cubie.integrators.loops.ode_loop_config.ODELoopConfig<a class="headerlink" href="#cubie-integrators-loops-ode-loop-config-odeloopconfig" title="Link to this heading"></a></h1>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.integrators.loops.ode_loop_config.</span></span><span class="sig-name descname"><span class="pre">ODELoopConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">shared_buffer_indices:</span> <span class="pre">~cubie.integrators.loops.ode_loop_config.LoopSharedIndices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">local_indices:</span> <span class="pre">~cubie.integrators.loops.ode_loop_config.LoopLocalIndices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">precision:</span> <span class="pre">type[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float64]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float64]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float32'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compile_flags:</span> <span class="pre">~cubie.outputhandling.output_config.OutputCompileFlags</span> <span class="pre">=</span> <span class="pre">OutputCompileFlags(save_state=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_observables=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarise=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarise_observables=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarise_state=False)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_save:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_summarise:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_state_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">update_summaries_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_summaries_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step_controller_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step_function:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">driver_function:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observables_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt0:</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_min:</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_max:</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_adaptive:</span> <span class="pre">bool</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/integrators/loops/ode_loop_config.html#ODELoopConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Compile-critical settings for an integrator loop.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.shared_buffer_indices">
+<span class="sig-name descname"><span class="pre">shared_buffer_indices</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.shared_buffer_indices" title="Link to this definition"></a></dt>
+<dd><p>Shared-memory layout describing scratch buffers and outputs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="cubie.integrators.loops.ode_loop_config.LoopSharedIndices.html#cubie.integrators.loops.ode_loop_config.LoopSharedIndices" title="cubie.integrators.loops.ode_loop_config.LoopSharedIndices">cubie.integrators.loops.ode_loop_config.LoopSharedIndices</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.local_indices">
+<span class="sig-name descname"><span class="pre">local_indices</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.local_indices" title="Link to this definition"></a></dt>
+<dd><p>Persistent local-memory layout describing private buffers.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="cubie.integrators.loops.ode_loop_config.LoopLocalIndices.html#cubie.integrators.loops.ode_loop_config.LoopLocalIndices" title="cubie.integrators.loops.ode_loop_config.LoopLocalIndices">cubie.integrators.loops.ode_loop_config.LoopLocalIndices</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.precision">
+<span class="sig-name descname"><span class="pre">precision</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.precision" title="Link to this definition"></a></dt>
+<dd><p>Precision used for all loop-managed computations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)">type</a>[numpy.float16] | <a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)">type</a>[numpy.float32] | <a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)">type</a>[numpy.float64] | <a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)">numpy.dtype</a>[numpy.float16] | <a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)">numpy.dtype</a>[numpy.float32] | <a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)">numpy.dtype</a>[numpy.float64]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.compile_flags">
+<span class="sig-name descname"><span class="pre">compile_flags</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.compile_flags" title="Link to this definition"></a></dt>
+<dd><p>Output configuration governing save and summary cadence.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="../../api/generated/cubie.outputhandling.output_config.html#cubie.outputhandling.output_config.OutputCompileFlags" title="cubie.outputhandling.output_config.OutputCompileFlags">cubie.outputhandling.output_config.OutputCompileFlags</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt_save">
+<span class="sig-name descname"><span class="pre">_dt_save</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt_save" title="Link to this definition"></a></dt>
+<dd><p>Interval between accepted saves.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt_summarise">
+<span class="sig-name descname"><span class="pre">_dt_summarise</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt_summarise" title="Link to this definition"></a></dt>
+<dd><p>Interval between summary accumulations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.save_state_fn">
+<span class="sig-name descname"><span class="pre">save_state_fn</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.save_state_fn" title="Link to this definition"></a></dt>
+<dd><p>Device function that records state and observable snapshots.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.update_summaries_fn">
+<span class="sig-name descname"><span class="pre">update_summaries_fn</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.update_summaries_fn" title="Link to this definition"></a></dt>
+<dd><p>Device function that accumulates summary statistics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.save_summaries_fn">
+<span class="sig-name descname"><span class="pre">save_summaries_fn</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.save_summaries_fn" title="Link to this definition"></a></dt>
+<dd><p>Device function that writes summary statistics to output buffers.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.step_controller_fn">
+<span class="sig-name descname"><span class="pre">step_controller_fn</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.step_controller_fn" title="Link to this definition"></a></dt>
+<dd><p>Device function that updates the timestep and acceptance flag.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.step_function">
+<span class="sig-name descname"><span class="pre">step_function</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.step_function" title="Link to this definition"></a></dt>
+<dd><p>Device function that advances the solution by one tentative step.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.observables_fn">
+<span class="sig-name descname"><span class="pre">observables_fn</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.observables_fn" title="Link to this definition"></a></dt>
+<dd><p>Device function that evaluates observables for the current state.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt0">
+<span class="sig-name descname"><span class="pre">_dt0</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt0" title="Link to this definition"></a></dt>
+<dd><p>Initial timestep prior to controller feedback.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a> | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt_min">
+<span class="sig-name descname"><span class="pre">_dt_min</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt_min" title="Link to this definition"></a></dt>
+<dd><p>Minimum allowable timestep.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a> | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt_max">
+<span class="sig-name descname"><span class="pre">_dt_max</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig._dt_max" title="Link to this definition"></a></dt>
+<dd><p>Maximum allowable timestep.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)">float</a> | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.is_adaptive">
+<span class="sig-name descname"><span class="pre">is_adaptive</span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.is_adaptive" title="Link to this definition"></a></dt>
+<dd><p>Whether the loop operates with an adaptive controller.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)">bool</a> | None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">shared_buffer_indices:</span> <span class="pre">~cubie.integrators.loops.ode_loop_config.LoopSharedIndices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">local_indices:</span> <span class="pre">~cubie.integrators.loops.ode_loop_config.LoopLocalIndices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">precision:</span> <span class="pre">type[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float64]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float64]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float32'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compile_flags:</span> <span class="pre">~cubie.outputhandling.output_config.OutputCompileFlags</span> <span class="pre">=</span> <span class="pre">OutputCompileFlags(save_state=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_observables=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarise=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarise_observables=False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summarise_state=False)</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_save:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_summarise:</span> <span class="pre">float</span> <span class="pre">=</span> <span class="pre">1.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_state_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">update_summaries_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save_summaries_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step_controller_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">step_function:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">driver_function:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observables_fn:</span> <span class="pre">~typing.Callable</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt0:</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_min:</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">0.01</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dt_max:</span> <span class="pre">float</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">0.1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">is_adaptive:</span> <span class="pre">bool</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.__init__" title="Link to this definition"></a></dt>
+<dd><p>Method generated by attrs for class ODELoopConfig.</p>
+</dd></dl>
+
+<p class="rubric">Methods</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.__init__" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.__init__"><code class="xref py py-obj docutils literal notranslate"><span class="pre">__init__</span></code></a>(shared_buffer_indices, local_indices)</p></td>
+<td><p>Method generated by attrs for class ODELoopConfig.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Attributes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id7" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.shared_buffer_indices"><code class="xref py py-obj docutils literal notranslate"><span class="pre">shared_buffer_indices</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#id2" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.local_indices"><code class="xref py py-obj docutils literal notranslate"><span class="pre">local_indices</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id4" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.precision"><code class="xref py py-obj docutils literal notranslate"><span class="pre">precision</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#id0" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.compile_flags"><code class="xref py py-obj docutils literal notranslate"><span class="pre">compile_flags</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id5" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.save_state_fn"><code class="xref py py-obj docutils literal notranslate"><span class="pre">save_state_fn</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#id10" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.update_summaries_fn"><code class="xref py py-obj docutils literal notranslate"><span class="pre">update_summaries_fn</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id6" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.save_summaries_fn"><code class="xref py py-obj docutils literal notranslate"><span class="pre">save_summaries_fn</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#id8" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.step_controller_fn"><code class="xref py py-obj docutils literal notranslate"><span class="pre">step_controller_fn</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id9" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.step_function"><code class="xref py py-obj docutils literal notranslate"><span class="pre">step_function</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.driver_function" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.driver_function"><code class="xref py py-obj docutils literal notranslate"><span class="pre">driver_function</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#id3" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.observables_fn"><code class="xref py py-obj docutils literal notranslate"><span class="pre">observables_fn</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#id1" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.is_adaptive"><code class="xref py py-obj docutils literal notranslate"><span class="pre">is_adaptive</span></code></a></p></td>
+<td><p></p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt0" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt0"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dt0</span></code></a></p></td>
+<td><p>Return the initial timestep.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_max" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_max"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dt_max</span></code></a></p></td>
+<td><p>Return the maximum allowable timestep.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_min" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_min"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dt_min</span></code></a></p></td>
+<td><p>Return the minimum allowable timestep.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_save" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_save"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dt_save</span></code></a></p></td>
+<td><p>Return the output save interval.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_summarise" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_summarise"><code class="xref py py-obj docutils literal notranslate"><span class="pre">dt_summarise</span></code></a></p></td>
+<td><p>Return the summary interval.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.loop_local_elements" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.loop_local_elements"><code class="xref py py-obj docutils literal notranslate"><span class="pre">loop_local_elements</span></code></a></p></td>
+<td><p>Return the loop's persistent local-memory contribution.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.loop_shared_elements" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.loop_shared_elements"><code class="xref py py-obj docutils literal notranslate"><span class="pre">loop_shared_elements</span></code></a></p></td>
+<td><p>Return the loop's shared-memory contribution.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.numba_precision" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.numba_precision"><code class="xref py py-obj docutils literal notranslate"><span class="pre">numba_precision</span></code></a></p></td>
+<td><p>Return the Numba precision type.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.saves_per_summary" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.saves_per_summary"><code class="xref py py-obj docutils literal notranslate"><span class="pre">saves_per_summary</span></code></a></p></td>
+<td><p>Return the number of saves between summary outputs.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.simsafe_precision" title="cubie.integrators.loops.ode_loop_config.ODELoopConfig.simsafe_precision"><code class="xref py py-obj docutils literal notranslate"><span class="pre">simsafe_precision</span></code></a></p></td>
+<td><p>Return the simulator safe precision.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id0">
+<span class="sig-name descname"><span class="pre">compile_flags</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="../../api/generated/cubie.outputhandling.output_config.html#cubie.outputhandling.output_config.OutputCompileFlags" title="cubie.outputhandling.output_config.OutputCompileFlags"><span class="pre">OutputCompileFlags</span></a></em><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.driver_function">
+<span class="sig-name descname"><span class="pre">driver_function</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.driver_function" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt0">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt0</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt0" title="Link to this definition"></a></dt>
+<dd><p>Return the initial timestep.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_max">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_max</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_max" title="Link to this definition"></a></dt>
+<dd><p>Return the maximum allowable timestep.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_min">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_min</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_min" title="Link to this definition"></a></dt>
+<dd><p>Return the minimum allowable timestep.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_save">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_save</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_save" title="Link to this definition"></a></dt>
+<dd><p>Return the output save interval.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_summarise">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_summarise</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.dt_summarise" title="Link to this definition"></a></dt>
+<dd><p>Return the summary interval.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id1">
+<span class="sig-name descname"><span class="pre">is_adaptive</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#id1" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id2">
+<span class="sig-name descname"><span class="pre">local_indices</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.integrators.loops.ode_loop_config.LoopLocalIndices.html#cubie.integrators.loops.ode_loop_config.LoopLocalIndices" title="cubie.integrators.loops.ode_loop_config.LoopLocalIndices"><span class="pre">LoopLocalIndices</span></a></em><a class="headerlink" href="#id2" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.loop_local_elements">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">loop_local_elements</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.loop_local_elements" title="Link to this definition"></a></dt>
+<dd><p>Return the loop’s persistent local-memory contribution.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.loop_shared_elements">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">loop_shared_elements</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.loop_shared_elements" title="Link to this definition"></a></dt>
+<dd><p>Return the loop’s shared-memory contribution.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.numba_precision">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">numba_precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.numba_precision" title="Link to this definition"></a></dt>
+<dd><p>Return the Numba precision type.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id3">
+<span class="sig-name descname"><span class="pre">observables_fn</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#id3" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id4">
+<span class="sig-name descname"><span class="pre">precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><span class="pre">float16</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><span class="pre">float32</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a><span class="p"><span class="pre">[</span></span><span class="pre">float64</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">float16</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">float32</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.dtype.html#numpy.dtype" title="(in NumPy v2.3)"><span class="pre">dtype</span></a><span class="p"><span class="pre">[</span></span><span class="pre">float64</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#id4" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id5">
+<span class="sig-name descname"><span class="pre">save_state_fn</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#id5" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id6">
+<span class="sig-name descname"><span class="pre">save_summaries_fn</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#id6" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.saves_per_summary">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">saves_per_summary</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.saves_per_summary" title="Link to this definition"></a></dt>
+<dd><p>Return the number of saves between summary outputs.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id7">
+<span class="sig-name descname"><span class="pre">shared_buffer_indices</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="cubie.integrators.loops.ode_loop_config.LoopSharedIndices.html#cubie.integrators.loops.ode_loop_config.LoopSharedIndices" title="cubie.integrators.loops.ode_loop_config.LoopSharedIndices"><span class="pre">LoopSharedIndices</span></a></em><a class="headerlink" href="#id7" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.loops.ode_loop_config.ODELoopConfig.simsafe_precision">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">simsafe_precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#cubie.integrators.loops.ode_loop_config.ODELoopConfig.simsafe_precision" title="Link to this definition"></a></dt>
+<dd><p>Return the simulator safe precision.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id8">
+<span class="sig-name descname"><span class="pre">step_controller_fn</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#id8" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id9">
+<span class="sig-name descname"><span class="pre">step_function</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#id9" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id10">
+<span class="sig-name descname"><span class="pre">update_summaries_fn</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></em><a class="headerlink" href="#id10" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

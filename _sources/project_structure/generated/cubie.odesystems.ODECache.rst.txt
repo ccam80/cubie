@@ -1,0 +1,33 @@
+﻿cubie.odesystems.ODECache
+=========================
+
+.. currentmodule:: cubie.odesystems
+
+.. autoclass:: ODECache
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~ODECache.__init__
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~ODECache.dxdt
+      ~ODECache.linear_operator
+      ~ODECache.neumann_preconditioner
+      ~ODECache.end_residual
+      ~ODECache.stage_residual
+      ~ODECache.observables
+   
+   

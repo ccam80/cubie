@@ -1,0 +1,12 @@
+cubie.integrators.algorithms.backwards\_euler\_predict\_correct
+===============================================================
+
+.. automodule:: cubie.integrators.algorithms.backwards_euler_predict_correct
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      BackwardsEulerPCStep
+   

@@ -1,0 +1,12 @@
+cubie.integrators.matrix\_free\_solvers.newton\_krylov
+======================================================
+
+.. automodule:: cubie.integrators.matrix_free_solvers.newton_krylov
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      newton_krylov_solver_factory
+   

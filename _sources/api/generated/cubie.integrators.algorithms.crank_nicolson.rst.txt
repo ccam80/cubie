@@ -1,0 +1,12 @@
+cubie.integrators.algorithms.crank\_nicolson
+============================================
+
+.. automodule:: cubie.integrators.algorithms.crank_nicolson
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      CrankNicolsonStep
+   

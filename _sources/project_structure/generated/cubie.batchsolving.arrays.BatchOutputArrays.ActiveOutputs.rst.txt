@@ -1,0 +1,32 @@
+﻿cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs
+=========================================================
+
+.. currentmodule:: cubie.batchsolving.arrays.BatchOutputArrays
+
+.. autoclass:: ActiveOutputs
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~ActiveOutputs.__init__
+      ~ActiveOutputs.update_from_outputarrays
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~ActiveOutputs.state
+      ~ActiveOutputs.observables
+      ~ActiveOutputs.state_summaries
+      ~ActiveOutputs.observable_summaries
+   
+   

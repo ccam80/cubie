@@ -1,0 +1,66 @@
+﻿cubie.integrators.algorithms.CrankNicolsonStep
+==============================================
+
+.. currentmodule:: cubie.integrators.algorithms
+
+.. autoclass:: CrankNicolsonStep
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~CrankNicolsonStep.__init__
+      ~CrankNicolsonStep.build
+      ~CrankNicolsonStep.build_implicit_helpers
+      ~CrankNicolsonStep.build_step
+      ~CrankNicolsonStep.get_cached_output
+      ~CrankNicolsonStep.setup_compile_settings
+      ~CrankNicolsonStep.update
+      ~CrankNicolsonStep.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~CrankNicolsonStep.beta
+      ~CrankNicolsonStep.cache_valid
+      ~CrankNicolsonStep.compile_settings
+      ~CrankNicolsonStep.device_function
+      ~CrankNicolsonStep.dxdt_function
+      ~CrankNicolsonStep.gamma
+      ~CrankNicolsonStep.get_solver_helper_fn
+      ~CrankNicolsonStep.is_adaptive
+      ~CrankNicolsonStep.is_implicit
+      ~CrankNicolsonStep.is_multistage
+      ~CrankNicolsonStep.linear_correction_type
+      ~CrankNicolsonStep.linsolve_tolerance
+      ~CrankNicolsonStep.local_scratch_required
+      ~CrankNicolsonStep.mass_matrix
+      ~CrankNicolsonStep.max_linear_iters
+      ~CrankNicolsonStep.max_newton_iters
+      ~CrankNicolsonStep.n
+      ~CrankNicolsonStep.newton_damping
+      ~CrankNicolsonStep.newton_max_backtracks
+      ~CrankNicolsonStep.nonlinear_solver_function
+      ~CrankNicolsonStep.nonlinear_tolerance
+      ~CrankNicolsonStep.numba_precision
+      ~CrankNicolsonStep.observables_function
+      ~CrankNicolsonStep.order
+      ~CrankNicolsonStep.persistent_local_required
+      ~CrankNicolsonStep.precision
+      ~CrankNicolsonStep.preconditioner_order
+      ~CrankNicolsonStep.settings_dict
+      ~CrankNicolsonStep.shared_memory_required
+      ~CrankNicolsonStep.simsafe_precision
+      ~CrankNicolsonStep.step_function
+      ~CrankNicolsonStep.threads_per_step
+   
+   

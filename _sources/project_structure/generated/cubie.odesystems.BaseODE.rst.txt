@@ -1,0 +1,54 @@
+﻿cubie.odesystems.BaseODE
+========================
+
+.. currentmodule:: cubie.odesystems
+
+.. autoclass:: BaseODE
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~BaseODE.__init__
+      ~BaseODE.build
+      ~BaseODE.correct_answer_python
+      ~BaseODE.get_cached_output
+      ~BaseODE.get_solver_helper
+      ~BaseODE.set_constants
+      ~BaseODE.setup_compile_settings
+      ~BaseODE.update
+      ~BaseODE.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~BaseODE.cache_valid
+      ~BaseODE.compile_settings
+      ~BaseODE.constants
+      ~BaseODE.device_function
+      ~BaseODE.dxdt_function
+      ~BaseODE.initial_values
+      ~BaseODE.num_constants
+      ~BaseODE.num_drivers
+      ~BaseODE.num_observables
+      ~BaseODE.num_parameters
+      ~BaseODE.num_states
+      ~BaseODE.numba_precision
+      ~BaseODE.observables
+      ~BaseODE.observables_function
+      ~BaseODE.parameters
+      ~BaseODE.precision
+      ~BaseODE.simsafe_precision
+      ~BaseODE.sizes
+      ~BaseODE.states
+   
+   

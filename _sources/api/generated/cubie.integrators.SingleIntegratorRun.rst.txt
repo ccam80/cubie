@@ -1,0 +1,132 @@
+cubie.integrators.SingleIntegratorRun
+=====================================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: SingleIntegratorRun
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~SingleIntegratorRun.__init__
+      ~SingleIntegratorRun.build
+      ~SingleIntegratorRun.check_compatibility
+      ~SingleIntegratorRun.get_cached_output
+      ~SingleIntegratorRun.instantiate_controller
+      ~SingleIntegratorRun.instantiate_loop
+      ~SingleIntegratorRun.instantiate_step_object
+      ~SingleIntegratorRun.setup_compile_settings
+      ~SingleIntegratorRun.update
+      ~SingleIntegratorRun.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~SingleIntegratorRun.adapts_step
+      ~SingleIntegratorRun.algorithm
+      ~SingleIntegratorRun.algorithm_key
+      ~SingleIntegratorRun.algorithm_order
+      ~SingleIntegratorRun.atol
+      ~SingleIntegratorRun.beta_coefficient
+      ~SingleIntegratorRun.buffer_indices
+      ~SingleIntegratorRun.cache_valid
+      ~SingleIntegratorRun.compile_flags
+      ~SingleIntegratorRun.compile_settings
+      ~SingleIntegratorRun.compiled_loop_function
+      ~SingleIntegratorRun.compiled_loop_step_function
+      ~SingleIntegratorRun.control_device_function
+      ~SingleIntegratorRun.control_settings
+      ~SingleIntegratorRun.device_function
+      ~SingleIntegratorRun.dt0
+      ~SingleIntegratorRun.dt_max
+      ~SingleIntegratorRun.dt_min
+      ~SingleIntegratorRun.dt_save
+      ~SingleIntegratorRun.dt_summarise
+      ~SingleIntegratorRun.dxdt_function
+      ~SingleIntegratorRun.fixed_step_size
+      ~SingleIntegratorRun.gamma
+      ~SingleIntegratorRun.gamma_coefficient
+      ~SingleIntegratorRun.implicit_step
+      ~SingleIntegratorRun.integration_step_function
+      ~SingleIntegratorRun.integration_step_size
+      ~SingleIntegratorRun.is_adaptive
+      ~SingleIntegratorRun.kd
+      ~SingleIntegratorRun.ki
+      ~SingleIntegratorRun.kp
+      ~SingleIntegratorRun.linear_correction_type
+      ~SingleIntegratorRun.linear_solver_tolerance
+      ~SingleIntegratorRun.local_indices
+      ~SingleIntegratorRun.local_memory_elements
+      ~SingleIntegratorRun.local_memory_elements_controller
+      ~SingleIntegratorRun.local_memory_elements_loop
+      ~SingleIntegratorRun.local_memory_required_step
+      ~SingleIntegratorRun.local_scratch_required_step
+      ~SingleIntegratorRun.mass_matrix
+      ~SingleIntegratorRun.max_gain
+      ~SingleIntegratorRun.max_linear_iterations
+      ~SingleIntegratorRun.max_newton_iters
+      ~SingleIntegratorRun.min_gain
+      ~SingleIntegratorRun.n_saved_observables
+      ~SingleIntegratorRun.n_saved_states
+      ~SingleIntegratorRun.n_summarised_observables
+      ~SingleIntegratorRun.n_summarised_states
+      ~SingleIntegratorRun.newton_damping
+      ~SingleIntegratorRun.newton_iterations_limit
+      ~SingleIntegratorRun.newton_max_backtracks
+      ~SingleIntegratorRun.nonlinear_solver_function
+      ~SingleIntegratorRun.nonlinear_tolerance
+      ~SingleIntegratorRun.numba_precision
+      ~SingleIntegratorRun.observable_summaries_buffer_height
+      ~SingleIntegratorRun.observable_summaries_output_height
+      ~SingleIntegratorRun.order
+      ~SingleIntegratorRun.output_array_heights
+      ~SingleIntegratorRun.output_compile_flags
+      ~SingleIntegratorRun.output_types
+      ~SingleIntegratorRun.precision
+      ~SingleIntegratorRun.preconditioner_order
+      ~SingleIntegratorRun.rtol
+      ~SingleIntegratorRun.safety
+      ~SingleIntegratorRun.save_state_fn
+      ~SingleIntegratorRun.save_state_func
+      ~SingleIntegratorRun.save_summaries_fn
+      ~SingleIntegratorRun.save_summaries_func
+      ~SingleIntegratorRun.save_summary_metrics_func
+      ~SingleIntegratorRun.save_time
+      ~SingleIntegratorRun.saved_observable_indices
+      ~SingleIntegratorRun.saved_state_indices
+      ~SingleIntegratorRun.shared_buffer_indices
+      ~SingleIntegratorRun.shared_memory_bytes
+      ~SingleIntegratorRun.shared_memory_elements
+      ~SingleIntegratorRun.shared_memory_elements_loop
+      ~SingleIntegratorRun.shared_memory_required_step
+      ~SingleIntegratorRun.solver_helper
+      ~SingleIntegratorRun.state_count
+      ~SingleIntegratorRun.state_summaries_buffer_height
+      ~SingleIntegratorRun.state_summaries_output_height
+      ~SingleIntegratorRun.step_controller_kind
+      ~SingleIntegratorRun.summaries_buffer_sizes
+      ~SingleIntegratorRun.summarised_observable_indices
+      ~SingleIntegratorRun.summarised_state_indices
+      ~SingleIntegratorRun.summary_buffer_height_per_variable
+      ~SingleIntegratorRun.summary_legend_per_variable
+      ~SingleIntegratorRun.summary_output_height_per_variable
+      ~SingleIntegratorRun.system
+      ~SingleIntegratorRun.system_sizes
+      ~SingleIntegratorRun.threads_per_loop
+      ~SingleIntegratorRun.threads_per_step
+      ~SingleIntegratorRun.total_summary_buffer_size
+      ~SingleIntegratorRun.update_summaries_fn
+      ~SingleIntegratorRun.update_summaries_func
+      ~SingleIntegratorRun.uses_multiple_stages
+   
+   

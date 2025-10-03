@@ -1,0 +1,55 @@
+﻿cubie.integrators.algorithms.ExplicitEulerStep
+==============================================
+
+.. currentmodule:: cubie.integrators.algorithms
+
+.. autoclass:: ExplicitEulerStep
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~ExplicitEulerStep.__init__
+      ~ExplicitEulerStep.build
+      ~ExplicitEulerStep.build_step
+      ~ExplicitEulerStep.get_cached_output
+      ~ExplicitEulerStep.setup_compile_settings
+      ~ExplicitEulerStep.update
+      ~ExplicitEulerStep.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~ExplicitEulerStep.cache_valid
+      ~ExplicitEulerStep.compile_settings
+      ~ExplicitEulerStep.device_function
+      ~ExplicitEulerStep.dt
+      ~ExplicitEulerStep.dxdt_function
+      ~ExplicitEulerStep.get_solver_helper_fn
+      ~ExplicitEulerStep.is_adaptive
+      ~ExplicitEulerStep.is_implicit
+      ~ExplicitEulerStep.is_multistage
+      ~ExplicitEulerStep.local_scratch_required
+      ~ExplicitEulerStep.n
+      ~ExplicitEulerStep.nonlinear_solver_function
+      ~ExplicitEulerStep.numba_precision
+      ~ExplicitEulerStep.observables_function
+      ~ExplicitEulerStep.order
+      ~ExplicitEulerStep.persistent_local_required
+      ~ExplicitEulerStep.precision
+      ~ExplicitEulerStep.settings_dict
+      ~ExplicitEulerStep.shared_memory_required
+      ~ExplicitEulerStep.simsafe_precision
+      ~ExplicitEulerStep.step_function
+      ~ExplicitEulerStep.threads_per_step
+   
+   

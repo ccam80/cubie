@@ -1,0 +1,13 @@
+cubie.integrators.step\_control.gustafsson\_controller
+======================================================
+
+.. automodule:: cubie.integrators.step_control.gustafsson_controller
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      GustafssonController
+      GustafssonStepControlConfig
+   

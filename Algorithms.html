@@ -1,0 +1,172 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ODE solving algorithms &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script async="async" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API reference" href="api/index.html" />
+    <link rel="prev" title="Drivers (Forcing Functions)" href="drivers.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">ODE solving algorithms</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#euler-s-method">Euler’s method</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#runge-kutta-methods">Runge-Kutta methods</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#implicit-vs-explicit">Implicit vs Explicit</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">ODE solving algorithms</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/Algorithms.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="ode-solving-algorithms">
+<h1>ODE solving algorithms<a class="headerlink" href="#ode-solving-algorithms" title="Link to this heading"></a></h1>
+<p>Solving ODEs seems like it should be straightforward - we know how much the
+variables change at any instant in time (because we have the
+(frac{dx}{dt}) equations), so we can just keep adding up those changes from
+some starting point and hey, presto, we have the solution! Alas, it is not that
+simple. The key shortfall of this approach is that the derivatives are
+continuous functions, and we can only calculate the change over a finite step in
+time. Because the derivatives can change between the start and end of any size
+step that we take, our calculated change can end up being slightly different
+than the actual change.</p>
+<p>Put simply, most real systems change in curvy lines, and we can only calculate
+change in straight-line sections.</p>
+<section id="euler-s-method">
+<h2>Euler’s method<a class="headerlink" href="#euler-s-method" title="Link to this heading"></a></h2>
+<p>Euler did a lot of cool stuff. In the ODE world, the most intuitive method of
+solving ODEs is named after him: Euler’s method. In Euler’s method, we calculate
+the derivative at the start of the step, and move forward in that direction for
+the whole time step. Euler’s method says:</p>
+<div class="math notranslate nohighlight">
+\[x_{n+1} = x_n + h f(t_n, x_n)\]</div>
+</section>
+<section id="runge-kutta-methods">
+<h2>Runge-Kutta methods<a class="headerlink" href="#runge-kutta-methods" title="Link to this heading"></a></h2>
+<p>Runge-Kutta methods are a whole family of algorithms based on the same
+underlying idea: instead of just calculating the gradient at the start of the
+step, we calculate it at many sub-steps along the way, then average the results
+to get a more accurate estimate of the change over the whole step. The most
+common Runge-Kutta method is the fourth-order Runge-Kutta method, which
+calculates the gradient at four points along the step. One handy feature of
+these algorithms is that we can calculate two at once - a fourth order and a
+fifth order - without doing much more computation work. We find the difference
+between these two estimates, and use that as an “error” estimate - if the error
+is too high, we’re probably not close to the true solution, so we can reduce the
+step size and try again. This is the basis of adaptive-step algorithms, which
+are very useful for solving ODEs in practice. Whenever there’s a sharp or steep
+corner in your variables, the average over the whole step will be inaccurate, so
+an adaptive algorithm can take small steps on these sharp corners, and then take
+big steps (so work faster) in nice straight-line sections.</p>
+</section>
+<section id="implicit-vs-explicit">
+<span id="implicit-methods"></span><h2>Implicit vs Explicit<a class="headerlink" href="#implicit-vs-explicit" title="Link to this heading"></a></h2>
+<p>Explicit methods step forward through the sub-steps in time, calculating one,
+then using that to calculate the next, and so on. Implicit methods, on the other
+hand, use the solution to later sub-steps to calculate the solution to earlier
+sub-steps. This makes them better at handling stiff systems (ones which have
+very different time scales for different variables). To pull this off, however,
+they need to solve the system of equations for all steps simultaneously, which
+is computationally intense. Cubie uses a matrix-free solver for this process,
+which means that it doesn’t need to store big matrices in memory, allowing it to
+solve much larger problems than would otherwise be possible.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="drivers.html" class="btn btn-neutral float-left" title="Drivers (Forcing Functions)" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="api/index.html" class="btn btn-neutral float-right" title="API reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

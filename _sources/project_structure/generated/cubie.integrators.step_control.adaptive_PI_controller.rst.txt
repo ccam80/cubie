@@ -1,0 +1,13 @@
+cubie.integrators.step\_control.adaptive\_PI\_controller
+========================================================
+
+.. automodule:: cubie.integrators.step_control.adaptive_PI_controller
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      AdaptivePIController
+      PIStepControlConfig
+   

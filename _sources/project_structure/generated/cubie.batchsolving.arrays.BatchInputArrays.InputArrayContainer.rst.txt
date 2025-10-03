@@ -1,0 +1,37 @@
+﻿cubie.batchsolving.arrays.BatchInputArrays.InputArrayContainer
+==============================================================
+
+.. currentmodule:: cubie.batchsolving.arrays.BatchInputArrays
+
+.. autoclass:: InputArrayContainer
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~InputArrayContainer.__init__
+      ~InputArrayContainer.attach
+      ~InputArrayContainer.delete
+      ~InputArrayContainer.delete_all
+      ~InputArrayContainer.device_factory
+      ~InputArrayContainer.host_factory
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~InputArrayContainer.memory_type
+      ~InputArrayContainer.stride_order
+      ~InputArrayContainer.initial_values
+      ~InputArrayContainer.parameters
+      ~InputArrayContainer.driver_coefficients
+   
+   

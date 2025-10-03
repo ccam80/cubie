@@ -1,0 +1,6 @@
+﻿cubie.outputhandling.summarymetrics.register\_metric
+====================================================
+
+.. currentmodule:: cubie.outputhandling.summarymetrics
+
+.. autofunction:: register_metric

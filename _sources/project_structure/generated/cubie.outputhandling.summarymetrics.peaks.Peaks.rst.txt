@@ -1,0 +1,36 @@
+﻿cubie.outputhandling.summarymetrics.peaks.Peaks
+===============================================
+
+.. currentmodule:: cubie.outputhandling.summarymetrics.peaks
+
+.. autoclass:: Peaks
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~Peaks.__init__
+      ~Peaks.build
+      ~Peaks.get_cached_output
+      ~Peaks.setup_compile_settings
+      ~Peaks.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~Peaks.cache_valid
+      ~Peaks.compile_settings
+      ~Peaks.device_function
+      ~Peaks.save_device_func
+      ~Peaks.update_device_func
+   
+   

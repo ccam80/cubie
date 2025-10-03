@@ -1,0 +1,56 @@
+﻿cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays
+========================================================
+
+.. currentmodule:: cubie.batchsolving.arrays.BatchOutputArrays
+
+.. autoclass:: OutputArrays
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~OutputArrays.__init__
+      ~OutputArrays.allocate
+      ~OutputArrays.attach_external_arrays
+      ~OutputArrays.check_incoming_arrays
+      ~OutputArrays.check_sizes
+      ~OutputArrays.check_type
+      ~OutputArrays.finalise
+      ~OutputArrays.from_device
+      ~OutputArrays.from_solver
+      ~OutputArrays.initialise
+      ~OutputArrays.initialize_device_zeros
+      ~OutputArrays.register_with_memory_manager
+      ~OutputArrays.request_allocation
+      ~OutputArrays.reset
+      ~OutputArrays.to_device
+      ~OutputArrays.update
+      ~OutputArrays.update_from_solver
+      ~OutputArrays.update_host_arrays
+      ~OutputArrays.update_sizes
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~OutputArrays.active_outputs
+      ~OutputArrays.device
+      ~OutputArrays.device_observable_summaries
+      ~OutputArrays.device_observables
+      ~OutputArrays.device_state
+      ~OutputArrays.device_state_summaries
+      ~OutputArrays.host
+      ~OutputArrays.observable_summaries
+      ~OutputArrays.observables
+      ~OutputArrays.state
+      ~OutputArrays.state_summaries
+   
+   

@@ -1,0 +1,49 @@
+﻿cubie.integrators.loops.ode\_loop\_config.ODELoopConfig
+=======================================================
+
+.. currentmodule:: cubie.integrators.loops.ode_loop_config
+
+.. autoclass:: ODELoopConfig
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~ODELoopConfig.__init__
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~ODELoopConfig.shared_buffer_indices
+      ~ODELoopConfig.local_indices
+      ~ODELoopConfig.precision
+      ~ODELoopConfig.compile_flags
+      ~ODELoopConfig.save_state_fn
+      ~ODELoopConfig.update_summaries_fn
+      ~ODELoopConfig.save_summaries_fn
+      ~ODELoopConfig.step_controller_fn
+      ~ODELoopConfig.step_function
+      ~ODELoopConfig.driver_function
+      ~ODELoopConfig.observables_fn
+      ~ODELoopConfig.is_adaptive
+      ~ODELoopConfig.dt0
+      ~ODELoopConfig.dt_max
+      ~ODELoopConfig.dt_min
+      ~ODELoopConfig.dt_save
+      ~ODELoopConfig.dt_summarise
+      ~ODELoopConfig.loop_local_elements
+      ~ODELoopConfig.loop_shared_elements
+      ~ODELoopConfig.numba_precision
+      ~ODELoopConfig.saves_per_summary
+      ~ODELoopConfig.simsafe_precision
+   
+   

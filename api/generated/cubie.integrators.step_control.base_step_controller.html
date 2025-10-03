@@ -1,0 +1,381 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.step_control.base_step_controller &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.integrators.step_control.fixed_step_controller" href="cubie.integrators.step_control.fixed_step_controller.html" />
+    <link rel="prev" title="cubie.integrators.step_control.adaptive_step_controller" href="cubie.integrators.step_control.adaptive_step_controller.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#subpackages">Subpackages</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.AdaptiveIController"><code class="docutils literal notranslate"><span class="pre">AdaptiveIController</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.AdaptivePIController"><code class="docutils literal notranslate"><span class="pre">AdaptivePIController</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.AdaptivePIDController"><code class="docutils literal notranslate"><span class="pre">AdaptivePIDController</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.BackwardsEulerPCStep"><code class="docutils literal notranslate"><span class="pre">BackwardsEulerPCStep</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.BackwardsEulerStep"><code class="docutils literal notranslate"><span class="pre">BackwardsEulerStep</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.CrankNicolsonStep"><code class="docutils literal notranslate"><span class="pre">CrankNicolsonStep</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.ExplicitEulerStep"><code class="docutils literal notranslate"><span class="pre">ExplicitEulerStep</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.ExplicitStepConfig"><code class="docutils literal notranslate"><span class="pre">ExplicitStepConfig</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.FixedStepController"><code class="docutils literal notranslate"><span class="pre">FixedStepController</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.GustafssonController"><code class="docutils literal notranslate"><span class="pre">GustafssonController</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.IVPLoop"><code class="docutils literal notranslate"><span class="pre">IVPLoop</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.ImplicitStepConfig"><code class="docutils literal notranslate"><span class="pre">ImplicitStepConfig</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.IntegratorReturnCodes"><code class="docutils literal notranslate"><span class="pre">IntegratorReturnCodes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.SingleIntegratorRun"><code class="docutils literal notranslate"><span class="pre">SingleIntegratorRun</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.get_algorithm_step"><code class="docutils literal notranslate"><span class="pre">get_algorithm_step()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.get_controller"><code class="docutils literal notranslate"><span class="pre">get_controller()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.linear_solver_factory"><code class="docutils literal notranslate"><span class="pre">linear_solver_factory()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.html#cubie.integrators.newton_krylov_solver_factory"><code class="docutils literal notranslate"><span class="pre">newton_krylov_solver_factory()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.IntegratorRunSettings.html">cubie.integrators.IntegratorRunSettings</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.SingleIntegratorRun.html">cubie.integrators.SingleIntegratorRun</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.SingleIntegratorRunCore.html">cubie.integrators.SingleIntegratorRunCore</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.algorithms.html">cubie.integrators.algorithms</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.array_interpolator.html">cubie.integrators.array_interpolator</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.loops.html">cubie.integrators.loops</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.integrators.matrix_free_solvers.html">cubie.integrators.matrix_free_solvers</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="cubie.integrators.step_control.html">cubie.integrators.step_control</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.html#cubie.integrators.step_control.AdaptiveIController"><code class="docutils literal notranslate"><span class="pre">AdaptiveIController</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.html#cubie.integrators.step_control.AdaptivePIController"><code class="docutils literal notranslate"><span class="pre">AdaptivePIController</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.html#cubie.integrators.step_control.AdaptivePIDController"><code class="docutils literal notranslate"><span class="pre">AdaptivePIDController</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.html#cubie.integrators.step_control.FixedStepController"><code class="docutils literal notranslate"><span class="pre">FixedStepController</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.html#cubie.integrators.step_control.GustafssonController"><code class="docutils literal notranslate"><span class="pre">GustafssonController</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.html#cubie.integrators.step_control.get_controller"><code class="docutils literal notranslate"><span class="pre">get_controller()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.adaptive_I_controller.html">cubie.integrators.step_control.adaptive_I_controller</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.adaptive_PID_controller.html">cubie.integrators.step_control.adaptive_PID_controller</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.adaptive_PI_controller.html">cubie.integrators.step_control.adaptive_PI_controller</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.adaptive_step_controller.html">cubie.integrators.step_control.adaptive_step_controller</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">cubie.integrators.step_control.base_step_controller</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.fixed_step_controller.html">cubie.integrators.step_control.fixed_step_controller</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.integrators.step_control.gustafsson_controller.html">cubie.integrators.step_control.gustafsson_controller</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.integrators.html">cubie.integrators</a></li>
+          <li class="breadcrumb-item"><a href="cubie.integrators.step_control.html">cubie.integrators.step_control</a></li>
+      <li class="breadcrumb-item active">cubie.integrators.step_control.base_step_controller</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.integrators.step_control.base_step_controller.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.integrators.step_control.base_step_controller">
+<span id="cubie-integrators-step-control-base-step-controller"></span><h1>cubie.integrators.step_control.base_step_controller<a class="headerlink" href="#module-cubie.integrators.step_control.base_step_controller" title="Link to this heading"></a></h1>
+<p>Interfaces for step-size controller configuration and factories.</p>
+<p class="rubric">Notes</p>
+<p>The abstract configuration and factory interfaces defined here encapsulate
+shared behaviour for fixed and adaptive step controllers. Concrete
+controllers extend these classes to compile CUDA device functions that
+implement specific control strategies.</p>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.integrators.step_control.base_step_controller.html#cubie.integrators.step_control.base_step_controller.BaseStepController" title="cubie.integrators.step_control.base_step_controller.BaseStepController"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BaseStepController</span></code></a>()</p></td>
+<td><p>Factory interface for compiling CUDA step-size controllers.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.integrators.step_control.base_step_controller.html#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig" title="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BaseStepControllerConfig</span></code></a>(precision, n)</p></td>
+<td><p>Configuration interface for step-size controllers.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.integrators.step_control.base_step_controller.</span></span><span class="sig-name descname"><span class="pre">BaseStepController</span></span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/base_step_controller.html#BaseStepController"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">CUDAFactory</span></code></p>
+<p>Factory interface for compiling CUDA step-size controllers.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/base_step_controller.html#BaseStepController.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialise the base controller factory.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.build">
+<em class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span></span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/base_step_controller.html#BaseStepController.build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.build" title="Link to this definition"></a></dt>
+<dd><p>Compile and return the CUDA device controller.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Device function implementing the controller policy.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.dt0">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt0</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.dt0" title="Link to this definition"></a></dt>
+<dd><p>Return the initial step size.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.dt_max">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_max</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.dt_max" title="Link to this definition"></a></dt>
+<dd><p>Return the maximum supported step size.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.dt_min">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_min</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.dt_min" title="Link to this definition"></a></dt>
+<dd><p>Return the minimum supported step size.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.is_adaptive">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_adaptive</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.is_adaptive" title="Link to this definition"></a></dt>
+<dd><p>Return <code class="docutils literal notranslate"><span class="pre">True</span></code> if the controller is adaptive.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.local_memory_elements">
+<em class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">local_memory_elements</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.local_memory_elements" title="Link to this definition"></a></dt>
+<dd><p>Return the number of local scratch elements required.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.n">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">n</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.n" title="Link to this definition"></a></dt>
+<dd><p>Return the number of controlled state variables.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.numba_precision">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">numba_precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.numba_precision" title="Link to this definition"></a></dt>
+<dd><p>Return the Numba precision used for compilation.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.precision">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.precision" title="Link to this definition"></a></dt>
+<dd><p>Return the host precision used for computations.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.settings_dict">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">settings_dict</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.settings_dict" title="Link to this definition"></a></dt>
+<dd><p>Return the compile-time settings as a dictionary.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.simsafe_precision">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">simsafe_precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.simsafe_precision" title="Link to this definition"></a></dt>
+<dd><p>Return the simulator compatible precision.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepController.update">
+<span class="sig-name descname"><span class="pre">update</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">updates_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">silent</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#set" title="(in Python v3.13)"><span class="pre">set</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/base_step_controller.html#BaseStepController.update"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepController.update" title="Link to this definition"></a></dt>
+<dd><p>Propagate configuration updates to the compiled controller.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>updates_dict</strong> – Dictionary of configuration values to update.</p></li>
+<li><p><strong>silent</strong> – When <code class="docutils literal notranslate"><span class="pre">True</span></code> suppress warnings for recognised but unused
+controller parameters.</p></li>
+<li><p><strong>**kwargs</strong> – Additional configuration key-value pairs to update.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Names of parameters that were applied successfully.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#set" title="(in Python v3.13)">set</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#KeyError" title="(in Python v3.13)"><strong>KeyError</strong></a> – Raised when an update references parameters that are not defined
+    for any controller.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.integrators.step_control.base_step_controller.</span></span><span class="sig-name descname"><span class="pre">BaseStepControllerConfig</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">precision:</span> <span class="pre">type[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float64]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float64]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float32'&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n:</span> <span class="pre">int</span> <span class="pre">=</span> <span class="pre">1</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/integrators/step_control/base_step_controller.html#BaseStepControllerConfig"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/abc.html#abc.ABC" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ABC</span></code></a></p>
+<p>Configuration interface for step-size controllers.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.precision">
+<span class="sig-name descname"><span class="pre">precision</span></span><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.precision" title="Link to this definition"></a></dt>
+<dd><p>Precision used for controller calculations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)">type</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.n">
+<span class="sig-name descname"><span class="pre">n</span></span><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.n" title="Link to this definition"></a></dt>
+<dd><p>Number of state variables controlled per step.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.dt0">
+<em class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt0</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.dt0" title="Link to this definition"></a></dt>
+<dd><p>Return the initial step size used when integration starts.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.dt_max">
+<em class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_max</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.dt_max" title="Link to this definition"></a></dt>
+<dd><p>Return the maximum supported step size.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.dt_min">
+<em class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dt_min</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.dt_min" title="Link to this definition"></a></dt>
+<dd><p>Return the minimum supported step size.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.is_adaptive">
+<em class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">is_adaptive</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.is_adaptive" title="Link to this definition"></a></dt>
+<dd><p>Return <code class="docutils literal notranslate"><span class="pre">True</span></code> when the controller adapts its step size.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id0">
+<span class="sig-name descname"><span class="pre">n</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></em><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.numba_precision">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">numba_precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.numba_precision" title="Link to this definition"></a></dt>
+<dd><p>Return the Numba compatible precision object.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id1">
+<span class="sig-name descname"><span class="pre">precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#id1" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.settings_dict">
+<em class="property"><span class="k"><span class="pre">abstract</span></span><span class="w"> </span><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">settings_dict</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><span class="pre">object</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.settings_dict" title="Link to this definition"></a></dt>
+<dd><p>Return a dictionary of configuration settings.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.simsafe_precision">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">simsafe_precision</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#type" title="(in Python v3.13)"><span class="pre">type</span></a></em><a class="headerlink" href="#cubie.integrators.step_control.base_step_controller.BaseStepControllerConfig.simsafe_precision" title="Link to this definition"></a></dt>
+<dd><p>Return the simulator compatible precision object.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.integrators.step_control.adaptive_step_controller.html" class="btn btn-neutral float-left" title="cubie.integrators.step_control.adaptive_step_controller" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.integrators.step_control.fixed_step_controller.html" class="btn btn-neutral float-right" title="cubie.integrators.step_control.fixed_step_controller" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

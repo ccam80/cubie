@@ -1,0 +1,18 @@
+cubie.odesystems.symbolic.parser
+================================
+
+.. automodule:: cubie.odesystems.symbolic.parser
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      parse_input
+   
+   .. rubric:: Exceptions
+
+   .. autosummary::
+   
+      EquationWarning
+   

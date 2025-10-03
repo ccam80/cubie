@@ -1,0 +1,347 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic.numba_cuda_printer &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic.numba_cuda_printer</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/project_structure/generated/cubie.odesystems.symbolic.numba_cuda_printer.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.odesystems.symbolic.numba_cuda_printer">
+<span id="cubie-odesystems-symbolic-numba-cuda-printer"></span><h1>cubie.odesystems.symbolic.numba_cuda_printer<a class="headerlink" href="#module-cubie.odesystems.symbolic.numba_cuda_printer" title="Link to this heading"></a></h1>
+<p>SymPy printer utilities that emit CUDA-friendly Python code snippets.</p>
+<p class="rubric">Functions</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.print_cuda" title="cubie.odesystems.symbolic.numba_cuda_printer.print_cuda"><code class="xref py py-obj docutils literal notranslate"><span class="pre">print_cuda</span></code></a>(expr[, symbol_map])</p></td>
+<td><p>Return a CUDA-oriented source string for a SymPy expression.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.print_cuda_multiple" title="cubie.odesystems.symbolic.numba_cuda_printer.print_cuda_multiple"><code class="xref py py-obj docutils literal notranslate"><span class="pre">print_cuda_multiple</span></code></a>(exprs[, symbol_map])</p></td>
+<td><p>Return CUDA-friendly source strings for assignment-style expressions.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter" title="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CUDAPrinter</span></code></a>([symbol_map])</p></td>
+<td><p>SymPy printer that maps expressions to CUDA-compatible source strings.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.numba_cuda_printer.</span></span><span class="sig-name descname"><span class="pre">CUDAPrinter</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">symbol_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">PythonCodePrinter</span></code></p>
+<p>SymPy printer that maps expressions to CUDA-compatible source strings.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">symbol_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialise a CUDA-aware code printer.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>symbol_map</strong> – Optional mapping from scalar symbols to indexed array references or
+other replacement nodes.</p></li>
+<li><p><strong>args</strong> – Positional arguments forwarded to <code class="xref py py-class docutils literal notranslate"><span class="pre">PythonCodePrinter</span></code>.</p></li>
+<li><p><strong>kwargs</strong> – Keyword arguments forwarded to <code class="xref py py-class docutils literal notranslate"><span class="pre">PythonCodePrinter</span></code>.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._ifelse_to_selp">
+<span class="sig-name descname"><span class="pre">_ifelse_to_selp</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr_str</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._ifelse_to_selp"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._ifelse_to_selp" title="Link to this definition"></a></dt>
+<dd><p>Replace conditional expressions with <code class="docutils literal notranslate"><span class="pre">selp</span></code> calls.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>expr_str</strong> – Source string to rewrite.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source string with ternaries replaced by <code class="docutils literal notranslate"><span class="pre">selp</span></code> calls.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Function">
+<span class="sig-name descname"><span class="pre">_print_Function</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Function</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._print_Function"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Function" title="Link to this definition"></a></dt>
+<dd><p>Print a function call with CUDA-specific substitutions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>expr</strong> – Function expression to render.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Printed representation that accounts for CUDA-specific mappings.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Lookup precedence is:</p>
+<ol class="arabic simple">
+<li><p>Known CUDA-mapped SymPy functions supplied in <code class="docutils literal notranslate"><span class="pre">CUDA_FUNCTIONS</span></code>.</p></li>
+<li><p>User-defined functions recorded in <code class="docutils literal notranslate"><span class="pre">__function_aliases__</span></code>.</p></li>
+<li><p>Derivative helper functions prefixed with <code class="docutils literal notranslate"><span class="pre">&quot;d_&quot;</span></code>.</p></li>
+<li><p>Fallback to the SymPy function name.</p></li>
+</ol>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Piecewise">
+<span class="sig-name descname"><span class="pre">_print_Piecewise</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Piecewise</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._print_Piecewise"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Piecewise" title="Link to this definition"></a></dt>
+<dd><p>Render a <code class="docutils literal notranslate"><span class="pre">Piecewise</span></code> expression as nested ternaries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>expr</strong> – Piecewise expression to render.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Nested ternary representation of <code class="docutils literal notranslate"><span class="pre">expr</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This avoids generating assignments inside conditional expressions when
+<code class="docutils literal notranslate"><span class="pre">assign_to</span></code> is supplied to <a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.doprint" title="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.doprint"><code class="xref py py-meth docutils literal notranslate"><span class="pre">doprint()</span></code></a>. The outer assignment is
+handled by <a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.doprint" title="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.doprint"><code class="xref py py-meth docutils literal notranslate"><span class="pre">doprint()</span></code></a> itself (<code class="docutils literal notranslate"><span class="pre">&quot;lhs</span> <span class="pre">=</span> <span class="pre">&lt;expr&gt;&quot;</span></code>).</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Symbol">
+<span class="sig-name descname"><span class="pre">_print_Symbol</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Symbol</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._print_Symbol"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._print_Symbol" title="Link to this definition"></a></dt>
+<dd><p>Print a symbol, applying array substitutions when configured.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>expr</strong> – Symbol to render.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Printed representation that respects the configured substitutions.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_cube_powers">
+<span class="sig-name descname"><span class="pre">_replace_cube_powers</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr_str</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._replace_cube_powers"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_cube_powers" title="Link to this definition"></a></dt>
+<dd><p>Replace <code class="docutils literal notranslate"><span class="pre">x**3</span></code> with <code class="docutils literal notranslate"><span class="pre">x*x*x</span></code> while preserving spacing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>expr_str</strong> – Source string to rewrite.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source string with <code class="docutils literal notranslate"><span class="pre">x**3</span></code> rewritten.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_powers_with_multiplication">
+<span class="sig-name descname"><span class="pre">_replace_powers_with_multiplication</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr_str</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._replace_powers_with_multiplication"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_powers_with_multiplication" title="Link to this definition"></a></dt>
+<dd><p>Replace square and cube powers with explicit multiplications.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>expr_str</strong> – Source string to rewrite.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source string with <code class="docutils literal notranslate"><span class="pre">x**2</span></code> and <code class="docutils literal notranslate"><span class="pre">x**3</span></code> rewritten.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_square_powers">
+<span class="sig-name descname"><span class="pre">_replace_square_powers</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr_str</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter._replace_square_powers"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter._replace_square_powers" title="Link to this definition"></a></dt>
+<dd><p>Replace <code class="docutils literal notranslate"><span class="pre">x**2</span></code> with <code class="docutils literal notranslate"><span class="pre">x*x</span></code> while preserving spacing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>expr_str</strong> – Source string to rewrite.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Source string with <code class="docutils literal notranslate"><span class="pre">x**2</span></code> rewritten.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.doprint">
+<span class="sig-name descname"><span class="pre">doprint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Expr</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#CUDAPrinter.doprint"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter.doprint" title="Link to this definition"></a></dt>
+<dd><p>Return the CUDA-oriented source string for <code class="docutils literal notranslate"><span class="pre">expr</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>expr</strong> – SymPy expression to print.</p></li>
+<li><p><strong>**kwargs</strong> – Additional keyword arguments passed to <code class="xref py py-meth docutils literal notranslate"><span class="pre">PythonCodePrinter.doprint()</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>CUDA-compatible code representation of <code class="docutils literal notranslate"><span class="pre">expr</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.print_cuda">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.numba_cuda_printer.</span></span><span class="sig-name descname"><span class="pre">print_cuda</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Expr</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">symbol_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#print_cuda"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.print_cuda" title="Link to this definition"></a></dt>
+<dd><p>Return a CUDA-oriented source string for a SymPy expression.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>expr</strong> – SymPy expression to print.</p></li>
+<li><p><strong>symbol_map</strong> – Optional symbol replacement mapping used when constructing the printer.</p></li>
+<li><p><strong>**kwargs</strong> – Additional keyword arguments forwarded to <a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter" title="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter"><code class="xref py py-class docutils literal notranslate"><span class="pre">CUDAPrinter</span></code></a>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>CUDA-compatible code representation of <code class="docutils literal notranslate"><span class="pre">expr</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.numba_cuda_printer.print_cuda_multiple">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.numba_cuda_printer.</span></span><span class="sig-name descname"><span class="pre">print_cuda_multiple</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">exprs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.13)"><span class="pre">Tuple</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Expr</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">symbol_map</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.13)"><span class="pre">List</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/numba_cuda_printer.html#print_cuda_multiple"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.numba_cuda_printer.print_cuda_multiple" title="Link to this definition"></a></dt>
+<dd><p>Return CUDA-friendly source strings for assignment-style expressions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>exprs</strong> – Iterable of <code class="docutils literal notranslate"><span class="pre">(assign_to,</span> <span class="pre">expression)</span></code> pairs to print.</p></li>
+<li><p><strong>symbol_map</strong> – Optional symbol replacement mapping used when constructing the printer.</p></li>
+<li><p><strong>**kwargs</strong> – Additional keyword arguments forwarded to <a class="reference internal" href="#cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter" title="cubie.odesystems.symbolic.numba_cuda_printer.CUDAPrinter"><code class="xref py py-class docutils literal notranslate"><span class="pre">CUDAPrinter</span></code></a>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>CUDA-compatible code representation for each assignment.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>List[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

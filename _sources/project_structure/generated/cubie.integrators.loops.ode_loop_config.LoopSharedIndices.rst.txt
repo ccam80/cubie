@@ -1,0 +1,47 @@
+﻿cubie.integrators.loops.ode\_loop\_config.LoopSharedIndices
+===========================================================
+
+.. currentmodule:: cubie.integrators.loops.ode_loop_config
+
+.. autoclass:: LoopSharedIndices
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~LoopSharedIndices.__init__
+      ~LoopSharedIndices.from_dict
+      ~LoopSharedIndices.from_sizes
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~LoopSharedIndices.dxdt
+      ~LoopSharedIndices.state
+      ~LoopSharedIndices.proposed_state
+      ~LoopSharedIndices.observables
+      ~LoopSharedIndices.proposed_observables
+      ~LoopSharedIndices.parameters
+      ~LoopSharedIndices.drivers
+      ~LoopSharedIndices.proposed_drivers
+      ~LoopSharedIndices.state_summaries
+      ~LoopSharedIndices.observable_summaries
+      ~LoopSharedIndices.local_end
+      ~LoopSharedIndices.scratch
+      ~LoopSharedIndices.all
+      ~LoopSharedIndices.loop_shared_elements
+      ~LoopSharedIndices.n_drivers
+      ~LoopSharedIndices.n_observables
+      ~LoopSharedIndices.n_parameters
+      ~LoopSharedIndices.n_states
+   
+   

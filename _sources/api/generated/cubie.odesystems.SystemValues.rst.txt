@@ -1,0 +1,42 @@
+cubie.odesystems.SystemValues
+=============================
+
+.. currentmodule:: cubie.odesystems
+
+.. autoclass:: SystemValues
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~SystemValues.__init__
+      ~SystemValues.get_index_of_key
+      ~SystemValues.get_indices
+      ~SystemValues.get_labels
+      ~SystemValues.get_values
+      ~SystemValues.set_values
+      ~SystemValues.update_from_dict
+      ~SystemValues.update_param_array_and_indices
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~SystemValues.names
+      ~SystemValues.values_array
+      ~SystemValues.indices_dict
+      ~SystemValues.keys_by_index
+      ~SystemValues.values_dict
+      ~SystemValues.precision
+      ~SystemValues.n
+      ~SystemValues.name
+   
+   

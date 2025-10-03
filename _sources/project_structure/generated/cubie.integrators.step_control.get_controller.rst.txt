@@ -1,0 +1,6 @@
+﻿cubie.integrators.step\_control.get\_controller
+===============================================
+
+.. currentmodule:: cubie.integrators.step_control
+
+.. autofunction:: get_controller

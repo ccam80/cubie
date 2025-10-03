@@ -1,0 +1,189 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>src/cubie/memory &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">src/cubie/memory</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/project_structure/src_cubie_memory.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="src-cubie-memory">
+<h1>src/cubie/memory<a class="headerlink" href="#src-cubie-memory" title="Link to this heading"></a></h1>
+<p>The memory package coordinates GPU allocations across cubie. It exposes the
+package-level <a class="reference internal" href="../api/generated/cubie.memory.mem_manager.html#cubie.memory.mem_manager.MemoryManager" title="cubie.memory.mem_manager.MemoryManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">MemoryManager</span></code></a> through
+<code class="docutils literal notranslate"><span class="pre">default_memmgr</span></code> so integrators can request array buffers, register CUDA
+streams, and plug in alternative allocators without reimplementing the control
+logic. Supporting modules describe allocation requests, track chunked response
+metadata, manage stream groups, and expose CuPy-backed External Memory Manager
+plugins for Numba contexts.</p>
+<section id="entry-point">
+<h2>Entry point<a class="headerlink" href="#entry-point" title="Link to this heading"></a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">default_memmgr</span></code> instantiates <a class="reference internal" href="../api/generated/cubie.memory.mem_manager.html#cubie.memory.mem_manager.MemoryManager" title="cubie.memory.mem_manager.MemoryManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">MemoryManager</span></code></a>
+with stream grouping and CuPy integration ready to configure. Typical callers
+obtain this singleton, register their instance identifier, and submit
+<a class="reference internal" href="../api/generated/cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayRequest" title="cubie.memory.array_requests.ArrayRequest"><code class="xref py py-class docutils literal notranslate"><span class="pre">ArrayRequest</span></code></a> objects that describe the
+arrays they need.</p>
+</section>
+<section id="public-api">
+<h2>Public API<a class="headerlink" href="#public-api" title="Link to this heading"></a></h2>
+<section id="core-manager">
+<h3>Core manager<a class="headerlink" href="#core-manager" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.memory.default_memmgr</span></code></p></td>
+<td><p>Singleton interface coordinating GPU memory allocation and stream usage.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="../api/generated/cubie.memory.mem_manager.html#cubie.memory.mem_manager.MemoryManager" title="cubie.memory.mem_manager.MemoryManager"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.memory.mem_manager.MemoryManager</span></code></a>(...)</p></td>
+<td><p>Singleton interface coordinating GPU memory allocation and stream usage.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="array-specifications">
+<h3>Array specifications<a class="headerlink" href="#array-specifications" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="../api/generated/cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayRequest" title="cubie.memory.array_requests.ArrayRequest"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.memory.array_requests.ArrayRequest</span></code></a>(...)</p></td>
+<td><p>Specification for requesting array allocation.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="../api/generated/cubie.memory.array_requests.html#cubie.memory.array_requests.ArrayResponse" title="cubie.memory.array_requests.ArrayResponse"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.memory.array_requests.ArrayResponse</span></code></a>([...])</p></td>
+<td><p>Result of an array allocation containing buffers and chunking data.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="stream-coordination">
+<h3>Stream coordination<a class="headerlink" href="#stream-coordination" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="../api/generated/cubie.memory.stream_groups.html#cubie.memory.stream_groups.StreamGroups" title="cubie.memory.stream_groups.StreamGroups"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.memory.stream_groups.StreamGroups</span></code></a>([...])</p></td>
+<td><p>Container for organizing instances into groups with shared streams.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="cupy-external-memory-managers">
+<h3>CuPy External Memory Managers<a class="headerlink" href="#cupy-external-memory-managers" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="../api/generated/cubie.memory.cupy_emm.html#cubie.memory.cupy_emm.current_cupy_stream" title="cubie.memory.cupy_emm.current_cupy_stream"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.memory.cupy_emm.current_cupy_stream</span></code></a>(...)</p></td>
+<td><p>Context manager that forwards a Numba stream into CuPy APIs.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="../api/generated/cubie.memory.cupy_emm.html#cubie.memory.cupy_emm.CuPyAsyncNumbaManager" title="cubie.memory.cupy_emm.CuPyAsyncNumbaManager"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.memory.cupy_emm.CuPyAsyncNumbaManager</span></code></a>(context)</p></td>
+<td><p>Numba EMM plugin using CuPy MemoryAsyncPool for allocation and freeing.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="../api/generated/cubie.memory.cupy_emm.html#cubie.memory.cupy_emm.CuPySyncNumbaManager" title="cubie.memory.cupy_emm.CuPySyncNumbaManager"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.memory.cupy_emm.CuPySyncNumbaManager</span></code></a>(context)</p></td>
+<td><p>Numba EMM plugin using CuPy MemoryPool for allocation and freeing.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading"></a></h2>
+<p>The package requires <code class="xref py py-mod docutils literal notranslate"><span class="pre">numba.cuda</span></code> for stream management and context access.
+CuPy is optional but enables the External Memory Manager plugins and stream
+interoperability helpers. These plugins are registered through
+<code class="docutils literal notranslate"><span class="pre">MemoryManager</span></code> when available and fall back to Numba’s native allocator
+otherwise.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

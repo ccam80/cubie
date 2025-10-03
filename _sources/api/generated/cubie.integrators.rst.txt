@@ -1,0 +1,26 @@
+﻿cubie.integrators
+=================
+
+.. automodule:: cubie.integrators
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      IntegratorReturnCodes
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   IntegratorRunSettings
+   SingleIntegratorRun
+   SingleIntegratorRunCore
+   algorithms
+   array_interpolator
+   loops
+   matrix_free_solvers
+   step_control

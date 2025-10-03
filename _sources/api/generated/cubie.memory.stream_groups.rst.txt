@@ -1,0 +1,12 @@
+cubie.memory.stream\_groups
+===========================
+
+.. automodule:: cubie.memory.stream_groups
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      StreamGroups
+   

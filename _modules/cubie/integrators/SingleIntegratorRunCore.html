@@ -1,0 +1,719 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.integrators.SingleIntegratorRunCore &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+          <li class="breadcrumb-item"><a href="../integrators.html">cubie.integrators</a></li>
+      <li class="breadcrumb-item active">cubie.integrators.SingleIntegratorRunCore</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.integrators.SingleIntegratorRunCore</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Single integrator run coordination for CUDA-based ODE solving.</span>
+
+<span class="sd">This module provides the :class:`SingleIntegratorRunCore` class which</span>
+<span class="sd">coordinates the modular integrator loop</span>
+<span class="sd">(:class:`~cubie.integrators.loops.ode_loop.IVPLoop`) and its dependencies.</span>
+
+<span class="sd">Notes</span>
+<span class="sd">-----</span>
+<span class="sd">Dependency injection of the algorithm step, controller, and output</span>
+<span class="sd">handlers occurs during initialisation so that the compiled CUDA loop can</span>
+<span class="sd">be rebuilt when any component is reconfigured.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span><span class="p">,</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Callable</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayLike</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.CUDAFactory</span><span class="w"> </span><span class="kn">import</span> <span class="n">CUDAFactory</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.IntegratorRunSettings</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntegratorRunSettings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.algorithms</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_algorithm_step</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.loops.ode_loop</span><span class="w"> </span><span class="kn">import</span> <span class="n">IVPLoop</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.loops.ode_loop_config</span><span class="w"> </span><span class="kn">import</span> <span class="n">LoopSharedIndices</span><span class="p">,</span> \
+    <span class="n">LoopLocalIndices</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.outputhandling</span><span class="w"> </span><span class="kn">import</span> <span class="n">OutputCompileFlags</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.outputhandling.output_functions</span><span class="w"> </span><span class="kn">import</span> <span class="n">OutputFunctions</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.step_control</span><span class="w"> </span><span class="kn">import</span> <span class="n">get_controller</span>
+
+
+<span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>  <span class="c1"># pragma: no cover - imported for static typing only</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.algorithms.base_algorithm_step</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">BaseAlgorithmStep</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">cubie.integrators.step_control.base_step_controller</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+        <span class="n">BaseStepController</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.baseODE</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseODE</span>
+
+
+<div class="viewcode-block" id="SingleIntegratorRunCore">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRunCore.html#cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">SingleIntegratorRunCore</span><span class="p">(</span><span class="n">CUDAFactory</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Coordinate a single ODE integration loop and its dependencies.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    system</span>
+<span class="sd">        ODE system whose device functions drive the integration.</span>
+<span class="sd">    algorithm</span>
+<span class="sd">        Name of the algorithm step implementation. Defaults to ``&quot;euler&quot;``.</span>
+<span class="sd">    dt_min</span>
+<span class="sd">        Minimum step size forwarded to the controller. Defaults to ``0.01``.</span>
+<span class="sd">    dt_max</span>
+<span class="sd">        Maximum step size forwarded to the controller. Defaults to ``0.1``.</span>
+<span class="sd">    fixed_step_size</span>
+<span class="sd">        Step size supplied to fixed-step algorithms. Defaults to ``0.01``.</span>
+<span class="sd">    dt_save</span>
+<span class="sd">        Interval used when saving full state trajectories. Defaults to</span>
+<span class="sd">        ``0.1``.</span>
+<span class="sd">    dt_summarise</span>
+<span class="sd">        Interval used when saving summary metrics. Defaults to ``1.0``.</span>
+<span class="sd">    atol</span>
+<span class="sd">        Absolute tolerance supplied to adaptive controllers. Defaults to</span>
+<span class="sd">        ``1e-6``.</span>
+<span class="sd">    rtol</span>
+<span class="sd">        Relative tolerance supplied to adaptive controllers. Defaults to</span>
+<span class="sd">        ``1e-6``.</span>
+<span class="sd">    saved_state_indices</span>
+<span class="sd">        Indices of state variables saved by the output handler.</span>
+<span class="sd">    saved_observable_indices</span>
+<span class="sd">        Indices of observables saved by the output handler.</span>
+<span class="sd">    summarised_state_indices</span>
+<span class="sd">        Indices of state variables summarised by the output handler.</span>
+<span class="sd">    summarised_observable_indices</span>
+<span class="sd">        Indices of observables summarised by the output handler.</span>
+<span class="sd">    output_types</span>
+<span class="sd">        Output modes requested from the output handler.</span>
+<span class="sd">    driver_function</span>
+<span class="sd">        Optional device function which interpolates arbitrary driver inputs</span>
+<span class="sd">    step_controller_kind</span>
+<span class="sd">        Controller family used to manage step sizes. Defaults to</span>
+<span class="sd">        ``&quot;fixed&quot;``.</span>
+<span class="sd">    algorithm_parameters</span>
+<span class="sd">        Additional keyword arguments forwarded to the algorithm factory.</span>
+<span class="sd">    step_controller_parameters</span>
+<span class="sd">        Additional keyword arguments forwarded to the controller factory.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    None</span>
+<span class="sd">        Initialises the integration loop and associated components.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">system</span><span class="p">:</span> <span class="n">BaseODE</span><span class="p">,</span>
+        <span class="n">algorithm</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;euler&quot;</span><span class="p">,</span>
+        <span class="n">dt_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span><span class="p">,</span>
+        <span class="n">dt_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+        <span class="n">fixed_step_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+        <span class="n">dt_save</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>
+        <span class="n">dt_summarise</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">atol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+        <span class="n">rtol</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+        <span class="n">saved_state_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ArrayLike</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">saved_observable_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ArrayLike</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">summarised_state_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ArrayLike</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">summarised_observable_indices</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ArrayLike</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">output_types</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">driver_function</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">step_controller_kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;fixed&quot;</span><span class="p">,</span>
+        <span class="n">algorithm_parameters</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">step_controller_parameters</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">()</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="n">IntegratorRunSettings</span><span class="p">(</span>
+            <span class="n">precision</span><span class="o">=</span><span class="n">system</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">algorithm</span><span class="o">=</span><span class="n">algorithm</span><span class="p">,</span>
+            <span class="n">step_controller_kind</span><span class="o">=</span><span class="n">step_controller_kind</span> <span class="ow">or</span> <span class="s2">&quot;fixed&quot;</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">setup_compile_settings</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_system</span> <span class="o">=</span> <span class="n">system</span>
+        <span class="n">system_sizes</span> <span class="o">=</span> <span class="n">system</span><span class="o">.</span><span class="n">sizes</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span> <span class="o">=</span> <span class="n">OutputFunctions</span><span class="p">(</span>
+            <span class="n">max_states</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+            <span class="n">max_observables</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">output_types</span><span class="o">=</span><span class="n">output_types</span><span class="p">,</span>
+            <span class="n">saved_state_indices</span><span class="o">=</span><span class="n">saved_state_indices</span><span class="p">,</span>
+            <span class="n">saved_observable_indices</span><span class="o">=</span><span class="n">saved_observable_indices</span><span class="p">,</span>
+            <span class="n">summarised_state_indices</span><span class="o">=</span><span class="n">summarised_state_indices</span><span class="p">,</span>
+            <span class="n">summarised_observable_indices</span><span class="o">=</span><span class="n">summarised_observable_indices</span><span class="p">,</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">fixed_step_size</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">fixed_step_size</span> <span class="o">=</span> <span class="n">dt_min</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">instantiate_controller</span><span class="p">(</span>
+                <span class="n">step_controller_kind</span><span class="p">,</span>
+                <span class="n">dt_min</span><span class="o">=</span><span class="n">dt_min</span><span class="p">,</span>
+                <span class="n">dt_max</span><span class="o">=</span><span class="n">dt_max</span><span class="p">,</span>
+                <span class="n">fixed_step_size</span><span class="o">=</span><span class="n">fixed_step_size</span><span class="p">,</span>
+                <span class="n">atol</span><span class="o">=</span><span class="n">atol</span><span class="p">,</span>
+                <span class="n">rtol</span><span class="o">=</span><span class="n">rtol</span><span class="p">,</span>
+                <span class="o">**</span><span class="p">(</span><span class="n">step_controller_parameters</span> <span class="ow">or</span> <span class="p">{}),</span>
+        <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">instantiate_step_object</span><span class="p">(</span>
+            <span class="n">algorithm</span><span class="p">,</span>
+            <span class="n">n</span><span class="o">=</span><span class="n">system</span><span class="o">.</span><span class="n">sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+            <span class="n">dxdt_function</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">dxdt_function</span><span class="p">,</span>
+            <span class="n">observables_function</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">observables_function</span><span class="p">,</span>
+            <span class="n">get_solver_helper_fn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">get_solver_helper</span><span class="p">,</span>
+            <span class="n">driver_function</span><span class="o">=</span><span class="n">driver_function</span><span class="p">,</span>
+            <span class="n">step_size</span><span class="o">=</span><span class="n">fixed_step_size</span><span class="p">,</span>
+            <span class="o">**</span><span class="p">(</span><span class="n">algorithm_parameters</span> <span class="ow">or</span> <span class="p">{}),</span>
+        <span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">is_adaptive</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">algorithm_order</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">order</span><span class="p">)</span>
+
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">instantiate_loop</span><span class="p">(</span>
+                <span class="n">n_states</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+                <span class="n">n_parameters</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span>
+                <span class="n">n_observables</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">,</span>
+                <span class="n">n_drivers</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">drivers</span><span class="p">,</span>
+                <span class="n">controller_local_elements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span>
+                <span class="o">.</span><span class="n">local_memory_elements</span><span class="p">,</span>
+                <span class="n">algorithm_local_elements</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span>
+                <span class="o">.</span><span class="n">persistent_local_required</span><span class="p">,</span>
+                <span class="n">compile_flags</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">compile_flags</span><span class="p">,</span>
+                <span class="n">dt_save</span><span class="o">=</span><span class="n">dt_save</span><span class="p">,</span>
+                <span class="n">dt_summarise</span><span class="o">=</span><span class="n">dt_summarise</span><span class="p">,</span>
+                <span class="n">dt0</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">dt0</span><span class="p">,</span>
+                <span class="n">dt_min</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">dt_min</span><span class="p">,</span>
+                <span class="n">dt_max</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">dt_max</span><span class="p">,</span>
+                <span class="n">state_summaries_buffer_height</span><span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span>
+                <span class="o">.</span><span class="n">state_summaries_buffer_height</span><span class="p">,</span>
+                <span class="n">observable_summaries_buffer_height</span><span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span>
+                <span class="o">.</span><span class="n">observable_summaries_buffer_height</span><span class="p">,</span>
+                <span class="n">is_adaptive</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">is_adaptive</span><span class="p">,</span>
+                <span class="n">driver_function</span><span class="o">=</span><span class="n">driver_function</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="SingleIntegratorRunCore.check_compatibility">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRunCore.html#cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore.check_compatibility">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">check_compatibility</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Validate that algorithm and controller step modes are aligned.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            Raised when an adaptive controller is paired with a fixed-step</span>
+<span class="sd">            algorithm.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">is_adaptive</span> <span class="ow">and</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">is_adaptive</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;Adaptive step controller cannot be used with fixed-step &quot;</span>
+                <span class="s2">&quot;algorithm.&quot;</span><span class="p">,</span>
+            <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="SingleIntegratorRunCore.instantiate_step_object">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRunCore.html#cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore.instantiate_step_object">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">instantiate_step_object</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;euler&quot;</span><span class="p">,</span>
+        <span class="n">n</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">dxdt_function</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">observables_function</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">get_solver_helper_fn</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">driver_function</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">step_size</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-3</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BaseAlgorithmStep</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Instantiate the algorithm step.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        kind</span>
+<span class="sd">            Algorithm identifier recognised by</span>
+<span class="sd">            :func:`cubie.integrators.algorithms.get_algorithm_step`.</span>
+<span class="sd">        n</span>
+<span class="sd">            Number of state variables supplied to the algorithm constructor.</span>
+<span class="sd">        dxdt_function</span>
+<span class="sd">            Device function computing the derivative of the ODE system.</span>
+<span class="sd">        observables_function</span>
+<span class="sd">            Device function computing system observables.</span>
+<span class="sd">        get_solver_helper_fn</span>
+<span class="sd">            Factory returning linear solver helpers for implicit algorithms.</span>
+<span class="sd">        step_size</span>
+<span class="sd">            Step size supplied to fixed-step algorithms.</span>
+<span class="sd">        **kwargs</span>
+<span class="sd">            Additional configuration forwarded to the algorithm factory.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        BaseAlgorithmStep</span>
+<span class="sd">            Instantiated algorithm step configured for the current system.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Supported identifiers include ``&quot;euler&quot;``, ``&quot;backwards_euler&quot;``,</span>
+<span class="sd">        ``&quot;backwards_euler_pc&quot;``, and ``&quot;crank_nicolson&quot;``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">kind</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">[</span><span class="s2">&quot;euler&quot;</span><span class="p">]:</span>  <span class="c1"># fixed step algorithms</span>
+            <span class="n">kwargs</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s2">&quot;dt&quot;</span><span class="p">:</span> <span class="n">step_size</span><span class="p">})</span>
+        <span class="n">algorithm</span> <span class="o">=</span> <span class="n">get_algorithm_step</span><span class="p">(</span>
+            <span class="n">kind</span><span class="p">,</span>
+            <span class="n">precision</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+            <span class="n">n</span><span class="o">=</span><span class="n">n</span><span class="p">,</span>
+            <span class="n">dxdt_function</span><span class="o">=</span><span class="n">dxdt_function</span><span class="p">,</span>
+            <span class="n">get_solver_helper_fn</span><span class="o">=</span><span class="n">get_solver_helper_fn</span><span class="p">,</span>
+            <span class="n">observables_function</span><span class="o">=</span><span class="n">observables_function</span><span class="p">,</span>
+            <span class="n">driver_function</span><span class="o">=</span><span class="n">driver_function</span><span class="p">,</span>
+            <span class="o">**</span><span class="n">kwargs</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="k">return</span> <span class="n">algorithm</span></div>
+
+
+<div class="viewcode-block" id="SingleIntegratorRunCore.instantiate_controller">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRunCore.html#cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore.instantiate_controller">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">instantiate_controller</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;fixed&quot;</span><span class="p">,</span>
+        <span class="n">order</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
+        <span class="n">dt_min</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-3</span><span class="p">,</span>
+        <span class="n">dt_max</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1e-1</span><span class="p">,</span>
+        <span class="n">atol</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+        <span class="n">rtol</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1e-6</span><span class="p">,</span>
+        <span class="n">fixed_step_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BaseStepController</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Instantiate the step controller.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        kind</span>
+<span class="sd">            Controller identifier accepted by</span>
+<span class="sd">            :func:`cubie.integrators.step_control.get_controller`.</span>
+<span class="sd">        order</span>
+<span class="sd">            Order of the paired algorithm used for adaptive controllers.</span>
+<span class="sd">        dt_min</span>
+<span class="sd">            Minimum permitted step size for adaptive controllers.</span>
+<span class="sd">        dt_max</span>
+<span class="sd">            Maximum permitted step size for adaptive controllers.</span>
+<span class="sd">        atol</span>
+<span class="sd">            Absolute tolerance forwarded to adaptive controllers.</span>
+<span class="sd">        rtol</span>
+<span class="sd">            Relative tolerance forwarded to adaptive controllers.</span>
+<span class="sd">        fixed_step_size</span>
+<span class="sd">            Step size supplied to fixed controllers.</span>
+<span class="sd">        **kwargs</span>
+<span class="sd">            Additional configuration forwarded to the controller factory.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        BaseStepController</span>
+<span class="sd">            Instantiated controller configured for the integration run.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        Supported identifiers include ``&quot;fixed&quot;``, ``&quot;i&quot;``, ``&quot;pi&quot;``,</span>
+<span class="sd">        ``&quot;pid&quot;``, and ``&quot;gustafsson&quot;``.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s1">&#39;fixed&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">fixed_step_size</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">fixed_step_size</span> <span class="o">=</span> <span class="n">dt_min</span>
+            <span class="n">controller</span> <span class="o">=</span> <span class="n">get_controller</span><span class="p">(</span><span class="n">kind</span><span class="p">,</span>
+                    <span class="n">precision</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+                    <span class="n">dt</span><span class="o">=</span><span class="n">fixed_step_size</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">controller</span> <span class="o">=</span> <span class="n">get_controller</span><span class="p">(</span><span class="n">kind</span><span class="p">,</span>
+                    <span class="n">precision</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+                    <span class="n">algorithm_order</span><span class="o">=</span><span class="n">order</span><span class="p">,</span>
+                    <span class="n">dt_min</span><span class="o">=</span><span class="n">dt_min</span><span class="p">,</span>
+                    <span class="n">dt_max</span><span class="o">=</span><span class="n">dt_max</span><span class="p">,</span>
+                    <span class="n">atol</span><span class="o">=</span><span class="n">atol</span><span class="p">,</span>
+                    <span class="n">rtol</span><span class="o">=</span><span class="n">rtol</span><span class="p">,</span>
+                    <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">controller</span></div>
+
+
+<div class="viewcode-block" id="SingleIntegratorRunCore.instantiate_loop">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRunCore.html#cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore.instantiate_loop">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">instantiate_loop</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">n_states</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">n_parameters</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">n_observables</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">n_drivers</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">state_summaries_buffer_height</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">observable_summaries_buffer_height</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">controller_local_elements</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">algorithm_local_elements</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span>
+        <span class="n">compile_flags</span><span class="p">:</span> <span class="n">OutputCompileFlags</span><span class="p">,</span>
+        <span class="n">dt_save</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+        <span class="n">dt_summarise</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+        <span class="n">dt0</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+        <span class="n">dt_min</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+        <span class="n">dt_max</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+        <span class="n">is_adaptive</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+        <span class="n">driver_function</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Callable</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">IVPLoop</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Instantiate the integrator loop.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        n_states</span>
+<span class="sd">            Number of state variables in the system.</span>
+<span class="sd">        n_parameters</span>
+<span class="sd">            Number of persistent parameters available to the loop.</span>
+<span class="sd">        n_observables</span>
+<span class="sd">            Number of observables emitted by the system.</span>
+<span class="sd">        n_drivers</span>
+<span class="sd">            Number of external driver signals consumed by the loop.</span>
+<span class="sd">        n_state_summaries</span>
+<span class="sd">            Number of state summary metrics produced by outputs.</span>
+<span class="sd">        n_observable_summaries</span>
+<span class="sd">            Number of observable summary metrics produced by outputs.</span>
+<span class="sd">        controller_local_elements</span>
+<span class="sd">            Persistent local memory elements required by the controller.</span>
+<span class="sd">        algorithm_local_elements</span>
+<span class="sd">            Persistent local memory elements required by the algorithm.</span>
+<span class="sd">        compile_flags</span>
+<span class="sd">            Output function compile flags generated by</span>
+<span class="sd">            :class:`cubie.outputhandling.OutputFunctions`.</span>
+<span class="sd">        dt_save</span>
+<span class="sd">            Loop interval for saving states.</span>
+<span class="sd">        dt_summarise</span>
+<span class="sd">            Loop interval for saving summary metrics.</span>
+<span class="sd">        dt0</span>
+<span class="sd">            Initial step size selected by the controller.</span>
+<span class="sd">        dt_min</span>
+<span class="sd">            Minimum allowed step size.</span>
+<span class="sd">        dt_max</span>
+<span class="sd">            Maximum allowed step size.</span>
+<span class="sd">        is_adaptive</span>
+<span class="sd">            Whether the controller performs adaptive stepping.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        IVPLoop</span>
+<span class="sd">            Configured loop instance ready for CUDA compilation.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">shared_indices</span> <span class="o">=</span> <span class="n">LoopSharedIndices</span><span class="o">.</span><span class="n">from_sizes</span><span class="p">(</span>
+                <span class="n">n_states</span><span class="o">=</span><span class="n">n_states</span><span class="p">,</span>
+                <span class="n">n_observables</span><span class="o">=</span><span class="n">n_observables</span><span class="p">,</span>
+                <span class="n">n_parameters</span><span class="o">=</span><span class="n">n_parameters</span><span class="p">,</span>
+                <span class="n">n_drivers</span><span class="o">=</span><span class="n">n_drivers</span><span class="p">,</span>
+                <span class="n">state_summaries_buffer_height</span><span class="o">=</span><span class="n">state_summaries_buffer_height</span><span class="p">,</span>
+                <span class="n">observable_summaries_buffer_height</span>
+                <span class="o">=</span><span class="n">observable_summaries_buffer_height</span>
+        <span class="p">)</span>
+        <span class="n">local_indices</span> <span class="o">=</span> <span class="n">LoopLocalIndices</span><span class="o">.</span><span class="n">from_sizes</span><span class="p">(</span>
+                <span class="n">n_states</span><span class="o">=</span><span class="n">n_states</span><span class="p">,</span>
+                <span class="n">controller_len</span><span class="o">=</span><span class="n">controller_local_elements</span><span class="p">,</span>
+                <span class="n">algorithm_len</span><span class="o">=</span><span class="n">algorithm_local_elements</span>
+        <span class="p">)</span>
+
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">IVPLoop</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">precision</span><span class="p">,</span>
+                       <span class="n">shared_indices</span><span class="p">,</span>
+                       <span class="n">local_indices</span><span class="p">,</span>
+                       <span class="n">compile_flags</span><span class="p">,</span>
+                       <span class="n">dt_save</span><span class="o">=</span><span class="n">dt_save</span><span class="p">,</span>
+                       <span class="n">dt_summarise</span><span class="o">=</span><span class="n">dt_summarise</span><span class="p">,</span>
+                       <span class="n">dt0</span><span class="o">=</span><span class="n">dt0</span><span class="p">,</span>
+                       <span class="n">dt_min</span><span class="o">=</span><span class="n">dt_min</span><span class="p">,</span>
+                       <span class="n">dt_max</span><span class="o">=</span><span class="n">dt_max</span><span class="p">,</span>
+                       <span class="n">driver_function</span><span class="o">=</span><span class="n">driver_function</span><span class="p">,</span>
+                       <span class="n">is_adaptive</span><span class="o">=</span><span class="n">is_adaptive</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">loop</span></div>
+
+
+<div class="viewcode-block" id="SingleIntegratorRunCore.update">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRunCore.html#cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore.update">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">updates_dict</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">silent</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Update parameters across all components.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        updates_dict</span>
+<span class="sd">            Dictionary of parameters to update.</span>
+<span class="sd">        silent</span>
+<span class="sd">            If ``True``, suppress warnings about unrecognised parameters.</span>
+<span class="sd">        **kwargs</span>
+<span class="sd">            Additional updates provided as keyword arguments.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        set[str]</span>
+<span class="sd">            Names of parameters that were recognised and applied.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        KeyError</span>
+<span class="sd">            Raised when unrecognised parameters remain and ``silent`` is</span>
+<span class="sd">            ``False``.</span>
+
+<span class="sd">        Notes</span>
+<span class="sd">        -----</span>
+<span class="sd">        When algorithm or controller kinds change, new instances are</span>
+<span class="sd">        created and primed with settings from their predecessors before</span>
+<span class="sd">        applying ``updates_dict``. Parameters present only on the new</span>
+<span class="sd">        instance are ignored unless explicitly provided in the update.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">updates_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">updates_dict</span> <span class="o">=</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">updates_dict</span> <span class="o">==</span> <span class="p">{}:</span>
+            <span class="k">return</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="n">all_unrecognized</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">recognized</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="s2">&quot;step_controller_kind&quot;</span> <span class="ow">in</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">new_step_controller_kind</span> <span class="o">=</span> <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;step_controller_kind&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">new_step_controller_kind</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_controller_kind</span><span class="p">:</span>
+                <span class="n">old_settings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">settings_dict</span>
+                <span class="n">_step_controller</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">instantiate_controller</span><span class="p">(</span>
+                        <span class="n">new_step_controller_kind</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="n">_step_controller</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">old_settings</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span> <span class="o">=</span> <span class="n">_step_controller</span>
+            <span class="n">recognized</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s2">&quot;step_controller_kind&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="s2">&quot;algorithm&quot;</span> <span class="ow">in</span> <span class="n">updates_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="c1"># If the algorithm is being updated, we need to reset the</span>
+            <span class="c1"># integrator instance</span>
+            <span class="n">new_algo_key</span> <span class="o">=</span> <span class="n">updates_dict</span><span class="p">[</span><span class="s2">&quot;algorithm&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">new_algo_key</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">algorithm_key</span><span class="p">:</span>
+                <span class="n">old_settings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">settings_dict</span>
+                <span class="n">_algo_step</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">instantiate_step_object</span><span class="p">(</span>
+                    <span class="n">new_algo_key</span><span class="p">,</span>
+                    <span class="n">n</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+                    <span class="n">dxdt_function</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">dxdt_function</span><span class="p">,</span>
+                    <span class="n">observables_function</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">observables_function</span><span class="p">,</span>
+                    <span class="n">get_solver_helper_fn</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">get_solver_helper</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="n">_algo_step</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">old_settings</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span> <span class="o">=</span> <span class="n">_algo_step</span>
+            <span class="n">recognized</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s2">&quot;algorithm&quot;</span><span class="p">)</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;algorithm_order&#39;</span><span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">order</span><span class="p">})</span>
+
+        <span class="n">output_recognized</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span>
+                                                      <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">ctrl_recognized</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span>
+                                                      <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">step_recognized</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">system_recognized</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">loop_recognized</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="n">recognized</span> <span class="o">|=</span> <span class="n">output_recognized</span>
+        <span class="n">recognized</span> <span class="o">|=</span> <span class="n">ctrl_recognized</span>
+        <span class="n">recognized</span> <span class="o">|=</span> <span class="n">step_recognized</span>
+        <span class="n">recognized</span> <span class="o">|=</span> <span class="n">system_recognized</span>
+        <span class="n">recognized</span> <span class="o">|=</span> <span class="n">loop_recognized</span>
+
+        <span class="c1">#Recalculate settings derived from changes in children</span>
+        <span class="k">if</span> <span class="n">system_recognized</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;n&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">sizes</span><span class="o">.</span><span class="n">states</span><span class="p">})</span>
+        <span class="k">if</span> <span class="n">output_recognized</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+                <span class="s1">&#39;n_saved_states&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">n_saved_states</span><span class="p">,</span>
+                <span class="s1">&#39;n_summarised_states&#39;</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">n_summarised_states</span><span class="p">,</span>
+                <span class="s1">&#39;compile_flags&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">compile_flags</span><span class="p">,</span>
+            <span class="p">})</span>
+        <span class="k">if</span> <span class="n">ctrl_recognized</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;is_adaptive&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">is_adaptive</span><span class="p">,</span>
+                    <span class="s2">&quot;dt_min&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">dt_min</span><span class="p">,</span>
+                    <span class="s2">&quot;dt_max&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">dt_max</span><span class="p">,</span>
+                    <span class="s2">&quot;dt0&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">dt0</span><span class="p">,</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">step_recognized</span><span class="p">:</span>
+            <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+                <span class="p">{</span>
+                    <span class="s2">&quot;threads_per_step&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">threads_per_step</span><span class="p">,</span>
+                <span class="p">}</span>
+            <span class="p">)</span>
+
+        <span class="n">system_sizes</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">system_sizes</span>
+        <span class="n">shared_indices</span> <span class="o">=</span> <span class="n">LoopSharedIndices</span><span class="o">.</span><span class="n">from_sizes</span><span class="p">(</span>
+            <span class="n">n_states</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+            <span class="n">n_observables</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span>
+            <span class="n">n_parameters</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">observables</span><span class="p">,</span>
+            <span class="n">n_drivers</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">drivers</span><span class="p">,</span>
+            <span class="n">state_summaries_buffer_height</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span>
+            <span class="o">.</span><span class="n">state_summaries_buffer_height</span><span class="p">,</span>
+            <span class="n">observable_summaries_buffer_height</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span>
+            <span class="o">.</span><span class="n">observable_summaries_buffer_height</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">local_indices</span> <span class="o">=</span> <span class="n">LoopLocalIndices</span><span class="o">.</span><span class="n">from_sizes</span><span class="p">(</span>
+                <span class="n">n_states</span><span class="o">=</span><span class="n">system_sizes</span><span class="o">.</span><span class="n">states</span><span class="p">,</span>
+                <span class="n">controller_len</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">local_memory_elements</span><span class="p">,</span>
+                <span class="n">algorithm_len</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">persistent_local_required</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">updates_dict</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s1">&#39;shared_buffer_indices&#39;</span><span class="p">:</span> <span class="n">shared_indices</span><span class="p">,</span>
+                             <span class="s1">&#39;local_indices&#39;</span><span class="p">:</span> <span class="n">local_indices</span><span class="p">})</span>
+
+        <span class="n">recognized</span> <span class="o">|=</span> <span class="bp">self</span><span class="o">.</span><span class="n">update_compile_settings</span><span class="p">(</span><span class="n">updates_dict</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+        <span class="n">all_unrecognized</span> <span class="o">-=</span> <span class="n">recognized</span>
+        <span class="k">if</span> <span class="n">all_unrecognized</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">silent</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Unrecognized parameters: </span><span class="si">{</span><span class="n">all_unrecognized</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">recognized</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_invalidate_cache</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_compatibility</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">recognized</span></div>
+
+
+<div class="viewcode-block" id="SingleIntegratorRunCore.build">
+<a class="viewcode-back" href="../../../api/generated/cubie.integrators.SingleIntegratorRunCore.html#cubie.integrators.SingleIntegratorRunCore.SingleIntegratorRunCore.build">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Callable</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Instantiate the step controller, algorithm step, and loop.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        Callable</span>
+<span class="sd">            Compiled CUDA loop callable ready for execution on device.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c1"># Lowest level - check for changes in dxdt_fn, get_solver_helper_fn</span>
+        <span class="n">dxdt_fn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">dxdt_function</span>
+        <span class="n">observables_fn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">observables_function</span>
+        <span class="n">get_solver_helper_fn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_system</span><span class="o">.</span><span class="n">get_solver_helper</span>
+        <span class="n">compiled_fns_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">dxdt_fn</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">dxdt_function</span><span class="p">:</span>
+            <span class="n">compiled_fns_dict</span><span class="p">[</span><span class="s1">&#39;dxdt_function&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dxdt_fn</span>
+        <span class="k">if</span> <span class="n">observables_fn</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">observables_function</span><span class="p">:</span>
+            <span class="n">compiled_fns_dict</span><span class="p">[</span><span class="s1">&#39;observables_function&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">observables_fn</span>
+        <span class="k">if</span> <span class="n">get_solver_helper_fn</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">get_solver_helper_fn</span><span class="p">:</span>
+            <span class="n">compiled_fns_dict</span><span class="p">[</span><span class="s1">&#39;get_solver_helper_fn&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">get_solver_helper_fn</span>
+
+        <span class="c1">#Build algorithm fn after change made</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">compiled_fns_dict</span><span class="p">)</span>
+
+        <span class="n">compiled_functions</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s1">&#39;save_state_fn&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">save_state_func</span><span class="p">,</span>
+            <span class="s1">&#39;update_summaries_fn&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">update_summaries_func</span><span class="p">,</span>
+            <span class="s1">&#39;save_summaries_fn&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_output_functions</span><span class="o">.</span><span class="n">save_summary_metrics_func</span><span class="p">,</span>
+            <span class="s1">&#39;step_controller_fn&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_step_controller</span><span class="o">.</span><span class="n">device_function</span><span class="p">,</span>
+            <span class="s1">&#39;step_function&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_algo_step</span><span class="o">.</span><span class="n">step_function</span><span class="p">,</span>
+            <span class="s1">&#39;observables_fn&#39;</span><span class="p">:</span> <span class="n">observables_fn</span>
+        <span class="p">}</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">compiled_functions</span><span class="p">)</span>
+        <span class="n">loop_fn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">device_function</span>
+
+        <span class="k">return</span> <span class="n">loop_fn</span></div>
+</div>
+
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

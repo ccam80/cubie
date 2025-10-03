@@ -1,0 +1,45 @@
+﻿cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager
+===========================================================
+
+.. currentmodule:: cubie.batchsolving.arrays.BaseArrayManager
+
+.. autoclass:: BaseArrayManager
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~BaseArrayManager.__init__
+      ~BaseArrayManager.allocate
+      ~BaseArrayManager.attach_external_arrays
+      ~BaseArrayManager.check_incoming_arrays
+      ~BaseArrayManager.check_sizes
+      ~BaseArrayManager.check_type
+      ~BaseArrayManager.finalise
+      ~BaseArrayManager.from_device
+      ~BaseArrayManager.initialise
+      ~BaseArrayManager.initialize_device_zeros
+      ~BaseArrayManager.register_with_memory_manager
+      ~BaseArrayManager.request_allocation
+      ~BaseArrayManager.reset
+      ~BaseArrayManager.to_device
+      ~BaseArrayManager.update
+      ~BaseArrayManager.update_host_arrays
+      ~BaseArrayManager.update_sizes
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~BaseArrayManager.device
+      ~BaseArrayManager.host
+   
+   

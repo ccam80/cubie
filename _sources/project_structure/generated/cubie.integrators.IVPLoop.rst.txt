@@ -1,0 +1,57 @@
+﻿cubie.integrators.IVPLoop
+=========================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: IVPLoop
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~IVPLoop.__init__
+      ~IVPLoop.build
+      ~IVPLoop.get_cached_output
+      ~IVPLoop.setup_compile_settings
+      ~IVPLoop.update
+      ~IVPLoop.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~IVPLoop.buffer_indices
+      ~IVPLoop.cache_valid
+      ~IVPLoop.compile_flags
+      ~IVPLoop.compile_settings
+      ~IVPLoop.device_function
+      ~IVPLoop.driver_function
+      ~IVPLoop.dt0
+      ~IVPLoop.dt_max
+      ~IVPLoop.dt_min
+      ~IVPLoop.dt_save
+      ~IVPLoop.dt_summarise
+      ~IVPLoop.is_adaptive
+      ~IVPLoop.local_indices
+      ~IVPLoop.local_memory_elements
+      ~IVPLoop.numba_precision
+      ~IVPLoop.observables_fn
+      ~IVPLoop.precision
+      ~IVPLoop.save_state_fn
+      ~IVPLoop.save_summaries_fn
+      ~IVPLoop.shared_buffer_indices
+      ~IVPLoop.shared_memory_elements
+      ~IVPLoop.simsafe_precision
+      ~IVPLoop.step_controller_fn
+      ~IVPLoop.step_function
+      ~IVPLoop.update_summaries_fn
+   
+   

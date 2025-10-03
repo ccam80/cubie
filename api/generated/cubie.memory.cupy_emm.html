@@ -1,0 +1,443 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.memory.cupy_emm &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.memory.mem_manager" href="cubie.memory.mem_manager.html" />
+    <link rel="prev" title="cubie.memory.array_requests" href="cubie.memory.array_requests.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.memory.html">cubie.memory</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.html#cubie.memory.CuPyAsyncNumbaManager"><code class="docutils literal notranslate"><span class="pre">CuPyAsyncNumbaManager</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.html#cubie.memory.CuPySyncNumbaManager"><code class="docutils literal notranslate"><span class="pre">CuPySyncNumbaManager</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.html#cubie.memory.current_cupy_stream"><code class="docutils literal notranslate"><span class="pre">current_cupy_stream</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.array_requests.html">cubie.memory.array_requests</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">cubie.memory.cupy_emm</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.cupy_emm.CuPyAsyncNumbaManager"><code class="docutils literal notranslate"><span class="pre">CuPyAsyncNumbaManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.cupy_emm.CuPyNumbaManager"><code class="docutils literal notranslate"><span class="pre">CuPyNumbaManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.cupy_emm.CuPySyncNumbaManager"><code class="docutils literal notranslate"><span class="pre">CuPySyncNumbaManager</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.cupy_emm._numba_stream_ptr"><code class="docutils literal notranslate"><span class="pre">_numba_stream_ptr()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#cubie.memory.cupy_emm.current_cupy_stream"><code class="docutils literal notranslate"><span class="pre">current_cupy_stream</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.mem_manager.html">cubie.memory.mem_manager</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.memory.stream_groups.html">cubie.memory.stream_groups</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.memory.html">cubie.memory</a></li>
+      <li class="breadcrumb-item active">cubie.memory.cupy_emm</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.memory.cupy_emm.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.memory.cupy_emm">
+<span id="cubie-memory-cupy-emm"></span><h1>cubie.memory.cupy_emm<a class="headerlink" href="#module-cubie.memory.cupy_emm" title="Link to this heading"></a></h1>
+<p>CuPy External Memory Manager plugins for Numba CUDA contexts.</p>
+<p>This module adapts CuPy synchronous and asynchronous memory pools for Numba’s
+External Memory Manager interface. It also exposes helpers that align CuPy’s
+current stream selection with streams generated by <code class="xref py py-mod docutils literal notranslate"><span class="pre">numba.cuda</span></code> so that
+stream-ordered allocations behave consistently across both libraries.</p>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.memory.cupy_emm.CuPyAsyncNumbaManager" title="cubie.memory.cupy_emm.CuPyAsyncNumbaManager"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CuPyAsyncNumbaManager</span></code></a>(context)</p></td>
+<td><p>Numba EMM plugin using CuPy MemoryAsyncPool for allocation and freeing.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.memory.cupy_emm.CuPyNumbaManager" title="cubie.memory.cupy_emm.CuPyNumbaManager"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CuPyNumbaManager</span></code></a>(context)</p></td>
+<td><p>Base Numba EMM plugin for using CuPy memory pools to allocate.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.memory.cupy_emm.CuPySyncNumbaManager" title="cubie.memory.cupy_emm.CuPySyncNumbaManager"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CuPySyncNumbaManager</span></code></a>(context)</p></td>
+<td><p>Numba EMM plugin using CuPy MemoryPool for allocation and freeing.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#cubie.memory.cupy_emm.current_cupy_stream" title="cubie.memory.cupy_emm.current_cupy_stream"><code class="xref py py-obj docutils literal notranslate"><span class="pre">current_cupy_stream</span></code></a>(nb_stream)</p></td>
+<td><p>Context manager that forwards a Numba stream into CuPy APIs.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyAsyncNumbaManager">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.memory.cupy_emm.</span></span><span class="sig-name descname"><span class="pre">CuPyAsyncNumbaManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyAsyncNumbaManager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyAsyncNumbaManager" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cubie.memory.cupy_emm.CuPyNumbaManager" title="cubie.memory.cupy_emm.CuPyNumbaManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">CuPyNumbaManager</span></code></a></p>
+<p>Numba EMM plugin using CuPy MemoryAsyncPool for allocation and freeing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>context</strong> – CUDA context for memory management.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Uses CuPy’s asynchronous memory pool which provides stream-ordered
+memory operations.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyAsyncNumbaManager.initialize">
+<span class="sig-name descname"><span class="pre">initialize</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyAsyncNumbaManager.initialize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyAsyncNumbaManager.initialize" title="Link to this definition"></a></dt>
+<dd><p>Initialize the async memory pool.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyAsyncNumbaManager.memalloc">
+<span class="sig-name descname"><span class="pre">memalloc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nbytes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">FakeMemoryPointer</span></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyAsyncNumbaManager.memalloc"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyAsyncNumbaManager.memalloc" title="Link to this definition"></a></dt>
+<dd><p>Allocate memory from the async CuPy pool.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>nbytes</strong> – Number of bytes to allocate.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Numba memory pointer wrapping the CuPy allocation.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>MemoryPointer</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyNumbaManager">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.memory.cupy_emm.</span></span><span class="sig-name descname"><span class="pre">CuPyNumbaManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyNumbaManager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyNumbaManager" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">FakeGetIpcHandleMixin</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">FakeHostOnlyCUDAManager</span></code></p>
+<p>Base Numba EMM plugin for using CuPy memory pools to allocate.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>context</strong> – CUDA context for memory management.</p>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyNumbaManager.is_cupy">
+<span class="sig-name descname"><span class="pre">is_cupy</span></span><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyNumbaManager.is_cupy" title="Link to this definition"></a></dt>
+<dd><p>Flag indicating this is a CuPy-based memory manager.</p>
+</dd></dl>
+
+<p class="rubric">Notes</p>
+<p>Drawn from the tutorial example at:
+<a class="reference external" href="https://github.com/numba/nvidia-cuda-tutorial/blob/main/session-5/examples/cupy_emm_plugin.py">https://github.com/numba/nvidia-cuda-tutorial/blob/main/session-5/examples/cupy_emm_plugin.py</a></p>
+<p>Extended to handle passing numba-generated streams as CuPy external
+streams, such that the allocations are stream-ordered when using the async
+allocator.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyNumbaManager._make_finalizer">
+<span class="sig-name descname"><span class="pre">_make_finalizer</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">cp_mp</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">nbytes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">[</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyNumbaManager._make_finalizer"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyNumbaManager._make_finalizer" title="Link to this definition"></a></dt>
+<dd><p>Create a finalizer function for memory cleanup.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>cp_mp</strong> – CuPy memory pool allocation to be cleaned up.</p></li>
+<li><p><strong>nbytes</strong> – Number of bytes in the allocation.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Finalizer function that removes the allocation reference.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyNumbaManager.defer_cleanup">
+<span class="sig-name descname"><span class="pre">defer_cleanup</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterator" title="(in Python v3.13)"><span class="pre">Iterator</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyNumbaManager.defer_cleanup"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyNumbaManager.defer_cleanup" title="Link to this definition"></a></dt>
+<dd><p>Context manager for deferring memory cleanup operations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Generator yielded by <a class="reference external" href="https://docs.python.org/3/library/contextlib.html#contextlib.contextmanager" title="(in Python v3.13)"><code class="xref py py-func docutils literal notranslate"><span class="pre">contextlib.contextmanager()</span></code></a> for use in a
+<code class="docutils literal notranslate"><span class="pre">with</span></code> block that yields <code class="docutils literal notranslate"><span class="pre">None</span></code> to the caller.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>Iterator</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This does not actually defer returning memory back to the pool, but
+returning memory to the pool will not interrupt async operations like
+an actual <code class="xref py py-func docutils literal notranslate"><span class="pre">numba.cuda.cudadrv.driver.device_free()</span></code> call would.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyNumbaManager.get_memory_info">
+<span class="sig-name descname"><span class="pre">get_memory_info</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">FakeMemoryInfo</span></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyNumbaManager.get_memory_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyNumbaManager.get_memory_info" title="Link to this definition"></a></dt>
+<dd><p>Get memory information from the CuPy memory pool.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Object containing free and total memory in bytes from the pool.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>MemoryInfo</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Returns information from the CuPy memory pool, not the whole device.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyNumbaManager.initialize">
+<span class="sig-name descname"><span class="pre">initialize</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyNumbaManager.initialize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyNumbaManager.initialize" title="Link to this definition"></a></dt>
+<dd><p>Initialize the memory manager.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyNumbaManager.interface_version">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">interface_version</span></span><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyNumbaManager.interface_version" title="Link to this definition"></a></dt>
+<dd><p>EMM interface version number.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyNumbaManager.memalloc">
+<span class="sig-name descname"><span class="pre">memalloc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nbytes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">FakeMemoryPointer</span></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyNumbaManager.memalloc"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyNumbaManager.memalloc" title="Link to this definition"></a></dt>
+<dd><p>Allocate memory from the CuPy pool.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>nbytes</strong> – Number of bytes to allocate.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Numba memory pointer wrapping the CuPy allocation.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>MemoryPointer</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPyNumbaManager.reset">
+<span class="sig-name descname"><span class="pre">reset</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">stream</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPyNumbaManager.reset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPyNumbaManager.reset" title="Link to this definition"></a></dt>
+<dd><p>Free all blocks with optional stream for async operations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>stream</strong> – CuPy stream used for asynchronous deallocation. When omitted, the
+pool frees blocks synchronously.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>This is called without a stream argument when the context is reset. To
+run the operation in one stream, call this function by itself using
+<code class="code docutils literal notranslate"><span class="pre">cuda.current_context().memory_manager.reset(stream)</span></code>.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPySyncNumbaManager">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.memory.cupy_emm.</span></span><span class="sig-name descname"><span class="pre">CuPySyncNumbaManager</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPySyncNumbaManager"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPySyncNumbaManager" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference internal" href="#cubie.memory.cupy_emm.CuPyNumbaManager" title="cubie.memory.cupy_emm.CuPyNumbaManager"><code class="xref py py-class docutils literal notranslate"><span class="pre">CuPyNumbaManager</span></code></a></p>
+<p>Numba EMM plugin using CuPy MemoryPool for allocation and freeing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>context</strong> – CUDA context for memory management.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Uses CuPy’s synchronous memory pool which provides standard
+memory operations.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPySyncNumbaManager.initialize">
+<span class="sig-name descname"><span class="pre">initialize</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPySyncNumbaManager.initialize"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPySyncNumbaManager.initialize" title="Link to this definition"></a></dt>
+<dd><p>Initialize the sync memory pool.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">None</span></code>.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.CuPySyncNumbaManager.memalloc">
+<span class="sig-name descname"><span class="pre">memalloc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nbytes</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">FakeMemoryPointer</span></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#CuPySyncNumbaManager.memalloc"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.CuPySyncNumbaManager.memalloc" title="Link to this definition"></a></dt>
+<dd><p>Allocate memory from the sync CuPy pool.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>nbytes</strong> – Number of bytes to allocate.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Numba memory pointer wrapping the CuPy allocation.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>MemoryPointer</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm._numba_stream_ptr">
+<span class="sig-prename descclassname"><span class="pre">cubie.memory.cupy_emm.</span></span><span class="sig-name descname"><span class="pre">_numba_stream_ptr</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nb_stream</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FakeStream</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#_numba_stream_ptr"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm._numba_stream_ptr" title="Link to this definition"></a></dt>
+<dd><p>Extract a <code class="docutils literal notranslate"><span class="pre">CUstream</span></code> pointer from a Numba stream wrapper.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>nb_stream</strong> – Numba CUDA stream whose <code class="docutils literal notranslate"><span class="pre">CUstream</span></code> pointer should be extracted. When
+<code class="docutils literal notranslate"><span class="pre">None</span></code>, pointer extraction is skipped.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Pointer value compatible with CuPy external streams, or <code class="docutils literal notranslate"><span class="pre">None</span></code> when
+extraction fails.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a> or None</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The function checks common attribute layouts across supported Numba
+versions to maintain compatibility.</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.current_cupy_stream">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.memory.cupy_emm.</span></span><span class="sig-name descname"><span class="pre">current_cupy_stream</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nb_stream</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">FakeStream</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/memory/cupy_emm.html#current_cupy_stream"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.memory.cupy_emm.current_cupy_stream" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Context manager that forwards a Numba stream into CuPy APIs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>nb_stream</strong> – Numba CUDA stream to expose to CuPy.</p>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.current_cupy_stream.nb_stream">
+<span class="sig-name descname"><span class="pre">nb_stream</span></span><a class="headerlink" href="#cubie.memory.cupy_emm.current_cupy_stream.nb_stream" title="Link to this definition"></a></dt>
+<dd><p>The Numba stream being forwarded.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.memory.cupy_emm.current_cupy_stream.cupy_ext_stream">
+<span class="sig-name descname"><span class="pre">cupy_ext_stream</span></span><a class="headerlink" href="#cubie.memory.cupy_emm.current_cupy_stream.cupy_ext_stream" title="Link to this definition"></a></dt>
+<dd><p>CuPy external stream wrapper around the Numba stream when CuPy manages
+the active allocator.</p>
+</dd></dl>
+
+<p class="rubric">Notes</p>
+<p>This context manager only affects CuPy-backed memory managers. When the
+active manager is not CuPy-based, the context operates as a no-op.</p>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.memory.array_requests.html" class="btn btn-neutral float-left" title="cubie.memory.array_requests" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.memory.mem_manager.html" class="btn btn-neutral float-right" title="cubie.memory.mem_manager" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

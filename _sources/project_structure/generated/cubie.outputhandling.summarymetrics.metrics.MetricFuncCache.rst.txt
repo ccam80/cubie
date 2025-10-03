@@ -1,0 +1,29 @@
+﻿cubie.outputhandling.summarymetrics.metrics.MetricFuncCache
+===========================================================
+
+.. currentmodule:: cubie.outputhandling.summarymetrics.metrics
+
+.. autoclass:: MetricFuncCache
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~MetricFuncCache.__init__
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~MetricFuncCache.update
+      ~MetricFuncCache.save
+   
+   

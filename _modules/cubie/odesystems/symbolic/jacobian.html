@@ -1,0 +1,502 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic.jacobian &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic.jacobian</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.odesystems.symbolic.jacobian</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Utilities for symbolic Jacobian and JVP construction.</span>
+
+<span class="sd">Adapted from :mod:`chaste_codegen._jacobian` under the MIT licence.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">sympy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sympy</span><span class="w"> </span><span class="kn">import</span> <span class="n">IndexedBase</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.symbolic.sym_utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">cse_and_stack</span><span class="p">,</span> <span class="n">topological_sort</span>
+
+<span class="n">CacheValue</span> <span class="o">=</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Union</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]]]]</span>
+<span class="n">CacheKey</span> <span class="o">=</span> <span class="n">Tuple</span><span class="p">[</span>
+    <span class="n">Tuple</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">],</span> <span class="o">...</span><span class="p">],</span>
+    <span class="n">Tuple</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="o">...</span><span class="p">],</span>
+    <span class="n">Tuple</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="o">...</span><span class="p">],</span>
+    <span class="nb">bool</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="n">_cache</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">CacheKey</span><span class="p">,</span> <span class="n">CacheValue</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+
+<div class="viewcode-block" id="get_cache_counts">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.jacobian.html#cubie.odesystems.symbolic.jacobian.get_cache_counts">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_cache_counts</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return counts of cached Jacobian and JVP artifacts.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    Dict[str, int]</span>
+<span class="sd">        Numbers of cached ``&quot;jac&quot;`` and ``&quot;jvp&quot;`` entries.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">counts</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;jac&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span> <span class="s2">&quot;jvp&quot;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+    <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">_cache</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+        <span class="c1"># New scheme: value is a dict possibly containing both kinds</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">if</span> <span class="s2">&quot;jac&quot;</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+                <span class="n">counts</span><span class="p">[</span><span class="s2">&quot;jac&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="s2">&quot;jvp&quot;</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+                <span class="n">counts</span><span class="p">[</span><span class="s2">&quot;jvp&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Backward compatibility: count best-effort by type/shape</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">):</span>
+                    <span class="n">counts</span><span class="p">[</span><span class="s2">&quot;jac&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                    <span class="n">counts</span><span class="p">[</span><span class="s2">&quot;jvp&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                <span class="k">pass</span>
+    <span class="k">return</span> <span class="n">counts</span></div>
+
+
+
+<div class="viewcode-block" id="get_cache_key">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.jacobian.html#cubie.odesystems.symbolic.jacobian.get_cache_key">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_cache_key</span><span class="p">(</span>
+    <span class="n">equations</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span> <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">input_order</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+    <span class="n">output_order</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+    <span class="n">cse</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">CacheKey</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate the cache key from equations, orders, and the CSE flag.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    equations</span>
+<span class="sd">        Equations expressed as ``(symbol, expression)`` pairs or a mapping of</span>
+<span class="sd">        symbols to expressions.</span>
+<span class="sd">    input_order</span>
+<span class="sd">        Mapping from each input symbol to its position in the input vector.</span>
+<span class="sd">    output_order</span>
+<span class="sd">        Mapping from each output symbol to its position in the output vector.</span>
+<span class="sd">    cse</span>
+<span class="sd">        Indicates whether common-subexpression elimination is enabled for the</span>
+<span class="sd">        cached entry.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    CacheKey</span>
+<span class="sd">        Hashable representation of the computation inputs.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    This single key is shared across all built artifacts, including both the</span>
+<span class="sd">    Jacobian matrix and the JVP assignment list.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Convert equations to a hashable form</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">equations</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">eq_tuple</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">equations</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">eq_tuple</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">((</span><span class="nb">tuple</span><span class="p">(</span><span class="n">eq_pair</span><span class="p">)</span> <span class="k">for</span> <span class="n">eq_pair</span> <span class="ow">in</span> <span class="n">equations</span><span class="p">))</span>
+
+    <span class="n">input_tuple</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">input_order</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+    <span class="n">output_tuple</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">output_order</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+
+    <span class="k">return</span> <span class="p">(</span><span class="n">eq_tuple</span><span class="p">,</span> <span class="n">input_tuple</span><span class="p">,</span> <span class="n">output_tuple</span><span class="p">,</span> <span class="nb">bool</span><span class="p">(</span><span class="n">cse</span><span class="p">))</span></div>
+
+
+
+<div class="viewcode-block" id="clear_cache">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.jacobian.html#cubie.odesystems.symbolic.jacobian.clear_cache">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">clear_cache</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Clear the unified symbolic cache.&quot;&quot;&quot;</span>
+    <span class="n">_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="generate_jacobian">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.jacobian.html#cubie.odesystems.symbolic.jacobian.generate_jacobian">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_jacobian</span><span class="p">(</span><span class="n">equations</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span>
+                          <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+                          <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+                      <span class="n">input_order</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+                      <span class="n">output_order</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+                      <span class="n">use_cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+                      <span class="n">cache_cse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+                      <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return the symbolic Jacobian matrix for the given equations.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    equations</span>
+<span class="sd">        Full set of intermediate and derivative equations.</span>
+<span class="sd">    input_order</span>
+<span class="sd">        Mapping from each input symbol to its position in the input vector.</span>
+<span class="sd">    output_order</span>
+<span class="sd">        Mapping from each output symbol to its position in the output vector.</span>
+<span class="sd">    use_cache</span>
+<span class="sd">        Whether to reuse cached Jacobian computations when available.</span>
+<span class="sd">    cache_cse</span>
+<span class="sd">        Use the common-subexpression elimination form when creating cache keys.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    sp.Matrix</span>
+<span class="sd">        Symbolic Jacobian matrix ordered according to ``output_order`` and</span>
+<span class="sd">        ``input_order``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">equations</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">eq_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">equations</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">eq_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">equations</span><span class="p">)</span>
+
+    <span class="c1"># Check cache first (Jacobian is independent of cse but we normalize to True for keying)</span>
+    <span class="n">cache_key</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="n">use_cache</span><span class="p">:</span>
+        <span class="n">cache_key</span> <span class="o">=</span> <span class="n">get_cache_key</span><span class="p">(</span><span class="n">eq_list</span><span class="p">,</span> <span class="n">input_order</span><span class="p">,</span> <span class="n">output_order</span><span class="p">,</span> <span class="n">cse</span><span class="o">=</span><span class="n">cache_cse</span><span class="p">)</span>
+        <span class="n">cached_entry</span> <span class="o">=</span> <span class="n">_cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">cache_key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cached_entry</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;jac&quot;</span> <span class="ow">in</span> <span class="n">cached_entry</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">cached_entry</span><span class="p">[</span><span class="s2">&quot;jac&quot;</span><span class="p">]</span>
+
+    <span class="n">input_symbols</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">input_order</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="n">sorted_inputs</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">input_symbols</span><span class="p">,</span>
+                           <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">symbol</span><span class="p">:</span> <span class="n">input_order</span><span class="p">[</span><span class="n">symbol</span><span class="p">])</span>
+    <span class="n">output_symbols</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">output_order</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="n">num_in</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_symbols</span><span class="p">)</span>
+
+    <span class="n">equations</span> <span class="o">=</span> <span class="n">topological_sort</span><span class="p">(</span><span class="n">eq_list</span><span class="p">)</span>
+    <span class="n">auxiliary_equations</span> <span class="o">=</span> <span class="p">[(</span><span class="n">lhs</span><span class="p">,</span> <span class="n">eq</span><span class="p">)</span> <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">eq</span> <span class="ow">in</span> <span class="n">equations</span> <span class="k">if</span> <span class="n">lhs</span> <span class="ow">not</span> <span class="ow">in</span>
+                           <span class="n">output_symbols</span><span class="p">]</span>
+    <span class="n">aux_symbols</span> <span class="o">=</span> <span class="p">{</span><span class="n">lhs</span> <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">auxiliary_equations</span><span class="p">}</span>
+    <span class="n">output_equations</span> <span class="o">=</span> <span class="p">[(</span><span class="n">lhs</span><span class="p">,</span> <span class="n">eq</span><span class="p">)</span> <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">eq</span> <span class="ow">in</span> <span class="n">equations</span> <span class="k">if</span> <span class="n">lhs</span> <span class="ow">in</span>
+                        <span class="n">output_symbols</span><span class="p">]</span>
+
+    <span class="n">auxiliary_gradients</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">partials_cache</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c1"># Chain rule auxiliary equations</span>
+    <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">expr</span> <span class="ow">in</span> <span class="n">auxiliary_equations</span><span class="p">:</span>
+        <span class="n">direct_grad</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">(</span>
+                <span class="p">[[</span><span class="n">sp</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">in_sym</span><span class="p">)]</span>
+                 <span class="k">for</span> <span class="n">in_sym</span> <span class="ow">in</span> <span class="n">sorted_inputs</span><span class="p">])</span><span class="o">.</span><span class="n">T</span>
+
+        <span class="n">chain_grad</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">num_in</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">other_sym</span> <span class="ow">in</span> <span class="n">expr</span><span class="o">.</span><span class="n">free_symbols</span> <span class="o">&amp;</span> <span class="n">aux_symbols</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">other_sym</span> <span class="ow">in</span> <span class="n">auxiliary_gradients</span><span class="p">:</span>
+                <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="n">sym</span><span class="p">,</span> <span class="n">other_sym</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">partials_cache</span><span class="p">:</span>
+                    <span class="n">partials_cache</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">other_sym</span><span class="p">)</span>
+                <span class="n">chain_grad</span> <span class="o">+=</span> <span class="p">(</span><span class="n">partials_cache</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+                               <span class="o">*</span> <span class="n">auxiliary_gradients</span><span class="p">[</span><span class="n">other_sym</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Topological order violation: </span><span class="si">{</span><span class="n">sym</span><span class="si">}</span><span class="s2"> depends &quot;</span>
+                                 <span class="sa">f</span><span class="s2">&quot;on </span><span class="si">{</span><span class="n">other_sym</span><span class="si">}</span><span class="s2"> which is not yet processed.&quot;</span><span class="p">)</span>
+        <span class="n">auxiliary_gradients</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span> <span class="o">=</span> <span class="n">direct_grad</span> <span class="o">+</span> <span class="n">chain_grad</span>
+
+    <span class="n">num_out</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">output_symbols</span><span class="p">)</span>
+    <span class="n">J</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">num_out</span><span class="p">,</span> <span class="n">num_in</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">out_sym</span><span class="p">,</span> <span class="n">out_expr</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">output_equations</span><span class="p">):</span>
+        <span class="n">direct_row</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Matrix</span><span class="p">([[</span><span class="n">sp</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">out_expr</span><span class="p">,</span> <span class="n">in_sym</span><span class="p">)]</span>
+                                <span class="k">for</span> <span class="n">in_sym</span> <span class="ow">in</span> <span class="n">sorted_inputs</span><span class="p">])</span><span class="o">.</span><span class="n">T</span>
+
+        <span class="n">chain_row</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">num_in</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">aux_sym</span> <span class="ow">in</span> <span class="n">out_expr</span><span class="o">.</span><span class="n">free_symbols</span> <span class="o">&amp;</span> <span class="n">aux_symbols</span><span class="p">:</span>
+            <span class="n">partial</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">out_expr</span><span class="p">,</span> <span class="n">aux_sym</span><span class="p">)</span>
+            <span class="n">chain_row</span> <span class="o">+=</span> <span class="n">partial</span> <span class="o">*</span> <span class="n">auxiliary_gradients</span><span class="p">[</span><span class="n">aux_sym</span><span class="p">]</span>
+        <span class="n">J</span><span class="p">[</span><span class="n">output_order</span><span class="p">[</span><span class="n">out_sym</span><span class="p">],:]</span> <span class="o">=</span> <span class="n">chain_row</span> <span class="o">+</span> <span class="n">direct_row</span>
+
+    <span class="c1"># Cache the result before returning</span>
+    <span class="k">if</span> <span class="n">use_cache</span> <span class="ow">and</span> <span class="n">cache_key</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">entry</span> <span class="o">=</span> <span class="n">_cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">cache_key</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;jac&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">J</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">_cache</span><span class="p">[</span><span class="n">cache_key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;jac&quot;</span><span class="p">:</span> <span class="n">J</span><span class="p">}</span>
+
+    <span class="k">return</span> <span class="n">J</span></div>
+
+
+
+<div class="viewcode-block" id="_prune_unused_assignments">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.jacobian.html#cubie.odesystems.symbolic.jacobian._prune_unused_assignments">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">_prune_unused_assignments</span><span class="p">(</span>
+    <span class="n">expressions</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">outputsym_str</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;jvp&quot;</span><span class="p">,</span>
+    <span class="n">output_symbols</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Iterable</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Remove assignments that do not contribute to the final JVP outputs.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    expressions</span>
+<span class="sd">        Topologically sorted assignments ``(lhs, rhs)``.</span>
+<span class="sd">    outputsym_str</span>
+<span class="sd">        Prefix identifying JVP output symbols. Ignored when</span>
+<span class="sd">        ``output_symbols`` is provided.</span>
+<span class="sd">    output_symbols</span>
+<span class="sd">        Optional collection of output symbols to retain when pruning.</span>
+<span class="sd">        When supplied, only assignments contributing to these symbols are</span>
+<span class="sd">        kept.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    List[Tuple[sp.Symbol, sp.Expr]]</span>
+<span class="sd">        Pruned assignments that are required to compute the JVP outputs.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The function assumes that the list is topologically sorted and that output</span>
+<span class="sd">    assignments have left-hand-side symbols whose names start with</span>
+<span class="sd">    ``&quot;jvp[&quot;``. It preserves the relative order of kept assignments.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">exprs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">expressions</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">exprs</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">exprs</span>
+
+    <span class="n">lhs_symbols</span> <span class="o">=</span> <span class="p">[</span><span class="n">lhs</span> <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">exprs</span><span class="p">]</span>
+    <span class="n">all_lhs</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">lhs_symbols</span><span class="p">)</span>
+
+    <span class="c1"># Detect outputs by name convention</span>
+    <span class="k">if</span> <span class="n">output_symbols</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">output_syms</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">output_symbols</span><span class="p">)</span> <span class="o">&amp;</span> <span class="n">all_lhs</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">output_syms</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">lhs</span>
+            <span class="k">for</span> <span class="n">lhs</span> <span class="ow">in</span> <span class="n">lhs_symbols</span>
+            <span class="k">if</span> <span class="nb">str</span><span class="p">(</span><span class="n">lhs</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">outputsym_str</span><span class="si">}</span><span class="s2">[&quot;</span><span class="p">)</span>
+        <span class="p">}</span>
+
+    <span class="c1"># If we can&#39;t detect outputs, do nothing</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">output_syms</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">exprs</span>
+
+    <span class="n">used</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">output_syms</span><span class="p">)</span>
+    <span class="n">kept</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">exprs</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">lhs</span> <span class="ow">in</span> <span class="n">used</span><span class="p">:</span>
+            <span class="n">kept</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span><span class="p">))</span>
+            <span class="c1"># Only follow dependencies that are assigned to</span>
+            <span class="n">deps</span> <span class="o">=</span> <span class="n">rhs</span><span class="o">.</span><span class="n">free_symbols</span> <span class="o">&amp;</span> <span class="n">all_lhs</span>
+            <span class="n">deps_syms</span> <span class="o">=</span> <span class="p">{</span><span class="n">s</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">deps</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">)}</span>
+            <span class="n">used</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">deps_syms</span><span class="p">)</span>
+    <span class="n">kept</span><span class="o">.</span><span class="n">reverse</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">kept</span></div>
+
+
+
+<div class="viewcode-block" id="generate_analytical_jvp">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.jacobian.html#cubie.odesystems.symbolic.jacobian.generate_analytical_jvp">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_analytical_jvp</span><span class="p">(</span>
+    <span class="n">equations</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span> <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">input_order</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+    <span class="n">output_order</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+    <span class="n">observables</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Iterable</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">cse</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return symbolic assignments for the Jacobian-vector product (JVP).</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    equations</span>
+<span class="sd">        System equations including intermediates and outputs.</span>
+<span class="sd">    input_order</span>
+<span class="sd">        Mapping from each input symbol to its position in the input vector.</span>
+<span class="sd">    output_order</span>
+<span class="sd">        Mapping from each output symbol to its position in the output vector.</span>
+<span class="sd">    observables</span>
+<span class="sd">        Symbols to treat as auxiliary variables when constructing the JVP.</span>
+<span class="sd">    cse</span>
+<span class="sd">        Apply common-subexpression elimination before producing assignments.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    List[Tuple[sp.Symbol, sp.Expr]]</span>
+<span class="sd">        Symbolic assignments that compute the JVP for each output entry.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Cached results are reused when possible and shared with the Jacobian cache</span>
+<span class="sd">    through the key generated by :func:`get_cache_key`.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">equations</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">eq_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">equations</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># Convert a generator if present.</span>
+        <span class="n">eq_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">equations</span><span class="p">)</span>
+
+    <span class="c1"># Cache key before any mutation of inputs</span>
+    <span class="n">cache_key</span> <span class="o">=</span> <span class="n">get_cache_key</span><span class="p">(</span><span class="n">eq_list</span><span class="p">,</span> <span class="n">input_order</span><span class="p">,</span> <span class="n">output_order</span><span class="p">,</span> <span class="n">cse</span><span class="o">=</span><span class="n">cse</span><span class="p">)</span>
+    <span class="n">cached_entry</span> <span class="o">=</span> <span class="n">_cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">cache_key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cached_entry</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="s2">&quot;jvp&quot;</span> <span class="ow">in</span> <span class="n">cached_entry</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">cached_entry</span><span class="p">[</span><span class="s2">&quot;jvp&quot;</span><span class="p">]</span>
+
+    <span class="n">n_inputs</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">input_order</span><span class="p">)</span>
+    <span class="n">n_outputs</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">output_order</span><span class="p">)</span>
+
+    <span class="c1"># Swap out observables for auxiliary variables</span>
+    <span class="k">if</span> <span class="n">observables</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">obs_subs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">observables</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">numbered_symbols</span><span class="p">(</span><span class="s2">&quot;aux_&quot;</span><span class="p">,</span> <span class="n">start</span><span class="o">=</span><span class="mi">1</span><span class="p">)))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">obs_subs</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="n">equations</span> <span class="o">=</span> <span class="p">[(</span><span class="n">lhs</span><span class="o">.</span><span class="n">subs</span><span class="p">(</span><span class="n">obs_subs</span><span class="p">),</span> <span class="n">rhs</span><span class="o">.</span><span class="n">subs</span><span class="p">(</span><span class="n">obs_subs</span><span class="p">))</span> <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">rhs</span> <span class="ow">in</span>
+                  <span class="n">eq_list</span><span class="p">]</span>
+    <span class="n">jac</span> <span class="o">=</span> <span class="n">generate_jacobian</span><span class="p">(</span>
+        <span class="n">equations</span><span class="p">,</span>
+        <span class="n">input_order</span><span class="p">,</span>
+        <span class="n">output_order</span><span class="p">,</span>
+        <span class="n">use_cache</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+        <span class="n">cache_cse</span><span class="o">=</span><span class="n">cse</span><span class="p">,</span>
+    <span class="p">)</span>
+
+    <span class="n">prod_exprs</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">j_symbols</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c1"># Flatten Jacobian, dropping zero-valued entries</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_outputs</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_inputs</span><span class="p">):</span>
+            <span class="n">expr</span> <span class="o">=</span> <span class="n">jac</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">expr</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">sym</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;j_</span><span class="si">{</span><span class="n">i</span><span class="si">}{</span><span class="n">j</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="n">prod_exprs</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">sym</span><span class="p">,</span> <span class="n">expr</span><span class="p">))</span>
+            <span class="n">j_symbols</span><span class="p">[(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">)]</span> <span class="o">=</span> <span class="n">sym</span>
+
+    <span class="c1"># Sort outputs by their order for JVP</span>
+    <span class="n">sorted_outputs</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
+        <span class="n">output_order</span><span class="o">.</span><span class="n">keys</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">sym</span><span class="p">:</span> <span class="n">output_order</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span>
+    <span class="p">)</span>
+    <span class="n">v</span> <span class="o">=</span> <span class="n">IndexedBase</span><span class="p">(</span><span class="s2">&quot;v&quot;</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n_inputs</span><span class="p">,))</span>
+    <span class="k">for</span> <span class="n">out_sym</span> <span class="ow">in</span> <span class="n">sorted_outputs</span><span class="p">:</span>
+        <span class="n">sum_</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">S</span><span class="o">.</span><span class="n">Zero</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">output_order</span><span class="p">[</span><span class="n">out_sym</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_inputs</span><span class="p">):</span>
+            <span class="n">sym</span> <span class="o">=</span> <span class="n">j_symbols</span><span class="o">.</span><span class="n">get</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">sym</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">sum_</span> <span class="o">+=</span> <span class="n">sym</span> <span class="o">*</span> <span class="n">v</span><span class="p">[</span><span class="n">j</span><span class="p">]</span>
+        <span class="n">prod_exprs</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;jvp[</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">]&quot;</span><span class="p">),</span> <span class="n">sum_</span><span class="p">))</span>
+
+    <span class="c1"># Remove output equations - they&#39;re not required</span>
+    <span class="n">exprs</span> <span class="o">=</span> <span class="p">[</span><span class="n">expr</span> <span class="k">for</span> <span class="n">expr</span> <span class="ow">in</span> <span class="n">equations</span> <span class="k">if</span> <span class="n">expr</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">output_order</span><span class="p">]</span>
+    <span class="n">all_exprs</span> <span class="o">=</span> <span class="n">exprs</span> <span class="o">+</span> <span class="n">prod_exprs</span>
+
+    <span class="k">if</span> <span class="n">cse</span><span class="p">:</span>
+        <span class="n">all_exprs</span> <span class="o">=</span> <span class="n">cse_and_stack</span><span class="p">(</span><span class="n">all_exprs</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">all_exprs</span> <span class="o">=</span> <span class="n">topological_sort</span><span class="p">(</span><span class="n">all_exprs</span><span class="p">)</span>
+
+    <span class="c1"># Final sweep to drop any intermediates not contributing to the JVP</span>
+    <span class="n">all_exprs</span> <span class="o">=</span> <span class="n">_prune_unused_assignments</span><span class="p">(</span><span class="n">all_exprs</span><span class="p">)</span>
+
+    <span class="c1"># Store in cache and return</span>
+    <span class="n">entry</span> <span class="o">=</span> <span class="n">_cache</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">cache_key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">entry</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+        <span class="n">entry</span><span class="p">[</span><span class="s2">&quot;jvp&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">all_exprs</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">_cache</span><span class="p">[</span><span class="n">cache_key</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;jvp&quot;</span><span class="p">:</span> <span class="n">all_exprs</span><span class="p">}</span>
+    <span class="k">return</span> <span class="n">all_exprs</span></div>
+
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,56 @@
+﻿cubie.integrators.GustafssonController
+======================================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: GustafssonController
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~GustafssonController.__init__
+      ~GustafssonController.build
+      ~GustafssonController.build_controller
+      ~GustafssonController.get_cached_output
+      ~GustafssonController.setup_compile_settings
+      ~GustafssonController.update
+      ~GustafssonController.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~GustafssonController.algorithm_order
+      ~GustafssonController.atol
+      ~GustafssonController.cache_valid
+      ~GustafssonController.compile_settings
+      ~GustafssonController.deadband_max
+      ~GustafssonController.deadband_min
+      ~GustafssonController.device_function
+      ~GustafssonController.dt0
+      ~GustafssonController.dt_max
+      ~GustafssonController.dt_min
+      ~GustafssonController.gamma
+      ~GustafssonController.is_adaptive
+      ~GustafssonController.local_memory_elements
+      ~GustafssonController.max_gain
+      ~GustafssonController.max_newton_iters
+      ~GustafssonController.min_gain
+      ~GustafssonController.n
+      ~GustafssonController.numba_precision
+      ~GustafssonController.precision
+      ~GustafssonController.rtol
+      ~GustafssonController.safety
+      ~GustafssonController.settings_dict
+      ~GustafssonController.simsafe_precision
+   
+   

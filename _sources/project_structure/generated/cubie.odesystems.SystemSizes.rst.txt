@@ -1,0 +1,32 @@
+﻿cubie.odesystems.SystemSizes
+============================
+
+.. currentmodule:: cubie.odesystems
+
+.. autoclass:: SystemSizes
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~SystemSizes.__init__
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~SystemSizes.states
+      ~SystemSizes.observables
+      ~SystemSizes.parameters
+      ~SystemSizes.constants
+      ~SystemSizes.drivers
+   
+   

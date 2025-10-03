@@ -1,0 +1,926 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.batchsolving.BatchGridBuilder &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.batchsolving.BatchGridBuilder</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.batchsolving.BatchGridBuilder</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Batch Grid Builder Module.</span>
+
+<span class="sd">This module provides utilities for building grids of state and parameter values.</span>
+<span class="sd">The BatchGridBuilder class converts user-supplied dictionaries or arrays into</span>
+<span class="sd">the 2D numpy arrays expected by the solver.</span>
+
+<span class="sd">Notes</span>
+<span class="sd">-----</span>
+<span class="sd">The user primarily interacts with this class through the Solver class, unless</span>
+<span class="sd">they have very specific needs. Interaction with the BatchConfigurator is</span>
+<span class="sd">primarily through the `__call__` method, which accepts four arguments:</span>
+
+<span class="sd">- `request`: A dictionary of (potentially mixed) parameter and state names</span>
+<span class="sd">  mapped to sequences of values. Says: &quot;Integrate from combinations of</span>
+<span class="sd">  these named variables&quot;</span>
+<span class="sd">- &#39;params&#39;: A dictionary of purely parameter variable names, a 1D sequence to</span>
+<span class="sd">  set one set of values for every integration, or a 2D array of all</span>
+<span class="sd">  combinations to integrate from.</span>
+<span class="sd">- &#39;states&#39;: A dictionary of purely state variable names, a 1D sequence to</span>
+<span class="sd">  set one set of values for every integration, or a 2D array of all</span>
+<span class="sd">  combinations to integrate from.</span>
+<span class="sd">- &#39;kind&#39;: A string indicating how to combine the parameters and states.</span>
+<span class="sd">  - &#39;combinatorial&#39; constructs a grid of all combinations of the values</span>
+<span class="sd">    provided</span>
+<span class="sd">  - &#39;verbatim&#39; constructs a grid of [[all variables[0]],[all variables[1]],...]</span>
+<span class="sd">    when the combinations have been intentionally constructed already.</span>
+
+<span class="sd">There is a subtle difference between a &#39;combinatorial&#39; combination of two</span>
+<span class="sd">input arrays the same values given as per-variable arrays in a dict,</span>
+<span class="sd">as demonstrated in the examples above. If the user provides arrays as an</span>
+<span class="sd">argument, it is assumed that all within-array combinations have already been</span>
+<span class="sd">constructed. When the user provides a dict, it is assumed that they want a</span>
+<span class="sd">combinatorial combination of the values. In the array case, the method will</span>
+<span class="sd">return arrays which contain all combinations of the rows of the arrays (</span>
+<span class="sd">i.e. nrows x nrows combinations). The dictionary case first constructs</span>
+<span class="sd">combinations of values, resulting in an array of height nvals1 * nvals2 *</span>
+<span class="sd">... * nvalsk for k variables, then combines these in the same fashion as</span>
+<span class="sd">the array case.</span>
+
+<span class="sd">For more fine-grained control, you can call the grid_arrays and</span>
+<span class="sd">combine_grids methods directly, or construct the full arrays outside of</span>
+<span class="sd">this method and let them pass through verbatim.</span>
+
+<span class="sd">Examples</span>
+<span class="sd">--------</span>
+<span class="sd">&gt;&gt;&gt; import numpy as np</span>
+<span class="sd">&gt;&gt;&gt; from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder</span>
+<span class="sd">&gt;&gt;&gt; from cubie.odesystems.systems.decays import Decays</span>
+<span class="sd">&gt;&gt;&gt; system = Decays(coefficients=[1.0, 2.0])</span>
+<span class="sd">&gt;&gt;&gt; grid_builder = BatchGridBuilder.from_system(system)</span>
+<span class="sd">&gt;&gt;&gt; params = {&quot;p0&quot;: [0.1, 0.2], &quot;p1&quot;: [10, 20]}</span>
+<span class="sd">&gt;&gt;&gt; states = {&quot;x0&quot;: [1.0, 2.0], &quot;x1&quot;: [0.5, 1.5]}</span>
+<span class="sd">&gt;&gt;&gt; inits, params = grid_builder(</span>
+<span class="sd">...     params=params, states=states, kind=&quot;combinatorial&quot;</span>
+<span class="sd">... )</span>
+<span class="sd">&gt;&gt;&gt; print(inits.shape)</span>
+<span class="sd">(16, 2)</span>
+<span class="sd">&gt;&gt;&gt; print(inits)</span>
+<span class="sd">[[1.  0.5]</span>
+<span class="sd"> [1.  0.5]</span>
+<span class="sd"> [1.  0.5]</span>
+<span class="sd"> [1.  0.5]</span>
+<span class="sd"> [1.  1.5]</span>
+<span class="sd"> [1.  1.5]</span>
+<span class="sd"> [1.  1.5]</span>
+<span class="sd"> [1.  1.5]</span>
+<span class="sd"> [2.  0.5]</span>
+<span class="sd"> [2.  0.5]</span>
+<span class="sd"> [2.  0.5]</span>
+<span class="sd"> [2.  0.5]</span>
+<span class="sd"> [2.  1.5]</span>
+<span class="sd"> [2.  1.5]</span>
+<span class="sd"> [2.  1.5]</span>
+<span class="sd"> [2.  1.5]]</span>
+<span class="sd">&gt;&gt;&gt; print(params.shape)</span>
+<span class="sd">(16, 2)</span>
+<span class="sd">&gt;&gt;&gt; print(params)</span>
+<span class="sd">[[ 0.1 10. ]</span>
+<span class="sd"> [ 0.1 20. ]</span>
+<span class="sd"> [ 0.2 10. ]</span>
+<span class="sd"> [ 0.2 20. ]</span>
+<span class="sd"> [ 0.1 10. ]</span>
+<span class="sd"> [ 0.1 20. ]</span>
+<span class="sd"> [ 0.2 10. ]</span>
+<span class="sd"> [ 0.2 20. ]</span>
+<span class="sd"> [ 0.1 10. ]</span>
+<span class="sd"> [ 0.1 20. ]</span>
+<span class="sd"> [ 0.2 10. ]</span>
+<span class="sd"> [ 0.2 20. ]</span>
+<span class="sd"> [ 0.1 10. ]</span>
+<span class="sd"> [ 0.1 20. ]</span>
+<span class="sd"> [ 0.2 10. ]</span>
+<span class="sd"> [ 0.2 20. ]]</span>
+
+<span class="sd">Example 2: verbatim arrays</span>
+
+<span class="sd">&gt;&gt;&gt; params = np.array([[0.1, 0.2], [10, 20]])</span>
+<span class="sd">&gt;&gt;&gt; states = np.array([[1.0, 2.0], [0.5, 1.5]])</span>
+<span class="sd">&gt;&gt;&gt; inits, params = grid_builder(params=params, states=states, kind=&quot;verbatim&quot;)</span>
+<span class="sd">&gt;&gt;&gt; print(inits.shape)</span>
+<span class="sd">(2, 2)</span>
+<span class="sd">&gt;&gt;&gt; print(inits)</span>
+<span class="sd">[[1.  2. ]</span>
+<span class="sd"> [0.5 1.5]]</span>
+<span class="sd">&gt;&gt;&gt; print(params.shape)</span>
+<span class="sd">(2, 2)</span>
+<span class="sd">&gt;&gt;&gt; print(params)</span>
+<span class="sd">[[ 0.1  0.2]</span>
+<span class="sd"> [10.  20. ]]</span>
+
+<span class="sd">&gt;&gt;&gt; inits, params = grid_builder(</span>
+<span class="sd">...     params=params, states=states, kind=&quot;combinatorial&quot;</span>
+<span class="sd">... )</span>
+<span class="sd">&gt;&gt;&gt; print(inits.shape)</span>
+<span class="sd">(4, 2)</span>
+<span class="sd">&gt;&gt;&gt; print(inits)</span>
+<span class="sd">[[1.  2. ]</span>
+<span class="sd"> [1.  2. ]</span>
+<span class="sd"> [0.5 1.5]</span>
+<span class="sd"> [0.5 1.5]]</span>
+<span class="sd">&gt;&gt;&gt; print(params.shape)</span>
+<span class="sd">(4, 2)</span>
+<span class="sd">&gt;&gt;&gt; print(params)</span>
+<span class="sd">[[ 0.1  0.2]</span>
+<span class="sd"> [10.  20. ]</span>
+<span class="sd"> [ 0.1  0.2]</span>
+<span class="sd"> [10.  20. ]]</span>
+
+<span class="sd">Same as individual dictionaries</span>
+
+<span class="sd">&gt;&gt;&gt; request = {</span>
+<span class="sd">...     &quot;p0&quot;: [0.1, 0.2],</span>
+<span class="sd">...     &quot;p1&quot;: [10, 20],</span>
+<span class="sd">...     &quot;x0&quot;: [1.0, 2.0],</span>
+<span class="sd">...     &quot;x1&quot;: [0.5, 1.5],</span>
+<span class="sd">... }</span>
+<span class="sd">&gt;&gt;&gt; inits, params = grid_builder(request=request, kind=&quot;combinatorial&quot;)</span>
+<span class="sd">&gt;&gt;&gt; print(inits.shape)</span>
+<span class="sd">(16, 2)</span>
+<span class="sd">&gt;&gt;&gt; print(params.shape)</span>
+<span class="sd">(16, 2)</span>
+
+<span class="sd">&gt;&gt;&gt; request = {&quot;p0&quot;: [0.1, 0.2]}</span>
+<span class="sd">&gt;&gt;&gt; inits, params = grid_builder(request=request, kind=&quot;combinatorial&quot;)</span>
+<span class="sd">&gt;&gt;&gt; print(inits.shape)</span>
+<span class="sd">(2, 2)</span>
+<span class="sd">&gt;&gt;&gt; print(inits)  # unspecified variables are filled with defaults from system</span>
+<span class="sd">[[1. 1.]</span>
+<span class="sd"> [1. 1.]]</span>
+<span class="sd">&gt;&gt;&gt; print(params.shape)</span>
+<span class="sd">(2, 2)</span>
+<span class="sd">&gt;&gt;&gt; print(params)</span>
+<span class="sd">[[0.1 2. ]</span>
+<span class="sd"> [0.2 2. ]]</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">product</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Union</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">warnings</span><span class="w"> </span><span class="kn">import</span> <span class="n">warn</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArrayLike</span><span class="p">,</span> <span class="n">NDArray</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.batchsolving.SystemInterface</span><span class="w"> </span><span class="kn">import</span> <span class="n">SystemInterface</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.baseODE</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseODE</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">cubie.odesystems.SystemValues</span><span class="w"> </span><span class="kn">import</span> <span class="n">SystemValues</span>
+
+
+<div class="viewcode-block" id="unique_cartesian_product">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.unique_cartesian_product">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">unique_cartesian_product</span><span class="p">(</span><span class="n">arrays</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return unique combinations of elements from input arrays.</span>
+
+<span class="sd">    Each input array can have duplicates, but the output will not contain</span>
+<span class="sd">    any duplicate rows. The order of the input arrays is preserved, and the</span>
+<span class="sd">    output will have the same order of elements as the input.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    arrays : List[np.ndarray]</span>
+<span class="sd">        A list of 1D numpy arrays, each containing elements to be combined.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    combos : np.ndarray</span>
+<span class="sd">        A 2D numpy array where each row is a unique combination of elements</span>
+<span class="sd">        from the inputs.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    This function removes duplicates by creating a dict with the elements of</span>
+<span class="sd">    the input array as keys. It then casts that to a list, getting the</span>
+<span class="sd">    de-duplicated values. It then uses `itertools.product` to generate the</span>
+<span class="sd">    Cartesian product of the input arrays.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; unique_cartesian_product([np.array([1, 2, 2]), np.array([3, 4])])</span>
+<span class="sd">    array([[1, 3],</span>
+<span class="sd">           [1, 4],</span>
+<span class="sd">           [2, 3],</span>
+<span class="sd">           [2, 4]])</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">deduplicated_inputs</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="nb">list</span><span class="p">(</span><span class="nb">dict</span><span class="o">.</span><span class="n">fromkeys</span><span class="p">(</span><span class="n">a</span><span class="p">))</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">arrays</span>
+    <span class="p">]</span>  <span class="c1"># preserve order, remove dups</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="nb">list</span><span class="p">(</span><span class="n">t</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">product</span><span class="p">(</span><span class="o">*</span><span class="n">deduplicated_inputs</span><span class="p">)])</span></div>
+
+
+
+<div class="viewcode-block" id="combinatorial_grid">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.combinatorial_grid">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">combinatorial_grid</span><span class="p">(</span>
+    <span class="n">request</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">ArrayLike</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]],</span>
+    <span class="n">values_instance</span><span class="p">:</span> <span class="n">SystemValues</span><span class="p">,</span>
+    <span class="n">silent</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Build a grid of all unique combinations of values from a request dictionary.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    request : Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]]</span>
+<span class="sd">        Dictionary where keys are parameter names or indices, and values are</span>
+<span class="sd">        either a single value or an array of values for that parameter.</span>
+<span class="sd">        For a combinatorial grid, the arrays of values need not be equal in</span>
+<span class="sd">        length.</span>
+<span class="sd">    values_instance : SystemValues</span>
+<span class="sd">        The SystemValues instance in which to find the indices for the keys</span>
+<span class="sd">        in the request.</span>
+<span class="sd">    silent : bool, default=False</span>
+<span class="sd">        If True, suppress warnings about unrecognized parameters in the</span>
+<span class="sd">        request.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    indices : np.ndarray</span>
+<span class="sd">        A 1D array of indices corresponding to the gridded parameters.</span>
+<span class="sd">    grid : np.ndarray</span>
+<span class="sd">        A 2D array of shape (n_runs, n_requested_parameters) where each row</span>
+<span class="sd">        corresponds to a set of parameters for a run.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Unspecified parameters are filled with their default values from the</span>
+<span class="sd">    system. n_runs is the combinatorial product of the lengths of all of the</span>
+<span class="sd">    value arrays - for example, if the request contains two parameters with</span>
+<span class="sd">    3, 2, and 4 values, then n_runs would be 3 * 2 * 4 = 24.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; combinatorial_grid(</span>
+<span class="sd">    ...     {&quot;param1&quot;: [0.1, 0.2, 0.3], &quot;param2&quot;: [10, 20]}, system.parameters</span>
+<span class="sd">    ... )</span>
+<span class="sd">    (array([0, 1]),</span>
+<span class="sd">     array([[ 0.1, 10. ],</span>
+<span class="sd">            [ 0.1, 20. ],</span>
+<span class="sd">            [ 0.2, 10. ],</span>
+<span class="sd">            [ 0.2, 20. ],</span>
+<span class="sd">            [ 0.3, 10. ],</span>
+<span class="sd">            [ 0.3, 20. ]]))</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">cleaned_request</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="p">}</span>
+    <span class="n">indices</span> <span class="o">=</span> <span class="n">values_instance</span><span class="o">.</span><span class="n">get_indices</span><span class="p">(</span>
+        <span class="nb">list</span><span class="p">(</span><span class="n">cleaned_request</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span> <span class="n">silent</span><span class="o">=</span><span class="n">silent</span>
+    <span class="p">)</span>
+    <span class="n">combos</span> <span class="o">=</span> <span class="n">unique_cartesian_product</span><span class="p">(</span>
+        <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">cleaned_request</span><span class="o">.</span><span class="n">values</span><span class="p">()],</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">combos</span></div>
+
+
+
+<div class="viewcode-block" id="verbatim_grid">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.verbatim_grid">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">verbatim_grid</span><span class="p">(</span>
+    <span class="n">request</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">ArrayLike</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]],</span>
+    <span class="n">values_instance</span><span class="p">:</span> <span class="n">SystemValues</span><span class="p">,</span>
+    <span class="n">silent</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Build a grid where parameters vary together, not combinatorially.</span>
+
+<span class="sd">    Parameters vary together, but not combinatorially. All value arrays</span>
+<span class="sd">    must be of equal length.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    request : Dict[Union[str, int], Union[float, ArrayLike, NDArray]]</span>
+<span class="sd">        Dictionary where keys are parameter names or indices, and values are</span>
+<span class="sd">        either a single value or an array of values for that parameter.</span>
+<span class="sd">    values_instance : SystemValues</span>
+<span class="sd">        The SystemValues instance in which to find the indices for the keys</span>
+<span class="sd">        in the request.</span>
+<span class="sd">    silent : bool, default=False</span>
+<span class="sd">        If True, suppress warnings about unrecognized parameters in the</span>
+<span class="sd">        request.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    indices : np.ndarray</span>
+<span class="sd">        A 1D array of indices corresponding to the gridded parameters.</span>
+<span class="sd">    grid : np.ndarray</span>
+<span class="sd">        A 2D array of shape (n_runs, n_requested_parameters) where each row</span>
+<span class="sd">        corresponds to a set of parameters for a run.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Unspecified parameters are filled with their default values from the</span>
+<span class="sd">    system. n_runs is the length of all value arrays, which must be equal.</span>
+
+<span class="sd">    Examples</span>
+<span class="sd">    --------</span>
+<span class="sd">    &gt;&gt;&gt; verbatim_grid(</span>
+<span class="sd">    ...     {&quot;param1&quot;: [0.1, 0.2, 0.3], &quot;param2&quot;: [10, 20, 30]},</span>
+<span class="sd">    ...     system.parameters,</span>
+<span class="sd">    ... )</span>
+<span class="sd">    (array([0, 1]),</span>
+<span class="sd">     array([[ 0.1, 10. ],</span>
+<span class="sd">            [ 0.2, 20. ],</span>
+<span class="sd">            [ 0.3, 30. ]]))</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">cleaned_request</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">v</span><span class="p">)</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span>
+    <span class="p">}</span>
+    <span class="n">indices</span> <span class="o">=</span> <span class="n">values_instance</span><span class="o">.</span><span class="n">get_indices</span><span class="p">(</span>
+        <span class="nb">list</span><span class="p">(</span><span class="n">cleaned_request</span><span class="o">.</span><span class="n">keys</span><span class="p">()),</span> <span class="n">silent</span><span class="o">=</span><span class="n">silent</span>
+    <span class="p">)</span>
+    <span class="n">combos</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">([</span><span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">cleaned_request</span><span class="o">.</span><span class="n">values</span><span class="p">()])</span><span class="o">.</span><span class="n">T</span>
+    <span class="k">return</span> <span class="n">indices</span><span class="p">,</span> <span class="n">combos</span></div>
+
+
+
+<div class="viewcode-block" id="generate_grid">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.generate_grid">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_grid</span><span class="p">(</span>
+    <span class="n">request</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">ArrayLike</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]],</span>
+    <span class="n">values_instance</span><span class="p">:</span> <span class="n">SystemValues</span><span class="p">,</span>
+    <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;combinatorial&quot;</span><span class="p">,</span>
+    <span class="n">silent</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Generate a parameter grid for batch runs from a request dictionary.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    request : Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]]</span>
+<span class="sd">        Dictionary where keys are parameter names or indices, and values are</span>
+<span class="sd">        either a single value or an array of values for that parameter.</span>
+<span class="sd">    values_instance : SystemValues</span>
+<span class="sd">        The SystemValues instance in which to find the indices for the keys</span>
+<span class="sd">        in the request.</span>
+<span class="sd">    kind : str, default=&#39;combinatorial&#39;</span>
+<span class="sd">        The type of grid to generate. Can be &#39;combinatorial&#39; or &#39;verbatim&#39;.</span>
+<span class="sd">    silent : bool, default=False</span>
+<span class="sd">        If True, suppress warnings about unrecognized parameters in the</span>
+<span class="sd">        request.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    indices : np.ndarray</span>
+<span class="sd">        A 1D array of indices corresponding to the gridded parameters.</span>
+<span class="sd">    grid : np.ndarray</span>
+<span class="sd">        A 2D array of shape (n_runs, n_requested_parameters) where each row</span>
+<span class="sd">        corresponds to a set of parameters for a run.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The `kind` parameter determines how the grid is constructed:</span>
+<span class="sd">    - &#39;combinatorial&#39;: see combinatorial_grid function</span>
+<span class="sd">    - &#39;verbatim&#39;: see verbatim_grid function</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;combinatorial&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">combinatorial_grid</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">values_instance</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="n">silent</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;verbatim&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">verbatim_grid</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">values_instance</span><span class="p">,</span> <span class="n">silent</span><span class="o">=</span><span class="n">silent</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Unknown grid type &#39;</span><span class="si">{</span><span class="n">kind</span><span class="si">}</span><span class="s2">&#39;. Use &#39;combinatorial&#39; or &#39;verbatim&#39;.&quot;</span>
+        <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="combine_grids">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.combine_grids">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">combine_grids</span><span class="p">(</span>
+    <span class="n">grid1</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">grid2</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;combinatorial&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Combine two grids into extended grids.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    grid1 : np.ndarray</span>
+<span class="sd">        First grid (e.g., parameter grid).</span>
+<span class="sd">    grid2 : np.ndarray</span>
+<span class="sd">        Second grid (e.g., state grid).</span>
+<span class="sd">    kind : str, default=&#39;combinatorial&#39;</span>
+<span class="sd">        &#39;combinatorial&#39; for cartesian product, &#39;verbatim&#39; for row-wise pairing.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    grid1_extended : np.ndarray</span>
+<span class="sd">        Extended first grid.</span>
+<span class="sd">    grid2_extended : np.ndarray</span>
+<span class="sd">        Extended second grid.</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        If kind is &#39;verbatim&#39; and grids have different numbers of rows.</span>
+<span class="sd">        If kind is not &#39;combinatorial&#39; or &#39;verbatim&#39;.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;combinatorial&quot;</span><span class="p">:</span>
+        <span class="c1"># Cartesian product: all combinations of rows from each grid</span>
+        <span class="n">g1_repeat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">grid1</span><span class="p">,</span> <span class="n">grid2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">g2_tile</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">tile</span><span class="p">(</span><span class="n">grid2</span><span class="p">,</span> <span class="p">(</span><span class="n">grid1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">g1_repeat</span><span class="p">,</span> <span class="n">g2_tile</span>
+    <span class="k">elif</span> <span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;verbatim&quot;</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">grid1</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="n">grid2</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s2">&quot;For &#39;verbatim&#39;, both grids must have the same number of rows.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">grid1</span><span class="p">,</span> <span class="n">grid2</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;Unknown grid type &#39;</span><span class="si">{</span><span class="n">kind</span><span class="si">}</span><span class="s2">&#39;. Use &#39;combinatorial&#39; or &#39;verbatim&#39;.&quot;</span>
+        <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="extend_grid_to_array">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.extend_grid_to_array">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">extend_grid_to_array</span><span class="p">(</span>
+    <span class="n">grid</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+    <span class="n">indices</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+    <span class="n">default_values</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Join a grid with default values to create complete parameter arrays.</span>
+
+<span class="sd">    Creates a 2D array where each row has a full set of parameters, and</span>
+<span class="sd">    non-gridded parameters are set to their default values.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    grid : np.ndarray</span>
+<span class="sd">        A 2D array of shape (n_runs, n_requested_parameters) where each row</span>
+<span class="sd">        corresponds to a set of parameters for a run.</span>
+<span class="sd">    indices : np.ndarray</span>
+<span class="sd">        A 1D array of indices corresponding to the gridded parameters.</span>
+<span class="sd">    default_values : np.ndarray</span>
+<span class="sd">        A 1D array of default values for the parameters.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    array : np.ndarray</span>
+<span class="sd">        A 2D array of shape (n_runs, n_parameters) where each row</span>
+<span class="sd">        corresponds to a set of parameters for a run. Parameters not</span>
+<span class="sd">        specified in the grid are filled with their default values from</span>
+<span class="sd">        the system.</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        If grid shape does not match indices shape.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">grid</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">array</span> <span class="o">=</span> <span class="n">default_values</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="p">:]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">grid</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">indices</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Grid shape does not match indices shape.&quot;</span><span class="p">)</span>
+        <span class="n">array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">vstack</span><span class="p">([</span><span class="n">default_values</span><span class="p">]</span> <span class="o">*</span> <span class="n">grid</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">array</span><span class="p">[:,</span> <span class="n">indices</span><span class="p">]</span> <span class="o">=</span> <span class="n">grid</span>
+
+    <span class="k">return</span> <span class="n">array</span></div>
+
+
+
+<div class="viewcode-block" id="generate_array">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.generate_array">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_array</span><span class="p">(</span>
+    <span class="n">request</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">ArrayLike</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]],</span>
+    <span class="n">values_instance</span><span class="p">:</span> <span class="n">SystemValues</span><span class="p">,</span>
+    <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;combinatorial&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create a complete 2D array from a request dictionary.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    request : Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]]</span>
+<span class="sd">        Dictionary where keys are parameter names or indices, and values are</span>
+<span class="sd">        either a single value or an array of values for that parameter.</span>
+<span class="sd">    values_instance : SystemValues</span>
+<span class="sd">        The SystemValues instance in which to find the indices for the keys</span>
+<span class="sd">        in the request.</span>
+<span class="sd">    kind : str, default=&#39;combinatorial&#39;</span>
+<span class="sd">        The type of grid to generate. Can be &#39;combinatorial&#39; or &#39;verbatim&#39;.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    array : np.ndarray</span>
+<span class="sd">        A 2D array of shape (n_runs, n_parameters) where each row</span>
+<span class="sd">        corresponds to a set of parameters for a run. Parameters not</span>
+<span class="sd">        specified in the request are filled with their default values from</span>
+<span class="sd">        the system.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">indices</span><span class="p">,</span> <span class="n">grid</span> <span class="o">=</span> <span class="n">generate_grid</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">values_instance</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">extend_grid_to_array</span><span class="p">(</span><span class="n">grid</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">values_instance</span><span class="o">.</span><span class="n">values_array</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="BatchGridBuilder">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">BatchGridBuilder</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Build grids of parameter and state values for batch runs.</span>
+
+<span class="sd">    This class converts user-supplied dictionaries or arrays into the 2D</span>
+<span class="sd">    numpy arrays expected by the solver for batch integration runs.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    interface : SystemInterface</span>
+<span class="sd">        System interface containing parameter and state information.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    parameters : SystemValues</span>
+<span class="sd">        Parameter values and metadata from the interface.</span>
+<span class="sd">    states : SystemValues</span>
+<span class="sd">        State values and metadata from the interface.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">interface</span><span class="p">:</span> <span class="n">SystemInterface</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span> <span class="o">=</span> <span class="n">interface</span><span class="o">.</span><span class="n">parameters</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">states</span> <span class="o">=</span> <span class="n">interface</span><span class="o">.</span><span class="n">states</span>
+
+<div class="viewcode-block" id="BatchGridBuilder.from_system">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.from_system">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">from_system</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">system</span><span class="p">:</span> <span class="n">BaseODE</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Create a BatchGridBuilder from a system model.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        system : BaseODE</span>
+<span class="sd">            The system model to create the grid builder from.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        BatchGridBuilder</span>
+<span class="sd">            A new BatchGridBuilder instance configured for the given system.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">interface</span> <span class="o">=</span> <span class="n">SystemInterface</span><span class="o">.</span><span class="n">from_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">interface</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="BatchGridBuilder.grid_arrays">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder.grid_arrays">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">grid_arrays</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">request</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">ArrayLike</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]],</span>
+        <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;combinatorial&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Build parameter and state grids from a mixed request dictionary.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        request : Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]]</span>
+<span class="sd">            Dictionary keyed by parameter or state name or index, with values</span>
+<span class="sd">            being the parameter/state values for the grid.</span>
+<span class="sd">        kind : str, default=&#39;combinatorial&#39;</span>
+<span class="sd">            The type of grid to generate. Can be &#39;combinatorial&#39; or &#39;verbatim&#39;.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        initial_values_array : np.ndarray</span>
+<span class="sd">            2D state array for input into the integrator.</span>
+<span class="sd">        params_array : np.ndarray</span>
+<span class="sd">            2D parameter array for input into the integrator.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">param_request</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">k</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span>
+                                                      <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">names</span>
+        <span class="p">}</span>
+        <span class="n">state_request</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">k</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">request</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">names</span>
+        <span class="p">}</span>
+
+        <span class="n">params_array</span> <span class="o">=</span> <span class="n">generate_array</span><span class="p">(</span>
+            <span class="n">param_request</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span>
+        <span class="p">)</span>
+        <span class="n">initial_values_array</span> <span class="o">=</span> <span class="n">generate_array</span><span class="p">(</span>
+            <span class="n">state_request</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span>
+        <span class="p">)</span>
+        <span class="n">initial_values_array</span><span class="p">,</span> <span class="n">params_array</span> <span class="o">=</span> <span class="n">combine_grids</span><span class="p">(</span>
+            <span class="n">initial_values_array</span><span class="p">,</span> <span class="n">params_array</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">initial_values_array</span><span class="p">,</span> <span class="n">params_array</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">request</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span>
+            <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Union</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="n">ArrayLike</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]]</span>
+        <span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">params</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">,</span> <span class="n">ArrayLike</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">states</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">,</span> <span class="n">ArrayLike</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;combinatorial&quot;</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Processes user input to generate parameter and state arrays for a</span>
+<span class="sd">        batch run.</span>
+
+<span class="sd">        This method acts as the main entry point for the user. It accepts</span>
+<span class="sd">        parameters and initial states in various formats (dictionaries or</span>
+<span class="sd">        arrays), processes them, and returns two 2D arrays: one for initial</span>
+<span class="sd">        states and one for parameters, ready to be used in a simulation.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        request: Optional[Dict[str, Union[float, ArrayLike, np.ndarray]]]</span>
+<span class="sd">            A dictionary keyed by variable name containing a combined</span>
+<span class="sd">            request for parameters and initial values.</span>
+<span class="sd">        params : Optional[Union[Dict, ArrayLike]], optional</span>
+<span class="sd">            The parameters to be varied in the batch run. Can be a</span>
+<span class="sd">            dictionary mapping parameter names to values</span>
+<span class="sd">            or an array-like object. Defaults to None. If a 1d sequence or</span>
+<span class="sd">            array is given, this is assumed to be a set of parameters to</span>
+<span class="sd">            override the defaults for every run.</span>
+<span class="sd">        states : Optional[Union[Dict, ArrayLike]], optional</span>
+<span class="sd">            The initial states to be varied in the batch run. Can be a</span>
+<span class="sd">            dictionary mapping state names to values</span>
+<span class="sd">            or an array-like object. Defaults to None. If a 1d sequence or</span>
+<span class="sd">            array is given, this is assumed to be a set of parameters to</span>
+<span class="sd">            override the defaults for every run.</span>
+<span class="sd">        kind : str, optional</span>
+<span class="sd">            The method for generating the grid of runs. Can be</span>
+<span class="sd">            &#39;combinatorial&#39; or &#39;verbatim&#39;.</span>
+<span class="sd">            - &#39;combinatorial&#39;: Creates a run for every combination of the</span>
+<span class="sd">            provided parameter and state values.</span>
+<span class="sd">            - &#39;verbatim&#39;: Creates runs based on a direct pairing of values.</span>
+<span class="sd">            All value arrays must have the same length.</span>
+<span class="sd">            Defaults to &#39;combinatorial&#39;.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        tuple[np.ndarray, np.ndarray]</span>
+<span class="sd">            A tuple containing two 2D numpy arrays:</span>
+<span class="sd">            1. The initial state values for each run.</span>
+<span class="sd">            2. The parameter values for each run.</span>
+
+<span class="sd">        Examples</span>
+<span class="sd">        --------</span>
+<span class="sd">        See BatchGridBuilder module docstring for examples.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parray</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="n">sarray</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">request</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">states</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">params</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                    <span class="s2">&quot;If a mixed request dictionary is provided, &quot;</span>
+                    <span class="s2">&quot;states and params requests must be None.&quot;</span>
+                    <span class="s2">&quot;Check that you&#39;ve input your arguments &quot;</span>
+                    <span class="s2">&quot;correctly, using keywords for params and &quot;</span>
+                    <span class="s2">&quot;inits, if you were not trying to provide a &quot;</span>
+                    <span class="s2">&quot;mixed request dictionary.&quot;</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                    <span class="s2">&quot;If provided, a combined request must be provided &quot;</span>
+                    <span class="sa">f</span><span class="s2">&quot;as a dictionary, got </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">request</span><span class="p">)</span><span class="si">}</span><span class="s2">.&quot;</span>
+                <span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">grid_arrays</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">request</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="n">request</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)):</span>
+                <span class="n">parray</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sanitise_arraylike</span><span class="p">(</span><span class="n">params</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">params</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                    <span class="s2">&quot;Parameters must be provided as a dictionary, &quot;</span>
+                    <span class="s2">&quot;or a 1D or 2D array-like object.&quot;</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">states</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="n">request</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">states</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">states</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">)):</span>
+                <span class="n">sarray</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sanitise_arraylike</span><span class="p">(</span><span class="n">states</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">states</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                    <span class="s2">&quot;Initial states must be provided as a dictionary, &quot;</span>
+                    <span class="s2">&quot;or a 1D or 2D array-like object.&quot;</span>
+                <span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">parray</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">sarray</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">combine_grids</span><span class="p">(</span><span class="n">sarray</span><span class="p">,</span> <span class="n">parray</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">request</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">parray</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">sarray</span> <span class="o">=</span> <span class="n">generate_array</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="n">combine_grids</span><span class="p">(</span><span class="n">sarray</span><span class="p">,</span> <span class="n">parray</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="n">sarray</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                    <span class="n">parray</span> <span class="o">=</span> <span class="n">generate_array</span><span class="p">(</span>
+                        <span class="n">request</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span>
+                    <span class="p">)</span>
+                    <span class="k">return</span> <span class="n">combine_grids</span><span class="p">(</span><span class="n">sarray</span><span class="p">,</span> <span class="n">parray</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">grid_arrays</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">kind</span><span class="o">=</span><span class="n">kind</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">parray</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">sarray</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span>
+                    <span class="p">(</span><span class="n">parray</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">n</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">values_array</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="n">sarray</span><span class="p">,</span> <span class="n">parray</span>
+            <span class="k">elif</span> <span class="n">sarray</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">parray</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span>
+                    <span class="p">(</span><span class="n">sarray</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">n</span><span class="p">),</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values_array</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="k">return</span> <span class="n">sarray</span><span class="p">,</span> <span class="n">parray</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">states</span><span class="o">.</span><span class="n">values_array</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="p">:],</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">parameters</span><span class="o">.</span><span class="n">values_array</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="p">:],</span>
+                <span class="p">)</span>
+
+<div class="viewcode-block" id="BatchGridBuilder._trim_or_extend">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder._trim_or_extend">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_trim_or_extend</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arr</span><span class="p">:</span> <span class="n">NDArray</span><span class="p">,</span> <span class="n">values_object</span><span class="p">:</span> <span class="n">SystemValues</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Extend incomplete arrays with defaults or trim extra values.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        arr : NDArray</span>
+<span class="sd">            Input array to be trimmed or extended.</span>
+<span class="sd">        values_object : SystemValues</span>
+<span class="sd">            System values object containing default values and size information.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        NDArray</span>
+<span class="sd">            Array with correct dimensions, either trimmed or extended.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">values_object</span><span class="o">.</span><span class="n">n</span><span class="p">:</span>
+            <span class="c1"># If the array is shorter than the number of values, extend it</span>
+            <span class="c1"># with default values</span>
+            <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">pad</span><span class="p">(</span>
+                <span class="n">arr</span><span class="p">,</span>
+                <span class="p">((</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">values_object</span><span class="o">.</span><span class="n">n</span> <span class="o">-</span> <span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">])),</span>
+                <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;constant&quot;</span><span class="p">,</span>
+                <span class="n">constant_values</span><span class="o">=</span><span class="n">values_object</span><span class="o">.</span><span class="n">values_array</span><span class="p">[</span><span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="p">:],</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">values_object</span><span class="o">.</span><span class="n">n</span><span class="p">:</span>
+            <span class="n">arr</span> <span class="o">=</span> <span class="n">arr</span><span class="p">[:</span> <span class="n">values_object</span><span class="o">.</span><span class="n">n</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">arr</span></div>
+
+
+<div class="viewcode-block" id="BatchGridBuilder._sanitise_arraylike">
+<a class="viewcode-back" href="../../../api/generated/cubie.batchsolving.BatchGridBuilder.html#cubie.batchsolving.BatchGridBuilder.BatchGridBuilder._sanitise_arraylike">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_sanitise_arraylike</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arr</span><span class="p">,</span> <span class="n">values_object</span><span class="p">:</span> <span class="n">SystemValues</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Convert to 2D array if needed and ensure correct dimensions.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        arr : array_like</span>
+<span class="sd">            Input array-like object to be sanitized.</span>
+<span class="sd">        values_object : SystemValues</span>
+<span class="sd">            System values object containing size and default information.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        np.ndarray or None</span>
+<span class="sd">            Properly sized 2D array, or None if input array is empty.</span>
+
+<span class="sd">        Raises</span>
+<span class="sd">        ------</span>
+<span class="sd">        ValueError</span>
+<span class="sd">            If input has more than 2 dimensions.</span>
+
+<span class="sd">        Warns</span>
+<span class="sd">        -----</span>
+<span class="sd">        UserWarning</span>
+<span class="sd">            If provided input data has incorrect number of columns.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">arr</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">arr</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">):</span>
+            <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">arr</span><span class="o">.</span><span class="n">ndim</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Input must be a 1D or 2D array, but got a </span><span class="si">{</span><span class="n">arr</span><span class="o">.</span><span class="n">ndim</span><span class="si">}</span><span class="s2">D array.&quot;</span>
+            <span class="p">)</span>
+        <span class="k">elif</span> <span class="n">arr</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">arr</span> <span class="o">=</span> <span class="n">arr</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">,</span> <span class="p">:]</span>
+
+        <span class="k">if</span> <span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">values_object</span><span class="o">.</span><span class="n">n</span><span class="p">:</span>
+            <span class="n">warn</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">&quot;Provided input data has </span><span class="si">{</span><span class="n">arr</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2"> columns, but there &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;are </span><span class="si">{</span><span class="n">values_object</span><span class="o">.</span><span class="n">n</span><span class="si">}</span><span class="s2"> settable values. Missing values &quot;</span>
+                <span class="sa">f</span><span class="s2">&quot;will be filled with default values, and extras ignored.&quot;</span>
+            <span class="p">)</span>
+            <span class="n">arr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_trim_or_extend</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">values_object</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">arr</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="k">return</span> <span class="n">arr</span>  <span class="c1"># correctly sized array just falls through untouched</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

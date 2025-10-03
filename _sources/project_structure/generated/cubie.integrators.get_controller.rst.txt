@@ -1,0 +1,6 @@
+﻿cubie.integrators.get\_controller
+=================================
+
+.. currentmodule:: cubie.integrators
+
+.. autofunction:: get_controller

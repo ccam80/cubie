@@ -1,0 +1,14 @@
+cubie.integrators.loops
+=======================
+
+.. automodule:: cubie.integrators.loops
+
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   ode_loop
+   ode_loop_config

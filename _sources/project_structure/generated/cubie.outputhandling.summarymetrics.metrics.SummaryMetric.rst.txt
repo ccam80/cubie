@@ -1,0 +1,36 @@
+﻿cubie.outputhandling.summarymetrics.metrics.SummaryMetric
+=========================================================
+
+.. currentmodule:: cubie.outputhandling.summarymetrics.metrics
+
+.. autoclass:: SummaryMetric
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~SummaryMetric.__init__
+      ~SummaryMetric.build
+      ~SummaryMetric.get_cached_output
+      ~SummaryMetric.setup_compile_settings
+      ~SummaryMetric.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~SummaryMetric.cache_valid
+      ~SummaryMetric.compile_settings
+      ~SummaryMetric.device_function
+      ~SummaryMetric.save_device_func
+      ~SummaryMetric.update_device_func
+   
+   

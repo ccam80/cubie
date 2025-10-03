@@ -1,0 +1,179 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>src/cubie/batchsolving/arrays &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">src/cubie/batchsolving/arrays</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/project_structure/src_cubie_batchsolving_arrays.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="src-cubie-batchsolving-arrays">
+<h1>src/cubie/batchsolving/arrays<a class="headerlink" href="#src-cubie-batchsolving-arrays" title="Link to this heading"></a></h1>
+<section id="public-api">
+<h2>Public API<a class="headerlink" href="#public-api" title="Link to this heading"></a></h2>
+<p>The batch solver constructs <a class="reference internal" href="generated/cubie.batchsolving.arrays.BatchInputArrays.InputArrays.html#cubie.batchsolving.arrays.BatchInputArrays.InputArrays" title="cubie.batchsolving.arrays.BatchInputArrays.InputArrays"><code class="xref py py-class docutils literal notranslate"><span class="pre">InputArrays</span></code></a>
+and its companion output manager during initialisation. These managers expose
+host-side containers for user data and handle device bindings in step loops.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">batchsolving.arrays</span></code> package coordinates host and device array
+management for batch solver runs. <code class="docutils literal notranslate"><span class="pre">InputArrays</span></code> and <code class="docutils literal notranslate"><span class="pre">OutputArrays</span></code> are the
+main entry points: they collect stride metadata, request GPU allocations via
+<a class="reference internal" href="../api/generated/cubie.memory.html#module-cubie.memory" title="cubie.memory"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.memory</span></code></a>, and expose helpers for copying data between the CPU and
+CUDA kernels.</p>
+<p>The batch array managers stage host and device buffers for solver runs.
+<code class="docutils literal notranslate"><span class="pre">OutputArrays</span></code> is the primary entry point: a solver kernel instantiates it
+to mirror requested state, observable, and summary buffers on the host and the
+CUDA device before each launch.</p>
+<section id="base-utilities">
+<h3>Base utilities<a class="headerlink" href="#base-utilities" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer.html#cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer" title="cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer</span></code></a>([...])</p></td>
+<td><p>Store stride metadata and array references for a CUDA manager.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager.html#cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager" title="cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager</span></code></a>(...)</p></td>
+<td><p>Coordinate allocation and transfer for batch host and device arrays.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="input-arrays">
+<h3>Input arrays<a class="headerlink" href="#input-arrays" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.batchsolving.arrays.BatchInputArrays.InputArrayContainer.html#cubie.batchsolving.arrays.BatchInputArrays.InputArrayContainer" title="cubie.batchsolving.arrays.BatchInputArrays.InputArrayContainer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.batchsolving.arrays.BatchInputArrays.InputArrayContainer</span></code></a>([...])</p></td>
+<td><p>Container for batch input arrays used by solver kernels.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.batchsolving.arrays.BatchInputArrays.InputArrays.html#cubie.batchsolving.arrays.BatchInputArrays.InputArrays" title="cubie.batchsolving.arrays.BatchInputArrays.InputArrays"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.batchsolving.arrays.BatchInputArrays.InputArrays</span></code></a>(...)</p></td>
+<td><p>Manage allocation and transfer of batch input arrays.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="output-arrays">
+<h3>Output arrays<a class="headerlink" href="#output-arrays" title="Link to this heading"></a></h3>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.batchsolving.arrays.BatchOutputArrays.OutputArrayContainer.html#cubie.batchsolving.arrays.BatchOutputArrays.OutputArrayContainer" title="cubie.batchsolving.arrays.BatchOutputArrays.OutputArrayContainer"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.batchsolving.arrays.BatchOutputArrays.OutputArrayContainer</span></code></a>([...])</p></td>
+<td><p>Container for batch output arrays.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs.html#cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs" title="cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs</span></code></a>([...])</p></td>
+<td><p>Track which output arrays are actively being used.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays.html#cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays" title="cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays</span></code></a>(...)</p></td>
+<td><p>Manage batch integration output arrays between host and device.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="../api/generated/cubie.outputhandling.output_sizes.html#module-cubie.outputhandling.output_sizes" title="cubie.outputhandling.output_sizes"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.outputhandling.output_sizes</span></code></a> supplies <code class="docutils literal notranslate"><span class="pre">BatchOutputSizes</span></code>
+metadata for array shapes and active buffers.</p></li>
+<li><p><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.batchsolving.ArrayTypes</span></code> defines the array typing shared with
+solver kernels.</p></li>
+<li><p><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie._utils</span></code> offers <code class="docutils literal notranslate"><span class="pre">slice_variable_dimension</span></code> to convert chunk
+indices into multidimensional slices.</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

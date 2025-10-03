@@ -1,0 +1,690 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.outputhandling.summarymetrics.metrics &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.outputhandling.summarymetrics.peaks" href="cubie.outputhandling.summarymetrics.peaks.html" />
+    <link rel="prev" title="cubie.outputhandling.summarymetrics.mean" href="cubie.outputhandling.summarymetrics.mean.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.BatchInputSizes"><code class="docutils literal notranslate"><span class="pre">BatchInputSizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.BatchOutputSizes"><code class="docutils literal notranslate"><span class="pre">BatchOutputSizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.LoopBufferSizes"><code class="docutils literal notranslate"><span class="pre">LoopBufferSizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.OutputArrayHeights"><code class="docutils literal notranslate"><span class="pre">OutputArrayHeights</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.OutputCompileFlags"><code class="docutils literal notranslate"><span class="pre">OutputCompileFlags</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.OutputConfig"><code class="docutils literal notranslate"><span class="pre">OutputConfig</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.OutputFunctionCache"><code class="docutils literal notranslate"><span class="pre">OutputFunctionCache</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.OutputFunctions"><code class="docutils literal notranslate"><span class="pre">OutputFunctions</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.SingleRunOutputSizes"><code class="docutils literal notranslate"><span class="pre">SingleRunOutputSizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.SummariesBufferSizes"><code class="docutils literal notranslate"><span class="pre">SummariesBufferSizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.html#cubie.outputhandling.register_metric"><code class="docutils literal notranslate"><span class="pre">register_metric()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.output_config.html">cubie.outputhandling.output_config</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.output_functions.html">cubie.outputhandling.output_functions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.output_sizes.html">cubie.outputhandling.output_sizes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.save_state.html">cubie.outputhandling.save_state</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.save_summaries.html">cubie.outputhandling.save_summaries</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="cubie.outputhandling.summarymetrics.html">cubie.outputhandling.summarymetrics</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="cubie.outputhandling.summarymetrics.html#cubie.outputhandling.summarymetrics.register_metric"><code class="docutils literal notranslate"><span class="pre">register_metric()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.outputhandling.summarymetrics.max.html">cubie.outputhandling.summarymetrics.max</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.outputhandling.summarymetrics.mean.html">cubie.outputhandling.summarymetrics.mean</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">cubie.outputhandling.summarymetrics.metrics</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.outputhandling.summarymetrics.peaks.html">cubie.outputhandling.summarymetrics.peaks</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.outputhandling.summarymetrics.rms.html">cubie.outputhandling.summarymetrics.rms</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.outputhandling.update_summaries.html">cubie.outputhandling.update_summaries</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+          <li class="breadcrumb-item"><a href="cubie.outputhandling.summarymetrics.html">cubie.outputhandling.summarymetrics</a></li>
+      <li class="breadcrumb-item active">cubie.outputhandling.summarymetrics.metrics</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.outputhandling.summarymetrics.metrics.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.outputhandling.summarymetrics.metrics">
+<span id="cubie-outputhandling-summarymetrics-metrics"></span><h1>cubie.outputhandling.summarymetrics.metrics<a class="headerlink" href="#module-cubie.outputhandling.summarymetrics.metrics" title="Link to this heading"></a></h1>
+<p>Infrastructure for registering CUDA summary metrics.</p>
+<p>The module exposes the registry used by output handling to collate integration
+summaries. It compiles CUDA device callbacks through <code class="docutils literal notranslate"><span class="pre">CUDAFactory</span></code> and keeps
+per-metric metadata such as buffer sizes, parameterisation, and device
+function dispatch tables.</p>
+<p class="rubric">Functions</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.outputhandling.summarymetrics.metrics.register_metric" title="cubie.outputhandling.summarymetrics.metrics.register_metric"><code class="xref py py-obj docutils literal notranslate"><span class="pre">register_metric</span></code></a>(registry)</p></td>
+<td><p>Create a decorator that registers a metric on instantiation.</p></td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#cubie.outputhandling.summarymetrics.metrics.CompileSettingsPlaceholder" title="cubie.outputhandling.summarymetrics.metrics.CompileSettingsPlaceholder"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CompileSettingsPlaceholder</span></code></a>([empty_dict])</p></td>
+<td><p>Placeholder container for compile settings.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.outputhandling.summarymetrics.metrics.MetricFuncCache.html#cubie.outputhandling.summarymetrics.metrics.MetricFuncCache" title="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache"><code class="xref py py-obj docutils literal notranslate"><span class="pre">MetricFuncCache</span></code></a>([update, save])</p></td>
+<td><p>Cache container for compiled metric functions.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.outputhandling.summarymetrics.metrics.SummaryMetric.html#cubie.outputhandling.summarymetrics.metrics.SummaryMetric" title="cubie.outputhandling.summarymetrics.metrics.SummaryMetric"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SummaryMetric</span></code></a>(buffer_size, output_size, name)</p></td>
+<td><p>Abstract base class for summary metrics.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.html#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics" title="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SummaryMetrics</span></code></a>()</p></td>
+<td><p>Registry and dispatcher for summary metrics.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.CompileSettingsPlaceholder">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.outputhandling.summarymetrics.metrics.</span></span><span class="sig-name descname"><span class="pre">CompileSettingsPlaceholder</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">empty_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">NOTHING</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#CompileSettingsPlaceholder"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.CompileSettingsPlaceholder" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Placeholder container for compile settings.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.CompileSettingsPlaceholder.empty_dict">
+<span class="sig-name descname"><span class="pre">empty_dict</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a></em><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.CompileSettingsPlaceholder.empty_dict" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.outputhandling.summarymetrics.metrics.</span></span><span class="sig-name descname"><span class="pre">MetricFuncCache</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">update</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">save</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#MetricFuncCache"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.MetricFuncCache" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Cache container for compiled metric functions.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache.update">
+<span class="sig-name descname"><span class="pre">update</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.MetricFuncCache.update" title="Link to this definition"></a></dt>
+<dd><p>Callable update device function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache.save">
+<span class="sig-name descname"><span class="pre">save</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.MetricFuncCache.save" title="Link to this definition"></a></dt>
+<dd><p>Callable save device function.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id0">
+<span class="sig-name descname"><span class="pre">save</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></em><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id1">
+<span class="sig-name descname"><span class="pre">update</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></em><a class="headerlink" href="#id1" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetric">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.outputhandling.summarymetrics.metrics.</span></span><span class="sig-name descname"><span class="pre">SummaryMetric</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">buffer_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetric"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetric" title="Link to this definition"></a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">CUDAFactory</span></code></p>
+<p>Abstract base class for summary metrics.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetric.buffer_size">
+<span class="sig-name descname"><span class="pre">buffer_size</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetric.buffer_size" title="Link to this definition"></a></dt>
+<dd><p>int or Callable. Memory required per metric buffer entry. Parameterised
+metrics should supply a callable that accepts the metric parameter.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetric.output_size">
+<span class="sig-name descname"><span class="pre">output_size</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetric.output_size" title="Link to this definition"></a></dt>
+<dd><p>int or Callable. Memory required for persisted metric results.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetric.name">
+<span class="sig-name descname"><span class="pre">name</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetric.name" title="Link to this definition"></a></dt>
+<dd><p>str. Identifier used in registries and configuration strings.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetric.update_device_func">
+<span class="sig-name descname"><span class="pre">update_device_func</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetric.update_device_func" title="Link to this definition"></a></dt>
+<dd><p>Callable. Compiled CUDA device update function for the metric.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetric.save_device_func">
+<span class="sig-name descname"><span class="pre">save_device_func</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetric.save_device_func" title="Link to this definition"></a></dt>
+<dd><p>Callable. Compiled CUDA device save function for the metric.</p>
+</dd></dl>
+
+<p class="rubric">Notes</p>
+<p>Subclasses must implement <a class="reference internal" href="../../project_structure/generated/cubie.outputhandling.summarymetrics.metrics.SummaryMetric.html#cubie.outputhandling.summarymetrics.metrics.SummaryMetric.build" title="cubie.outputhandling.summarymetrics.metrics.SummaryMetric.build"><code class="xref py py-meth docutils literal notranslate"><span class="pre">build()</span></code></a> to provide CUDA device callbacks
+with the signatures <code class="docutils literal notranslate"><span class="pre">update(value,</span> <span class="pre">buffer,</span> <span class="pre">current_index,</span>
+<span class="pre">customisable_variable)</span></code> and <code class="docutils literal notranslate"><span class="pre">save(buffer,</span> <span class="pre">output_array,</span> <span class="pre">summarise_every,</span>
+<span class="pre">customisable_variable)</span></code>. Metrics need to be imported only after the global
+registry has been created so that decoration registers the implementation.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetric.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">buffer_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">output_size</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetric.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetric.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialise core metadata for a summary metric.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>buffer_size</strong> – int or Callable. Buffer footprint or callable that accepts the
+metric parameter.</p></li>
+<li><p><strong>output_size</strong> – int or Callable. Output footprint or callable that accepts the
+metric parameter.</p></li>
+<li><p><strong>name</strong> – str. Identifier used for registration.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetric.build">
+<em class="property"><span class="k"><span class="pre">abstractmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">build</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../project_structure/generated/cubie.outputhandling.summarymetrics.metrics.MetricFuncCache.html#cubie.outputhandling.summarymetrics.metrics.MetricFuncCache" title="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache"><span class="pre">MetricFuncCache</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetric.build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetric.build" title="Link to this definition"></a></dt>
+<dd><p>Generate CUDA device functions for the metric.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Cache containing device update and save functions compiled for
+CUDA execution.</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference internal" href="../../project_structure/generated/cubie.outputhandling.summarymetrics.metrics.MetricFuncCache.html#cubie.outputhandling.summarymetrics.metrics.MetricFuncCache" title="cubie.outputhandling.summarymetrics.metrics.MetricFuncCache">MetricFuncCache</a></p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Implementations must return functions with the signatures
+<code class="docutils literal notranslate"><span class="pre">update(value,</span> <span class="pre">buffer,</span> <span class="pre">current_index,</span> <span class="pre">customisable_variable)</span></code> and
+<code class="docutils literal notranslate"><span class="pre">save(buffer,</span> <span class="pre">output_array,</span> <span class="pre">summarise_every,</span> <span class="pre">customisable_variable)</span></code>.
+Each callback needs <code class="docutils literal notranslate"><span class="pre">&#64;cuda.jit(...,</span> <span class="pre">device=True,</span> <span class="pre">inline=True)</span></code>
+decoration supporting both single- and double-precision input.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="id2">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">save_device_func</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></em><a class="headerlink" href="#id2" title="Link to this definition"></a></dt>
+<dd><p>CUDA device save function for the metric.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="id3">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">update_device_func</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></em><a class="headerlink" href="#id3" title="Link to this definition"></a></dt>
+<dd><p>CUDA device update function for the metric.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.outputhandling.summarymetrics.metrics.</span></span><span class="sig-name descname"><span class="pre">SummaryMetrics</span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Registry and dispatcher for summary metrics.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._names">
+<span class="sig-name descname"><span class="pre">_names</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._names" title="Link to this definition"></a></dt>
+<dd><p>list[str]. Registered metric names.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._buffer_sizes">
+<span class="sig-name descname"><span class="pre">_buffer_sizes</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._buffer_sizes" title="Link to this definition"></a></dt>
+<dd><p>dict[str, int | Callable]. Buffer size requirements keyed by name.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a> | Callable]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._output_sizes">
+<span class="sig-name descname"><span class="pre">_output_sizes</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._output_sizes" title="Link to this definition"></a></dt>
+<dd><p>dict[str, int | Callable]. Output size requirements keyed by name.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a> | Callable]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._metric_objects">
+<span class="sig-name descname"><span class="pre">_metric_objects</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._metric_objects" title="Link to this definition"></a></dt>
+<dd><p>dict[str, SummaryMetric]. Registered metric instances.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._params">
+<span class="sig-name descname"><span class="pre">_params</span></span><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._params" title="Link to this definition"></a></dt>
+<dd><p>dict[str, Any]. Parameters parsed from configuration strings.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>, Any | None]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p class="rubric">Notes</p>
+<p>Methods only report information for metrics explicitly requested so the
+caller can compile device functions tailored to the active configuration.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._get_size">
+<span class="sig-name descname"><span class="pre">_get_size</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">metric_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">size_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics._get_size"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics._get_size" title="Link to this definition"></a></dt>
+<dd><p>Calculate size based on parameters if needed.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>metric_name</strong> – Name of the metric to look up.</p></li>
+<li><p><strong>size_dict</strong> – Dictionary containing size specifications for metrics.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Calculated size for the metric.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<dl class="simple">
+<dt>UserWarning</dt><dd><p>Issued when a callable size is provided without a parameter value.</p>
+</dd>
+</dl>
+</div>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.buffer_offsets">
+<span class="sig-name descname"><span class="pre">buffer_offsets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.buffer_offsets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.buffer_offsets" title="Link to this definition"></a></dt>
+<dd><p>Get buffer starting offsets for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names to generate offsets for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Buffer starting offsets in the order requested.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a>, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.buffer_sizes">
+<span class="sig-name descname"><span class="pre">buffer_sizes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.buffer_sizes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.buffer_sizes" title="Link to this definition"></a></dt>
+<dd><p>Get buffer sizes for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names to generate sizes for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Buffer sizes for the requested metrics.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a>, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.implemented_metrics">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">implemented_metrics</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.implemented_metrics" title="Link to this definition"></a></dt>
+<dd><p>Registered summary metric names.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.legend">
+<span class="sig-name descname"><span class="pre">legend</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.legend"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.legend" title="Link to this definition"></a></dt>
+<dd><p>Generate column headings for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names to generate headings for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Column headings for the metrics in order.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Metrics with multi-element outputs produce numbered headings such as
+<code class="docutils literal notranslate"><span class="pre">{name}_1</span></code> and <code class="docutils literal notranslate"><span class="pre">{name}_2</span></code>.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.output_offsets">
+<span class="sig-name descname"><span class="pre">output_offsets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.output_offsets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.output_offsets" title="Link to this definition"></a></dt>
+<dd><p>Get output array starting offsets for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names to generate offsets for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Output array starting offsets in the order requested.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a>, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.output_offsets_dict">
+<span class="sig-name descname"><span class="pre">output_offsets_dict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.output_offsets_dict"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.output_offsets_dict" title="Link to this definition"></a></dt>
+<dd><p>Get output array offsets as a dictionary for requested metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names to generate offsets for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Mapping of metric names to output offsets.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)">dict</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.output_sizes">
+<span class="sig-name descname"><span class="pre">output_sizes</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.output_sizes"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.output_sizes" title="Link to this definition"></a></dt>
+<dd><p>Get output array sizes for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names to generate sizes for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Output array sizes for the requested metrics.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a>, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.params">
+<span class="sig-name descname"><span class="pre">params</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.params"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.params" title="Link to this definition"></a></dt>
+<dd><p>Get parameters for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names to get parameters for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Parameter values for the requested metrics.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[Any, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.parse_string_for_params">
+<span class="sig-name descname"><span class="pre">parse_string_for_params</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">dirty_request</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.parse_string_for_params"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.parse_string_for_params" title="Link to this definition"></a></dt>
+<dd><p>Extract parameters from metric specification strings.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>dirty_request</strong> – Metric specifications that may contain <code class="docutils literal notranslate"><span class="pre">[param]</span></code> suffixes.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Metrics with any parameter notation removed.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Parsed parameter values are cached in <code class="docutils literal notranslate"><span class="pre">self._params</span></code> keyed by metric
+name.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.preprocess_request">
+<span class="sig-name descname"><span class="pre">preprocess_request</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">request</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.preprocess_request"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.preprocess_request" title="Link to this definition"></a></dt>
+<dd><p>Parse parameters from metric specifications and validate.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>request</strong> – List of metric specification strings that may include
+<code class="docutils literal notranslate"><span class="pre">[parameter]</span></code> suffixes.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Validated metric names after parameter parsing.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)">list</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)">str</a>]</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Invalid metric names trigger a warning and are removed from the
+returned list.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.register_metric">
+<span class="sig-name descname"><span class="pre">register_metric</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">metric</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.outputhandling.summarymetrics.metrics.SummaryMetric.html#cubie.outputhandling.summarymetrics.metrics.SummaryMetric" title="cubie.outputhandling.summarymetrics.metrics.SummaryMetric"><span class="pre">SummaryMetric</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.register_metric"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.register_metric" title="Link to this definition"></a></dt>
+<dd><p>Register a new summary metric with the system.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>metric</strong> – SummaryMetric instance to register.</p>
+</dd>
+<dt class="field-even">Raises<span class="colon">:</span></dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#ValueError" title="(in Python v3.13)"><strong>ValueError</strong></a> – If a metric with the same name is already registered.</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Registration makes the metric available for summary buffer planning
+and function dispatch during integration.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.save_functions">
+<span class="sig-name descname"><span class="pre">save_functions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.save_functions"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.save_functions" title="Link to this definition"></a></dt>
+<dd><p>Get save functions for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names to get save functions for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>CUDA device save functions for the requested metrics.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[Callable, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.summaries_buffer_height">
+<span class="sig-name descname"><span class="pre">summaries_buffer_height</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.summaries_buffer_height"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.summaries_buffer_height" title="Link to this definition"></a></dt>
+<dd><p>Calculate total buffer size for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names used to determine buffer requirements.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Total buffer size needed for the requested metrics.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.summaries_output_height">
+<span class="sig-name descname"><span class="pre">summaries_output_height</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.summaries_output_height"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.summaries_output_height" title="Link to this definition"></a></dt>
+<dd><p>Calculate total output size for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names used to determine output requirements.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Total output size needed for the requested metrics.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.update_functions">
+<span class="sig-name descname"><span class="pre">update_functions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_types_requested</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#SummaryMetrics.update_functions"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.update_functions" title="Link to this definition"></a></dt>
+<dd><p>Get update functions for requested summary metrics.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>output_types_requested</strong> – Metric names to get update functions for.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>CUDA device update functions for the requested metrics.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.13)">tuple</a>[Callable, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.outputhandling.summarymetrics.metrics.register_metric">
+<span class="sig-prename descclassname"><span class="pre">cubie.outputhandling.summarymetrics.metrics.</span></span><span class="sig-name descname"><span class="pre">register_metric</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">registry</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.outputhandling.summarymetrics.metrics.SummaryMetrics.html#cubie.outputhandling.summarymetrics.metrics.SummaryMetrics" title="cubie.outputhandling.summarymetrics.metrics.SummaryMetrics"><span class="pre">SummaryMetrics</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Callable" title="(in Python v3.13)"><span class="pre">Callable</span></a></span></span><a class="reference internal" href="../../_modules/cubie/outputhandling/summarymetrics/metrics.html#register_metric"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.outputhandling.summarymetrics.metrics.register_metric" title="Link to this definition"></a></dt>
+<dd><p>Create a decorator that registers a metric on instantiation.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>registry</strong> – SummaryMetrics instance that accepts the metric.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Decorator that instantiates and registers the wrapped metric class.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>Callable</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>The decorator immediately instantiates the class so that registration
+occurs when the module importing the metric executes.</p>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.outputhandling.summarymetrics.mean.html" class="btn btn-neutral float-left" title="cubie.outputhandling.summarymetrics.mean" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.outputhandling.summarymetrics.peaks.html" class="btn btn-neutral float-right" title="cubie.outputhandling.summarymetrics.peaks" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

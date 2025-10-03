@@ -1,0 +1,66 @@
+﻿cubie.integrators.BackwardsEulerPCStep
+======================================
+
+.. currentmodule:: cubie.integrators
+
+.. autoclass:: BackwardsEulerPCStep
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~BackwardsEulerPCStep.__init__
+      ~BackwardsEulerPCStep.build
+      ~BackwardsEulerPCStep.build_implicit_helpers
+      ~BackwardsEulerPCStep.build_step
+      ~BackwardsEulerPCStep.get_cached_output
+      ~BackwardsEulerPCStep.setup_compile_settings
+      ~BackwardsEulerPCStep.update
+      ~BackwardsEulerPCStep.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~BackwardsEulerPCStep.beta
+      ~BackwardsEulerPCStep.cache_valid
+      ~BackwardsEulerPCStep.compile_settings
+      ~BackwardsEulerPCStep.device_function
+      ~BackwardsEulerPCStep.dxdt_function
+      ~BackwardsEulerPCStep.gamma
+      ~BackwardsEulerPCStep.get_solver_helper_fn
+      ~BackwardsEulerPCStep.is_adaptive
+      ~BackwardsEulerPCStep.is_implicit
+      ~BackwardsEulerPCStep.is_multistage
+      ~BackwardsEulerPCStep.linear_correction_type
+      ~BackwardsEulerPCStep.linsolve_tolerance
+      ~BackwardsEulerPCStep.local_scratch_required
+      ~BackwardsEulerPCStep.mass_matrix
+      ~BackwardsEulerPCStep.max_linear_iters
+      ~BackwardsEulerPCStep.max_newton_iters
+      ~BackwardsEulerPCStep.n
+      ~BackwardsEulerPCStep.newton_damping
+      ~BackwardsEulerPCStep.newton_max_backtracks
+      ~BackwardsEulerPCStep.nonlinear_solver_function
+      ~BackwardsEulerPCStep.nonlinear_tolerance
+      ~BackwardsEulerPCStep.numba_precision
+      ~BackwardsEulerPCStep.observables_function
+      ~BackwardsEulerPCStep.order
+      ~BackwardsEulerPCStep.persistent_local_required
+      ~BackwardsEulerPCStep.precision
+      ~BackwardsEulerPCStep.preconditioner_order
+      ~BackwardsEulerPCStep.settings_dict
+      ~BackwardsEulerPCStep.shared_memory_required
+      ~BackwardsEulerPCStep.simsafe_precision
+      ~BackwardsEulerPCStep.step_function
+      ~BackwardsEulerPCStep.threads_per_step
+   
+   

@@ -1,0 +1,25 @@
+cubie.integrators.step\_control
+===============================
+
+.. automodule:: cubie.integrators.step_control
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      get_controller
+   
+.. rubric:: Modules
+
+.. autosummary::
+   :toctree:
+   :recursive:
+
+   adaptive_I_controller
+   adaptive_PID_controller
+   adaptive_PI_controller
+   adaptive_step_controller
+   base_step_controller
+   fixed_step_controller
+   gustafsson_controller

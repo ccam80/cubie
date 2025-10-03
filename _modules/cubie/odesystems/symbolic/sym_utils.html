@@ -1,0 +1,288 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic.sym_utils &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic.sym_utils</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for cubie.odesystems.symbolic.sym_utils</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;Utility helpers for symbolic ODE construction.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span><span class="p">,</span> <span class="n">deque</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">sympy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sp</span>
+
+
+<div class="viewcode-block" id="topological_sort">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.sym_utils.html#cubie.odesystems.symbolic.sym_utils.topological_sort">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">topological_sort</span><span class="p">(</span>
+    <span class="n">assignments</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span>
+        <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+        <span class="n">Dict</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">],</span>
+    <span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return assignments sorted by their dependency order.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    assignments</span>
+<span class="sd">        Either an iterable of ``(symbol, expression)`` pairs or a mapping from</span>
+<span class="sd">        each symbol to its defining expression.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    list[tuple[sympy.Symbol, sympy.Expr]]</span>
+<span class="sd">        Assignments ordered such that dependencies are defined before use.</span>
+
+<span class="sd">    Raises</span>
+<span class="sd">    ------</span>
+<span class="sd">    ValueError</span>
+<span class="sd">        Raised when a circular dependency prevents topological sorting.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    Uses Kahn&#39;s algorithm for topological sorting. Refer to the Wikipedia</span>
+<span class="sd">    article on topological sorting for additional background.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Build symbol to expression mapping</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">assignments</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+        <span class="n">sym_map</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="n">expr</span> <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">expr</span> <span class="ow">in</span> <span class="n">assignments</span><span class="p">}</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">sym_map</span> <span class="o">=</span> <span class="n">assignments</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+
+    <span class="n">deps</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">all_assignees</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">sym_map</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">expr</span> <span class="ow">in</span> <span class="n">sym_map</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">expr_deps</span> <span class="o">=</span> <span class="n">expr</span><span class="o">.</span><span class="n">free_symbols</span> <span class="o">&amp;</span> <span class="n">all_assignees</span>
+        <span class="n">deps</span><span class="p">[</span><span class="n">sym</span><span class="p">]</span> <span class="o">=</span> <span class="n">expr_deps</span>
+
+    <span class="c1"># Kahn&#39;s algorithm</span>
+    <span class="n">incoming_edges</span> <span class="o">=</span> <span class="p">{</span><span class="n">sym</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">dep_syms</span><span class="p">)</span> <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">dep_syms</span> <span class="ow">in</span> <span class="n">deps</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+
+    <span class="n">graph</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">set</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">dep_syms</span> <span class="ow">in</span> <span class="n">deps</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">dep_sym</span> <span class="ow">in</span> <span class="n">dep_syms</span><span class="p">:</span>
+            <span class="n">graph</span><span class="p">[</span><span class="n">dep_sym</span><span class="p">]</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">sym</span><span class="p">)</span>
+
+    <span class="c1"># Start with all symbols without dependencies</span>
+    <span class="n">queue</span> <span class="o">=</span> <span class="n">deque</span><span class="p">(</span>
+        <span class="p">[</span><span class="n">sym</span> <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">degree</span> <span class="ow">in</span> <span class="n">incoming_edges</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">degree</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span>
+    <span class="p">)</span>
+    <span class="n">result</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># Remove incoming edges for fully defined dependencies until none remain</span>
+    <span class="k">while</span> <span class="n">queue</span><span class="p">:</span>
+        <span class="n">defined_symbol</span> <span class="o">=</span> <span class="n">queue</span><span class="o">.</span><span class="n">popleft</span><span class="p">()</span>
+        <span class="c1"># Find the assignment tuple for this symbol</span>
+        <span class="n">assignment</span> <span class="o">=</span> <span class="n">sym_map</span><span class="p">[</span><span class="n">defined_symbol</span><span class="p">]</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">defined_symbol</span><span class="p">,</span> <span class="n">assignment</span><span class="p">))</span>
+
+        <span class="k">for</span> <span class="n">dependent</span> <span class="ow">in</span> <span class="n">graph</span><span class="p">[</span><span class="n">defined_symbol</span><span class="p">]:</span>
+            <span class="n">incoming_edges</span><span class="p">[</span><span class="n">dependent</span><span class="p">]</span> <span class="o">-=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">incoming_edges</span><span class="p">[</span><span class="n">dependent</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">queue</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dependent</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">assignments</span><span class="p">):</span>
+        <span class="n">remaining</span> <span class="o">=</span> <span class="n">all_assignees</span> <span class="o">-</span> <span class="p">{</span><span class="n">sym</span> <span class="k">for</span> <span class="n">sym</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">result</span><span class="p">}</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+            <span class="s2">&quot;Circular dependency detected. Remaining symbols: &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">remaining</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">result</span></div>
+
+
+
+<div class="viewcode-block" id="cse_and_stack">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.sym_utils.html#cubie.odesystems.symbolic.sym_utils.cse_and_stack">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">cse_and_stack</span><span class="p">(</span>
+    <span class="n">equations</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]],</span>
+    <span class="n">symbol</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="n">sp</span><span class="o">.</span><span class="n">Symbol</span><span class="p">,</span> <span class="n">sp</span><span class="o">.</span><span class="n">Expr</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Perform common subexpression elimination and stack the results.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    equations</span>
+<span class="sd">        ``(symbol, expression)`` pairs that define the system.</span>
+<span class="sd">    symbol</span>
+<span class="sd">        Prefix to use for the generated common-subexpression symbols. Defaults</span>
+<span class="sd">        to ``&quot;_cse&quot;`` when not provided.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    list[tuple[sympy.Symbol, sympy.Expr]]</span>
+<span class="sd">        Combined list of original expressions rewritten in terms of CSE</span>
+<span class="sd">        symbols followed by the generated common subexpressions.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">symbol</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">symbol</span> <span class="o">=</span> <span class="s2">&quot;_cse&quot;</span>
+    <span class="n">expr_labels</span> <span class="o">=</span> <span class="p">[</span><span class="n">lhs</span> <span class="k">for</span> <span class="n">lhs</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">equations</span><span class="p">]</span>
+    <span class="n">all_rhs</span> <span class="o">=</span> <span class="p">(</span><span class="n">rhs</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">rhs</span> <span class="ow">in</span> <span class="n">equations</span><span class="p">)</span>
+    <span class="k">while</span> <span class="nb">any</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">label</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">symbol</span><span class="p">)</span> <span class="k">for</span> <span class="n">label</span> <span class="ow">in</span> <span class="n">expr_labels</span><span class="p">):</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">&quot;CSE symbol </span><span class="si">{</span><span class="n">symbol</span><span class="si">}</span><span class="s2"> is already in use; it has been &quot;</span>
+            <span class="sa">f</span><span class="s2">&quot;prepended with an underscore to _</span><span class="si">{</span><span class="n">symbol</span><span class="si">}</span><span class="s2">&quot;</span>
+        <span class="p">)</span>
+        <span class="n">symbol</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;_</span><span class="si">{</span><span class="n">symbol</span><span class="si">}</span><span class="s2">&quot;</span>
+
+    <span class="n">cse_exprs</span><span class="p">,</span> <span class="n">reduced_exprs</span> <span class="o">=</span> <span class="n">sp</span><span class="o">.</span><span class="n">cse</span><span class="p">(</span>
+        <span class="n">all_rhs</span><span class="p">,</span> <span class="n">symbols</span><span class="o">=</span><span class="n">sp</span><span class="o">.</span><span class="n">numbered_symbols</span><span class="p">(</span><span class="n">symbol</span><span class="p">),</span> <span class="n">order</span><span class="o">=</span><span class="s2">&quot;none&quot;</span>
+    <span class="p">)</span>
+    <span class="n">expressions</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">expr_labels</span><span class="p">,</span> <span class="n">reduced_exprs</span><span class="p">))</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="n">cse_exprs</span><span class="p">)</span>
+    <span class="n">sorted_expressions</span> <span class="o">=</span> <span class="n">topological_sort</span><span class="p">(</span><span class="n">expressions</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">sorted_expressions</span></div>
+
+
+<div class="viewcode-block" id="hash_system_definition">
+<a class="viewcode-back" href="../../../../project_structure/generated/cubie.odesystems.symbolic.sym_utils.html#cubie.odesystems.symbolic.sym_utils.hash_system_definition">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">hash_system_definition</span><span class="p">(</span>
+    <span class="n">dxdt</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]],</span>
+    <span class="n">constants</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">],</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Generate a hash that captures equations and constant definitions.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    dxdt</span>
+<span class="sd">        Representation of the system right-hand sides. Accepts either a single</span>
+<span class="sd">        string or an iterable of equation strings.</span>
+<span class="sd">    constants</span>
+<span class="sd">        Mapping or iterable describing constant names and values. Iterables are</span>
+<span class="sd">        interpreted as constant names using their default values.</span>
+
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    str</span>
+<span class="sd">        Deterministic hash string that reflects both equations and constants.</span>
+
+<span class="sd">    Notes</span>
+<span class="sd">    -----</span>
+<span class="sd">    The hash concatenates normalised differential equations with the sorted</span>
+<span class="sd">    constant name-value pairs. Any change to either component produces a new</span>
+<span class="sd">    hash so cached artifacts can be refreshed.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Process dxdt equations</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dxdt</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dxdt</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="n">dxdt</span> <span class="o">=</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">symbol</span><span class="p">)</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span> <span class="k">for</span> <span class="n">symbol</span><span class="p">,</span> <span class="n">expr</span> <span class="ow">in</span> <span class="n">dxdt</span><span class="p">]</span>
+        <span class="n">dxdt_str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">dxdt</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">dxdt_str</span> <span class="o">=</span> <span class="n">dxdt</span>
+
+    <span class="c1"># Normalize dxdt by removing whitespace</span>
+    <span class="n">normalized_dxdt</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">dxdt_str</span><span class="o">.</span><span class="n">split</span><span class="p">())</span>
+
+    <span class="c1"># Process constants</span>
+    <span class="n">constants_str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">constants</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">constants_str</span> <span class="o">=</span> <span class="s2">&quot;|&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">k</span><span class="si">}</span><span class="s2">:</span><span class="si">{</span><span class="n">v</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">constants</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+
+    <span class="c1"># Combine components with separator</span>
+    <span class="n">combined</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;dxdt:</span><span class="si">{</span><span class="n">normalized_dxdt</span><span class="si">}</span><span class="s2">|constants:</span><span class="si">{</span><span class="n">constants_str</span><span class="si">}</span><span class="s2">&quot;</span>
+
+    <span class="c1"># Generate hash</span>
+    <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="nb">hash</span><span class="p">(</span><span class="n">combined</span><span class="p">))</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,14 @@
+cubie.integrators.loops.ode\_loop\_config
+=========================================
+
+.. automodule:: cubie.integrators.loops.ode_loop_config
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      LoopLocalIndices
+      LoopSharedIndices
+      ODELoopConfig
+   

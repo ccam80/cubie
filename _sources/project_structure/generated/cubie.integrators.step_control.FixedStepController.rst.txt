@@ -1,0 +1,46 @@
+﻿cubie.integrators.step\_control.FixedStepController
+===================================================
+
+.. currentmodule:: cubie.integrators.step_control
+
+.. autoclass:: FixedStepController
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~FixedStepController.__init__
+      ~FixedStepController.build
+      ~FixedStepController.get_cached_output
+      ~FixedStepController.setup_compile_settings
+      ~FixedStepController.update
+      ~FixedStepController.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~FixedStepController.cache_valid
+      ~FixedStepController.compile_settings
+      ~FixedStepController.device_function
+      ~FixedStepController.dt
+      ~FixedStepController.dt0
+      ~FixedStepController.dt_max
+      ~FixedStepController.dt_min
+      ~FixedStepController.is_adaptive
+      ~FixedStepController.local_memory_elements
+      ~FixedStepController.n
+      ~FixedStepController.numba_precision
+      ~FixedStepController.precision
+      ~FixedStepController.settings_dict
+      ~FixedStepController.simsafe_precision
+   
+   

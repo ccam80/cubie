@@ -1,0 +1,192 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drivers (Forcing Functions) &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="ODE solving algorithms" href="Algorithms.html" />
+    <link rel="prev" title="User functions and derivatives" href="userfunctions.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Drivers (Forcing Functions)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#arbitrary-values">Arbitrary Values</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Drivers (Forcing Functions)</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/drivers.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="drivers-forcing-functions">
+<h1>Drivers (Forcing Functions)<a class="headerlink" href="#drivers-forcing-functions" title="Link to this heading"></a></h1>
+<p>In some models, rates of change can be functions of time. This makes the ODE system “non-autonomous” - an “autonomous”
+system is one where time isn’t explicitly included in the equations. The trick that mathematicians use to handle this is
+to add an extra state variable that changes at a constant rate - effectively, a clock. In Cubie, we skip the middle-state
+and just allow you to use the symbol <cite>t</cite> in your equations, and it will be automatically evaluated with time as the
+integration proceeds. If you can neatly express your variable as a function of time, this is the cleanest way to get a
+forcing term into your problem. As an example, an experiment I was working on recently involved us shaking a tiny MEMS
+cantilever using a piezoelectric actuator under its base, measuring how much the cantilever bent as a result, then feeding
+that measured signal back into a heater on the cantilever that caused it to bend. That system could be modelled in Cubie
+like this:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="linenos"> 1</span><span class="kn">import</span><span class="w"> </span><span class="nn">cubie</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">qb</span>
+<span class="linenos"> 2</span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="linenos"> 3</span>
+<span class="linenos"> 4</span><span class="c1"># Parameters</span>
+<span class="linenos"> 5</span><span class="n">k</span> <span class="o">=</span> <span class="mf">0.1</span>      <span class="c1"># cantilever spring constant</span>
+<span class="linenos"> 6</span><span class="n">c</span> <span class="o">=</span> <span class="mf">0.01</span>     <span class="c1"># cantilever damping coefficient (largely due to air)</span>
+<span class="linenos"> 7</span><span class="n">alpha</span> <span class="o">=</span> <span class="mf">0.5</span>  <span class="c1"># heater coupling coefficient (how much bend the heat caused)</span>
+<span class="linenos"> 8</span><span class="n">beta</span> <span class="o">=</span> <span class="mf">0.1</span>   <span class="c1"># heater dissipation coefficient (how quickly the heat dissipates)</span>
+<span class="linenos"> 9</span>
+<span class="linenos">10</span>
+<span class="linenos">11</span><span class="n">fns</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;base_wiggle = np.sin(2 * np.pi * f * t)&quot;</span><span class="p">,</span>  <span class="c1"># Example signal</span>
+<span class="linenos">12</span>    <span class="s2">&quot;f = 1e4 * t + 1e5&quot;</span><span class="p">,</span> <span class="c1"># a &quot;chirp&quot; signal, sweeping from 100kHz to 110 kHz over 1 second</span>
+<span class="linenos">13</span>    <span class="s2">&quot;dT = &quot;</span><span class="p">,</span>
+<span class="linenos">14</span>    <span class="s2">&quot;di = &quot;</span><span class="p">,</span>
+<span class="linenos">15</span>    <span class="s2">&quot;dx = &quot;</span><span class="p">,</span>
+<span class="linenos">16</span>    <span class="s2">&quot;dv = &quot;</span><span class="p">,</span>
+<span class="linenos">17</span><span class="p">]</span>
+<span class="linenos">18</span><span class="n">constants</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="linenos">19</span><span class="n">initial_conditions</span> <span class="o">=</span> <span class="p">{</span>
+<span class="linenos">20</span>    <span class="s1">&#39;x&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>    <span class="c1"># initial position</span>
+<span class="linenos">21</span>    <span class="s1">&#39;v&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>    <span class="c1"># initial velocity</span>
+<span class="linenos">22</span>    <span class="s1">&#39;T&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>    <span class="c1"># initial temperature</span>
+<span class="linenos">23</span>    <span class="s1">&#39;i&#39;</span><span class="p">:</span> <span class="mi">0</span>     <span class="c1"># initial current</span>
+<span class="linenos">24</span><span class="p">}</span>
+<span class="linenos">25</span><span class="n">parameters</span> <span class="o">=</span> <span class="p">{</span>
+<span class="linenos">26</span>    <span class="n">feedback_strength</span> <span class="o">=</span> <span class="mf">0.5</span><span class="p">,</span> <span class="c1">#Amplitude of feedback signal</span>
+<span class="linenos">27</span>    <span class="n">feedback_offset</span> <span class="o">=</span> <span class="mf">0.1</span><span class="p">,</span>   <span class="c1">#Offset of feedback signal</span>
+<span class="linenos">28</span><span class="p">}</span>
+<span class="linenos">29</span>
+<span class="linenos">30</span><span class="n">sys</span> <span class="o">=</span> <span class="n">qb</span><span class="o">.</span><span class="n">create_ODE_system</span><span class="p">(</span>
+<span class="linenos">31</span>    <span class="n">fns</span><span class="o">=</span><span class="n">fns</span><span class="p">,</span>
+<span class="linenos">32</span>    <span class="n">parameters</span><span class="o">=</span><span class="n">parameters</span><span class="p">,</span>
+<span class="linenos">33</span>    <span class="n">constants</span><span class="o">=</span><span class="n">constants</span><span class="p">,</span>
+<span class="linenos">34</span>    <span class="n">states</span><span class="o">=</span><span class="n">initial_conditions</span><span class="p">)</span>
+<span class="linenos">35</span>
+<span class="linenos">36</span><span class="n">solve_ivp</span><span class="p">(</span>
+<span class="linenos">37</span>    <span class="n">sys</span><span class="p">,</span>
+<span class="linenos">38</span>    <span class="p">{</span><span class="s1">&#39;feedback_strength&#39;</span> <span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">200</span><span class="p">),</span>
+<span class="linenos">39</span>     <span class="s1">&#39;feedback_offset&#39;</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span><span class="mi">1</span><span class="p">,</span><span class="mi">200</span><span class="p">)},</span>
+<span class="linenos">40</span>    <span class="n">algorithm</span><span class="o">=</span><span class="s1">&#39;crank-nicolson&#39;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This is an easy way to set up and parametrize a forcing term, and see how your system responds to different versions of
+it.</p>
+<section id="arbitrary-values">
+<h2>Arbitrary Values<a class="headerlink" href="#arbitrary-values" title="Link to this heading"></a></h2>
+<p>Sometimes, your forcing function might not be easily expressed as a function of time. You might have some measured data
+that you want to test, you might want to use a random signal, or you might just want to throw some numbers in and see what
+comes out. If your integrator is fixed-step and you can supply the value of the forcing term at each time step, this is
+straightforward in theory - just pick a value for each time step, and use that. It’s a bit limiting to only use fixed-step
+algorithms, and if you’re running a long-duration simulation at a high time resolution, you might need to store a lot of
+time points. To give a bit more flexibility, Cubie can accept an array of forcing values and the time points to which they
+correspond, and will interpolate between them to get the value at any time point. This allows you to use adaptive-step
+algorithms, and also means you don’t need to store the value at every time point if your forcing function is smooth. Here’s
+an example of how to do this:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>
+</pre></div>
+</div>
+<p>You have some levers that you can pull when defining your driver function. You can dictate whether the term should “wrap”
+and repeat indefinitely, or whether it is set to zero outside of the range of the provided data. If it’s returning to zero,
+you can also dictate what happens at the ends. By default, it will fit a continuous smooth spline from your last data point
+down to a zero one sample time step later.</p>
+<p>Add plots of endpoints with different options</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="userfunctions.html" class="btn btn-neutral float-left" title="User functions and derivatives" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="Algorithms.html" class="btn btn-neutral float-right" title="ODE solving algorithms" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

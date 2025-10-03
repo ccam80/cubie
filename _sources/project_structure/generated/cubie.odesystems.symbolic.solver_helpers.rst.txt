@@ -1,0 +1,17 @@
+cubie.odesystems.symbolic.solver\_helpers
+=========================================
+
+.. automodule:: cubie.odesystems.symbolic.solver_helpers
+
+   
+   .. rubric:: Functions
+
+   .. autosummary::
+   
+      generate_neumann_preconditioner_code
+      generate_operator_apply_code
+      generate_operator_apply_code_from_jvp
+      generate_residual_code
+      generate_residual_end_state_code
+      generate_stage_residual_code
+   

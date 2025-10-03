@@ -1,0 +1,45 @@
+﻿cubie.integrators.step\_control.BaseStepController
+==================================================
+
+.. currentmodule:: cubie.integrators.step_control
+
+.. autoclass:: BaseStepController
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~BaseStepController.__init__
+      ~BaseStepController.build
+      ~BaseStepController.get_cached_output
+      ~BaseStepController.setup_compile_settings
+      ~BaseStepController.update
+      ~BaseStepController.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~BaseStepController.cache_valid
+      ~BaseStepController.compile_settings
+      ~BaseStepController.device_function
+      ~BaseStepController.dt0
+      ~BaseStepController.dt_max
+      ~BaseStepController.dt_min
+      ~BaseStepController.is_adaptive
+      ~BaseStepController.local_memory_elements
+      ~BaseStepController.n
+      ~BaseStepController.numba_precision
+      ~BaseStepController.precision
+      ~BaseStepController.settings_dict
+      ~BaseStepController.simsafe_precision
+   
+   

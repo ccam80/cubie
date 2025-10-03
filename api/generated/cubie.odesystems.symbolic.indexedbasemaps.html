@@ -1,0 +1,406 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.symbolic.indexedbasemaps &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+    <link rel="next" title="cubie.odesystems.symbolic.jacobian" href="cubie.odesystems.symbolic.jacobian.html" />
+    <link rel="prev" title="cubie.odesystems.symbolic.dxdt" href="cubie.odesystems.symbolic.dxdt.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="../index.html">API reference</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="cubie.integrators.html">cubie.integrators</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.batchsolving.html">cubie.batchsolving</a></li>
+<li class="toctree-l2 current"><a class="reference internal" href="cubie.odesystems.html">cubie.odesystems</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#subpackages">Subpackages</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.BaseODE"><code class="docutils literal notranslate"><span class="pre">BaseODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.ODECache"><code class="docutils literal notranslate"><span class="pre">ODECache</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.ODEData"><code class="docutils literal notranslate"><span class="pre">ODEData</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.SymbolicODE"><code class="docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.SystemSizes"><code class="docutils literal notranslate"><span class="pre">SystemSizes</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.SystemValues"><code class="docutils literal notranslate"><span class="pre">SystemValues</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.html#cubie.odesystems.create_ODE_system"><code class="docutils literal notranslate"><span class="pre">create_ODE_system()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.ODEData.html">cubie.odesystems.ODEData</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.SystemValues.html">cubie.odesystems.SystemValues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="cubie.odesystems.baseODE.html">cubie.odesystems.baseODE</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="cubie.odesystems.symbolic.html">cubie.odesystems.symbolic</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.cellml.html">cubie.odesystems.symbolic.cellml</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.dxdt.html">cubie.odesystems.symbolic.dxdt</a></li>
+<li class="toctree-l4 current"><a class="current reference internal" href="#">cubie.odesystems.symbolic.indexedbasemaps</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.jacobian.html">cubie.odesystems.symbolic.jacobian</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.numba_cuda_printer.html">cubie.odesystems.symbolic.numba_cuda_printer</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.odefile.html">cubie.odesystems.symbolic.odefile</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.parser.html">cubie.odesystems.symbolic.parser</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.solver_helpers.html">cubie.odesystems.symbolic.solver_helpers</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.sym_utils.html">cubie.odesystems.symbolic.sym_utils</a></li>
+<li class="toctree-l4"><a class="reference internal" href="cubie.odesystems.symbolic.symbolicODE.html">cubie.odesystems.symbolic.symbolicODE</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.outputhandling.html">cubie.outputhandling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="cubie.memory.html">cubie.memory</a></li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">API reference</a></li>
+          <li class="breadcrumb-item"><a href="cubie.odesystems.html">cubie.odesystems</a></li>
+          <li class="breadcrumb-item"><a href="cubie.odesystems.symbolic.html">cubie.odesystems.symbolic</a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.symbolic.indexedbasemaps</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/api/generated/cubie.odesystems.symbolic.indexedbasemaps.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-cubie.odesystems.symbolic.indexedbasemaps">
+<span id="cubie-odesystems-symbolic-indexedbasemaps"></span><h1>cubie.odesystems.symbolic.indexedbasemaps<a class="headerlink" href="#module-cubie.odesystems.symbolic.indexedbasemaps" title="Link to this heading"></a></h1>
+<p>Helpers that build indexed SymPy arrays for symbolic ODE metadata.</p>
+<p class="rubric">Classes</p>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><code class="xref py py-obj docutils literal notranslate"><span class="pre">IndexedBaseMap</span></code></a>(base_name, symbol_labels[, ...])</p></td>
+<td><p>Map named scalar symbols onto a fixed-size SymPy indexed base.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><code class="xref py py-obj docutils literal notranslate"><span class="pre">IndexedBases</span></code></a>(states, parameters, constants, ...)</p></td>
+<td><p>Bundle of indexed bases describing a symbolic ODE definition.</p></td>
+</tr>
+</tbody>
+</table>
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.indexedbasemaps.</span></span><span class="sig-name descname"><span class="pre">IndexedBaseMap</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">symbol_labels</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_defaults</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">real</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBaseMap"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Map named scalar symbols onto a fixed-size SymPy indexed base.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">symbol_labels</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">input_defaults</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">length</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.13)"><span class="pre">int</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">real</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBaseMap.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialise an indexed base with optional default values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>base_name</strong> – Base symbol name used for the generated <code class="xref py py-class docutils literal notranslate"><span class="pre">sympy.IndexedBase</span></code>.</p></li>
+<li><p><strong>symbol_labels</strong> – Symbol names that define the entries in the indexed base.</p></li>
+<li><p><strong>input_defaults</strong> – Optional default numeric values aligned with <code class="docutils literal notranslate"><span class="pre">symbol_labels</span></code>.</p></li>
+<li><p><strong>length</strong> – Length override for the indexed base when <code class="docutils literal notranslate"><span class="pre">symbol_labels</span></code> is
+provided as an iterator.</p></li>
+<li><p><strong>real</strong> – Whether to create real-only symbols in the indexed base.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.pop">
+<span class="sig-name descname"><span class="pre">pop</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sym</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Symbol</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBaseMap.pop"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.pop" title="Link to this definition"></a></dt>
+<dd><p>Remove a symbol from the indexed base.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.push">
+<span class="sig-name descname"><span class="pre">push</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">sym</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Symbol</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">default_value</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBaseMap.push"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.push" title="Link to this definition"></a></dt>
+<dd><p>Append a new symbol to the indexed base.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.set_passthrough_defaults">
+<span class="sig-name descname"><span class="pre">set_passthrough_defaults</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">defaults</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Any" title="(in Python v3.13)"><span class="pre">Any</span></a><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBaseMap.set_passthrough_defaults"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.set_passthrough_defaults" title="Link to this definition"></a></dt>
+<dd><p>Replace defaults with a direct dictionary mapping.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.update_values">
+<span class="sig-name descname"><span class="pre">update_values</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">updates_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBaseMap.update_values"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap.update_values" title="Link to this definition"></a></dt>
+<dd><p>Update the stored default values.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>updates_dict</strong> – Mapping of symbol names or symbols to replacement values.</p></li>
+<li><p><strong>**kwargs</strong> – Additional symbol updates provided as keyword arguments. Entries
+take precedence over those in <code class="docutils literal notranslate"><span class="pre">updates_dict</span></code>.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Silently ignores keys that are not found in the indexed base map.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">cubie.odesystems.symbolic.indexedbasemaps.</span></span><span class="sig-name descname"><span class="pre">IndexedBases</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">states</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">constants</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">observables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">drivers</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dxdt</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBases"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.13)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Bundle of indexed bases describing a symbolic ODE definition.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">states</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">constants</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">observables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">drivers</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">dxdt</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBaseMap"><span class="pre">IndexedBaseMap</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBases.__init__"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.__init__" title="Link to this definition"></a></dt>
+<dd><p>Initialise the combined index maps.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>states</strong> – Indexed base describing the system state vector.</p></li>
+<li><p><strong>parameters</strong> – Indexed base describing tunable model parameters.</p></li>
+<li><p><strong>constants</strong> – Indexed base describing compile-time constants.</p></li>
+<li><p><strong>observables</strong> – Indexed base describing recorded observables.</p></li>
+<li><p><strong>drivers</strong> – Indexed base describing driver signals.</p></li>
+<li><p><strong>dxdt</strong> – Indexed base describing the <code class="docutils literal notranslate"><span class="pre">dx/dt</span></code> outputs.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.all_arrayrefs">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">all_arrayrefs</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Symbol</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.all_arrayrefs" title="Link to this definition"></a></dt>
+<dd><p>Dictionary of all indexed base references keyed by symbol.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.all_symbols">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">all_symbols</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Symbol</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.all_symbols" title="Link to this definition"></a></dt>
+<dd><p>Dictionary of all scalar symbols keyed by name.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.constant_names">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">constant_names</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.constant_names" title="Link to this definition"></a></dt>
+<dd><p>List of constant symbol names.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.constant_symbols">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">constant_symbols</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.constant_symbols" title="Link to this definition"></a></dt>
+<dd><p>List of constant symbols.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.constant_values">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">constant_values</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.constant_values" title="Link to this definition"></a></dt>
+<dd><p>Mapping of constant symbols to default values.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.driver_names">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">driver_names</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.driver_names" title="Link to this definition"></a></dt>
+<dd><p>List of driver symbol names.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.driver_symbols">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">driver_symbols</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.driver_symbols" title="Link to this definition"></a></dt>
+<dd><p>List of driver symbols.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.dxdt_names">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dxdt_names</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.dxdt_names" title="Link to this definition"></a></dt>
+<dd><p>List of <code class="docutils literal notranslate"><span class="pre">dx/dt</span></code> output symbol names.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.dxdt_symbols">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dxdt_symbols</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.dxdt_symbols" title="Link to this definition"></a></dt>
+<dd><p>List of <code class="docutils literal notranslate"><span class="pre">dx/dt</span></code> output symbols.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.from_user_inputs">
+<em class="property"><span class="k"><span class="pre">classmethod</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">from_user_inputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">states</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parameters</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">constants</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.13)"><span class="pre">dict</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observables</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">drivers</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Iterable" title="(in Python v3.13)"><span class="pre">Iterable</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">real</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.13)"><span class="pre">bool</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases"><span class="pre">IndexedBases</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBases.from_user_inputs"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.from_user_inputs" title="Link to this definition"></a></dt>
+<dd><p>Construct indexed bases from user-provided metadata.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>states</strong> – Either a mapping of state names to default values or an iterable
+of state names.</p></li>
+<li><p><strong>parameters</strong> – Either a mapping of parameter names to default values or an
+iterable of parameter names.</p></li>
+<li><p><strong>constants</strong> – Either a mapping of constant names to default values or an
+iterable of constant names.</p></li>
+<li><p><strong>observables</strong> – Iterable of observable names.</p></li>
+<li><p><strong>drivers</strong> – Iterable of driver names.</p></li>
+<li><p><strong>real</strong> – Whether to constrain the generated symbols to real values.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Combined bundle of indexed bases for the symbolic ODE system.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="../../project_structure/generated/cubie.odesystems.symbolic.indexedbasemaps.html#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases" title="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases">IndexedBases</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.observable_names">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">observable_names</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.observable_names" title="Link to this definition"></a></dt>
+<dd><p>List of observable symbol names.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.observable_symbols">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">observable_symbols</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.observable_symbols" title="Link to this definition"></a></dt>
+<dd><p>List of observable symbols.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.parameter_names">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">parameter_names</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.parameter_names" title="Link to this definition"></a></dt>
+<dd><p>List of parameter symbol names.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.parameter_symbols">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">parameter_symbols</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.parameter_symbols" title="Link to this definition"></a></dt>
+<dd><p>List of parameter symbols.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.parameter_values">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">parameter_values</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.parameter_values" title="Link to this definition"></a></dt>
+<dd><p>Mapping of parameter symbols to default values.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.state_names">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state_names</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.state_names" title="Link to this definition"></a></dt>
+<dd><p>List of state symbol names.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.state_symbols">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state_symbols</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.13)"><span class="pre">list</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.state_symbols" title="Link to this definition"></a></dt>
+<dd><p>List of state symbols.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.state_values">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">state_values</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><span class="pre">Symbol</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.state_values" title="Link to this definition"></a></dt>
+<dd><p>Mapping of state symbols to default values.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.update_constants">
+<span class="sig-name descname"><span class="pre">update_constants</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">updates_dict</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.13)"><span class="pre">Dict</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.13)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.13)"><span class="pre">float</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference external" href="https://docs.python.org/3/library/constants.html#None" title="(in Python v3.13)"><span class="pre">None</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/indexedbasemaps.html#IndexedBases.update_constants"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.symbolic.indexedbasemaps.IndexedBases.update_constants" title="Link to this definition"></a></dt>
+<dd><p>Update the constant defaults while preserving other entries.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>updates_dict</strong> – Mapping of constant names to replacement values.</p></li>
+<li><p><strong>**kwargs</strong> – Additional constant updates provided as keyword arguments.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+<p class="rubric">Notes</p>
+<p>Silently ignores keys that are not found in the constants symbol table.</p>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="cubie.odesystems.symbolic.dxdt.html" class="btn btn-neutral float-left" title="cubie.odesystems.symbolic.dxdt" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cubie.odesystems.symbolic.jacobian.html" class="btn btn-neutral float-right" title="cubie.odesystems.symbolic.jacobian" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

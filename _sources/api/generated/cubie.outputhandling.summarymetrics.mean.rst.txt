@@ -1,0 +1,12 @@
+cubie.outputhandling.summarymetrics.mean
+========================================
+
+.. automodule:: cubie.outputhandling.summarymetrics.mean
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      Mean
+   

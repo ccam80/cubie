@@ -1,0 +1,147 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cubie.odesystems.create_ODE_system &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">cubie.odesystems.create_ODE_system</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../../_sources/project_structure/generated/cubie.odesystems.create_ODE_system.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="cubie-odesystems-create-ode-system">
+<h1>cubie.odesystems.create_ODE_system<a class="headerlink" href="#cubie-odesystems-create-ode-system" title="Link to this heading"></a></h1>
+<dl class="py function">
+<dt class="sig sig-object py" id="cubie.odesystems.create_ODE_system">
+<span class="sig-prename descclassname"><span class="pre">cubie.odesystems.</span></span><span class="sig-name descname"><span class="pre">create_ODE_system</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="pre">dxdt:</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">~typing.Iterable[str],</span> <span class="pre">states:</span> <span class="pre">dict[str,</span> <span class="pre">float]</span> <span class="pre">|</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">observables:</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">parameters:</span> <span class="pre">dict[str,</span> <span class="pre">float]</span> <span class="pre">|</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">constants:</span> <span class="pre">dict[str,</span> <span class="pre">float]</span> <span class="pre">|</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">drivers:</span> <span class="pre">~typing.Iterable[str]</span> <span class="pre">|</span> <span class="pre">dict[str,</span> <span class="pre">~typing.Any]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">user_functions:</span> <span class="pre">dict[str,</span> <span class="pre">~typing.Callable]</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">name:</span> <span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span> <span class="pre">=</span> <span class="pre">None,</span> <span class="pre">precision:</span> <span class="pre">type[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">type[~numpy.float64]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float16]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float32]</span> <span class="pre">|</span> <span class="pre">~numpy.dtype[~numpy.float64]</span> <span class="pre">=</span> <span class="pre">&lt;class</span> <span class="pre">'numpy.float32'&gt;,</span> <span class="pre">strict:</span> <span class="pre">bool</span> <span class="pre">=</span> <span class="pre">False</span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="cubie.odesystems.symbolic.symbolicODE.html#cubie.odesystems.symbolic.symbolicODE.SymbolicODE" title="cubie.odesystems.symbolic.symbolicODE.SymbolicODE"><span class="pre">SymbolicODE</span></a></span></span><a class="reference internal" href="../../_modules/cubie/odesystems/symbolic/symbolicODE.html#create_ODE_system"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#cubie.odesystems.create_ODE_system" title="Link to this definition"></a></dt>
+<dd><p>Create a <a class="reference internal" href="cubie.odesystems.SymbolicODE.html#cubie.odesystems.SymbolicODE" title="cubie.odesystems.SymbolicODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a> from SymPy definitions.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>dxdt</strong> – System equations defined as either a single string or an iterable of
+equation strings in <code class="docutils literal notranslate"><span class="pre">lhs</span> <span class="pre">=</span> <span class="pre">rhs</span></code> form.</p></li>
+<li><p><strong>states</strong> – State labels either as an iterable or as a mapping to default initial
+values.</p></li>
+<li><p><strong>observables</strong> – Observable variable labels to expose from the generated system.</p></li>
+<li><p><strong>parameters</strong> – Parameter labels either as an iterable or as a mapping to default
+values.</p></li>
+<li><p><strong>constants</strong> – Constant labels either as an iterable or as a mapping to default
+values.</p></li>
+<li><p><strong>drivers</strong> – External driver variable labels required at runtime. Accepts either
+an iterable of driver symbol names or a dictionary mapping driver
+names to default values or driver-array samples and configuration
+entries.</p></li>
+<li><p><strong>user_functions</strong> – Custom callables referenced within <code class="docutils literal notranslate"><span class="pre">dxdt</span></code> expressions.</p></li>
+<li><p><strong>name</strong> – Identifier used for generated files. Defaults to the hash of the system
+definition.</p></li>
+<li><p><strong>precision</strong> – Target floating-point precision used when compiling the system.</p></li>
+<li><p><strong>strict</strong> – When <code class="docutils literal notranslate"><span class="pre">True</span></code> require every symbol to be explicitly categorised.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Fully constructed symbolic system ready for compilation.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="cubie.odesystems.SymbolicODE.html#cubie.odesystems.SymbolicODE" title="cubie.odesystems.SymbolicODE">SymbolicODE</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

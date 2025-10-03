@@ -1,0 +1,36 @@
+﻿cubie.outputhandling.summarymetrics.max.Max
+===========================================
+
+.. currentmodule:: cubie.outputhandling.summarymetrics.max
+
+.. autoclass:: Max
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~Max.__init__
+      ~Max.build
+      ~Max.get_cached_output
+      ~Max.setup_compile_settings
+      ~Max.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~Max.cache_valid
+      ~Max.compile_settings
+      ~Max.device_function
+      ~Max.save_device_func
+      ~Max.update_device_func
+   
+   

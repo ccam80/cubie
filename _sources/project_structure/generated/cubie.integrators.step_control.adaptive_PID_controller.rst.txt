@@ -1,0 +1,13 @@
+cubie.integrators.step\_control.adaptive\_PID\_controller
+=========================================================
+
+.. automodule:: cubie.integrators.step_control.adaptive_PID_controller
+
+   
+   .. rubric:: Classes
+
+   .. autosummary::
+   
+      AdaptivePIDController
+      PIDStepControlConfig
+   

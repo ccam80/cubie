@@ -1,0 +1,36 @@
+﻿cubie.outputhandling.summarymetrics.rms.RMS
+===========================================
+
+.. currentmodule:: cubie.outputhandling.summarymetrics.rms
+
+.. autoclass:: RMS
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~RMS.__init__
+      ~RMS.build
+      ~RMS.get_cached_output
+      ~RMS.setup_compile_settings
+      ~RMS.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~RMS.cache_valid
+      ~RMS.compile_settings
+      ~RMS.device_function
+      ~RMS.save_device_func
+      ~RMS.update_device_func
+   
+   

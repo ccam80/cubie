@@ -1,0 +1,53 @@
+﻿cubie.integrators.algorithms.base\_algorithm\_step.BaseAlgorithmStep
+====================================================================
+
+.. currentmodule:: cubie.integrators.algorithms.base_algorithm_step
+
+.. autoclass:: BaseAlgorithmStep
+
+   
+   .. automethod:: __init__
+
+   
+   .. rubric:: Methods
+
+   .. autosummary::
+   
+      ~BaseAlgorithmStep.__init__
+      ~BaseAlgorithmStep.build
+      ~BaseAlgorithmStep.get_cached_output
+      ~BaseAlgorithmStep.setup_compile_settings
+      ~BaseAlgorithmStep.update
+      ~BaseAlgorithmStep.update_compile_settings
+   
+   
+
+   
+   
+   .. rubric:: Attributes
+
+   .. autosummary::
+   
+      ~BaseAlgorithmStep.cache_valid
+      ~BaseAlgorithmStep.compile_settings
+      ~BaseAlgorithmStep.device_function
+      ~BaseAlgorithmStep.dxdt_function
+      ~BaseAlgorithmStep.get_solver_helper_fn
+      ~BaseAlgorithmStep.is_adaptive
+      ~BaseAlgorithmStep.is_implicit
+      ~BaseAlgorithmStep.is_multistage
+      ~BaseAlgorithmStep.local_scratch_required
+      ~BaseAlgorithmStep.n
+      ~BaseAlgorithmStep.nonlinear_solver_function
+      ~BaseAlgorithmStep.numba_precision
+      ~BaseAlgorithmStep.observables_function
+      ~BaseAlgorithmStep.order
+      ~BaseAlgorithmStep.persistent_local_required
+      ~BaseAlgorithmStep.precision
+      ~BaseAlgorithmStep.settings_dict
+      ~BaseAlgorithmStep.shared_memory_required
+      ~BaseAlgorithmStep.simsafe_precision
+      ~BaseAlgorithmStep.step_function
+      ~BaseAlgorithmStep.threads_per_step
+   
+   

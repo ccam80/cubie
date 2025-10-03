@@ -1,0 +1,258 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Creating a “System” of Differential Equations &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Using CUDA for IVPs" href="cuda.html" />
+    <link rel="prev" title="Getting Started with Cubie" href="getting_started.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Creating a “System” of Differential Equations</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#cubie-ode-system-glossary">Cubie ODE System Glossary</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#jacobians">Jacobians</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Creating a “System” of Differential Equations</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/systems.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="creating-a-system-of-differential-equations">
+<h1>Creating a “System” of Differential Equations<a class="headerlink" href="#creating-a-system-of-differential-equations" title="Link to this heading"></a></h1>
+<p>The first step in solving a system of differential equations is to create a
+system of differential equations. Cubie understands ODEs in the form of a
+<a class="reference internal" href="api/generated/cubie.odesystems.baseODE.html#cubie.odesystems.baseODE.BaseODE" title="cubie.odesystems.baseODE.BaseODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">GenericODE</span></code></a> object, which holds the
+(frac{dx}{dt}) equations and descriptions and default values for all of the
+variables that those equations depend on.</p>
+<p>Cubie uses SymPy to parse a system defined in strings, and generates a special
+version of a <a class="reference internal" href="api/generated/cubie.odesystems.baseODE.html#cubie.odesystems.baseODE.BaseODE" title="cubie.odesystems.baseODE.BaseODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">GenericODE</span></code></a> called a
+<a class="reference internal" href="project_structure/generated/cubie.odesystems.symbolic.symbolicODE.html#cubie.odesystems.symbolic.symbolicODE.SymbolicODE" title="cubie.odesystems.symbolic.symbolicODE.SymbolicODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a>, which
+does some extra tricks to produce extra helper functions for the integration
+algorithms to use. This is the easiest way to create a system of ODEs. Here’s an
+example of setting up the Lotka-Volterra predator-prey equations, a common
+example of a nonlinear ODE system:</p>
+<p><code class="docutils literal notranslate"><span class="pre">BaseODE</span></code> is the abstract interface, and <code class="docutils literal notranslate"><span class="pre">SymbolicODE</span></code> is currently its
+only concrete subclass.</p>
+<div class="literal-block-wrapper docutils container" id="id1">
+<div class="code-block-caption"><span class="caption-text">The simplest way to create a system of ODEs in Cubie.</span><a class="headerlink" href="#id1" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">cubie</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">qb</span>
+
+<span class="n">LV</span> <span class="o">=</span> <span class="n">qb</span><span class="o">.</span><span class="n">create_ODE_system</span><span class="p">(</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    dx = a*x - b*x*y</span>
+<span class="sd">    dy = -c*y + d*x*y</span>
+<span class="sd">    &quot;&quot;&quot;</span><span class="p">,</span>
+<span class="n">name</span><span class="o">=</span><span class="s2">&quot;LotkaVolterra&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="nb">print</span><span class="p">(</span><span class="n">LV</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<p>In this example, Cubie has determined that x and y are state variables, as they
+have (frac{dx}{dt}) equations. (frac{dx}{dr}) equations must start with a
+“d” followed by the variable name. The variables a, b, c, and d have been called
+“parameters”, as they don’t have (frac{dx}{dt}) equations, and they don’t
+appear on the left-hand side of any equations. Parameters are inputs to the
+system that are expected to change between different runs of the solve; alongside
+the initial values of the state variables, they form the input variables to a
+batch solver run. If any of your non-state input variables are not expected to
+change inside each batch, you can mark them as “constants” instead. This will
+typically speed up the solving process and allow you to run more IVPs in a single
+batch, as Cubie doesn’t need to worry about finding a place in memory for them.
+To achieve this, we might modify the above example to:</p>
+<div class="literal-block-wrapper docutils container" id="id2">
+<div class="code-block-caption"><span class="caption-text">Creating a system of ODEs with constants.</span><a class="headerlink" href="#id2" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">cubie</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">qb</span>
+
+<span class="n">LV</span> <span class="o">=</span> <span class="n">qb</span><span class="o">.</span><span class="n">create_ODE_system</span><span class="p">(</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    dx = a*x - b*x*y</span>
+<span class="sd">    dy = -c*y + d*x*y</span>
+<span class="sd">    &quot;&quot;&quot;</span><span class="p">,</span>
+<span class="n">constants</span><span class="o">=</span> <span class="p">{</span><span class="s2">&quot;a&quot;</span><span class="p">:</span> <span class="mf">0.1</span><span class="p">,</span> <span class="s2">&quot;c&quot;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">},</span>
+<span class="n">parameters</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;b&quot;</span><span class="p">:</span> <span class="mf">0.02</span><span class="p">,</span> <span class="s2">&quot;d&quot;</span><span class="p">:</span> <span class="mf">0.01</span><span class="p">},</span>
+<span class="n">states</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">},</span>
+<span class="n">name</span><span class="o">=</span><span class="s2">&quot;LotkaVolterra&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">LV</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<p>In the above example, we’ve also provided default values for the parameters and
+constants, and default initial values for the states. This is optional, we could
+just provide a list or tuple of variable names instead, but it makes it a little
+easier to specify which variables you’re “batching” over when you come to solve
+the system.</p>
+<p>There’s one more type of variable that we can specify: observables. Observables
+are the results of auxiliary equations in your problem that you might want to
+record the results of, but they’re calculated anew at each time step rather than
+carrying a state between iterations like a state. For a trivial example, we
+could define our Lotka-Volterra system with an observable that tracks the
+predator’s death rate:</p>
+<div class="literal-block-wrapper docutils container" id="id3">
+<div class="code-block-caption"><span class="caption-text">Creating a system of ODEs with constants.</span><a class="headerlink" href="#id3" title="Link to this code"></a></div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">cubie</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">qb</span>
+
+<span class="n">LV</span> <span class="o">=</span> <span class="n">qb</span><span class="o">.</span><span class="n">create_ODE_system</span><span class="p">(</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    predator_death_rate = c*y</span>
+<span class="sd">    dx = a*x - b*x*y</span>
+<span class="sd">    dy = -predator_death_rate + d*x*y</span>
+<span class="sd">    &quot;&quot;&quot;</span><span class="p">,</span>
+<span class="n">constants</span><span class="o">=</span> <span class="p">{</span><span class="s2">&quot;a&quot;</span><span class="p">:</span> <span class="mf">0.1</span><span class="p">,</span> <span class="s2">&quot;c&quot;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">},</span>
+<span class="n">parameters</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;b&quot;</span><span class="p">:</span> <span class="mf">0.02</span><span class="p">,</span> <span class="s2">&quot;d&quot;</span><span class="p">:</span> <span class="mf">0.01</span><span class="p">},</span>
+<span class="n">states</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;x&quot;</span><span class="p">:</span> <span class="mf">0.5</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">},</span>
+<span class="n">observables</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;predator_death_rate&quot;</span><span class="p">],</span>
+<span class="n">name</span><span class="o">=</span><span class="s2">&quot;LotkaVolterra&quot;</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">LV</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<p>If we didn’t define predator_death_rate as an observable, Cubie would treat it
+as an anonymous auxiliary variable, used on the way to the results we want but
+not worth keeping. This behaviour applies to <em>all</em> left-hand side assignments
+that do not target known states or listed observables: the variables still
+participate in the symbolic expressions, but they are stored only as anonymous
+auxiliaries and their trajectories are not saved.</p>
+<section id="cubie-ode-system-glossary">
+<h2>Cubie ODE System Glossary<a class="headerlink" href="#cubie-ode-system-glossary" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><em>States</em>: The variables that are being solved for. Each state variable must
+have a (frac{dx}{dt}) equation. Each state variable must also have an
+initial value, which sets the starting point of the initial value problem.</p></li>
+<li><p><em>Parameters</em>: Input variables that are not solved for. These set the behaviour
+of the system, and in Cubie, they are one of the two inputs that can be
+“batched”, i.e. we can solve many IVPs with different parameter sets
+simultaneously.</p></li>
+<li><p><em>Constants</em>: Input variables that are not solved for, and do not change
+between IVPs in a single batch. You can still change constants between
+batches, but it will add a little overhead as the CUDA machine recompiles the
+problem. Any parameters which will not change in a certain batch should be
+moved to constants, as this will speed up the solving process.</p></li>
+<li><p><em>Observables</em>: Also called auxiliary variables. These variables that are not
+solved for, but are derived from the state inputs and parameters. These
+typically pop up on the way to the (frac{dx}{dt}) equations, and might
+represent physical quantities of interest in the system. Any state variables
+that don’t have a (frac{dx}{dt}) equation should be moved into observables.</p></li>
+<li><p><em>Drivers</em>: Also called forcing terms. These are time-dependent inputs to the
+system. Cubie currently only supports one set of drivers per batch (i.e. all
+IVPs use the same driver), but this can be worked around by parameterising the
+driver function and passing a time vector as the driver function.</p></li>
+</ul>
+</section>
+<section id="jacobians">
+<h2>Jacobians<a class="headerlink" href="#jacobians" title="Link to this heading"></a></h2>
+<p>Implicit algorithms, such as the RadauIIA5 method that Cubie uses, require the
+system’s Jacobian. For why, see <a class="reference internal" href="Algorithms.html#implicit-methods"><span class="std std-ref">Implicit Methods</span></a>.
+Some widely-available solvers obtain this numerically by finite differences,
+which is prone to error and instability, especially for stiff systems. Some
+solvers use auto-differentiation, a clever way to get exact derivatives
+efficiently. Cubie does not currently support auto-differentiation, but instead
+generates the required Jacobian functions symbolically, with some manual
+chain-rule steps that bring it closer to auto-differentiation and make it
+faster. The process isn’t quick for big systems, but once it’s been done once,
+it’s cached in a generated file in your working directory. You’ve only got to
+pay the Jacobian tax once, unless you change some equations or constants, in
+which case the system needs to generate everything again.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="getting_started.html" class="btn btn-neutral float-left" title="Getting Started with Cubie" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="cuda.html" class="btn btn-neutral float-right" title="Using CUDA for IVPs" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

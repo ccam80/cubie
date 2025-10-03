@@ -1,0 +1,174 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>src/cubie/odesystems &mdash; cubie 0.0.2 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=e3a6060d"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+<meta name="google-site-verification" content="Fpgkmgu5X-0RRG9UUYo4erbY0wd7VmLIQU4UZv_YaXc" />
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            cubie
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started with Cubie</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../systems.html">Creating a “System” of Differential Equations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cuda.html">Using CUDA for IVPs</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../userfunctions.html">User functions and derivatives</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../drivers.html">Drivers (Forcing Functions)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../Algorithms.html">ODE solving algorithms</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../api/index.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">cubie</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">src/cubie/odesystems</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/project_structure/src_cubie_odesystems.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="src-cubie-odesystems">
+<h1>src/cubie/odesystems<a class="headerlink" href="#src-cubie-odesystems" title="Link to this heading"></a></h1>
+<p>The <a class="reference internal" href="generated/cubie.odesystems.create_ODE_system.html#cubie.odesystems.create_ODE_system" title="cubie.odesystems.create_ODE_system"><code class="xref py py-func docutils literal notranslate"><span class="pre">create_ODE_system()</span></code></a> helper is the main entry point. It consumes
+symbolic <code class="xref py py-mod docutils literal notranslate"><span class="pre">sympy</span></code> equations and materialises <a class="reference internal" href="generated/cubie.odesystems.SymbolicODE.html#cubie.odesystems.SymbolicODE" title="cubie.odesystems.SymbolicODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a>
+instances that inherit CUDA compilation behaviour from
+<code class="xref py py-class docutils literal notranslate"><span class="pre">cubie.CUDAFactory</span></code>. <a class="reference internal" href="generated/cubie.odesystems.BaseODE.html#cubie.odesystems.BaseODE" title="cubie.odesystems.BaseODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">BaseODE</span></code></a> is the abstract contract, and
+<code class="docutils literal notranslate"><span class="pre">SymbolicODE</span></code> is currently its only concrete subclass.
+Base classes and data containers expose the
+precision-aware metadata required by integrator factories.</p>
+<section id="subpackages">
+<h2>Subpackages<a class="headerlink" href="#subpackages" title="Link to this heading"></a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.odesystems.symbolic.html#module-cubie.odesystems.symbolic" title="cubie.odesystems.symbolic"><code class="xref py py-obj docutils literal notranslate"><span class="pre">cubie.odesystems.symbolic</span></code></a></p></td>
+<td><p>Symbolic system building utilities.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="core-api">
+<h2>Core API<a class="headerlink" href="#core-api" title="Link to this heading"></a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.odesystems.create_ODE_system.html#cubie.odesystems.create_ODE_system" title="cubie.odesystems.create_ODE_system"><code class="xref py py-obj docutils literal notranslate"><span class="pre">create_ODE_system</span></code></a>(dxdt[, states, ...])</p></td>
+<td><p>Create a <a class="reference internal" href="generated/cubie.odesystems.SymbolicODE.html#cubie.odesystems.SymbolicODE" title="cubie.odesystems.SymbolicODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a> from SymPy definitions.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.odesystems.SymbolicODE.html#cubie.odesystems.SymbolicODE" title="cubie.odesystems.SymbolicODE"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a>(equations, ...)</p></td>
+<td><p>Symbolic representation of an ODE system.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.odesystems.BaseODE.html#cubie.odesystems.BaseODE" title="cubie.odesystems.BaseODE"><code class="xref py py-obj docutils literal notranslate"><span class="pre">BaseODE</span></code></a>(initial_values, ...)</p></td>
+<td><p>Abstract base for CUDA-backed ordinary differential equation systems.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="data-containers-and-caches">
+<h2>Data containers and caches<a class="headerlink" href="#data-containers-and-caches" title="Link to this heading"></a></h2>
+<table class="autosummary longtable docutils align-default">
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.odesystems.ODEData.html#cubie.odesystems.ODEData" title="cubie.odesystems.ODEData"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ODEData</span></code></a>(constants, parameters, ...)</p></td>
+<td><p>Bundle numerical values and metadata for an ODE system.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.odesystems.SystemValues.html#cubie.odesystems.SystemValues" title="cubie.odesystems.SystemValues"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SystemValues</span></code></a>(values_dict, precision[, ...])</p></td>
+<td><p>Manage keyed parameter values and their packed array representation.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="generated/cubie.odesystems.SystemSizes.html#cubie.odesystems.SystemSizes" title="cubie.odesystems.SystemSizes"><code class="xref py py-obj docutils literal notranslate"><span class="pre">SystemSizes</span></code></a>(states, observables, parameters, ...)</p></td>
+<td><p>Store counts for each component category in an ODE system.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="generated/cubie.odesystems.ODECache.html#cubie.odesystems.ODECache" title="cubie.odesystems.ODECache"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ODECache</span></code></a>(dxdt[, linear_operator, ...])</p></td>
+<td><p>Cache compiled CUDA device and support functions for an ODE system.</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="dependencies">
+<h2>Dependencies<a class="headerlink" href="#dependencies" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><a class="reference internal" href="generated/cubie.odesystems.SymbolicODE.html#cubie.odesystems.SymbolicODE" title="cubie.odesystems.SymbolicODE"><code class="xref py py-class docutils literal notranslate"><span class="pre">SymbolicODE</span></code></a> subclasses <code class="xref py py-class docutils literal notranslate"><span class="pre">cubie.CUDAFactory</span></code> so integrator
+loops can request compiled CUDA device functions directly.</p></li>
+<li><p>Precision handling relies on <code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie._utils</span></code> helpers and
+<code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.cuda_simsafe</span></code> to provide simulator-safe coercions.</p></li>
+<li><p>Generated kernels are consumed by <a class="reference internal" href="../api/generated/cubie.integrators.html#module-cubie.integrators" title="cubie.integrators"><code class="xref py py-mod docutils literal notranslate"><span class="pre">cubie.integrators</span></code></a> factories during
+loop construction.</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Chris Cameron.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
