@@ -241,6 +241,9 @@ class TestControllers:
             atol=tolerance.abs_tight,
         )
 
+    @pytest.mark.parametrize('step_controller_settings_override',
+                             ({'dt_min': 1e-4, 'dt_max': 0.2},),
+                             indirect=True)
     def test_cpu_gpu_sequence_agree(
         self,
         step_controller,

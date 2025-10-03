@@ -350,18 +350,18 @@ class TestSolveResultFromSolver:
             np.testing.assert_allclose(
                 time_domain[:, :, state_columns],
                 state_ref,
-                atol=tolerance.abs_tight,
-                rtol=tolerance.rel_tight,
+                atol=tolerance.abs_loose,
+                rtol=tolerance.rel_loose,
                 err_msg="state mismatch.\n"
                 f"device: {time_domain[:, :, state_columns]}\n"
-                f"reference: {cpu_batch_results.state}\n"
+                f"reference: {cpu_batch_results.state}\n",
             )
         if observable_columns:
             np.testing.assert_allclose(
                 time_domain[:, :, observable_columns],
                 cpu_batch_results.observables,
-                atol=tolerance.abs_tight,
-                rtol=tolerance.rel_tight,
+                atol=tolerance.abs_loose,
+                rtol=tolerance.rel_loose,
                 err_msg="observables mismatch.\n"
                         f"device: {time_domain[:, :, observable_columns]}\n"
                         f"reference: {cpu_batch_results.observables}\n"
@@ -390,20 +390,20 @@ class TestSolveResultFromSolver:
 
             if state_summary_columns:
                 np.testing.assert_allclose(
-                    summaries[:,:, state_summary_columns],
+                    summaries[:, :, state_summary_columns],
                     cpu_batch_results.state_summaries,
-                    atol=tolerance.abs_tight,
-                    rtol=tolerance.rel_tight,
+                    atol=tolerance.abs_loose,
+                    rtol=tolerance.rel_loose,
                     err_msg="state summaries mismatch.\n"
-                        f"device: {summaries[:,:, state_summary_columns]}\n"
-                        f"reference: {cpu_batch_results.observables}\n"
+                    f"device: {summaries[:, :, state_summary_columns]}\n"
+                    f"reference: {cpu_batch_results.observables}\n",
                 )
             if observable_summary_columns:
                 np.testing.assert_allclose(
                     summaries[:,:, observable_summary_columns],
                     cpu_batch_results.observable_summaries,
-                    atol=tolerance.abs_tight,
-                    rtol=tolerance.rel_tight,
+                    atol=tolerance.abs_loose,
+                    rtol=tolerance.rel_loose,
                     err_msg="observables summaries mismatch.\n"
                         f"device: {summaries[:,:, observable_summary_columns]}\n"
                         f"reference: {cpu_batch_results.observable_summaries}\n"

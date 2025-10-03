@@ -210,7 +210,7 @@ def driver_settings(
         return None
 
     dt_sample = precision(solver_settings["dt_save"]) / 2.0
-    total_span = precision(solver_settings["duration"] / 2.0)
+    total_span = precision(solver_settings["duration"])
     t0 = float(solver_settings["warmup"])
 
     order = int(solver_settings["driverspline_order"])
@@ -310,7 +310,7 @@ def implicit_step_settings(solver_settings, implicit_step_settings_override):
         "rtol": solver_settings['rtol'],
         "linear_tolerance": 1e-6,
         "correction_type": 'minimal_residual',
-        "nonlinear_tolerance": 1e-4,
+        "nonlinear_tolerance": 1e-6,
         'preconditioner_order': 2,
         "max_linear_iters": 500,
         "max_newton_iters": 500,

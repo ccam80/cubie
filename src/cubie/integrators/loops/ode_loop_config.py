@@ -473,17 +473,17 @@ class ODELoopConfig:
     @property
     def dt0(self) -> float:
         """Return the initial timestep."""
-        return float(self._dt0)
+        return self.precision(self._dt0)
 
     @property
     def dt_min(self) -> float:
         """Return the minimum allowable timestep."""
-        return float(self._dt_min)
+        return self.precision(self._dt_min)
 
     @property
     def dt_max(self) -> float:
         """Return the maximum allowable timestep."""
-        return float(self._dt_max)
+        return self.precision(self._dt_max)
 
     @property
     def loop_shared_elements(self) -> int:

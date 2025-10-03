@@ -256,7 +256,7 @@ def cpu_step_results(
     [
         {"algorithm": "euler", 'step_controller': 'fixed'},
         {"algorithm": "backwards_euler"},
-        {"algorithm": "backwards_euler_pc"},
+        {"algorithm": "backwards_euler_pc", "dt_min": 0.0025},
         {"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
             1e-6, 'rtol': 1e-6, 'dt_min': 1e-6},
     ],

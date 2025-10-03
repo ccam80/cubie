@@ -127,7 +127,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 parameters,
                 drivers_buffer,
                 observables,
-                work_buffer,
+                work_buffer, # f_n
                 time_scalar,
             )
             for i in range(n):

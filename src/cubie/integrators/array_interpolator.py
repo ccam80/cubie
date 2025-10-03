@@ -602,7 +602,7 @@ class ArrayInterpolator(CUDAFactory):
         ax.set_ylabel("Driver value")
         if self.num_inputs > 1:
             ax.legend()
-
+        plt.show()
         return fig, ax
 
     # ---------------------------------------------------------------------- #

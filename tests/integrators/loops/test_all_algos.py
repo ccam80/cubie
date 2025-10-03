@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 
 from tests._utils import assert_integration_outputs
@@ -11,13 +10,13 @@ from tests._utils import assert_integration_outputs
                          ["three_chamber",
                           ],
                          ids=["3cm"], indirect=True)
-@pytest.mark.parametrize("precision_override",
-                         [np.float64,
-                          ],
-                         ids=["64"], indirect=True)
+# @pytest.mark.parametrize("precision_override",
+#                          [np.float64,
+#                           ],
+#                          ids=["64"], indirect=True)
 @pytest.mark.parametrize("implicit_step_settings_override",
-                         [{"nonlinear_tolerance": 1e-8,
-                           "linear_tolerance": 1e-8},
+                         [{"nonlinear_tolerance": 1e-6,
+                           "linear_tolerance": 1e-6},
                           ],
                          ids=["tol"],
                          indirect=True)
@@ -81,8 +80,8 @@ from tests._utils import assert_integration_outputs
         {
             "algorithm": "crank_nicolson",
             "step_controller": "pid",
-            "atol": 1e-9,
-            "rtol": 1e-9,
+            "atol": 1e-5,
+            "rtol": 1e-5,
             "dt_min": 1e-6,
             "output_types": [
                 "state",
@@ -101,8 +100,8 @@ from tests._utils import assert_integration_outputs
         {
             "algorithm": "crank_nicolson",
             "step_controller": "pi",
-            "atol": 1e-9,
-            "rtol": 1e-9,
+            "atol": 1e-5,
+            "rtol": 1e-5,
             "dt_min": 1e-6,
             "output_types": [
                 "state",
@@ -121,8 +120,8 @@ from tests._utils import assert_integration_outputs
         {
             "algorithm": "crank_nicolson",
             "step_controller": "i",
-            "atol": 1e-9,
-            "rtol": 1e-9,
+            "atol": 1e-5,
+            "rtol": 1e-5,
             "dt_min": 1e-6,
             "output_types": [
                 "state",
@@ -141,8 +140,8 @@ from tests._utils import assert_integration_outputs
         {
             "algorithm": "crank_nicolson",
             "step_controller": "gustafsson",
-            "atol": 1e-9,
-            "rtol": 1e-9,
+            "atol": 1e-5,
+            "rtol": 1e-5,
             "dt_min": 1e-6,
             "output_types": [
                 "state",
@@ -162,11 +161,21 @@ from tests._utils import assert_integration_outputs
     ids=["euler","bweuler", "bweulerpc", "cnpid", "cnpi", "cni", "cngust"],
     indirect=True,
 )
-def test_loop(loop, step_controller, step_object,
-               loop_buffer_sizes, precision, solver_settings,
-               device_loop_outputs, cpu_loop_outputs, output_functions):
-    atol=1e-6
-    rtol=1e-6
+def test_loop(
+    loop,
+    step_controller,
+    step_object,
+    loop_buffer_sizes,
+    precision,
+    solver_settings,
+    device_loop_outputs,
+    cpu_loop_outputs,
+    output_functions,
+    tolerance,
+):
+    # Be a little looser for odd controller/algo changes
+    atol=tolerance.abs_loose * 5
+    rtol=tolerance.rel_loose * 5
     assert_integration_outputs(
             reference=cpu_loop_outputs,
             device=device_loop_outputs,

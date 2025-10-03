@@ -386,7 +386,7 @@ def _newton_solve(
     state = initial_guess.astype(precision, copy=True)
     for iteration in range(max_iters):
         res = residual(state)
-        res_norm = np.linalg.norm(res, ord=np.inf)
+        res_norm = np.linalg.norm(res, ord=2)
         if res_norm < tol:
             return state, True, iteration + 1
         jac = jacobian(state)
@@ -415,7 +415,7 @@ def backward_euler_step(
     precision = evaluator.precision
     next_time = time + precision(dt)
 
-    drivers_next = driver_evaluator(time + dt)
+    drivers_next = driver_evaluator(next_time)
 
     def residual(candidate: Array) -> Array:
         candidate_observables = evaluator.observables(
@@ -722,7 +722,7 @@ class CPUAdaptiveController:
         kd: float = 1/18,
         gamma: float = 0.9,
         safety: float = 0.9,
-        min_gain: float = 0.2,
+        min_gain: float = 0.5,
         max_gain: float = 2.0,
         max_newton_iters: int = 0,
         deadband_min: float = 1.0,
@@ -939,7 +939,7 @@ def run_reference_loop(
     warmup = precision(solver_settings["warmup"])
     dt_save = precision(solver_settings["dt_save"])
     dt_summarise = precision(solver_settings["dt_summarise"])
-    # controller.dt = controller.dt0
+    controller.dt = controller.dt0
     status_flags = 0
     zero = precision(0.0)
 

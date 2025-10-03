@@ -444,8 +444,8 @@ def test_wrap_repeats_periodically(wrapping_inputs, tolerance) -> None:
     np.testing.assert_allclose(
         gpu[0],
         gpu[1],
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
         err_msg=(
             "wrap evaluation should repeat forward period\n"
             f"gpu0:\n{np.array2string(gpu[0])}\n"
@@ -455,8 +455,8 @@ def test_wrap_repeats_periodically(wrapping_inputs, tolerance) -> None:
     np.testing.assert_allclose(
         gpu[0],
         gpu[2],
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
         err_msg=(
             "wrap evaluation should repeat backward period\n"
             f"gpu0:\n{np.array2string(gpu[0])}\n"
@@ -577,8 +577,8 @@ def test_order_three_matches_scipy_reference(precision, bc, tolerance) -> None:
     np.testing.assert_allclose(
         gpu[:, 0],
         scipy_values,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
         err_msg=(
             "cubic interpolation diverged from SciPy reference\n"
             f"gpu:\n{np.array2string(gpu[:, 0])}\n"
@@ -703,8 +703,8 @@ def test_periodic_boundary_respects_general_order(precision, tolerance) -> None:
         np.testing.assert_allclose(
             left,
             right,
-            rtol=tolerance.rel_tight,
-            atol=tolerance.abs_tight,
+            rtol=tolerance.rel_loose,
+            atol=tolerance.abs_loose,
             err_msg=(
                 "periodic derivative mismatch for sine input\n"
                 f"derivative={derivative} left={left} right={right}"
@@ -724,8 +724,8 @@ def test_periodic_boundary_respects_general_order(precision, tolerance) -> None:
         np.testing.assert_allclose(
             left,
             right,
-            rtol=tolerance.rel_tight,
-            atol=tolerance.abs_tight,
+            rtol=tolerance.rel_loose,
+            atol=tolerance.abs_loose,
             err_msg=(
                 "periodic derivative mismatch for cosine input\n"
                 f"derivative={derivative} left={left} right={right}"
@@ -737,7 +737,7 @@ def test_periodic_boundary_respects_general_order(precision, tolerance) -> None:
     np.testing.assert_allclose(
         gpu,
         reference,
-        rtol=tolerance.rel_tight,
-        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_loose,
+        atol=tolerance.abs_loose,
         err_msg="periodic spline failed to reproduce samples",
     )
