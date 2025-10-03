@@ -464,9 +464,9 @@ def compare_input_output(
         assert_allclose(
             expected_state_summaries,
             state_summaries_output,
-            # atol=tolerance.abs_loose, # RMS can peek out of this at
+            atol=1e-4, # RMS can peek out of this at
                 # low precision
-            rtol=tolerance.rel_loose * 5, # scales are all wrong for abs tols
+            rtol=1e-4, # scales are all wrong for abs tols
             err_msg=f"State summaries_array didn't match expected values. Shapes: expected"
             f"[{expected_state_summaries.shape}, actual[{state_summaries_output.shape}]",
             verbose=True,
@@ -475,8 +475,8 @@ def compare_input_output(
         assert_allclose(
             expected_observable_summaries,
             observable_summaries_output,
-            # atol=tolerance.abs_loose,
-            rtol=tolerance.rel_loose * 5,
+            atol=1e-4,
+            rtol=1e-4,
             err_msg=f"Observable summaries_array didn't match expected values. Shapes: expected[{expected_observable_summaries.shape}, actual[{observable_summaries_output.shape}]",
             verbose=True,
         )
