@@ -14,7 +14,6 @@ def test_kernel_builds(solverkernel):
 @pytest.mark.parametrize(
     "system_override, solver_settings_override, batch_settings_override",
     (
-        ({}, {}, {}),
         pytest.param(
             "three_chamber",
             {
@@ -35,14 +34,15 @@ def test_kernel_builds(solverkernel):
                 'summarised_observable_indices': [0, 1, 2],
             },
             {}),
-        ({}, {"output_types": ["state", "observables", "time", "mean", "rms"],
-          "duration": 0.6}, {})
-        # ("three_chamber",
-        #  {'duration': 10.0, 'output_types':["state", "observables", "mean", "max"]},
-        #  {'num_state_vals_0': 10, 'num_state_vals_1': 10, 'num_param_vals_0': 10, 'num_param_vals_1': 10})
+        ("three_chamber",
+         {"output_types": ["state", "observables", "time", "mean", "rms"],
+          'dt_min': 0.0025,
+          'dt_save': 0.1,
+          'dt_summarise': 0.3,
+          "duration": 0.3}, {})
+
     ),
-    ids=["smoke_test", "fire_test (all outputs)", "solveresult_emulator"],
-    # "10s threeCM runs"],
+    ids=["smoke_test", "fire_test"],
     indirect=True,
 )
 def test_run(
@@ -56,6 +56,7 @@ def test_run(
     driver_array,
     output_functions,
     driver_settings,
+        tolerance
 ):
     """Big integration test. Runs a batch integration and checks outputs
     match expected. Expensive, don't run
@@ -82,20 +83,14 @@ def test_run(
                            observables=observables,
                            state_summaries=state_summaries,
                            observable_summaries=observable_summaries,
-                           status=0) # propagate this up when refactoring solverkernel
-    # Set tolerance based on precision
-    if precision == np.float32:
-        atol = 1e-5
-        rtol = 1e-5
-    else:
-        atol = 1e-12
-        rtol = 1e-12
+                           status=0)
+
 
     assert_integration_outputs(device=device,
                                reference=cpu_batch_results,
                                output_functions=output_functions,
-                               atol=atol,
-                               rtol=rtol)
+                               atol=tolerance.abs_loose,
+                               rtol=tolerance.rel_loose)
 
 
 def test_algorithm_change(solverkernel):

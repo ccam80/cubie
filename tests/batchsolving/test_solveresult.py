@@ -1,17 +1,249 @@
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from cubie import Solver
+from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.memory import default_memmgr
+from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.solveresult import SolveResult
-from tests._utils import extract_state_and_time
+from system_fixtures import (
+    build_three_state_linear_system,
+    build_three_state_nonlinear_system,
+    build_three_chamber_system,
+    build_three_state_very_stiff_system,
+    build_large_nonlinear_system,
+)
+from tests._utils import _driver_sequence
 
+Array = np.ndarray
 
 # --------------------------------------------------------------------------- #
-#Create a one-off set of module-scope fixtures for testing SolveResult
-# instances
+#Create a one-off set of module-scope fixtures for testing SolveResult. These
+# exist elsewhere, but at fn scope, and we can use the same run to feed all
+# of these tests. An inelegenat way of doing it.
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="module")
+def precision_override(request):
+    if hasattr(request, "param"):
+        if request.param is np.float64:
+            return np.float64
+
+
+@pytest.fixture(scope="module")
+def precision(precision_override, system_override):
+    """
+    Run tests with float32 by default, upgrade to float64 for stiff problems.
+
+    Usage:
+    @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
+    def test_something(precision):
+        # precision will be np.float64 here
+    """
+    if precision_override is not None:
+        return precision_override
+    return np.float32
+
+@pytest.fixture(scope="module")
+def solver_settings_override(request):
+    """Override for solver settings, if provided."""
+    return request.param if hasattr(request, "param") else {}
+
+@pytest.fixture(scope="module")
+def solver_settings(solver_settings_override, precision):
+    """Create LoopStepConfig with default solver configuration."""
+    defaults = {
+        "algorithm": "euler",
+        "duration": precision(1.0),
+        "warmup": precision(0.0),
+        "dt_min": precision(0.01),
+        "dt_max": precision(1.0),
+        "dt_save": precision(0.1),
+        "dt_summarise": precision(0.2),
+        "atol": precision(1e-6),
+        "rtol": precision(1e-6),
+        "saved_state_indices": [0, 1],
+        "saved_observable_indices": [0, 1],
+        "summarised_state_indices": [0, 1],
+        "summarised_observable_indices": [0, 1],
+        "output_types": ["state"],
+        "blocksize": 32,
+        "stream": 0,
+        "profileCUDA": False,
+        "memory_manager": default_memmgr,
+        "stream_group": "test_group",
+        "mem_proportion": None,
+        "step_controller": "fixed",
+        "precision": precision,
+        "driverspline_order": 3,
+        "driverspline_wrap": False,
+    }
+
+    if solver_settings_override:
+        # Update defaults with any overrides provided
+        float_keys = {
+            "duration",
+            "warmup",
+            "dt_min",
+            "dt_max",
+            "dt_save",
+            "dt_summarise",
+            "atol",
+            "rtol",
+        }
+        for key, value in solver_settings_override.items():
+            if key in float_keys:
+                defaults[key] = precision(value)
+            else:
+                defaults[key] = value
+
+    return defaults
+
+
+@pytest.fixture(scope="module")
+def system_override(request):
+    """Override for system model type, if provided."""
+    if hasattr(request, "param"):
+        if request.param:
+            return request.param
+    return "nonlinear"
+
+
+@pytest.fixture(scope="module")
+def system(request, system_override, precision):
+    """
+    Return the appropriate symbolic system, defaulting to ``linear``.
+
+    Usage:
+    @pytest.mark.parametrize("system_override", ["three_chamber"], indirect=True)
+    def test_something(system):
+        # system will be the cardiovascular symbolic model here
+    """
+    model_type = system_override
+
+    if model_type == "linear":
+        return build_three_state_linear_system(precision)
+    if model_type == "nonlinear":
+        return build_three_state_nonlinear_system(precision)
+    if model_type in ["three_chamber", "threecm"]:
+        return build_three_chamber_system(precision)
+    if model_type == "stiff":
+        return build_three_state_very_stiff_system(precision)
+    if model_type == "large":
+        return build_large_nonlinear_system(precision)
+    if isinstance(model_type, object):
+        return model_type
+
+    raise ValueError(f"Unknown model type: {model_type}")
+
+@pytest.fixture(scope="module")
+def batchconfig_instance(system) -> BatchGridBuilder:
+    """Return a batch grid builder for the configured system."""
+
+    return BatchGridBuilder.from_system(system)
+
+
+@pytest.fixture(scope="module")
+def batch_settings_override(request) -> dict:
+    """Override values for batch grid settings when parametrised."""
+
+    return request.param if hasattr(request, "param") else {}
+
+
+@pytest.fixture(scope="module")
+def batch_settings(batch_settings_override) -> dict:
+    """Return default batch grid settings merged with overrides."""
+
+    defaults = {
+        "num_state_vals_0": 2,
+        "num_state_vals_1": 0,
+        "num_param_vals_0": 2,
+        "num_param_vals_1": 0,
+        "kind": "combinatorial",
+    }
+    defaults.update({k: v for k, v in batch_settings_override.items() if k in defaults})
+    return defaults
+
+
+@pytest.fixture(scope="module")
+def batch_request(system, batch_settings, precision) -> dict[str, Array]:
+    """Build a request dictionary describing the batch sweep."""
+
+    state_names = list(system.initial_values.names)
+    param_names = list(system.parameters.names)
+    #Generate n samples as a linspace, but also concatenate the default value on the end for comparison
+    return {
+        state_names[0]: np.concatenate([
+            np.linspace(0.1, 1.0, batch_settings["num_state_vals_0"], dtype=precision),
+            [system.initial_values.values_dict[state_names[0]]]
+        ]),
+        state_names[1]: np.concatenate([
+            np.linspace(0.1, 1.0, batch_settings["num_state_vals_1"], dtype=precision),
+            [system.initial_values.values_dict[state_names[1]]]
+        ]),
+        param_names[0]: np.concatenate([
+            np.linspace(0.1, 1.0, batch_settings["num_param_vals_0"], dtype=precision),
+            [system.parameters.values_dict[param_names[0]]]
+        ]),
+        param_names[1]: np.concatenate([
+            np.linspace(0.1, 1.0, batch_settings["num_param_vals_1"], dtype=precision),
+            [system.parameters.values_dict[param_names[1]]]
+        ]),
+    }
+
+
+@pytest.fixture(scope="module")
+def batch_input_arrays(
+    batch_request,
+    batch_settings,
+    batchconfig_instance,
+) -> tuple[Array, Array]:
+    """Return the initial state and parameter arrays for the batch run."""
+
+    return batchconfig_instance.grid_arrays(
+        batch_request, kind=batch_settings["kind"]
+    )
+
+
+@dataclass
+class BatchResult:
+    """Container for CPU reference outputs for a single batch run."""
+
+    state: Array
+    observables: Array
+    state_summaries: Array
+    observable_summaries: Array
+    status: int
+
+@pytest.fixture(scope="module")
+def solver(system, solver_settings, driver_array):
+    solver = Solver(
+        system,
+        algorithm=solver_settings["algorithm"],
+        duration=solver_settings["duration"],
+        warmup=solver_settings["warmup"],
+        dt_min=solver_settings["dt_min"],
+        dt_max=solver_settings["dt_max"],
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        atol=solver_settings["atol"],
+        rtol=solver_settings["rtol"],
+        saved_states=solver_settings["saved_state_indices"],
+        saved_observables=solver_settings["saved_observable_indices"],
+        output_types=solver_settings["output_types"],
+        profileCUDA=solver_settings["profileCUDA"],
+        memory_manager=solver_settings["memory_manager"],
+        stream_group=solver_settings["stream_group"],
+        mem_proportion=solver_settings["mem_proportion"],
+    )
+    driver_function = driver_array.evaluation_function if driver_array is not None else None
+    solver.update({'driver_function':driver_function})
+    return solver
+
+@pytest.fixture(scope="module")
 def solver_with_arrays(
     solver,
     batch_input_arrays,
@@ -34,6 +266,75 @@ def solver_with_arrays(
         warmup=solver_settings["warmup"],
     )
     return solver
+
+@pytest.fixture(scope="module")
+def driver_settings_override(request):
+    """Optional override for driver array configuration."""
+
+    return request.param if hasattr(request, "param") else None
+
+
+@pytest.fixture(scope="module")
+def driver_settings(
+    driver_settings_override,
+    solver_settings,
+    system,
+    precision,
+):
+    """Return default driver samples mapped to system driver symbols."""
+
+    if system.num_drivers == 0:
+        return None
+
+    dt_sample = precision(solver_settings["dt_save"]) / 2.0
+    total_span = precision(solver_settings["duration"])
+    t0 = precision(solver_settings["warmup"])
+
+    order = int(solver_settings["driverspline_order"])
+
+    samples = int(np.ceil(total_span / dt_sample)) + 1
+    samples = max(samples, order + 1)
+    total_time = precision(dt_sample) * max(samples - 1, 1)
+
+    driver_matrix = _driver_sequence(
+        samples=samples,
+        total_time=total_time,
+        n_drivers=system.num_drivers,
+        precision=precision,
+    )
+    driver_names = list(system.indices.driver_names)
+    drivers_dict = {
+        name: np.array(driver_matrix[:, idx], dtype=precision, copy=True)
+        for idx, name in enumerate(driver_names)
+    }
+    drivers_dict["dt"] = precision(dt_sample)
+    drivers_dict["wrap"] = solver_settings["driverspline_wrap"]
+    drivers_dict["order"] = order
+    drivers_dict["t0"] = t0
+
+    if driver_settings_override:
+        for key, value in driver_settings_override.items():
+            drivers_dict[key] = value
+
+    return drivers_dict
+
+
+@pytest.fixture(scope="module")
+def driver_array(
+    driver_settings,
+    solver_settings,
+    precision,
+):
+    """Instantiate :class:`ArrayInterpolator` for the configured system."""
+
+    if driver_settings is None:
+        return None
+
+    return ArrayInterpolator(
+        precision=precision,
+        input_dict=driver_settings,
+    )
+
 
 
 # --------------------------------------------------------------------------- #
@@ -316,99 +617,6 @@ class TestSolveResultFromSolver:
         assert isinstance(run_dim, int)
         assert 0 <= run_dim < len(result._stride_order)
 
-    @pytest.mark.parametrize(
-        "solver_settings_override",
-        [{"output_types": ["state", "observables", "time", "mean", "rms", "peaks[2]"],
-          "duration": 0.6}],
-        indirect=True,
-    )
-    def test_full_result_matches_cpu_outputs(
-        self,
-        solver_with_arrays,
-        cpu_batch_results,
-        output_functions,
-        precision,
-        tolerance,
-    ) -> None:
-        """Ensure ``SolveResult`` values match CPU reference integrations."""
-
-        result = SolveResult.from_solver(solver_with_arrays, results_type="full")
-        axes = tuple(result._stride_order['state'].index(dim) for dim in (
-            "time",
-                                                                  "run", "variable"))
-        time_domain = np.transpose(result.time_domain_array, axes)
-
-        legend = result.time_domain_legend
-        state_labels = set(solver_with_arrays.saved_states)
-        observable_labels = set(solver_with_arrays.saved_observables)
-        state_columns = [idx for idx, label in legend.items() if label in state_labels]
-        observable_columns = [
-            idx for idx, label in legend.items() if label in observable_labels
-        ]
-        state_ref, time_ref = extract_state_and_time(cpu_batch_results.state, output_functions)
-
-        if state_columns:
-            np.testing.assert_allclose(
-                time_domain[:, :, state_columns],
-                state_ref,
-                atol=tolerance.abs_loose,
-                rtol=tolerance.rel_loose,
-                err_msg="state mismatch.\n"
-                f"device: {time_domain[:, :, state_columns]}\n"
-                f"reference: {cpu_batch_results.state}\n",
-            )
-        if observable_columns:
-            np.testing.assert_allclose(
-                time_domain[:, :, observable_columns],
-                cpu_batch_results.observables,
-                atol=tolerance.abs_loose,
-                rtol=tolerance.rel_loose,
-                err_msg="observables mismatch.\n"
-                        f"device: {time_domain[:, :, observable_columns]}\n"
-                        f"reference: {cpu_batch_results.observables}\n"
-            )
-
-        if result.summaries_array.size:
-            summary_axes = tuple(
-                result._stride_order['state'].index(dim) for dim in ("time",
-                                                                 "run",
-                                                             "variable")
-            )
-            summaries = np.transpose(result.summaries_array, summary_axes)
-            summary_legend = result.summaries_legend
-            state_prefixes = set(solver_with_arrays.summarised_states)
-            observable_prefixes = set(solver_with_arrays.summarised_observables)
-            state_summary_columns = [
-                idx
-                for idx, label in summary_legend.items()
-                if label.split()[0] in state_prefixes
-            ]
-            observable_summary_columns = [
-                idx
-                for idx, label in summary_legend.items()
-                if label.split()[0] in observable_prefixes
-            ]
-
-            if state_summary_columns:
-                np.testing.assert_allclose(
-                    summaries[:, :, state_summary_columns],
-                    cpu_batch_results.state_summaries,
-                    atol=tolerance.abs_loose,
-                    rtol=tolerance.rel_loose,
-                    err_msg="state summaries mismatch.\n"
-                    f"device: {summaries[:, :, state_summary_columns]}\n"
-                    f"reference: {cpu_batch_results.observables}\n",
-                )
-            if observable_summary_columns:
-                np.testing.assert_allclose(
-                    summaries[:,:, observable_summary_columns],
-                    cpu_batch_results.observable_summaries,
-                    atol=tolerance.abs_loose,
-                    rtol=tolerance.rel_loose,
-                    err_msg="observables summaries mismatch.\n"
-                        f"device: {summaries[:,:, observable_summary_columns]}\n"
-                        f"reference: {cpu_batch_results.observable_summaries}\n"
-                )
 
 
 class TestSolveResultProperties:

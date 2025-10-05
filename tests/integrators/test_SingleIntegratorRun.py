@@ -52,7 +52,7 @@ def _settings_to_dict(settings_source):
 
 
 @pytest.mark.parametrize(
-    ("solver_settings_override", "precision_override"),
+    ("solver_settings_override"),
     [
         (
             {
@@ -60,8 +60,11 @@ def _settings_to_dict(settings_source):
                 "step_controller": "fixed",
                 "dt_min": 0.01,
                 "dt_max": 0.01,
+                "dt_save": 0.1,
+                "dt_summarise": 0.3,
+                "duration": 0.3,
+                "output_types": ["state","time", "observables","mean"]
             },
-            None,
         ),
         (
             {
@@ -71,13 +74,15 @@ def _settings_to_dict(settings_source):
                 "rtol": 1e-5,
                 "dt_min": 1e-7,
                 "dt_max": 0.1,
+                "dt_save": 0.1,
+                "dt_summarise": 0.3,
+                "duration": 0.3,
+                "output_types": ["state","time", "observables","mean"],
                 "saved_state_indices": [0],
                 "saved_observable_indices": [0],
                 "summarised_state_indices": [0],
                 "summarised_observable_indices": [0],
             },
-            None,
-            # np.float64,
         ),
     ],
     indirect=True,
