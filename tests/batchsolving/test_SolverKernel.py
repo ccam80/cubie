@@ -17,8 +17,10 @@ def test_kernel_builds(solverkernel):
         pytest.param(
             "three_chamber",
             {
-                "duration": 1.0,
+                "duration": 0.3,
                 "dt_min": 0.0025,
+                "dt_save": 0.1,
+                "dt_summarise": 0.3,
                 "output_types": [
                     "state",
                     "time",

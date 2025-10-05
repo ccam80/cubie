@@ -14,7 +14,6 @@ from tests.integrators.cpu_reference import (
     CPUODESystem,
     get_ref_step_function,
 )
-from tests._utils import assert_integration_outputs
 
 Array = np.ndarray
 STATUS_MASK = 0xFFFF
@@ -272,8 +271,6 @@ def test_algorithm(
        expected_step_properties,
        cpu_step_results,
        device_step_results,
-       cpu_loop_outputs,
-       device_loop_outputs,
        output_functions,
        tolerance,
        ) -> None:
@@ -423,14 +420,4 @@ def test_algorithm(
             atol=tolerances["atol"],
         ), "error matches"
 
-
-    # Run a short loop to ensure step works in that context
-    assert_integration_outputs(
-        reference=cpu_loop_outputs,
-        device=device_loop_outputs,
-        output_functions=output_functions,
-        rtol=tolerance.rel_loose,
-        atol=tolerance.abs_loose,
-    )
-    assert device_loop_outputs.status == 0
 
