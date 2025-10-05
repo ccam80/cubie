@@ -311,9 +311,10 @@ class Solver:
             states=initial_values, params=parameters, kind=grid_type
         )
 
-        ArrayInterpolator.check_against_system_drivers(drivers,
-                                                           self.system)
-        fn_changed = self.driver_interpolator.update_from_dict(drivers)
+        if drivers is not None:
+            ArrayInterpolator.check_against_system_drivers(drivers,
+                                                               self.system)
+            fn_changed = self.driver_interpolator.update_from_dict(drivers)
         if fn_changed:
             self.update({"driver_function": (
                 self.driver_interpolator.device_function)})

@@ -505,33 +505,6 @@ class BatchSolverKernel(CUDAFactory):
                           f32_pad_perrun))
 
         # no cover: start
-        @cuda.jit((precision[:,:,:], precision[:,:,:]),
-                  device=True,
-                  inline=True)
-        def initialise_driver_coefficients(device_array, constant_array):
-            """Copy coefficients from device array into constant memory.
-
-            Parameters
-            ----------
-            device_input : device array
-                Input array of shape (num_segments, num_drivers, spline_order)
-            constant_array : constant array
-                Output array, declared in constant memory using
-                const.array_like(device_input)
-
-            Returns
-            -------
-            None, updates constant_array in place.
-            """
-            num_segments = constant_array.shape[0]
-            num_drivers = constant_array.shape[1]
-            num_orders = constant_array.shape[2]
-
-            for i in range(num_segments):
-                for j in range(num_drivers):
-                    for k in range(num_orders):
-                        constant_array[i,j,k] = device_array[i,j,k]
-
         @cuda.jit(
             (
                 precision[:, :],
@@ -576,11 +549,8 @@ class BatchSolverKernel(CUDAFactory):
                 local_elements_per_run, dtype=float32
             )
             c_coefficients = cuda.const.array_like(d_coefficients)
-            initialise_driver_coefficients(d_coefficients, c_coefficients)
-
 
             # Run-indexed slices of shared and output memory
-
             run_idx_low = ty * run_stride_f32
             run_idx_high = (run_idx_low + f32_per_element *
                             shared_elements_per_run)
