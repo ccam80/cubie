@@ -97,7 +97,7 @@ class FakeMemoryInfo:  # pragma: no cover - placeholder
     total = 8 * 1024 ** 3
 
 
-if CUDA_SIMULATION:
+if CUDA_SIMULATION:  # pragma: no cover - simulated         
     from numba.cuda.simulator.cudadrv.devicearray import FakeCUDAArray
 
     NumbaCUDAMemoryManager = FakeNumbaCUDAMemoryManager
@@ -174,7 +174,7 @@ def is_devfunc(func: Callable[..., Any]) -> bool:
         ``True`` when ``func`` is tagged as a CUDA device function.
     """
 
-    if CUDA_SIMULATION:
+    if CUDA_SIMULATION:  # pragma: no cover - simulated
         return bool(getattr(func, "_device", False))
     target_options = getattr(func, "targetoptions", None)
     if isinstance(target_options, dict):
@@ -182,7 +182,7 @@ def is_devfunc(func: Callable[..., Any]) -> bool:
     return False
 
 
-if CUDA_SIMULATION:
+if CUDA_SIMULATION:  # pragma: no cover - simulated
     @cuda.jit(device=True, inline=True)
     def selp(pred, true_value, false_value):
         return true_value if pred else false_value

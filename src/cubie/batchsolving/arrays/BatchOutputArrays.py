@@ -1,12 +1,6 @@
-"""
-Batch Output Arrays Module.
+"""Manage output array lifecycles for batch solver executions."""
 
-This module provides classes for managing output arrays in batch integration
-operations, including containers for storing results and managers for handling
-memory allocation and data transfer between host and device.
-"""
-
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Union
 
 if TYPE_CHECKING:
     from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -14,6 +8,9 @@ if TYPE_CHECKING:
 import attrs
 import attrs.validators as val
 import numpy as np
+from numpy.typing import NDArray
+
+ChunkIndices = Union[slice, NDArray[np.integer]]
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (
@@ -34,17 +31,17 @@ class OutputArrayContainer(ArrayContainer):
 
     Parameters
     ----------
-    state : ArrayTypes, optional
-        State variable trajectories over time.
-    observables : ArrayTypes, optional
-        Observable variable trajectories over time.
-    state_summaries : ArrayTypes, optional
-        Summary statistics for state variables.
-    observable_summaries : ArrayTypes, optional
-        Summary statistics for observable variables.
-    stride_order : tuple[str, ...], default=("time", "run", "variable")
-        Order of array dimensions.
-    _memory_type : str, default="device"
+    state
+        Optional state variable trajectories over time.
+    observables
+        Optional observable variable trajectories over time.
+    state_summaries
+        Optional summary statistics for state variables.
+    observable_summaries
+        Optional summary statistics for observable variables.
+    stride_order
+        Mapping of array labels to their stride orders.
+    _memory_type
         Type of memory allocation.
 
     Notes
@@ -57,8 +54,14 @@ class OutputArrayContainer(ArrayContainer):
     observables: ArrayTypes = attrs.field(default=None)
     state_summaries: ArrayTypes = attrs.field(default=None)
     observable_summaries: ArrayTypes = attrs.field(default=None)
-    stride_order: tuple[str, ...] = attrs.field(
-        default=("time", "run", "variable"), init=False
+    stride_order: dict[str, tuple[str, ...]] = attrs.field(
+        factory=lambda: {
+            "state": ("time", "run", "variable"),
+            "observables": ("time", "run", "variable"),
+            "state_summaries": ("time", "run", "variable"),
+            "observable_summaries": ("time", "run", "variable"),
+        },
+        init=False,
     )
     _memory_type: str = attrs.field(
         default="device",
@@ -66,7 +69,7 @@ class OutputArrayContainer(ArrayContainer):
     )
 
     @classmethod
-    def host_factory(cls):
+    def host_factory(cls) -> "OutputArrayContainer":
         """
         Create a new host memory container.
 
@@ -78,7 +81,7 @@ class OutputArrayContainer(ArrayContainer):
         return cls(memory_type="host")
 
     @classmethod
-    def device_factory(cls):
+    def device_factory(cls) -> "OutputArrayContainer":
         """
         Create a new device memory container.
 
@@ -100,13 +103,13 @@ class ActiveOutputs:
 
     Parameters
     ----------
-    state : bool, default=False
+    state
         Whether state output is active.
-    observables : bool, default=False
+    observables
         Whether observables output is active.
-    state_summaries : bool, default=False
+    state_summaries
         Whether state summaries output is active.
-    observable_summaries : bool, default=False
+    observable_summaries
         Whether observable summaries output is active.
     """
 
@@ -121,14 +124,19 @@ class ActiveOutputs:
         default=False, validator=val.instance_of(bool)
     )
 
-    def update_from_outputarrays(self, output_arrays: "OutputArrays"):
+    def update_from_outputarrays(self, output_arrays: "OutputArrays") -> None:
         """
         Update active outputs based on OutputArrays instance.
 
         Parameters
         ----------
-        output_arrays : OutputArrays
+        output_arrays
             The OutputArrays instance to check for active outputs.
+
+        Returns
+        -------
+        None
+            Flags are updated in place.
 
         Notes
         -----
@@ -164,13 +172,13 @@ class OutputArrays(BaseArrayManager):
 
     Parameters
     ----------
-    _sizes : BatchOutputSizes
+    _sizes
         Size specifications for the output arrays.
-    host : OutputArrayContainer
+    host
         Container for host-side arrays.
-    device : OutputArrayContainer
+    device
         Container for device-side arrays.
-    _active_outputs : ActiveOutputs
+    _active_outputs
         Tracker for which outputs are currently active.
 
     Notes
@@ -201,24 +209,32 @@ class OutputArrays(BaseArrayManager):
         init=False,
     )
 
-    def __attrs_post_init__(self):
+    def __attrs_post_init__(self) -> None:
+        """
+        Configure default memory types after initialization.
+
+        Returns
+        -------
+        None
+            This method updates the host and device container metadata.
+        """
         super().__attrs_post_init__()
         self.host._memory_type = "host"
         self.device._memory_type = "mapped"
 
-    def update(self, solver_instance) -> "OutputArrays":
+    def update(self, solver_instance: "BatchSolverKernel") -> None:
         """
         Update output arrays from solver instance.
 
         Parameters
         ----------
-        solver_instance : BatchSolverKernel
+        solver_instance
             The solver instance providing configuration and sizing information.
 
         Returns
         -------
-        OutputArrays
-            Self, for method chaining.
+        None
+            This method updates cached arrays in place.
         """
         new_arrays = self.update_from_solver(solver_instance)
         self.update_host_arrays(new_arrays)
@@ -226,116 +242,48 @@ class OutputArrays(BaseArrayManager):
 
     @property
     def active_outputs(self) -> ActiveOutputs:
-        """
-        Get currently active output types.
-
-        Returns
-        -------
-        ActiveOutputs
-            Object indicating which output arrays are active.
-
-        Notes
-        -----
-        Checks which outputs are requested, treating size-1 arrays as an
-        artifact of the default allocation.
-        """
+        """Active output configuration derived from host allocations."""
         self._active_outputs.update_from_outputarrays(self)
         return self._active_outputs
 
     @property
-    def state(self):
-        """
-        Get host state array.
-
-        Returns
-        -------
-        ArrayTypes
-            The state array from the host container.
-        """
+    def state(self) -> ArrayTypes:
+        """Host state output array."""
         return self.host.state
 
     @property
-    def observables(self):
-        """
-        Get host observables array.
-
-        Returns
-        -------
-        ArrayTypes
-            The observables array from the host container.
-        """
+    def observables(self) -> ArrayTypes:
+        """Host observables output array."""
         return self.host.observables
 
     @property
-    def state_summaries(self):
-        """
-        Get host state summaries array.
-
-        Returns
-        -------
-        ArrayTypes
-            The state summaries array from the host container.
-        """
+    def state_summaries(self) -> ArrayTypes:
+        """Host state summary output array."""
         return self.host.state_summaries
 
     @property
-    def observable_summaries(self):
-        """
-        Get host observable summaries array.
-
-        Returns
-        -------
-        ArrayTypes
-            The observable summaries array from the host container.
-        """
+    def observable_summaries(self) -> ArrayTypes:
+        """Host observable summary output array."""
         return self.host.observable_summaries
 
     @property
-    def device_state(self):
-        """
-        Get device state array.
-
-        Returns
-        -------
-        ArrayTypes
-            The state array from the device container.
-        """
+    def device_state(self) -> ArrayTypes:
+        """Device state output array."""
         return self.device.state
 
     @property
-    def device_observables(self):
-        """
-        Get device observables array.
-
-        Returns
-        -------
-        ArrayTypes
-            The observables array from the device container.
-        """
+    def device_observables(self) -> ArrayTypes:
+        """Device observables output array."""
         return self.device.observables
 
     @property
-    def device_state_summaries(self):
-        """
-        Get device state summaries array.
-
-        Returns
-        -------
-        ArrayTypes
-            The state summaries array from the device container.
-        """
+    def device_state_summaries(self) -> ArrayTypes:
+        """Device state summary output array."""
         return self.device.state_summaries
 
     @property
-    def device_observable_summaries(self):
-        """
-        Get device observable summaries array.
-
-        Returns
-        -------
-        ArrayTypes
-            The observable summaries array from the device container.
-        """
+    def device_observable_summaries(self) -> ArrayTypes:
+        """Device observable summary output array."""
         return self.device.observable_summaries
 
     @classmethod
@@ -349,7 +297,7 @@ class OutputArrays(BaseArrayManager):
 
         Parameters
         ----------
-        solver_instance : BatchSolverKernel
+        solver_instance
             The solver instance to extract configuration from.
 
         Returns
@@ -365,20 +313,21 @@ class OutputArrays(BaseArrayManager):
             stream_group=solver_instance.stream_group,
         )
 
-    def update_from_solver(self, solver_instance: "BatchSolverKernel"):
+    def update_from_solver(
+        self, solver_instance: "BatchSolverKernel"
+    ) -> Dict[str, NDArray[np.floating]]:
         """
-        Update sizes and precision from solver, returning new host arrays
+        Update sizes and precision from solver, returning new host arrays.
 
         Parameters
         ----------
-        solver_instance : BatchSolverKernel
+        solver_instance
             The solver instance to update from.
 
         Returns
         -------
-        dict:
-            A dict of host arrays; np.zeros with updated sizes for the
-            update_host_arrays method to interpret.
+        dict[str, numpy.ndarray]
+            Host arrays with updated shapes for ``update_host_arrays``.
         """
         self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
         new_arrays = {}
@@ -389,14 +338,19 @@ class OutputArrays(BaseArrayManager):
         self._precision = solver_instance.precision
         return new_arrays
 
-    def finalise(self, host_indices):
+    def finalise(self, host_indices: ChunkIndices) -> None:
         """
         Copy mapped arrays to host array slices.
 
         Parameters
         ----------
-        host_indices : slice or array-like
+        host_indices
             Indices for the chunk being finalized.
+
+        Returns
+        -------
+        None
+            This method mutates host buffers in place.
 
         Notes
         -----
@@ -404,14 +358,14 @@ class OutputArrays(BaseArrayManager):
         of host arrays. The copy operation may trigger CUDA runtime
         synchronization.
         """
-        chunk_index = self.host.stride_order.index(self._chunk_axis)
-        slice_tuple = slice_variable_dimension(
-            host_indices, chunk_index, len(self.host.stride_order)
-        )
-
         for array_name, array in self.host.__dict__.items():
             if not array_name.startswith("_"):
                 if getattr(self.active_outputs, array_name):
+                    stride_order = self.host.stride_order[array_name]
+                    chunk_index = stride_order.index(self._chunk_axis)
+                    slice_tuple = slice_variable_dimension(
+                        host_indices, chunk_index, len(stride_order)
+                    )
                     array[slice_tuple] = getattr(
                         self.device, array_name
                     ).copy()
@@ -419,14 +373,19 @@ class OutputArrays(BaseArrayManager):
                     # as transfer is managed by the CUDA runtime. If we just
                     # overwrite, that might jog the cuda runtime to synchronize.
 
-    def initialise(self, host_indices):
+    def initialise(self, host_indices: ChunkIndices) -> None:
         """
         Initialize device arrays before kernel execution.
 
         Parameters
         ----------
-        host_indices : slice or array-like
+        host_indices
             Indices for the chunk being initialized.
+
+        Returns
+        -------
+        None
+            This method performs no operations by default.
 
         Notes
         -----

@@ -60,25 +60,17 @@ def simple_parameters(system):
 
 
 @pytest.fixture(scope="function")
-def simple_forcing_vectors(system, solver_settings, precision):
-    """Create simple forcing vectors for testing."""
-    numvecs = system.sizes.drivers
-    length = int(solver_settings["duration"] / solver_settings["dt_min"])
-    return np.ones((length, numvecs), dtype=precision) * 0.1
-
-
-@pytest.fixture(scope="function")
 def solved_solver_simple(
     solver_instance,
     simple_initial_values,
     simple_parameters,
-    simple_forcing_vectors,
+    driver_settings,
 ):
     """Test basic solve functionality."""
     result = solver_instance.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=driver_settings,
         duration=0.1,
         settling_time=0.0,
         blocksize=32,
@@ -174,18 +166,46 @@ def test_output_properties(solver_instance):
 
 
 
-def test_solve_info_property(precision, solver_instance, solver_settings):
+def test_solve_info_property(
+    precision,
+    solver_instance,
+    solver_settings,
+    tolerance,
+):
     """Test that solve_info returns a valid SolveSpec."""
     solve_info = solver_instance.solve_info
     assert isinstance(solve_info, SolveSpec)
-    assert solve_info.dt_min == pytest.approx(solver_settings["dt_min"])
+    assert solve_info.dt_min == pytest.approx(
+        solver_settings["dt_min"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
     if solver_instance.kernel.single_integrator.is_adaptive:
-        assert solve_info.dt_max == pytest.approx(solver_settings["dt_max"])
-        assert solve_info.atol == pytest.approx(solver_settings["atol"])
-        assert solve_info.rtol == pytest.approx(solver_settings["rtol"])
-    assert solve_info.dt_save == pytest.approx(solver_settings["dt_save"])
-    assert solve_info.dt_summarise == pytest.approx(solver_settings[
-                                                        "dt_summarise"])
+        assert solve_info.dt_max == pytest.approx(
+            solver_settings["dt_max"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
+        assert solve_info.atol == pytest.approx(
+            solver_settings["atol"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
+        assert solve_info.rtol == pytest.approx(
+            solver_settings["rtol"],
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
+    assert solve_info.dt_save == pytest.approx(
+        solver_settings["dt_save"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
+    assert solve_info.dt_summarise == pytest.approx(
+        solver_settings["dt_summarise"],
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
 
     assert solve_info.algorithm == solver_settings["algorithm"]
     assert solve_info.output_types ==  solver_settings["output_types"]
@@ -223,13 +243,13 @@ def test_solve_basic(
     solver_instance,
     simple_initial_values,
     simple_parameters,
-    simple_forcing_vectors,
+    driver_settings,
 ):
     """Test basic solve functionality."""
     result = solver_instance.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=driver_settings,
         duration=0.1,
         settling_time=0.0,
         blocksize=32,
@@ -246,14 +266,14 @@ def test_solve_with_different_grid_types(
     solver_instance,
     simple_initial_values,
     simple_parameters,
-    simple_forcing_vectors,
+    driver_settings,
 ):
     """Test solve with different grid types."""
     # Test combinatorial grid
     result_comb = solver_instance.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=driver_settings,
         duration=0.1,
         grid_type="combinatorial",
     )
@@ -276,7 +296,7 @@ def test_solve_with_different_grid_types(
     result_verb = solver_instance.solve(
         initial_values=verbatim_initial_values,
         parameters=verbatim_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=driver_settings,
         duration=0.1,
         grid_type="verbatim",
     )
@@ -287,7 +307,7 @@ def test_solve_with_different_result_types(
     solver_instance,
     simple_initial_values,
     simple_parameters,
-    simple_forcing_vectors,
+    driver_settings,
 ):
     """Test solve with different result types."""
     result_types = ["full", "numpy"]
@@ -296,7 +316,7 @@ def test_solve_with_different_result_types(
         result = solver_instance.solve(
             initial_values=simple_initial_values,
             parameters=simple_parameters,
-            forcing_vectors=simple_forcing_vectors,
+            drivers=driver_settings,
             duration=0.1,
             results_type=result_type,
         )
@@ -315,16 +335,26 @@ def test_update_basic(solver_instance):
     assert solver_instance.kernel.duration != original_duration
 
 
-def test_update_with_kwargs(solver_instance):
+def test_update_with_kwargs(solver_instance, tolerance):
     """Test update with keyword arguments."""
     original_dt = solver_instance.kernel.single_integrator.dt0
 
     updated_keys = solver_instance.update({}, dt=1e-8)
 
     assert "dt" in updated_keys
-    assert solver_instance.kernel.single_integrator.dt0 == pytest.approx(1e-8)
-    assert (solver_instance.kernel.single_integrator.dt0 !=
-            pytest.approx(original_dt))
+    assert solver_instance.kernel.single_integrator.dt0 == pytest.approx(
+        1e-8,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
+    assert (
+        solver_instance.kernel.single_integrator.dt0
+        != pytest.approx(
+            original_dt,
+            rel=tolerance.rel_tight,
+            abs=tolerance.abs_tight,
+        )
+    )
 
 def test_update_unrecognized_keys(solver_instance):
     """Test that update raises KeyError for unrecognized keys."""
@@ -428,14 +458,14 @@ def test_variable_labels_properties(solver_instance):
 
 # Test the solve_ivp convenience function
 def test_solve_ivp_function(
-    system, simple_initial_values, simple_parameters, simple_forcing_vectors
+    system, simple_initial_values, simple_parameters, driver_settings
 ):
     """Test the solve_ivp convenience function."""
     result = solve_ivp(
         system=system,
         y0=simple_initial_values,
         parameters=simple_parameters,
-        forcing_vectors=simple_forcing_vectors,
+        drivers=driver_settings,
         dt_eval=0.01,
         method="euler",
         duration=0.1,

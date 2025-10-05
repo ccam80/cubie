@@ -75,6 +75,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         Indices of observables summarised by the output handler.
     output_types
         Output modes requested from the output handler.
+    driver_function
+        Optional device function which interpolates arbitrary driver inputs
     step_controller_kind
         Controller family used to manage step sizes. Defaults to
         ``"fixed"``.
@@ -105,6 +107,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         summarised_state_indices: Optional[ArrayLike] = None,
         summarised_observable_indices: Optional[ArrayLike] = None,
         output_types: Optional[list[str]] = None,
+        driver_function: Optional[Callable] = None,
         step_controller_kind: str = "fixed",
         algorithm_parameters: Optional[Dict[str, Any]] = None,
         step_controller_parameters: Optional[Dict[str, Any]] = None,
@@ -147,6 +150,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             dxdt_function=self._system.dxdt_function,
             observables_function=self._system.observables_function,
             get_solver_helper_fn=self._system.get_solver_helper,
+            driver_function=driver_function,
             step_size=fixed_step_size,
             **(algorithm_parameters or {}),
         )
@@ -175,6 +179,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                 observable_summaries_buffer_height= self._output_functions
                 .observable_summaries_buffer_height,
                 is_adaptive=self._step_controller.is_adaptive,
+                driver_function=driver_function
         )
 
     def check_compatibility(self) -> None:
@@ -201,6 +206,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
+        driver_function: Optional[Callable] = None,
         step_size: float = 1e-3,
         **kwargs: Any,
     ) -> BaseAlgorithmStep:
@@ -243,6 +249,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             dxdt_function=dxdt_function,
             get_solver_helper_fn=get_solver_helper_fn,
             observables_function=observables_function,
+            driver_function=driver_function,
             **kwargs,
         )
         return algorithm
@@ -324,6 +331,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         dt_min: float,
         dt_max: float,
         is_adaptive: bool,
+        driver_function: Optional[Callable] = None,
     ) -> IVPLoop:
         """Instantiate the integrator loop.
 
@@ -390,6 +398,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                        dt0=dt0,
                        dt_min=dt_min,
                        dt_max=dt_max,
+                       driver_function=driver_function,
                        is_adaptive=is_adaptive)
         return loop
 
@@ -569,7 +578,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             'update_summaries_fn': self._output_functions.update_summaries_func,
             'save_summaries_fn': self._output_functions.save_summary_metrics_func,
             'step_controller_fn': self._step_controller.device_function,
-            'step_fn': self._algo_step.step_function,
+            'step_function': self._algo_step.step_function,
             'observables_fn': observables_fn
         }
 

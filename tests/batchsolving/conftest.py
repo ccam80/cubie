@@ -8,7 +8,6 @@ import numpy as np
 import pytest
 
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
-from tests._utils import _driver_sequence
 
 
 Array = np.ndarray
@@ -101,25 +100,18 @@ def cpu_batch_results(
     system,
     solver_settings,
     precision,
+    driver_array,
 ) -> BatchResult:
     """Compute CPU reference outputs for each run in the requested batch."""
 
     initial_sets, parameter_sets = batch_input_arrays
-    samples = int(np.ceil(solver_settings["duration"]
-                    / (solver_settings["dt_save"])))
-    driver_matrix = _driver_sequence(
-        samples=samples,
-        total_time=solver_settings["duration"],
-        n_drivers=system.num_drivers,
-        precision=precision,
-    )
-
     results: list[BatchResult] = []
+    coefficients = driver_array.coefficients if driver_array is not None else None
     for idx in range(initial_sets.shape[0]):
         loop_result = cpu_loop_runner(
             initial_values=initial_sets[idx, :],
             parameters=parameter_sets[idx, :],
-            forcing_vectors=driver_matrix,
+            driver_coefficients=coefficients
         )
         results.append(
             BatchResult(

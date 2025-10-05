@@ -8,6 +8,7 @@ from numpy._typing import ArrayLike
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
+from cubie.cuda_simsafe import selp
 
 import numpy as np
 
@@ -24,7 +25,9 @@ class AdaptiveIController(BaseAdaptiveStepController):
         algorithm_order: int = 2,
         n: int = 1,
         min_gain: float = 0.2,
-        max_gain: float = 5.0,
+        max_gain: float = 2.0,
+        deadband_min: float = 1.0,
+        deadband_max: float = 1.2,
     ) -> None:
         """Initialise an integral step controller.
 
@@ -48,6 +51,10 @@ class AdaptiveIController(BaseAdaptiveStepController):
             Lower bound for the step size change factor.
         max_gain
             Upper bound for the step size change factor.
+        deadband_min
+            Lower gain threshold for holding the previous step size.
+        deadband_max
+            Upper gain threshold for holding the previous step size.
         """
 
         config = AdaptiveStepControlConfig(
@@ -60,6 +67,8 @@ class AdaptiveIController(BaseAdaptiveStepController):
             min_gain=min_gain,
             max_gain=max_gain,
             n=n,
+            deadband_min=deadband_min,
+            deadband_max=deadband_max,
         )
 
         super().__init__(config)
@@ -117,6 +126,13 @@ class AdaptiveIController(BaseAdaptiveStepController):
             CUDA device function implementing the integral controller.
         """
         order_exponent = precision(1.0 / (2 * (1 + order)))
+        unity_gain = precision(1.0)
+        deadband_min = precision(self.deadband_min)
+        deadband_max = precision(self.deadband_max)
+        deadband_disabled = (
+            (deadband_min == unity_gain)
+            and (deadband_max == unity_gain)
+        )
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(device=True, inline=True, fastmath=True)
@@ -167,6 +183,12 @@ class AdaptiveIController(BaseAdaptiveStepController):
 
             gaintmp = safety * (nrm2 ** order_exponent)
             gain = clamp(gaintmp, min_gain, max_gain)
+            if not deadband_disabled:
+                within_deadband = (
+                    (gain >= deadband_min)
+                    and (gain <= deadband_max)
+                )
+                gain = selp(within_deadband, unity_gain, gain)
 
             # Update step from the current dt
             dt_new_raw = dt[0] * gain

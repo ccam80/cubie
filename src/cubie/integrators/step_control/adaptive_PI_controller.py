@@ -11,6 +11,7 @@ from cubie._utils import _expand_dtype
 from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig, BaseAdaptiveStepController
 )
+from cubie.cuda_simsafe import selp
 
 
 @define
@@ -23,11 +24,11 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
     systems than a pure integral controller.
     """
     _kp: float = field(
-        default=0.075,
+        default=1/18,
         validator=validators.instance_of(_expand_dtype(float))
     )
     _ki: float = field(
-        default=0.175,
+        default=1/9,
         validator=validators.instance_of(_expand_dtype(float))
     )
 
@@ -58,6 +59,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
         ki: float = -1/3,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
+        deadband_min: float = 1.0,
+        deadband_max: float = 1.2,
     ) -> None:
         """Initialise a proportional–integral step controller.
 
@@ -85,6 +88,10 @@ class AdaptivePIController(BaseAdaptiveStepController):
             Lower bound for the step size change factor.
         max_gain
             Upper bound for the step size change factor.
+        deadband_min
+            Lower gain threshold for holding the previous step size.
+        deadband_max
+            Upper gain threshold for holding the previous step size.
         """
 
         config = PIStepControlConfig(
@@ -99,6 +106,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
             kp=kp,
             ki=ki,
             n=n,
+            deadband_min=deadband_min,
+            deadband_max=deadband_max,
         )
 
         super().__init__(config)
@@ -176,6 +185,13 @@ class AdaptivePIController(BaseAdaptiveStepController):
         """
         kp = precision(self.kp / ((order + 1) * 2))
         ki = precision(self.ki / ((order + 1) * 2))
+        unity_gain = precision(1.0)
+        deadband_min = precision(self.deadband_min)
+        deadband_max = precision(self.deadband_max)
+        deadband_disabled = (
+            (deadband_min == unity_gain)
+            and (deadband_max == unity_gain)
+        )
 
         # step sizes and norms can be approximate - fastmath is fine
         @cuda.jit(device=True, inline=True, fastmath=True)
@@ -226,6 +242,12 @@ class AdaptivePIController(BaseAdaptiveStepController):
             igain = precision(err_source ** (ki))
             gain_new = safety * pgain * igain
             gain = clamp(gain_new, min_gain, max_gain)
+            if not deadband_disabled:
+                within_deadband = (
+                    (gain >= deadband_min)
+                    and (gain <= deadband_max)
+                )
+                gain = selp(within_deadband, unity_gain, gain)
 
             dt_new_raw = dt[0] * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)

@@ -66,7 +66,7 @@ def sample_input_arrays(solver, input_test_settings, precision):
             dtype
         ),
         "parameters": np.random.rand(parameters_count, num_runs).astype(dtype),
-        "forcing_vectors": np.random.rand(forcing_count, num_runs).astype(
+        "driver_coefficients": np.random.rand(forcing_count, num_runs).astype(
             dtype
         ),
     }
@@ -78,7 +78,8 @@ class TestInputArrayContainer:
     def test_container_arrays_after_init(self):
         """Test that container has correct arrays after initialization"""
         container = InputArrayContainer()
-        expected_arrays = {"initial_values", "parameters", "forcing_vectors"}
+        expected_arrays = {"driver_coefficients", "parameters", 
+                           "initial_values"}
         actual_arrays = {
             key for key in container.__dict__.keys() if not key.startswith("_")
         }
@@ -88,12 +89,12 @@ class TestInputArrayContainer:
         # Check that all arrays are None initially
         assert container.initial_values is None
         assert container.parameters is None
-        assert container.forcing_vectors is None
+        assert container.driver_coefficients is None
 
     def test_container_stride_order(self):
         """Test that stride order is set correctly"""
         container = InputArrayContainer()
-        assert container.stride_order == ("run", "variable")
+        assert container.stride_order['parameters'] == ("run", "variable")
 
     def test_host_factory(self):
         """Test host factory method"""
@@ -112,7 +113,7 @@ class TestInputArrays:
     def test_initialization_container_types(self, input_arrays_manager):
         """Test that containers have correct array types after initialization"""
         # Check host container arrays
-        expected_arrays = {"initial_values", "parameters", "forcing_vectors"}
+        expected_arrays = {"initial_values", "parameters", "driver_coefficients"}
         host_arrays = {
             key
             for key in input_arrays_manager.host.__dict__.keys()
@@ -149,18 +150,18 @@ class TestInputArrays:
             solver,
             sample_input_arrays["initial_values"],
             sample_input_arrays["parameters"],
-            sample_input_arrays["forcing_vectors"],
+            sample_input_arrays["driver_coefficients"],
         )
 
         # Check host getters
         assert input_arrays_manager.initial_values is not None
         assert input_arrays_manager.parameters is not None
-        assert input_arrays_manager.forcing_vectors is not None
+        assert input_arrays_manager.driver_coefficients is not None
 
         # Check device getters
         assert input_arrays_manager.device_initial_values is not None
         assert input_arrays_manager.device_parameters is not None
-        assert input_arrays_manager.device_forcing_vectors is not None
+        assert input_arrays_manager.device_driver_coefficients is not None
 
     def test_call_method_updates_host_arrays(
         self, input_arrays_manager, solver, sample_input_arrays
@@ -170,7 +171,7 @@ class TestInputArrays:
             solver,
             sample_input_arrays["initial_values"],
             sample_input_arrays["parameters"],
-            sample_input_arrays["forcing_vectors"],
+            sample_input_arrays["driver_coefficients"],
         )
 
         # Check that host arrays were updated
@@ -182,8 +183,8 @@ class TestInputArrays:
             input_arrays_manager.parameters, sample_input_arrays["parameters"]
         )
         assert_array_equal(
-            input_arrays_manager.forcing_vectors,
-            sample_input_arrays["forcing_vectors"],
+            input_arrays_manager.driver_coefficients,
+            sample_input_arrays["driver_coefficients"],
         )
 
     def test_call_method_size_change_triggers_reallocation(
@@ -205,7 +206,7 @@ class TestInputArrays:
             "parameters": np.random.rand(parameters_count, num_runs).astype(
                 dtype
             ),
-            "forcing_vectors": np.random.rand(forcing_count, num_runs).astype(
+            "driver_coefficients": np.random.rand(forcing_count, num_runs).astype(
                 dtype
             ),
         }
@@ -214,7 +215,7 @@ class TestInputArrays:
             solver,
             initial_arrays["initial_values"],
             initial_arrays["parameters"],
-            initial_arrays["forcing_vectors"],
+            initial_arrays["driver_coefficients"],
         )
 
         original_device_initial_values = (
@@ -230,7 +231,7 @@ class TestInputArrays:
             "parameters": np.random.rand(
                 parameters_count, new_num_runs
             ).astype(dtype),
-            "forcing_vectors": np.random.rand(
+            "driver_coefficients": np.random.rand(
                 forcing_count, new_num_runs
             ).astype(dtype),
         }
@@ -239,7 +240,7 @@ class TestInputArrays:
             solver,
             new_arrays["initial_values"],
             new_arrays["parameters"],
-            new_arrays["forcing_vectors"],
+            new_arrays["driver_coefficients"],
         )
 
         # Should have triggered reallocation for all arrays
@@ -268,13 +269,13 @@ class TestInputArrays:
             solver,
             sample_input_arrays["initial_values"],
             sample_input_arrays["parameters"],
-            sample_input_arrays["forcing_vectors"],
+            sample_input_arrays["driver_coefficients"],
         )
 
         # Clear device arrays to test initialise
         input_arrays_manager.device.initial_values[:, :] = 0.0
         input_arrays_manager.device.parameters[:, :] = 0.0
-        input_arrays_manager.device.forcing_vectors[:, :] = 0.0
+        input_arrays_manager.device.driver_coefficients[:, :] = 0.0
 
         # Set up chunking
         input_arrays_manager._chunks = 1
@@ -294,8 +295,8 @@ class TestInputArrays:
             sample_input_arrays["parameters"],
         )
         np.testing.assert_array_equal(
-            np.array(input_arrays_manager.device.forcing_vectors),
-            sample_input_arrays["forcing_vectors"],
+            np.array(input_arrays_manager.device.driver_coefficients),
+            sample_input_arrays["driver_coefficients"],
         )
 
     def test_finalise_method(self, solver, sample_input_arrays):
@@ -306,7 +307,7 @@ class TestInputArrays:
             solver,
             sample_input_arrays["initial_values"],
             sample_input_arrays["parameters"],
-            sample_input_arrays["forcing_vectors"],
+            sample_input_arrays["driver_coefficients"],
         )
         solver.memory_manager.allocate_queue(input_arrays_manager)
         # Modify device initial_values (simulate computation results)
@@ -351,19 +352,19 @@ class TestInputArrays:
             solver,
             sample_input_arrays["initial_values"],
             sample_input_arrays["parameters"],
-            sample_input_arrays["forcing_vectors"],
+            sample_input_arrays["driver_coefficients"],
         )
 
         expected_dtype = precision
         assert input_arrays_manager.initial_values.dtype == expected_dtype
         assert input_arrays_manager.parameters.dtype == expected_dtype
-        assert input_arrays_manager.forcing_vectors.dtype == expected_dtype
+        assert input_arrays_manager.driver_coefficients.dtype == expected_dtype
         assert (
             input_arrays_manager.device_initial_values.dtype == expected_dtype
         )
         assert input_arrays_manager.device_parameters.dtype == expected_dtype
         assert (
-            input_arrays_manager.device_forcing_vectors.dtype == expected_dtype
+            input_arrays_manager.device_driver_coefficients.dtype == expected_dtype
         )
 
 
@@ -386,20 +387,20 @@ def test_input_arrays_with_different_configs(
         solver,
         sample_input_arrays["initial_values"],
         sample_input_arrays["parameters"],
-        sample_input_arrays["forcing_vectors"],
+        sample_input_arrays["driver_coefficients"],
     )
 
     # Check shapes match expected configuration
     expected_num_runs = input_test_settings["num_runs"]
     assert input_arrays_manager.initial_values.shape[1] == expected_num_runs
     assert input_arrays_manager.parameters.shape[1] == expected_num_runs
-    assert input_arrays_manager.forcing_vectors.shape[1] == expected_num_runs
+    assert input_arrays_manager.driver_coefficients.shape[1] == expected_num_runs
 
     # Check data types
     expected_dtype = getattr(np, input_test_settings["dtype"])
     assert input_arrays_manager.initial_values.dtype == expected_dtype
     assert input_arrays_manager.parameters.dtype == expected_dtype
-    assert input_arrays_manager.forcing_vectors.dtype == expected_dtype
+    assert input_arrays_manager.driver_coefficients.dtype == expected_dtype
 
 
 @pytest.mark.parametrize(
@@ -416,7 +417,7 @@ def test_input_arrays_with_different_systems(
         solver,
         sample_input_arrays["initial_values"],
         sample_input_arrays["parameters"],
-        sample_input_arrays["forcing_vectors"],
+        sample_input_arrays["driver_coefficients"],
     )
 
     # Verify the arrays match the system's requirements
@@ -429,14 +430,14 @@ def test_input_arrays_with_different_systems(
         == solver.system_sizes.parameters
     )
     assert (
-        input_arrays_manager.forcing_vectors.shape[0]
+        input_arrays_manager.driver_coefficients.shape[0]
         == solver.system_sizes.drivers
     )
 
     # Check that all getters work
     assert input_arrays_manager.initial_values is not None
     assert input_arrays_manager.parameters is not None
-    assert input_arrays_manager.forcing_vectors is not None
+    assert input_arrays_manager.driver_coefficients is not None
     assert input_arrays_manager.device_initial_values is not None
     assert input_arrays_manager.device_parameters is not None
-    assert input_arrays_manager.device_forcing_vectors is not None
+    assert input_arrays_manager.device_driver_coefficients is not None

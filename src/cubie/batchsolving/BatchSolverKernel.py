@@ -11,7 +11,7 @@ Created on Tue May 27 17:45:03 2025
 @author: cca79
 """
 
-from typing import Optional
+from typing import Optional, Callable
 from warnings import warn
 
 import numpy as np
@@ -121,6 +121,7 @@ class BatchSolverKernel(CUDAFactory):
         saved_observable_indices: NDArray[np.int_] = None,
         summarised_state_indices: Optional[ArrayLike] = None,
         summarised_observable_indices: Optional[ArrayLike] = None,
+        driver_function: Optional[Callable] = None,
         output_types: list[str] = None,
         profileCUDA: bool = False,
         memory_manager=default_memmgr,
@@ -168,6 +169,7 @@ class BatchSolverKernel(CUDAFactory):
             summarised_state_indices=summarised_state_indices,
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
+            driver_function=driver_function,
         )
 
         # input/output arrays supressed while refactoring
@@ -277,7 +279,7 @@ class BatchSolverKernel(CUDAFactory):
         self,
         inits,
         params,
-        forcing_vectors,
+        driver_coefficients,
         duration,
         blocksize=256,
         stream=None,
@@ -294,8 +296,9 @@ class BatchSolverKernel(CUDAFactory):
             Initial conditions for each run. Shape should be (n_runs, n_states).
         params : array_like
             Parameters for each run. Shape should be (n_runs, n_params).
-        forcing_vectors : array_like
-            Forcing vectors for each run.
+        driver_coefficients : array_like or None
+            Horner-ordered driver interpolation coefficients with shape
+            ``(num_segments, num_drivers, order + 1)``.
         duration : float
             Duration of the simulation.
         blocksize : int, default=256
@@ -321,7 +324,7 @@ class BatchSolverKernel(CUDAFactory):
         if stream is None:
             stream = self.stream
 
-        precision=self.precision
+        precision = self.precision
         duration = precision(duration)
         warmup = precision(warmup)
         t0 = precision(t0)
@@ -331,7 +334,7 @@ class BatchSolverKernel(CUDAFactory):
         numruns = inits.shape[0]
         self.num_runs = numruns
 
-        self.input_arrays.update(self, inits, params, forcing_vectors)
+        self.input_arrays.update(self, inits, params, driver_coefficients)
         self.output_arrays.update(self)
 
         self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
@@ -411,7 +414,7 @@ class BatchSolverKernel(CUDAFactory):
             ](
                 self.input_arrays.device_initial_values,
                 self.input_arrays.device_parameters,
-                self.input_arrays.device_forcing_vectors,
+                self.input_arrays.device_driver_coefficients,
                 self.output_arrays.device_state,
                 self.output_arrays.device_observables,
                 self.output_arrays.device_state_summaries,
@@ -506,7 +509,7 @@ class BatchSolverKernel(CUDAFactory):
             (
                 precision[:, :],
                 precision[:, :],
-                precision[:, :],
+                precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
@@ -520,7 +523,7 @@ class BatchSolverKernel(CUDAFactory):
         def integration_kernel(
             inits,
             params,
-            forcing_vector,
+            d_coefficients,
             state_output,
             observables_output,
             state_summaries_output,
@@ -542,12 +545,12 @@ class BatchSolverKernel(CUDAFactory):
 
             #Declare shared memory in 32b units to allow for skewing/padding
             shared_memory = cuda.shared.array(0, dtype=float32)
-            local_scratch = cuda.local.array(local_elements_per_run,
-                                             dtype=float32)
-            c_forcing_vector = cuda.const.array_like(forcing_vector)
+            local_scratch = cuda.local.array(
+                local_elements_per_run, dtype=float32
+            )
+            c_coefficients = cuda.const.array_like(d_coefficients)
 
             # Run-indexed slices of shared and output memory
-
             run_idx_low = ty * run_stride_f32
             run_idx_high = (run_idx_low + f32_per_element *
                             shared_elements_per_run)
@@ -571,7 +574,7 @@ class BatchSolverKernel(CUDAFactory):
             loopfunction(
                 rx_inits,
                 rx_params,
-                c_forcing_vector,
+                c_coefficients,
                 rx_shared_memory,
                 local_scratch,
                 rx_state,
@@ -815,7 +818,7 @@ class BatchSolverKernel(CUDAFactory):
         )
 
     @property
-    def system(self):
+    def system(self) -> "BaseODE":
         """
         Get the ODE system.
 
@@ -1251,16 +1254,16 @@ class BatchSolverKernel(CUDAFactory):
         return self.input_arrays.parameters
 
     @property
-    def forcing_vectors(self):
-        """
-        Get forcing vectors array.
+    def driver_coefficients(self) -> NDArray[np.generic]:
+        """Return the host-side driver coefficient array."""
 
-        Returns
-        -------
-        array_like
-            The forcing vectors array.
-        """
-        return self.input_arrays.forcing_vectors
+        return self.input_arrays.driver_coefficients
+
+    @property
+    def device_driver_coefficients(self) -> NDArray[np.generic]:
+        """Return the device driver coefficient array."""
+
+        return self.input_arrays.device_driver_coefficients
 
     @property
     def output_stride_order(self):

@@ -20,6 +20,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         precision: type,
         n: int,
         dt: float,
+        driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
     ) -> None:
         """Initialise the explicit Euler step configuration.
@@ -36,6 +37,9 @@ class ExplicitEulerStep(ODEExplicitStep):
             Number of state entries advanced per step.
         dt
             Fixed step size.
+        driver_function
+            Optional device function evaluating spline drivers at arbitrary
+            times.
         solver_function_getter
             Present for interface parity with implicit steps and ignored here.
         """
@@ -45,6 +49,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             precision=precision,
             dxdt_function=dxdt_function,
             observables_function=observables_function,
+            driver_function=driver_function,
             n=n,
         )
 
@@ -54,6 +59,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         self,
         dxdt_function: Callable,
         observables_function: Callable,
+        driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
         fixed_step_size: float,
@@ -64,6 +70,10 @@ class ExplicitEulerStep(ODEExplicitStep):
         ----------
         dxdt_function
             Device derivative function used within the update.
+        observables_function
+            Device function computing system observables.
+        driver_function
+            Optional device function evaluating drivers at arbitrary times.
         numba_precision
             Numba precision corresponding to the configured precision.
         n
@@ -78,12 +88,16 @@ class ExplicitEulerStep(ODEExplicitStep):
         """
 
         step_size = numba_precision(fixed_step_size)
+        has_driver_function = driver_function is not None
+        driver_function = driver_function
 
         @cuda.jit(
             (
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:],
+                numba_precision[:, :, :],
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
@@ -102,7 +116,9 @@ class ExplicitEulerStep(ODEExplicitStep):
             proposed_state,
             work_buffer,
             parameters,
-            drivers,
+            driver_coefficients,
+            drivers_buffer,
+            proposed_drivers,
             observables,
             proposed_observables,
             error,
@@ -123,8 +139,12 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Device array used as temporary storage for derivatives.
             parameters
                 Device array of static model parameters.
-            drivers
+            driver_coefficients
+                Device array containing spline driver coefficients.
+            drivers_buffer
                 Device array of time-dependent drivers.
+            proposed_drivers
+                Device array receiving proposed driver samples.
             observables
                 Device array storing accepted observable outputs.
             proposed_observables
@@ -146,19 +166,10 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Status code indicating successful completion.
             """
 
-            # HACK: workaround for lack of driver interp
-            observables_function(
-                state,
-                parameters,
-                drivers,
-                observables,
-                time_scalar,
-            )
-
             dxdt_function(
                 state,
                 parameters,
-                drivers,
+                drivers_buffer,
                 observables,
                 work_buffer,
                 time_scalar,
@@ -167,10 +178,16 @@ class ExplicitEulerStep(ODEExplicitStep):
                 proposed_state[i] = state[i] + step_size * work_buffer[i]
 
             next_time = time_scalar + dt_scalar
+            if has_driver_function:
+                driver_function(
+                    next_time,
+                    driver_coefficients,
+                    proposed_drivers,
+                )
             observables_function(
                 proposed_state,
                 parameters,
-                drivers,
+                proposed_drivers,
                 proposed_observables,
                 next_time,
             )

@@ -6,7 +6,9 @@ src/cubie/odesystems
 The :func:`create_ODE_system` helper is the main entry point. It consumes
 symbolic :mod:`sympy` equations and materialises :class:`SymbolicODE`
 instances that inherit CUDA compilation behaviour from
-:class:`cubie.CUDAFactory`. Base classes and data containers expose the
+:class:`cubie.CUDAFactory`. :class:`BaseODE` is the abstract contract, and
+``SymbolicODE`` is currently its only concrete subclass.
+Base classes and data containers expose the
 precision-aware metadata required by integrator factories.
 
 Subpackages

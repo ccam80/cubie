@@ -5,7 +5,7 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union, Any
 
 import numpy as np
 
@@ -16,6 +16,7 @@ from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory import default_memmgr
 from cubie.odesystems.baseODE import BaseODE
+from cubie.integrators.array_interpolator import ArrayInterpolator
 
 if TYPE_CHECKING:
     pass
@@ -25,7 +26,7 @@ def solve_ivp(
     system,
     y0,
     parameters = None,
-    forcing_vectors = None,
+    drivers: Optional[Dict[str, object]] = None,
     dt_eval = 1e-2,
     method="euler",
     duration=1.0,
@@ -44,8 +45,8 @@ def solve_ivp(
         Initial state values for each run.
     parameters : array-like or dict
         Parameter values for each run.
-    forcing_vectors : array-like
-        External forcing values to apply during integration.
+    drivers : dict[str, object], optional
+        Driver configuration to interpolate during integration.
     dt_eval : float
         Interval at which solution values are stored.
     method : str, optional
@@ -78,7 +79,7 @@ def solve_ivp(
     results = solver.solve(
         y0,
         parameters,
-        forcing_vectors,
+        drivers=drivers,
         duration=duration,
         warmup=settling_time,
         grid_type=grid_type,
@@ -165,6 +166,13 @@ class Solver:
         precision = system.precision
         interface = SystemInterface.from_system(system)
         self.system_interface = interface
+        self.driver_interpolator = ArrayInterpolator(
+            precision=precision,
+            input_dict={
+                'placeholder': np.zeros(6, dtype=precision),
+                'dt': 0.1
+            }
+        )
 
         (
             saved_state_indices,
@@ -223,32 +231,22 @@ class Solver:
         tuple of ndarray or None
             Index arrays for each variable list in the order provided.
         """
-        if saved_states is not None:
-            saved_state_indices = self.system_interface.state_indices(
-                saved_states
-            )
-        else:
-            saved_state_indices = None
-        if saved_observables is not None:
-            saved_observable_indices = (
-                self.system_interface.observable_indices(saved_observables)
-            )
-        else:
-            saved_observable_indices = None
-        if summarised_states is not None:
-            summarised_state_indices = self.system_interface.state_indices(
-                summarised_states
-            )
-        else:
-            summarised_state_indices = None
-        if summarised_observables is not None:
-            summarised_observable_indices = (
-                self.system_interface.observable_indices(
-                    summarised_observables
-                )
-            )
-        else:
-            summarised_observable_indices = None
+
+        def _get_indices(getter, items):
+            return getter(items) if items is not None else None
+
+        saved_state_indices = _get_indices(
+            self.system_interface.state_indices, saved_states
+        )
+        saved_observable_indices = _get_indices(
+            self.system_interface.observable_indices, saved_observables
+        )
+        summarised_state_indices = _get_indices(
+            self.system_interface.state_indices, summarised_states
+        )
+        summarised_observable_indices = _get_indices(
+            self.system_interface.observable_indices, summarised_observables
+        )
 
         return (
             saved_state_indices,
@@ -261,7 +259,7 @@ class Solver:
         self,
         initial_values,
         parameters,
-        forcing_vectors=None,
+        drivers: Optional[Dict[str, Any]] = None,
         duration=1.0,
         settling_time=0.0,
         blocksize=256,
@@ -279,8 +277,9 @@ class Solver:
             Initial state values for each integration run.
         parameters : array-like or dict
             Parameter values for each run.
-        forcing_vectors : array-like, optional
-            External forcing applied during integration.
+        drivers : dict[str, object], optional
+            Driver samples or configuration matching
+            :class:`cubie.integrators.array_interpolator.ArrayInterpolator`.
         duration : float, optional
             Total integration time. Default is ``1.0``.
         settling_time : float, optional
@@ -308,16 +307,22 @@ class Solver:
         if kwargs:
             self.update(kwargs)
 
-        if forcing_vectors is None:
-            forcing_vectors = np.zeros((1,1), dtype=self.precision)
-
         inits, params = self.grid_builder(
             states=initial_values, params=parameters, kind=grid_type
         )
+
+        if drivers is not None:
+            ArrayInterpolator.check_against_system_drivers(drivers,
+                                                               self.system)
+            fn_changed = self.driver_interpolator.update_from_dict(drivers)
+        if fn_changed:
+            self.update({"driver_function": (
+                self.driver_interpolator.device_function)})
+
         self.kernel.run(
             inits=inits,
             params=params,
-            forcing_vectors=forcing_vectors,
+            driver_coefficients=self.driver_interpolator.coefficients,
             duration=duration,
             warmup=settling_time,
             blocksize=blocksize,
@@ -355,8 +360,16 @@ class Solver:
 
         updates_dict = self.update_saved_variables(updates_dict)
 
+
+        driver_recognised = self.driver_interpolator.update(updates_dict,
+                                                      silent=True)
+        if driver_recognised:
+            updates_dict["driver_function"] = (
+                self.driver_interpolator.evaluation_function)
+
         recognised = set()
         all_unrecognized = set(updates_dict.keys())
+        all_unrecognized -= driver_recognised
         all_unrecognized -= self.update_memory_settings(
             updates_dict, silent=True
         )
@@ -394,35 +407,20 @@ class Solver:
         dict
             Updated dictionary with label lists replaced by index arrays.
         """
-        saved_states = updates_dict.pop("saved_states", None)
-        saved_observables = updates_dict.pop("saved_observables", None)
-        summarised_states = updates_dict.pop("summarised_states", None)
-        summarised_observables = updates_dict.pop(
-            "summarised_observables", None
-        )
+        labels = [
+            ("saved_states", "saved_state_indices"),
+            ("saved_observables", "saved_observable_indices"),
+            ("summarised_states", "summarised_state_indices"),
+            ("summarised_observables", "summarised_observable_indices"),
+        ]
 
-        (
-            saved_state_indices,
-            saved_observable_indices,
-            summarised_state_indices,
-            summarised_observable_indices,
-        ) = self._variable_indices_from_list(
-            saved_states,
-            saved_observables,
-            summarised_states,
-            summarised_observables,
-        )
+        label_values = [updates_dict.pop(label, None) for label, _ in labels]
 
-        if saved_state_indices is not None:
-            updates_dict["saved_state_indices"] = saved_state_indices
-        if saved_observable_indices is not None:
-            updates_dict["saved_observable_indices"] = saved_observable_indices
-        if summarised_state_indices is not None:
-            updates_dict["summarised_state_indices"] = summarised_state_indices
-        if summarised_observable_indices is not None:
-            updates_dict["summarised_observable_indices"] = (
-                summarised_observable_indices
-            )
+        indices = self._variable_indices_from_list(*label_values)
+
+        for (_, key), value in zip(labels, indices):
+            if value is not None:
+                updates_dict[key] = value
 
         return updates_dict
 
@@ -669,10 +667,9 @@ class Solver:
         return self.kernel.initial_values
 
     @property
-    def forcing_vectors(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.forcing_vectors`
-        from the child BatchSolverKernel object."""
-        return self.kernel.forcing_vectors
+    def driver_coefficients(self):
+        """Expose driver coefficients staged on the BatchSolverKernel."""
+        return self.kernel.driver_coefficients
 
     @property
     def save_time(self) -> bool:
@@ -730,6 +727,11 @@ class Solver:
     def mem_proportion(self):
         """Returns the memory proportion the solver is assigned."""
         return self.kernel.mem_proportion
+
+    @property
+    def system(self) -> "BaseODE":
+        """Returns the system the solver is associated with."""
+        return self.kernel.system
 
     @property
     def solve_info(self):

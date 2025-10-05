@@ -54,8 +54,10 @@ class IVPLoop(CUDAFactory):
         Device function that commits summary statistics to output buffers.
     step_controller_fn
         Device function that updates the timestep and accept flag.
-    step_fn
+    step_function
         Device function that advances the solution by one tentative step.
+    driver_function
+        Device function that evaluates drivers for a given time.
     """
 
     def __init__(
@@ -74,7 +76,8 @@ class IVPLoop(CUDAFactory):
         update_summaries_func: Optional[Callable] = None,
         save_summaries_func: Optional[Callable] = None,
         step_controller_fn: Optional[Callable] = None,
-        step_fn: Optional[Callable] = None,
+        step_function: Optional[Callable] = None,
+        driver_function: Optional[Callable] = None,
         observables_fn: Optional[Callable] = None,
     ) -> None:
         super().__init__()
@@ -86,7 +89,8 @@ class IVPLoop(CUDAFactory):
             update_summaries_fn=update_summaries_func,
             save_summaries_fn=save_summaries_func,
             step_controller_fn=step_controller_fn,
-            step_fn=step_fn,
+            step_function=step_function,
+            driver_function=driver_function,
             observables_fn=observables_fn,
             precision=precision,
             compile_flags=compile_flags,
@@ -133,7 +137,8 @@ class IVPLoop(CUDAFactory):
         update_summaries = config.update_summaries_fn
         save_summaries = config.save_summaries_fn
         step_controller = config.step_controller_fn
-        step_fn = config.step_fn
+        step_function = config.step_function
+        driver_function = config.driver_function
         observables_fn = config.observables_fn
 
         flags = config.compile_flags
@@ -156,6 +161,7 @@ class IVPLoop(CUDAFactory):
         params_shared_ind = shared_indices.parameters
         obs_summ_shared_ind = shared_indices.observable_summaries
         drivers_shared_ind = shared_indices.drivers
+        drivers_prop_shared_ind = shared_indices.proposed_drivers
         remaining_scratch_ind = shared_indices.scratch
 
         dt_slice = local_indices.dt
@@ -180,12 +186,14 @@ class IVPLoop(CUDAFactory):
         fixed_mode = not config.is_adaptive
         status_mask = int32(0xFFFF)
 
-        equality_breaker = precision(1e-7) if precision is np.float32 else precision(1e-14)
+        equality_breaker = precision(1e-7) if precision is np.float32 else (
+        precision(1e-14))
+
         @cuda.jit(device=True, inline=True)
         def loop_fn(
             initial_states,
             parameters,
-            drivers,
+            driver_coefficients,
             shared_scratch,
             persistent_local,
             state_output,
@@ -204,8 +212,8 @@ class IVPLoop(CUDAFactory):
                 Device array containing the initial state vector.
             parameters
                 Device array containing static parameters.
-            drivers
-                Device array with driver samples aligned to save times.
+            driver_coefficients
+                Device array containing precomputed spline coefficients.
             shared_scratch
                 Device array providing shared-memory work buffers.
             persistent_local
@@ -250,11 +258,10 @@ class IVPLoop(CUDAFactory):
             observables_proposal_buffer = shared_scratch[obs_prop_shared_ind]
             parameters_buffer = shared_scratch[params_shared_ind]
             drivers_buffer = shared_scratch[drivers_shared_ind]
+            drivers_proposal_buffer = shared_scratch[drivers_prop_shared_ind]
             state_summary_buffer = shared_scratch[state_summ_shared_ind]
             observable_summary_buffer = shared_scratch[obs_summ_shared_ind]
             remaining_shared_scratch = shared_scratch[remaining_scratch_ind]
-
-            driver_length = drivers.shape[0]
 
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
@@ -268,9 +275,13 @@ class IVPLoop(CUDAFactory):
                 parameters_buffer[k] = parameters[k]
 
             # Seed initial observables from initial state.
+            if driver_function is not None and n_drivers > 0:
+                driver_function(
+                    t,
+                    driver_coefficients,
+                    drivers_buffer,
+                )
             if n_observables > 0:
-                for k in range(n_drivers):
-                    drivers_buffer[k] = drivers[0, k]
                 observables_fn(
                     state_buffer,
                     parameters_buffer,
@@ -333,9 +344,6 @@ class IVPLoop(CUDAFactory):
                 if all_sync(mask, finished):
                     return status
 
-                for k in range(n_drivers):
-                    drivers_buffer[k] = drivers[save_idx % driver_length, k]
-
                 if not finished:
                     if fixed_mode:
                         step_counter += 1
@@ -349,13 +357,14 @@ class IVPLoop(CUDAFactory):
 
                         status |= selp(dt_eff <= precision(0.0), int32(16), int32(0))
 
-
-                    step_status = step_fn(
+                    step_status = step_function(
                         state_buffer,
                         state_proposal_buffer,
                         work_buffer,
                         parameters_buffer,
+                        driver_coefficients,
                         drivers_buffer,
+                        drivers_proposal_buffer,
                         observables_buffer,
                         observables_proposal_buffer,
                         error,
@@ -365,17 +374,6 @@ class IVPLoop(CUDAFactory):
                         algo_local,
                     )
 
-                    # HACK: Standin until better drivers handling, as loop is
-                    #  fetching a single driver for pre and post step
-                    # for k in range(n_drivers):
-                    #     drivers_buffer[k] = (drivers[(save_idx+1) %
-                    #                          driver_length, k])
-                    observables_fn(state_proposal_buffer,
-                                   parameters_buffer,
-                                   drivers_buffer,
-                                   observables_proposal_buffer,
-                                   t + dt_eff,
-                                   )
                     niters = (step_status >> 16) & status_mask
                     status |= step_status & status_mask
 
@@ -401,6 +399,11 @@ class IVPLoop(CUDAFactory):
                         newv = state_proposal_buffer[i]
                         oldv = state_buffer[i]
                         state_buffer[i] = selp(accept, newv, oldv)
+
+                    for i in range(n_drivers):
+                        new_drv = drivers_proposal_buffer[i]
+                        old_drv = drivers_buffer[i]
+                        drivers_buffer[i] = selp(accept, new_drv, old_drv)
 
                     for i in range(n_observables):
                         new_obs = observables_proposal_buffer[i]
@@ -522,10 +525,16 @@ class IVPLoop(CUDAFactory):
         return self.compile_settings.step_controller_fn
 
     @property
-    def step_fn(self) -> Optional[Callable]:
+    def step_function(self) -> Optional[Callable]:
         """Return the algorithm step device function used by the loop."""
 
-        return self.compile_settings.step_fn
+        return self.compile_settings.step_function
+
+    @property
+    def driver_function(self) -> Optional[Callable]:
+        """Return the driver evaluation device function used by the loop."""
+
+        return self.compile_settings.driver_function
 
     @property
     def observables_fn(self) -> Optional[Callable]:
