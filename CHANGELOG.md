@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.0.4](https://github.com/ccam80/cubie/compare/v0.0.3...v0.0.4) (2025-10-05)
+
+
+### Features
+
+* Adaptive step-size controllers added : i (traditional), pi, pid, gustafsson acceleration ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* Adaptive time-step controllers now have a programmable dead-band. ([b0fafd9](https://github.com/ccam80/cubie/commit/b0fafd9f4c9f269edf5ae003fe64cd9309d2b43b))
+* AGENTS.md extended and partially updated to summarise entire project for ai agents ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* arbitrary drivers can now be looped or clamped to zero (smoothly). ([b0fafd9](https://github.com/ccam80/cubie/commit/b0fafd9f4c9f269edf5ae003fe64cd9309d2b43b))
+* Backwards Euler implicit fixed-step method added (with and without predictor-corrector mechanism), closes [#114](https://github.com/ccam80/cubie/issues/114). ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* Codegen for residual functions, jvps, and various solver helper functions created ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* Crank-Nicolson trapezoidal adaptive-step algorithm implemented. ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* cuda simulation patches consolidated for cuda-free environment tests. ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* Forcing (driver) terms now adaptive-step friendly ([#132](https://github.com/ccam80/cubie/issues/132)) ([b0fafd9](https://github.com/ccam80/cubie/commit/b0fafd9f4c9f269edf5ae003fe64cd9309d2b43b))
+* matrix free solvers added ([1dffd94](https://github.com/ccam80/cubie/commit/1dffd94ae965a72c3f42ea2be09761cedcd10582))
+* Nonlinear Newton-Krylov iterative solver with preconditiong added for implicit methods, closes [#101](https://github.com/ccam80/cubie/issues/101), [#102](https://github.com/ccam80/cubie/issues/102), [#111](https://github.com/ccam80/cubie/issues/111) ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* plotting added to driver interpolator - keep an eye on what the machine is doing. ([b0fafd9](https://github.com/ccam80/cubie/commit/b0fafd9f4c9f269edf5ae003fe64cd9309d2b43b))
+* shared memory padding now closer to optimal (nothing to be done about 64-bit values), closes [#86](https://github.com/ccam80/cubie/issues/86). ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+
+
+### Bug Fixes
+
+* Array "chunking" logic now respects "unchunkable" arrays in allocation ([53141df](https://github.com/ccam80/cubie/commit/53141dfa72a7568813f85c86ef5d9b6f682db856))
+* CPU test step controllers now raise dt_too_small errors ([19af8ff](https://github.com/ccam80/cubie/commit/19af8ff620419155e4c6e8d3512aa1224421d3ad))
+* Crank-Nicolson and adaptive controllers now 50% more idiot-error free. ([b0fafd9](https://github.com/ccam80/cubie/commit/b0fafd9f4c9f269edf5ae003fe64cd9309d2b43b))
+* CUDAFactory now updates underscored config variables as intended ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* Many edits to precision settings and flow throughout system (making it work) ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* Observables calculation now occurs in sync with state for adaptive-step loops ([#130](https://github.com/ccam80/cubie/issues/130)) ([19af8ff](https://github.com/ccam80/cubie/commit/19af8ff620419155e4c6e8d3512aa1224421d3ad))
+* pypi version tag trigger now using correct syntax ([3b3caa1](https://github.com/ccam80/cubie/commit/3b3caa1d1e434edc61dc86174d211ac83444383f))
+* some sign confusion and bogus gains corrected in step controllers ([19af8ff](https://github.com/ccam80/cubie/commit/19af8ff620419155e4c6e8d3512aa1224421d3ad))
+
+
+### Documentation
+
+* Batch arrays re-docstringed in keeping with rest of library. ([b0fafd9](https://github.com/ccam80/cubie/commit/b0fafd9f4c9f269edf5ae003fe64cd9309d2b43b))
+* fix circular import for docs building ([64d8933](https://github.com/ccam80/cubie/commit/64d8933e965b52f80664f2f5ddefc5ab03d96077))
+* manual docs added for integrators, memory modules. submodules of systems, outputhandling  documented. ([1d903f2](https://github.com/ccam80/cubie/commit/1d903f2bfff3c3732086c18efa4a66660524bf29))
+* step controller comparison added to docs/examples ([19af8ff](https://github.com/ccam80/cubie/commit/19af8ff620419155e4c6e8d3512aa1224421d3ad))
+* top-level summaries of odesystems and outputhandling ([a9cb4c0](https://github.com/ccam80/cubie/commit/a9cb4c08383aa452d64a5cf63bec9b3cb86d5b75))
+* update docstrings in outputhandling and odesystems root directorys ([87bb133](https://github.com/ccam80/cubie/commit/87bb133643a8b8b14ff6731469e2ef5e7eded3ee))
+
+
+### Miscellaneous Chores
+
+* release 0.04 ([ed5045a](https://github.com/ccam80/cubie/commit/ed5045ad6e5677cc1f4543d0c1a8673c76028fe2))
+
 ## [0.0.3](https://github.com/ccam80/cubie/compare/v0.0.2...v0.0.3) (2025-09-04)
 
 
