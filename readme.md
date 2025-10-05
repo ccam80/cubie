@@ -8,21 +8,35 @@ A batch integration system for systems of ODEs and SDEs, for when elegant soluti
 1,000,000 systems, fast. This package was designed to simulate a large electrophysiological model as part of a 
 likelihood-free inference method (eventually, package [cubism]), but the machinery is domain-agnostic.
 
-The interface is not yet stable. As of v0.0.3, a symbolic interface for creating problems is up and running, and batch 
-solves can be performed using Euler's method only, with a slightly clumsy API and some disorganised documentation.
+This library uses Numba to JIT-compile CUDA kernels, allowing you the speed of compiled CUDA code without the headache
+of writing CUDA code. It is designed to have a reasonably MATLAB- or SciPy-like interface, so that you can get up and 
+running without having to figure out the intricacies of the internal mechanics.
+
+The batch solving interface is unstable, and is likely to change further through to v0.0.6 when I focus on how to 
+actually use all of the componentry I've built. The core (per-parameter-set) machinery is reasonably stable. As of v0.0.4,
+you can:
+
+- Set up and solve large parameter/initial condition sweeps of a system defined by a set of ODEs
+- Use forward/backwards Euler or Crank-Nicolson trapezoidal methods to integrate the problem.
+- Extract the solution for any variable or ``observable`` at any time point, or extract summary statistics only to speed 
+  things up.
+- Provide ``forcing terms`` by including a function of _t_ in your equations, or by providing an array of values for the
+  system to interpolate.
+- Select from a handful of step-size control algortihms when using an adaptive-step algorithm like Crank-Nicolson.
+  Control over this is likely to lessen as I dial in per-algorithm defaults.
+
 
 ### Roadmap:
-- v0.0.4: Adaptive-step implicit algorithms
-  - Adaptive step controllers, matrix-free solvers, and some algorithms - backwards euler, crank-nicolson, already implemented.
-  - Remaining work: refactor the way that cubie handles "drivers" - either interpolate a provided array, or provide 
-  equations which use t as a variable directly.
 - v0.0.5: Bigger, better algorithms
   - Rosenbrock-W methods
   - Explicit Runge-Kutta methods (generic, tableau-driven)
   - Implicit Runge-Kutta methods (generic, tableau-driven)
   - Common RK concrete algos: tsit5, Dormand-Prince
-  - RadauIIA-5 
+  - RadauIIA-5
 - v0.0.6: API improvements. This version should be stable enough for use in research - I will be using it in mine.
+  - Batchsolving interface made more user-friendly
+  - Batchsolving results delivered in a more sensible format
+  - Per-algorithm defaults for step-size control and granular detail to remove the burden from you, friendly user.
 - v0.1.0: Documentation to match the API, organised in the sane way that a robot does not.
 
 I'm completing this project to use it to finish my PhD, so I've got a pretty solid driver to get to v0.0.6 as fast as my
