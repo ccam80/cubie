@@ -718,7 +718,7 @@ class CPUAdaptiveController:
         order: int,
         precision: type,
         kp: float = 1/18,
-        ki: float = -1/9,
+        ki: float = 1/9,
         kd: float = 1/18,
         gamma: float = 0.9,
         safety: float = 0.9,

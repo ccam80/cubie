@@ -24,11 +24,11 @@ class PIStepControlConfig(AdaptiveStepControlConfig):
     systems than a pure integral controller.
     """
     _kp: float = field(
-        default=0.075,
+        default=1/18,
         validator=validators.instance_of(_expand_dtype(float))
     )
     _ki: float = field(
-        default=0.175,
+        default=1/9,
         validator=validators.instance_of(_expand_dtype(float))
     )
 

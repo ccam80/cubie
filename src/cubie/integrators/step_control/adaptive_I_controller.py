@@ -25,7 +25,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
         algorithm_order: int = 2,
         n: int = 1,
         min_gain: float = 0.2,
-        max_gain: float = 5.0,
+        max_gain: float = 2.0,
         deadband_min: float = 1.0,
         deadband_max: float = 1.2,
     ) -> None:

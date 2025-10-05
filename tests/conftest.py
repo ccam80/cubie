@@ -211,13 +211,13 @@ def driver_settings(
 
     dt_sample = precision(solver_settings["dt_save"]) / 2.0
     total_span = precision(solver_settings["duration"])
-    t0 = float(solver_settings["warmup"])
+    t0 = precision(solver_settings["warmup"])
 
     order = int(solver_settings["driverspline_order"])
 
     samples = int(np.ceil(total_span / dt_sample)) + 1
     samples = max(samples, order + 1)
-    total_time = float(dt_sample) * max(samples - 1, 1)
+    total_time = precision(dt_sample) * max(samples - 1, 1)
 
     driver_matrix = _driver_sequence(
         samples=samples,
@@ -273,13 +273,13 @@ def cpu_driver_evaluator(
     order = int(solver_settings["driverspline_order"])
     if driver_settings is None or width == 0 or driver_array is None:
         coeffs = np.zeros((1, width, order + 1), dtype=precision)
-        dt_value = float(solver_settings["dt_save"]) / 2.0
+        dt_value = precision(solver_settings["dt_save"]) / 2.0
         t0_value = 0.0
         wrap_value = bool(solver_settings["driverspline_wrap"])
     else:
         coeffs = np.array(driver_array.coefficients, dtype=precision, copy=True)
-        dt_value = float(driver_array.dt)
-        t0_value = float(driver_array.t0)
+        dt_value = precision(driver_array.dt)
+        t0_value = precision(driver_array.t0)
         wrap_value = bool(driver_array.wrap)
 
     return DriverEvaluator(
@@ -478,55 +478,55 @@ def step_controller(precision, step_controller_settings):
     elif kind == "i":
         controller = AdaptiveIController(
                 precision=precision,
-                dt_min=float(settings["dt_min"]),
-                dt_max=float(settings["dt_max"]),
+                dt_min=precision(settings["dt_min"]),
+                dt_max=precision(settings["dt_max"]),
                 atol=settings["atol"],
                 rtol=settings["rtol"],
                 algorithm_order=int(settings.get("order", 1)),
                 n=int(settings["n"]),
-                deadband_min=float(settings["deadband_min"]),
-                deadband_max=float(settings["deadband_max"]),
+                deadband_min=precision(settings["deadband_min"]),
+                deadband_max=precision(settings["deadband_max"]),
         )
     elif kind == "pi":
         controller = AdaptivePIController(
                 precision=precision,
-                dt_min=float(settings["dt_min"]),
-                dt_max=float(settings["dt_max"]),
+                dt_min=precision(settings["dt_min"]),
+                dt_max=precision(settings["dt_max"]),
                 atol=settings["atol"],
                 rtol=settings["rtol"],
                 algorithm_order=int(settings.get("order", 1)),
                 n=int(settings["n"]),
-                kp=float(settings["kp"]),
-                ki=float(settings["ki"]),
-                deadband_min=float(settings["deadband_min"]),
-                deadband_max=float(settings["deadband_max"]),
+                kp=precision(settings["kp"]),
+                ki=precision(settings["ki"]),
+                deadband_min=precision(settings["deadband_min"]),
+                deadband_max=precision(settings["deadband_max"]),
         )
     elif kind == "pid":
         controller = AdaptivePIDController(
                 precision=precision,
-                dt_min=float(settings["dt_min"]),
-                dt_max=float(settings["dt_max"]),
+                dt_min=precision(settings["dt_min"]),
+                dt_max=precision(settings["dt_max"]),
                 atol=settings["atol"],
                 rtol=settings["rtol"],
                 algorithm_order=int(settings.get("order", 1)),
                 n=int(settings["n"]),
-                kp=float(settings["kp"]),
-                ki=float(settings["ki"]),
-                kd=float(settings["kd"]),
-                deadband_min=float(settings["deadband_min"]),
-                deadband_max=float(settings["deadband_max"]),
+                kp=precision(settings["kp"]),
+                ki=precision(settings["ki"]),
+                kd=precision(settings["kd"]),
+                deadband_min=precision(settings["deadband_min"]),
+                deadband_max=precision(settings["deadband_max"]),
         )
     elif kind == "gustafsson":
         controller = GustafssonController(
                 precision=precision,
-                dt_min=float(settings["dt_min"]),
-                dt_max=float(settings["dt_max"]),
+                dt_min=precision(settings["dt_min"]),
+                dt_max=precision(settings["dt_max"]),
                 atol=settings["atol"],
                 rtol=settings["rtol"],
                 algorithm_order=int(settings.get("order", 1)),
                 n=int(settings["n"]),
-                deadband_min=float(settings["deadband_min"]),
-                deadband_max=float(settings["deadband_max"]),
+                deadband_min=precision(settings["deadband_min"]),
+                deadband_max=precision(settings["deadband_max"]),
         )
     else:
         raise ValueError(f"Unknown adaptive controller kind '{kind}'.")

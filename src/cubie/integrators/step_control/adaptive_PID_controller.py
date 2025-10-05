@@ -43,7 +43,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         algorithm_order: int = 2,
         n: int = 1,
         kp: float = 1/18,
-        ki: float = -1/9,
+        ki: float = 1/9,
         kd: float = 1/18,
         min_gain: float = 0.2,
         max_gain: float = 5.0,
