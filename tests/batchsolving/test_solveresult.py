@@ -8,7 +8,8 @@ from tests._utils import extract_state_and_time
 
 
 # --------------------------------------------------------------------------- #
-
+#Create a one-off set of module-scope fixtures for testing SolveResult
+# instances
 
 @pytest.fixture(scope="function")
 def solver_with_arrays(

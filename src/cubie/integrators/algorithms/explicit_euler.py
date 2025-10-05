@@ -91,6 +91,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         has_driver_function = driver_function is not None
         driver_function = driver_function
 
+        # no cover: start
         @cuda.jit(
             (
                 numba_precision[:],
@@ -192,7 +193,8 @@ class ExplicitEulerStep(ODEExplicitStep):
                 next_time,
             )
             return int32(0)
-
+        # no cover: end
+        
         return StepCache(step=step, nonlinear_solver=None)
 
     @property

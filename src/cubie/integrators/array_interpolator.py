@@ -337,6 +337,7 @@ class ArrayInterpolator(CUDAFactory):
         zero_value = self.precision(0.0)
         evaluation_start = start_time - (resolution if pad_clamped else 0.0)
 
+    # no cover: start
         @cuda.jit(device=True, inline=True)
         def evaluate_all(
             time,
@@ -376,6 +377,7 @@ class ArrayInterpolator(CUDAFactory):
                 for k in range(order, -1, -1):
                     acc = acc * tau + coefficients[seg, input_index, k]
                 out[input_index] = acc if in_range else zero_value
+        # no cover: end
 
         return evaluate_all
 
@@ -484,6 +486,7 @@ class ArrayInterpolator(CUDAFactory):
 
         device_eval = self.evaluation_function
 
+        # no cover: start
         @cuda.jit
         def _evaluate_kernel(times_device, coefficients_device, out_device):
             idx = cuda.grid(1)
@@ -493,6 +496,7 @@ class ArrayInterpolator(CUDAFactory):
                     coefficients_device,
                     out_device[idx],
                 )
+        # no cover: end
 
         times_device = cuda.to_device(times)
         coefficients_device = cuda.to_device(coefficients)
@@ -514,10 +518,11 @@ class ArrayInterpolator(CUDAFactory):
 
         return out_device.copy_to_host()
 
+
     def plot_interpolated(
         self,
         eval_times: NDArray[np.floating],
-    ) -> Tuple[Any, Any]:
+    ) -> Tuple[Any, Any]: # pragma: no cover - optional dependency
         """Plot interpolated drivers against the sampled input data.
 
         Parameters

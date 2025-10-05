@@ -39,14 +39,16 @@ dev = [
     "flake8",
     "ruff",
     "cupy-cuda12x",
-    "pandas"
+    "pandas",
+    "matplolib"
 
 ]
 cupy = [
     "cupy-cuda12x",
 ]
-pandas = [
-    "pandas"
+optional = [
+    "pandas",
+    "matplotlib"
 ]
 
 
