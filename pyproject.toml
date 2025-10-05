@@ -8,7 +8,7 @@ exclude  = ["./tests/*"]
 
 [project]
 name = "cubie"
-version = "0.0.3"
+version = "0.0.4"
 description = "CUDA Batch Integration Engine - for doing a lot at once."
 authors = [
     { name="Chris Cameron" }
