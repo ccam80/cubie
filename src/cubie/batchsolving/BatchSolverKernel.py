@@ -11,7 +11,7 @@ Created on Tue May 27 17:45:03 2025
 @author: cca79
 """
 
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any
 from warnings import warn
 
 import numpy as np
@@ -88,6 +88,10 @@ class BatchSolverKernel(CUDAFactory):
         CUDA stream group identifier.
     mem_proportion : float, optional
         Proportion of GPU memory to allocate.
+    step_control_settings : dict[str, Any], optional
+        Mapping of overrides forwarded to
+        :class:`cubie.integrators.SingleIntegratorRun` for controller
+        configuration.
 
     Notes
     -----
@@ -111,12 +115,8 @@ class BatchSolverKernel(CUDAFactory):
         algorithm: str = "euler",
         duration: float = 1.0,
         warmup: float = 0.0,
-        dt_min: float = 0.01,
-        dt_max: float = 0.1,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        atol: float = 1e-6,
-        rtol: float = 1e-6,
         saved_state_indices: NDArray[np.int_] = None,
         saved_observable_indices: NDArray[np.int_] = None,
         summarised_state_indices: Optional[ArrayLike] = None,
@@ -127,6 +127,7 @@ class BatchSolverKernel(CUDAFactory):
         memory_manager=default_memmgr,
         stream_group="solver",
         mem_proportion=None,
+        step_control_settings: Dict[str, Any] = None,
     ):
         super().__init__()
         precision = system.precision
@@ -158,8 +159,6 @@ class BatchSolverKernel(CUDAFactory):
         self.single_integrator = SingleIntegratorRun(
             system,
             algorithm=algorithm,
-            dt_min=dt_min,
-            dt_max=dt_max,
             dt_save=dt_save,
             dt_summarise=dt_summarise,
             saved_state_indices=saved_state_indices,
@@ -168,110 +167,12 @@ class BatchSolverKernel(CUDAFactory):
             summarised_observable_indices=summarised_observable_indices,
             output_types=output_types,
             driver_function=driver_function,
+            step_control_settings=step_control_settings,
         )
 
-        # input/output arrays supressed while refactoring
         self.input_arrays = InputArrays.from_solver(self)
         self.output_arrays = OutputArrays.from_solver(self)
 
-    def _on_allocation(self, response):
-        """
-        Handle memory allocation response.
-
-        Parameters
-        ----------
-        response : ArrayResponse
-            Memory allocation response containing chunk information.
-        """
-        self.chunks = response.chunks
-
-    @property
-    def output_heights(self):
-        """
-        Get output array heights.
-
-        Returns
-        -------
-        OutputArrayHeights
-            Output array heights from the child SingleIntegratorRun object.
-
-        Notes
-        -----
-        Exposes the output_array_heights attribute from the child
-        SingleIntegratorRun object.
-        """
-        return self.single_integrator.output_array_heights
-
-    @property
-    def kernel(self):
-        """
-        Get the device function kernel.
-
-        Returns
-        -------
-        object
-            The compiled CUDA device function.
-        """
-        return self.device_function
-
-    def build(self):
-        """
-        Build the integration kernel.
-
-        Returns
-        -------
-        CUDA device function
-            The built integration kernel.
-        """
-        return self.build_kernel()
-
-    @property
-    def memory_manager(self):
-        """
-        Get the memory manager.
-
-        Returns
-        -------
-        MemoryManager
-            The memory manager the solver is registered with.
-        """
-        return self._memory_manager
-
-    @property
-    def stream_group(self):
-        """
-        Get the stream group.
-
-        Returns
-        -------
-        str
-            The stream group the solver is in.
-        """
-        return self.memory_manager.get_stream_group(self)
-
-    @property
-    def stream(self):
-        """
-        Get the assigned CUDA stream.
-
-        Returns
-        -------
-        Stream
-            The CUDA stream assigned to the solver.
-        """
-        return self.memory_manager.get_stream(self)
-
-    @property
-    def mem_proportion(self):
-        """
-        Get the memory proportion.
-
-        Returns
-        -------
-        float
-            The memory proportion the solver is assigned.
-        """
-        return self.memory_manager.proportion(self)
 
     def run(
         self,
@@ -428,9 +329,8 @@ class BatchSolverKernel(CUDAFactory):
             self.output_arrays.finalise(indices)
 
         if (
-            not is_cudasim_enabled()
-            and self.compile_settings.profileCUDA
-        ): # pragma: no cover
+            not is_cudasim_enabled() and self.compile_settings.profileCUDA
+        ):  # pragma: no cover
             cuda.profile_stop()
 
     @property
@@ -499,8 +399,9 @@ class BatchSolverKernel(CUDAFactory):
         shared_elements_per_run = self.shared_memory_elements_per_run
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
-        run_stride_f32 = int((f32_per_element * shared_elements_per_run +
-                          f32_pad_perrun))
+        run_stride_f32 = int(
+            (f32_per_element * shared_elements_per_run + f32_pad_perrun)
+        )
 
         # no cover: start
         @cuda.jit(
@@ -541,7 +442,7 @@ class BatchSolverKernel(CUDAFactory):
             if run_index >= n_runs:
                 return None
 
-            #Declare shared memory in 32b units to allow for skewing/padding
+            # Declare shared memory in 32b units to allow for skewing/padding
             shared_memory = cuda.shared.array(0, dtype=float32)
             local_scratch = cuda.local.array(
                 local_elements_per_run, dtype=float32
@@ -550,11 +451,13 @@ class BatchSolverKernel(CUDAFactory):
 
             # Run-indexed slices of shared and output memory
             run_idx_low = ty * run_stride_f32
-            run_idx_high = (run_idx_low + f32_per_element *
-                            shared_elements_per_run)
+            run_idx_high = (
+                run_idx_low + f32_per_element * shared_elements_per_run
+            )
 
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
-                    simsafe_precision)
+                simsafe_precision
+            )
 
             rx_inits = inits[run_index, :]
             rx_params = params[run_index, :]
@@ -628,10 +531,10 @@ class BatchSolverKernel(CUDAFactory):
 
         all_unrecognized = set(updates_dict.keys())
         all_unrecognized -= self.update_compile_settings(
-            updates_dict, silent=True
+                updates_dict, silent=True
         )
         all_unrecognized -= self.single_integrator.update(
-            updates_dict, silent=True
+                updates_dict, silent=True
         )
         recognised = set(updates_dict.keys()) - all_unrecognized
 
@@ -639,6 +542,109 @@ class BatchSolverKernel(CUDAFactory):
             if not silent:
                 raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
         return recognised
+
+    def _on_allocation(self, response):
+        """
+        Handle memory allocation response.
+
+        Parameters
+        ----------
+        response : ArrayResponse
+            Memory allocation response containing chunk information.
+        """
+        self.chunks = response.chunks
+
+    @property
+    def output_heights(self):
+        """
+        Get output array heights.
+
+        Returns
+        -------
+        OutputArrayHeights
+            Output array heights from the child SingleIntegratorRun object.
+
+        Notes
+        -----
+        Exposes the output_array_heights attribute from the child
+        SingleIntegratorRun object.
+        """
+        return self.single_integrator.output_array_heights
+
+    @property
+    def kernel(self):
+        """
+        Get the device function kernel.
+
+        Returns
+        -------
+        object
+            The compiled CUDA device function.
+        """
+        return self.device_function
+
+    def build(self):
+        """
+        Build the integration kernel.
+
+        Returns
+        -------
+        CUDA device function
+            The built integration kernel.
+        """
+        return self.build_kernel()
+
+    @property
+    def memory_manager(self):
+        """
+        Get the memory manager.
+
+        Returns
+        -------
+        MemoryManager
+            The memory manager the solver is registered with.
+        """
+        return self._memory_manager
+
+    @property
+    def stream_group(self):
+        """
+        Get the stream group.
+
+        Returns
+        -------
+        str
+            The stream group the solver is in.
+        """
+        return self.memory_manager.get_stream_group(self)
+
+    @property
+    def stream(self):
+        """
+        Get the assigned CUDA stream.
+
+        Returns
+        -------
+        Stream
+            The CUDA stream assigned to the solver.
+        """
+        return self.memory_manager.get_stream(self)
+
+    @property
+    def mem_proportion(self):
+        """
+        Get the memory proportion.
+
+        Returns
+        -------
+        float
+            The memory proportion the solver is assigned.
+        """
+        return self.memory_manager.proportion(self)
+
+
+
+
 
     @property
     def shared_memory_bytes_per_run(self):

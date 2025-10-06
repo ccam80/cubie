@@ -32,7 +32,7 @@ def solve_ivp(
     duration=1.0,
     settling_time=0.0,
     grid_type='combinatorial',
-    **options,
+    **kwargs,
 ) -> SolveResult:
     """Solve a batch initial value problem.
 
@@ -60,7 +60,7 @@ def solve_ivp(
         will pair each input value and parameter set so that index 0 of all
         inputs form one "run". 'combinatorial' will generate every combination
         of every input variable, which scales combinatorially.
-    **options
+    **kwargs
         Additional keyword arguments passed to :class:`Solver`.
 
     Returns
@@ -74,7 +74,7 @@ def solve_ivp(
         dt_save=dt_eval,
         duration=duration,
         warmup=settling_time,
-        **options,
+        **kwargs,
     )
     results = solver.solve(
         y0,
@@ -83,7 +83,7 @@ def solve_ivp(
         duration=duration,
         warmup=settling_time,
         grid_type=grid_type,
-        **options,
+        **kwargs,
     )
     return results
 
@@ -145,12 +145,8 @@ class Solver:
         algorithm: str = "euler",
         duration: float = 1.0,
         warmup: float = 0.0,
-        dt_min: float = 0.01,
-        dt_max: float = 0.01,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        atol: float = 1e-6,
-        rtol: float = 1e-6,
         saved_states: Optional[List[Union[str, int]]] = None,
         saved_observables: Optional[List[Union[str, int]]] = None,
         summarised_states: Optional[List[Union[str, int]]] = None,
@@ -193,12 +189,8 @@ class Solver:
             algorithm=algorithm,
             duration=duration,
             warmup=warmup,
-            dt_min=dt_min,
-            dt_max=dt_max,
             dt_save=dt_save,
             dt_summarise=dt_summarise,
-            atol=atol,
-            rtol=rtol,
             saved_state_indices=saved_state_indices,
             saved_observable_indices=saved_observable_indices,
             summarised_state_indices=summarised_state_indices,

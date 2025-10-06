@@ -424,12 +424,8 @@ def solverkernel(solver_settings, system, driver_array):
         algorithm=solver_settings["algorithm"],
         duration=solver_settings["duration"],
         warmup=solver_settings["warmup"],
-        dt_min=solver_settings["dt_min"],
-        dt_max=solver_settings["dt_max"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
-        atol=solver_settings["atol"],
-        rtol=solver_settings["rtol"],
         saved_state_indices=solver_settings["saved_state_indices"],
         saved_observable_indices=solver_settings["saved_observable_indices"],
         output_types=solver_settings["output_types"],
@@ -581,16 +577,14 @@ def loop(
                    is_adaptive=step_controller.is_adaptive)
 
 @pytest.fixture(scope="function")
-def single_integrator_run(system, solver_settings, driver_array):
+def single_integrator_run(system, solver_settings, driver_array,
+                          step_controller_settings):
     """Instantiate :class:`SingleIntegratorRun` with test fixtures."""
     driver_function = driver_array.evaluation_function if driver_array is not None else None
 
     run = SingleIntegratorRun(
         system=system,
         algorithm=solver_settings["algorithm"],
-        dt_min=solver_settings["dt_min"],
-        dt_max=solver_settings["dt_max"],
-        dt=solver_settings["dt_min"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
         saved_state_indices=solver_settings["saved_state_indices"],
@@ -601,7 +595,7 @@ def single_integrator_run(system, solver_settings, driver_array):
         ],
         driver_function=driver_function,
         output_types=solver_settings["output_types"],
-        step_controller_settings=solver_settings["step_controller"],
+        step_controller_settings=step_controller_settings,
     )
     return run
 

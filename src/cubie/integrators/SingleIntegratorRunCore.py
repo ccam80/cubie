@@ -47,23 +47,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         ODE system whose device functions drive the integration.
     algorithm
         Name of the algorithm step implementation. Defaults to ``"euler"``.
-    dt_min
-        Minimum step size forwarded to the controller. Defaults to ``0.01``.
-    dt_max
-        Maximum step size forwarded to the controller. Defaults to ``0.1``.
-    fixed_step_size
-        Step size supplied to fixed-step algorithms. Defaults to ``0.01``.
     dt_save
         Interval used when saving full state trajectories. Defaults to
         ``0.1``.
     dt_summarise
         Interval used when saving summary metrics. Defaults to ``1.0``.
-    atol
-        Absolute tolerance supplied to adaptive controllers. Defaults to
-        ``1e-6``.
-    rtol
-        Relative tolerance supplied to adaptive controllers. Defaults to
-        ``1e-6``.
     saved_state_indices
         Indices of state variables saved by the output handler.
     saved_observable_indices
@@ -81,8 +69,12 @@ class SingleIntegratorRunCore(CUDAFactory):
         ``"fixed"``.
     algorithm_parameters
         Additional keyword arguments forwarded to the algorithm factory.
-    step_controller_parameters
-        Additional keyword arguments forwarded to the controller factory.
+   step_control_settings
+        Mapping of keyword arguments to merge with the algorithm default step
+        controller settings. Include ``"step_controller_kind"`` to override
+        the controller family selected by the algorithm defaults. Supply
+        bounds such as ``"dt_min"`` and ``"dt_max"`` here when configuring
+        adaptive controllers.
 
     Returns
     -------
@@ -94,11 +86,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         self,
         system: BaseODE,
         algorithm: str = "euler",
-        dt: Optional[float] = None,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        dt_min: float = 1e-3,
-        dt_max: float = 0.1,
         saved_state_indices: Optional[ArrayLike] = None,
         saved_observable_indices: Optional[ArrayLike] = None,
         summarised_state_indices: Optional[ArrayLike] = None,
@@ -131,8 +120,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             summarised_observable_indices=summarised_observable_indices,
         )
 
-        if dt is None:
-            dt = dt_min
+        dt = step_control_settings.get("dt", None)
 
         self._algo_step = self.instantiate_step_object(
             precision=precision,
@@ -148,17 +136,17 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         # Fetch and override controller defaults from algorithm settings
         controller_defaults = self._algo_step.controller_defaults
-        step_controller_kind = controller_defaults.step_controller
-        if step_control_settings.get("step_controller_kind") is not None:
-            step_controller_kind = step_control_settings[
-                "step_controller_kind"
-            ]
-        step_control_settings = controller_defaults.step_controller_kwargs
-        step_control_settings.update(step_control_settings)
+        user_ctrl_kind = step_control_settings.pop("step_controller_kind",
+                                                   None)
+        default_ctrl_kind = controller_defaults.step_controller
+        ctrl_kind = (user_ctrl_kind if user_ctrl_kind is not None
+                     else default_ctrl_kind)
+        merged_step_settings = controller_defaults.step_controller_kwargs
+        merged_step_settings.update(step_control_settings)
 
         self._step_controller = self.instantiate_controller(
                 precision=precision,
-                kind=step_controller_kind,
+                kind=ctrl_kind,
                 dt=dt,
                 n=system.sizes.states,
                 **(step_control_settings or {})
@@ -167,7 +155,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         config = IntegratorRunSettings(
             precision=system.precision,
             algorithm=algorithm,
-            step_controller_kind=step_controller_kind,
+            step_controller_kind=ctrl_kind,
         )
 
         self.setup_compile_settings(config)
@@ -221,7 +209,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         observables_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
-        dt: float = 1e-3,
+        dt: Optional[float] = 1e-3,
         **kwargs: Any,
     ) -> BaseAlgorithmStep:
         """Instantiate the algorithm step.
@@ -239,8 +227,11 @@ class SingleIntegratorRunCore(CUDAFactory):
             Device function computing system observables.
         get_solver_helper_fn
             Factory returning linear solver helpers for implicit algorithms.
-        step_size
-            Step size supplied to fixed-step algorithms.
+        driver_function
+            Function for evaluating interpolated driver signals.
+        dt
+            Step size supplied to fixed-step algorithms or the initial guess
+            for adaptive controllers.
         **kwargs
             Additional configuration forwarded to the algorithm factory.
 
