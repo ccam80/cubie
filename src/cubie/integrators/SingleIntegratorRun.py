@@ -59,10 +59,10 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self.compile_settings.algorithm
 
     @property
-    def step_controller_kind(self) -> str:
+    def step_controller(self) -> str:
         """Return the configured step-controller identifier."""
 
-        return self.compile_settings.step_controller_kind
+        return self.compile_settings.step_controller
 
     # ------------------------------------------------------------------
     # Aggregated memory usage

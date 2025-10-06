@@ -12,10 +12,11 @@ from cubie.integrators.algorithms.ode_explicitstep import (
 )
 
 EE_DEFAULTS = StepControlDefaults(
-        step_controller='fixed',
-        step_controller_kwargs={
-            'dt': 1e-3,
-        })
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
+    }
+)
 
 class ExplicitEulerStep(ODEExplicitStep):
     """Forward Euler integration step for explicit ODE updates."""
@@ -51,7 +52,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             Present for interface parity with implicit steps and ignored here.
         """
         if dt is None:
-            dt = EE_DEFAULTS.step_controller_kwargs['dt']
+            dt = EE_DEFAULTS.step_controller['dt']
 
         config = ExplicitStepConfig(
             dt=dt,

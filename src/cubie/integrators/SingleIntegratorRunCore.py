@@ -69,10 +69,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         Additional keyword arguments forwarded to the algorithm factory.
     step_control_settings
         Mapping of keyword arguments to merge with the algorithm default step
-        controller settings. Include ``"step_controller_kind"`` to override
-        the controller family selected by the algorithm defaults. Supply
-        bounds such as ``"dt_min"`` and ``"dt_max"`` here when configuring
-        adaptive controllers.
+        controller settings. Include ``"step_controller"`` to override the
+        controller family selected by the algorithm defaults. Supply bounds
+        such as ``"dt_min"`` and ``"dt_max"`` here when configuring adaptive
+        controllers. Supported identifiers include ``"fixed"``, ``"i"``,
+        ``"pi"``, ``"pid"``, and ``"gustafsson"``.
 
     Returns
     -------
@@ -134,25 +135,21 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         # Fetch and override controller defaults from algorithm settings
         controller_defaults = self._algo_step.controller_defaults
-        user_ctrl_kind = step_control_settings.pop("step_controller_kind",
-                                                   None)
-        default_ctrl_kind = controller_defaults.step_controller
-        ctrl_kind = (user_ctrl_kind if user_ctrl_kind is not None
-                     else default_ctrl_kind)
-        merged_step_settings = controller_defaults.step_controller_kwargs
+        merged_step_settings = dict(controller_defaults.step_controller)
         merged_step_settings.update(step_control_settings)
-        merged_step_settings['n'] = system_sizes.states
 
-        self._step_controller = self.instantiate_controller(
-                precision=precision,
-                kind=ctrl_kind,
-                settings_dict=merged_step_settings,
+        step_controller = merged_step_settings.get("step_controller")
+        merged_step_settings["n"] = system_sizes.states
+
+        self._step_controller = get_controller(
+            precision=precision,
+            settings=merged_step_settings,
         )
 
         config = IntegratorRunSettings(
             precision=system.precision,
             algorithm=algorithm,
-            step_controller_kind=ctrl_kind,
+            step_controller=step_controller,
         )
 
         self.setup_compile_settings(config)
@@ -257,46 +254,6 @@ class SingleIntegratorRunCore(CUDAFactory):
             **kwargs,
         )
         return algorithm
-
-    def instantiate_controller(
-        self,
-        precision: type,
-        kind: str = "fixed",
-        settings_dict: Dict[str, Any] = {},
-        **kwargs: Any,
-    ) -> BaseStepController:
-        """Instantiate the step controller.
-
-        Parameters
-        ----------
-        kind
-            Controller identifier accepted by
-            :func:`cubie.integrators.step_control.get_controller`.
-        precision
-            floating-point precision used by the controller. One of
-            ``np.float32``, ``np.float64``.
-        kind
-            Controller identifier
-            from``cubie.integrators.step_control._CONTROLLER_REGISTRY``.
-        **kwargs
-            Additional configuration forwarded to the controller factory.
-
-        Returns
-        -------
-        BaseStepController
-            Instantiated controller configured for the integration run.
-
-        Notes
-        -----
-        Supported identifiers include ``"fixed"``, ``"i"``, ``"pi"``,
-        ``"pid"``, and ``"gustafsson"``.
-        """
-
-        controller = get_controller(kind,
-                                    precision=precision,
-                                    settings=settings_dict,
-        )
-        return controller
 
     def instantiate_loop(
         self,
@@ -417,7 +374,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         Notes
         -----
-        When algorithm or controller kinds change, new instances are
+        When algorithm or controller selections change, new instances are
         created and primed with settings from their predecessors before
         applying ``updates_dict``. Parameters present only on the new
         instance are ignored unless explicitly provided in the update.
@@ -434,18 +391,20 @@ class SingleIntegratorRunCore(CUDAFactory):
         all_unrecognized = set(updates_dict.keys())
         recognized = set()
         precision = updates_dict.get('precision', self.precision)
-        if "step_controller_kind" in updates_dict.keys():
-            new_step_controller_kind = updates_dict["step_controller_kind"]
+        step_controller_value = updates_dict.get("step_controller")
 
-            if new_step_controller_kind != self.step_controller_kind:
+        if step_controller_value is not None:
+            canonical_kind = step_controller_value.lower()
+            if canonical_kind != self.compile_settings.step_controller:
                 old_settings = self._step_controller.settings_dict
-                _step_controller = self.instantiate_controller(
-                    kind=new_step_controller_kind,
+                old_settings["step_controller"] = canonical_kind
+                self._step_controller = get_controller(
                     precision=precision,
-                    settings_dict=old_settings
-                    )
-                self._step_controller = _step_controller
-            recognized.add("step_controller_kind")
+                    settings=old_settings,
+                )
+                self.compile_settings.step_controller = canonical_kind
+            updates_dict["step_controller"] = canonical_kind
+            recognized.add("step_controller")
 
         if "algorithm" in updates_dict.keys():
             # If the algorithm is being updated, we need to reset the

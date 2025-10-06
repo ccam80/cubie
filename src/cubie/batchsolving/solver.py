@@ -173,11 +173,7 @@ class Solver:
                 "dt": 0.1,
             },
         )
-        step_settings, recognized_kwargs = merge_component_settings(
-                kwargs,
-                step_control_settings,
-                ALL_STEP_CONTROLLER_PARAMETERS,
-        )
+
 
         (
             saved_state_indices,
@@ -192,6 +188,12 @@ class Solver:
         )
 
         self.grid_builder = BatchGridBuilder(interface)
+
+        step_settings, recognized_kwargs = merge_component_settings(
+                kwargs,
+                step_control_settings,
+                ALL_STEP_CONTROLLER_PARAMETERS,
+        )
 
         self.kernel = BatchSolverKernel(
             system,
@@ -209,6 +211,7 @@ class Solver:
             memory_manager=memory_manager,
             stream_group=stream_group,
             mem_proportion=mem_proportion,
+            step_control_settings=step_control_settings,
         )
 
         if set(kwargs) - set(recognized_kwargs):

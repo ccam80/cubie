@@ -97,7 +97,7 @@ def test_run(
 
 def test_algorithm_change(solverkernel):
     solverkernel.update({"algorithm": "crank_nicolson",
-                         "step_controller_kind": "pid"})
+                         "step_controller": "pid"})
     assert (
         solverkernel.single_integrator._step_controller.atol is not None)
 

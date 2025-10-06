@@ -16,10 +16,11 @@ ALGO_CONSTANTS = {'beta': 1.0,
                   'M': np.eye}
 
 BE_DEFAULTS = StepControlDefaults(
-        step_controller='fixed',
-        step_controller_kwargs={
-            'dt': 1e-3,
-        })
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
+    }
+)
 
 class BackwardsEulerStep(ODEImplicitStep):
     """Backward Euler step solved with matrix-free Newton–Krylov."""
@@ -78,7 +79,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             Maximum number of backtracking steps within the Newton solver.
         """
         if dt is None:
-            dt = BE_DEFAULTS.step_controller_kwargs['dt']
+            dt = BE_DEFAULTS.step_controller['dt']
 
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
@@ -307,3 +308,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         """Return the derivative device function."""
 
         return self.compile_settings.dxdt_function
+
+    @property
+    def identifier(self) -> str:
+        return "backwards_euler"

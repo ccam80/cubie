@@ -336,7 +336,7 @@ def step_controller_settings(
     precision = solver_settings["precision"]
 
     defaults = {
-        "kind": solver_settings["step_controller"].lower(),
+        "step_controller": solver_settings["step_controller"].lower(),
         "dt": precision(solver_settings["dt_min"]),
         "dt_min": precision(solver_settings["dt_min"]),
         "dt_max": precision(solver_settings["dt_max"]),
@@ -467,7 +467,7 @@ def solver(system, solver_settings, driver_array):
 def step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
 
-    kind = step_controller_settings["kind"].lower()
+    kind = step_controller_settings["step_controller"].lower()
     settings = step_controller_settings
     if kind == "fixed":
         return FixedStepController(precision, step_controller_settings["dt"])
@@ -655,10 +655,10 @@ def step_object(
 @pytest.fixture(scope="function")
 def cpu_step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
-    kind = step_controller_settings["kind"].lower()
+    kind = step_controller_settings["step_controller"].lower()
 
     controller = CPUAdaptiveController(
-        kind=step_controller_settings["kind"].lower(),
+        kind=step_controller_settings["step_controller"].lower(),
         dt_min=step_controller_settings["dt_min"],
         dt_max=step_controller_settings["dt_max"],
         atol=step_controller_settings["atol"],

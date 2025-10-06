@@ -31,22 +31,19 @@ _CONTROLLER_REGISTRY: Dict[str, Type[BaseStepController]] = {
 }
 
 def get_controller(
-    kind: str,
     precision: type,
     settings: Optional[Mapping[str, Any]] = None,
     warn_on_unused: bool = True,
     **kwargs: Any,
 ) -> BaseStepController:
-    """Return a controller instance based on ``kind``.
+    """Return a controller instance from a settings mapping.
 
     Parameters
     ----------
-    kind
-        Simplified name of the controller (``"fixed"``, ``"i"``, ``"pi"``,
-        ``"pid"``, ``"gustafsson"``).
     settings
         Mapping of step control keyword arguments supplied by the caller.
-        Values in ``settings`` are merged with ``kwargs``.
+        Values in ``settings`` are merged with ``kwargs``. The mapping must
+        include ``"step_controller"`` to identify the controller factory.
     warn_on_unused
         Emit a warning when unused settings remain after filtering.
     **kwargs
@@ -61,25 +58,31 @@ def get_controller(
     Raises
     ------
     ValueError
-        Raised when ``kind`` does not match a known controller type or when
-        required configuration keys are missing.
+        Raised when ``step_controller`` does not match a known controller type
+        or when required configuration keys are missing.
     """
 
-    controller_key = kind.lower()
+    controller_settings = {}
+    if settings is not None:
+        controller_settings.update(settings)
+    controller_settings.update(kwargs)
+
+    step_controller_value = controller_settings.get("step_controller")
+    controller_key = step_controller_value.lower()
+
     try:
         controller_type = _CONTROLLER_REGISTRY[controller_key]
     except KeyError as exc:  # pragma: no cover - defensive guard
-        raise ValueError(f"Unknown controller type: {kind}") from exc
+        raise ValueError(
+            f"Unknown controller type: {step_controller_value}"
+        ) from exc
 
-    merged_settings = {}
-    if settings is not None:
-        merged_settings.update(settings)
-    merged_settings.update(kwargs)
-    merged_settings['precision'] = precision
+    controller_settings.pop("step_controller", None)
+    controller_settings["precision"] = precision
 
     filtered, missing, unused = split_applicable_settings(
         controller_type,
-        merged_settings,
+        controller_settings,
         warn_on_unused=warn_on_unused
     )
     if missing:
@@ -89,4 +92,5 @@ def get_controller(
             f"{missing_keys}"
         )
 
-    return controller_type(**filtered)
+    controller = controller_type(**filtered)
+    return controller

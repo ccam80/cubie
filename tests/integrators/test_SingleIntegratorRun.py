@@ -7,6 +7,7 @@ from typing import Dict
 import numpy as np
 import pytest
 
+from cubie import SingleIntegratorRun
 from tests._utils import assert_integration_outputs, run_device_loop
 
 
@@ -114,7 +115,7 @@ class TestSingleIntegratorRun:
         assert run.algorithm_key == expected_algorithm
         assert solver_settings["algorithm"].lower() in expected_algorithm
         expected_controller = solver_settings["step_controller"].lower()
-        assert run.step_controller_kind == expected_controller
+        assert run.step_controller == expected_controller
 
         assert run.dt_save == pytest.approx(
             solver_settings["dt_save"],
@@ -438,3 +439,96 @@ def test_update_routes_to_children(
         + run._step_controller.local_memory_elements
     )
     assert run.local_memory_elements == expected_local
+
+
+def test_default_step_controller_settings_applied(
+    system,
+    solver_settings,
+    driver_array,
+):
+    """When no overrides are supplied algorithm defaults are applied."""
+
+    driver_fn = driver_array.evaluation_function if driver_array else None
+    run = SingleIntegratorRun(
+        system=system,
+        algorithm=solver_settings["algorithm"],
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        saved_state_indices=solver_settings["saved_state_indices"],
+        saved_observable_indices=solver_settings["saved_observable_indices"],
+        summarised_state_indices=solver_settings["summarised_state_indices"],
+        summarised_observable_indices=solver_settings[
+            "summarised_observable_indices"
+        ],
+        output_types=solver_settings["output_types"],
+        driver_function=driver_fn,
+        step_control_settings=None,
+    )
+
+    defaults = run._algo_step.controller_defaults.copy()
+    assert run.step_controller == defaults.step_controller['step_controller']
+    controller_settings = run._step_controller.settings_dict
+    defaults.step_controller.pop('step_controller')
+    for key, expected in defaults.step_controller.items():
+
+        assert key in controller_settings
+        actual = controller_settings[key]
+        if isinstance(expected, (float, np.floating)):
+            assert actual == pytest.approx(expected)
+        else:
+            assert actual == expected
+    assert run._step_controller.n == system.sizes.states
+
+
+@pytest.mark.parametrize(
+    "algorithm, overrides",
+    [
+        (
+            "crank_nicolson",
+            {
+                "dt_min": 5e-5,
+                "dt_max": 5e-2,
+                "min_gain": 0.3,
+            },
+        )
+    ],
+)
+
+def test_step_controller_overrides_take_precedence(
+    system,
+    solver_settings,
+    driver_array,
+    algorithm,
+    overrides,
+):
+    """User supplied settings override algorithm defaults."""
+
+    precision = system.precision
+    driver_fn = driver_array.evaluation_function if driver_array else None
+    override_settings = {
+        key: precision(value) if isinstance(value, float) else value
+        for key, value in overrides.items()
+    }
+    run = SingleIntegratorRun(
+        system=system,
+        algorithm=algorithm,
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        saved_state_indices=solver_settings["saved_state_indices"],
+        saved_observable_indices=solver_settings["saved_observable_indices"],
+        summarised_state_indices=solver_settings["summarised_state_indices"],
+        summarised_observable_indices=solver_settings[
+            "summarised_observable_indices"
+        ],
+        output_types=solver_settings["output_types"],
+        driver_function=driver_fn,
+        step_control_settings=dict(override_settings),
+    )
+
+    assert run.step_controller == "pi"
+    assert run.dt_min == pytest.approx(override_settings["dt_min"])
+    assert run.dt_max == pytest.approx(override_settings["dt_max"])
+    controller_settings = run._step_controller.settings_dict
+    assert controller_settings["min_gain"] == pytest.approx(
+        override_settings["min_gain"]
+    )

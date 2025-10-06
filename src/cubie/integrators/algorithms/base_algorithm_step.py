@@ -39,14 +39,12 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
 class StepControlDefaults:
     """Per-algorithm defaults for step controller settings."""
 
-    step_controller: str = attrs.field(default="fixed")
-    step_controller_kwargs: Dict[str, Any] = attrs.field(factory=dict)
+    step_controller: Dict[str, Any] = attrs.field(factory=dict)
 
     def copy(self) -> "StepControlDefaults":
         """Return a deep-copy of the defaults container."""
         return StepControlDefaults(
-            step_controller=self.step_controller,
-            step_controller_kwargs=dict(self.step_controller_kwargs),
+            step_controller=dict(self.step_controller),
         )
 
 @attrs.define

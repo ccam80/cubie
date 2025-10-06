@@ -174,7 +174,6 @@ class BaseStepController(CUDAFactory):
     @property
     def settings_dict(self) -> dict[str, object]:
         """Return the compile-time settings as a dictionary."""
-
         return self.compile_settings.settings_dict
 
     def update(

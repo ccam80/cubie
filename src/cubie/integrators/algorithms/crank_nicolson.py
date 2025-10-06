@@ -16,18 +16,18 @@ ALGO_CONSTANTS = {'beta': 1.0,
                   'M': np.eye}
 
 CN_DEFAULTS = StepControlDefaults(
-        step_controller='pi',
-        step_controller_kwargs={
-            'order': 2,
-            'dt_min': 1e-6,
-            'dt_max': 1e-1,
-            'kp': 0.6,
-            'kd': 0.4,
-            'deadband_min': 1.0,
-            'deadband_max': 1.1,
-            'min_gain': 0.5,
-            'max_gain': 2.0
-        }
+    step_controller={
+        "step_controller": "pi",
+        "order": 2,
+        "dt_min": 1e-6,
+        "dt_max": 1e-1,
+        "kp": 0.6,
+        "kd": 0.4,
+        "deadband_min": 1.0,
+        "deadband_max": 1.1,
+        "min_gain": 0.5,
+        "max_gain": 2.0,
+    }
 )
 class CrankNicolsonStep(ODEImplicitStep):
     """Crank–Nicolson step with embedded backward Euler error estimation."""
