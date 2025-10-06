@@ -637,6 +637,7 @@ def step_object(
         solver_kwargs = {
             "precision": precision,
             "n": system.sizes.states,
+            'dt': solver_settings["dt_min"],
             'dxdt_function': system.dxdt_function,
             'observables_function': system.observables_function,
             'get_solver_helper_fn': system.get_solver_helper,

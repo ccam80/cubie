@@ -162,8 +162,6 @@ class BatchSolverKernel(CUDAFactory):
             dt_max=dt_max,
             dt_save=dt_save,
             dt_summarise=dt_summarise,
-            atol=atol,
-            rtol=rtol,
             saved_state_indices=saved_state_indices,
             saved_observable_indices=saved_observable_indices,
             summarised_state_indices=summarised_state_indices,
