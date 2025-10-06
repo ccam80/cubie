@@ -77,7 +77,7 @@ def get_controller(
     filtered, missing, unused = split_applicable_settings(
         controller_type,
         merged_settings,
-            warn_on_unused=True
+        warn_on_unused=True
     )
     if missing:
         missing_keys = ", ".join(sorted(missing))

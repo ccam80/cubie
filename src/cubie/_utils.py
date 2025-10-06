@@ -140,7 +140,7 @@ def is_attrs_class(putative_class_instance):
 def split_applicable_settings(
     target: Any,
     settings: Mapping[str, Any],
-    warn_for_unused: bool = True,
+    warn_on_unused: bool = True,
 ) -> Tuple[dict[str, Any], set[str], set[str]]:
     """Partition ``settings`` into accepted, missing, and unused entries.
 
@@ -192,7 +192,7 @@ def split_applicable_settings(
     }
     missing = required - filtered.keys()
     unused = set(settings.keys()) - accepted
-    if warn_for_unused and unused:
+    if warn_on_unused and unused:
         warn(f"The following settings were ignored: {unused}",
              stacklevel=3)
     return filtered, missing, unused
