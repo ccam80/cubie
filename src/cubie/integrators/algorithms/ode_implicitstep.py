@@ -6,8 +6,9 @@ from typing import Callable, Optional, Union
 import attrs
 import numpy as np
 import sympy as sp
+from attrs import validators
 
-from cubie._utils import inrangetype_validator
+from cubie._utils import inrangetype_validator, gttype_validator
 from cubie.integrators.matrix_free_solvers import (
     linear_solver_factory,
     newton_krylov_solver_factory,
@@ -15,7 +16,7 @@ from cubie.integrators.matrix_free_solvers import (
 from cubie.integrators.algorithms.base_algorithm_step import (
     BaseAlgorithmStep,
     BaseStepConfig,
-    StepCache,
+    StepCache, StepControlDefaults,
 )
 
 @attrs.define
@@ -32,6 +33,8 @@ class ImplicitStepConfig(BaseStepConfig):
         Mass matrix used when evaluating residuals and Jacobian actions.
     preconditioner_order
         Order of the truncated Neumann preconditioner.
+    dt
+        fixed step size for fixed-step algorithms
     linsolve_tolerance
         Linear solver tolerance used by the Krylov iteration.
     max_linear_iters
@@ -48,24 +51,45 @@ class ImplicitStepConfig(BaseStepConfig):
         Maximum number of backtracking steps within Newton updates.
     """
 
-    _beta: float = attrs.field(default=1.0)
-    _gamma: float = attrs.field(default=1.0)
+    _beta: float = attrs.field(
+        default=1.0,
+        validator=inrangetype_validator(float, 0, 1)
+    )
+    _gamma: float = attrs.field(
+        default=1.0,
+        validator=inrangetype_validator(float, 0, 1)
+    )
     M: Union[np.ndarray, sp.Matrix] = attrs.field(default=sp.eye(1))
-    preconditioner_order: int = attrs.field(default=1)
-    _linsolve_tolerance: float = attrs.field(default=1e-3)
+    preconditioner_order: int = attrs.field(
+        default=1,
+        validator=inrangetype_validator(int, 1, 32)
+    )
+    _linsolve_tolerance: float = attrs.field(
+        default=1e-3,
+        validator=gttype_validator(float, 0))
     max_linear_iters: int = attrs.field(
         default=100,
         validator=inrangetype_validator(int, 1, 32767),
     )
     linear_correction_type: str = attrs.field(default="minimal_residual")
 
-    _nonlinear_tolerance: float = attrs.field(default=1e-3)
+    _nonlinear_tolerance: float = attrs.field(
+        default=1e-3,
+        validator=gttype_validator(float, 0)
+    )
     max_newton_iters: int = attrs.field(
         default=100,
         validator=inrangetype_validator(int, 1, 32767),
     )
-    _newton_damping: float = attrs.field(default=0.5)
-    newton_max_backtracks: int = attrs.field(default=10)
+    _newton_damping: float = attrs.field(
+        default=0.5,
+        validator=inrangetype_validator(float, 0, 1)
+    )
+
+    newton_max_backtracks: int = attrs.field(
+        default=10,
+        validator=inrangetype_validator(int, 1, 32767)
+    )
 
     @property
     def beta(self) -> float:
@@ -119,16 +143,21 @@ class ImplicitStepConfig(BaseStepConfig):
 class ODEImplicitStep(BaseAlgorithmStep):
     """Base helper for implicit integration algorithms."""
 
-    def __init__(self, config: ImplicitStepConfig) -> None:
+    def __init__(self,
+                 config: ImplicitStepConfig,
+                 _controller_defaults: StepControlDefaults) -> None:
         """Initialise the implicit step with its configuration.
 
         Parameters
         ----------
         config
             Configuration describing the implicit step.
+        _controller_defaults
+           Per-algorithm default runtime collaborators, such as step
+           controllers and matrix-free solvers.
         """
 
-        super().__init__(config)
+        super().__init__(config, _controller_defaults)
 
     def build(self) -> StepCache:
         """Create and cache the device helpers for the implicit algorithm.

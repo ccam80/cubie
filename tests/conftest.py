@@ -590,7 +590,7 @@ def single_integrator_run(system, solver_settings, driver_array):
         algorithm=solver_settings["algorithm"],
         dt_min=solver_settings["dt_min"],
         dt_max=solver_settings["dt_max"],
-        fixed_step_size=solver_settings["dt_min"],
+        dt=solver_settings["dt_min"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
         atol=solver_settings["atol"],
@@ -603,7 +603,7 @@ def single_integrator_run(system, solver_settings, driver_array):
         ],
         driver_function=driver_function,
         output_types=solver_settings["output_types"],
-        step_controller_kind=solver_settings["step_controller"],
+        step_controller_settings=solver_settings["step_controller"],
     )
     return run
 

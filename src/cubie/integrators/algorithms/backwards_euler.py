@@ -7,12 +7,19 @@ import numpy as np
 
 from cubie._utils import PrecisionDtype
 from cubie.integrators.algorithms import ImplicitStepConfig
-from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
                   'M': np.eye}
+
+BE_DEFAULTS = StepControlDefaults(
+        step_controller='fixed',
+        step_controller_kwargs={
+            'dt': 1e-3,
+        })
 
 class BackwardsEulerStep(ODEImplicitStep):
     """Backward Euler step solved with matrix-free Newton–Krylov."""
@@ -21,18 +28,19 @@ class BackwardsEulerStep(ODEImplicitStep):
         self,
         precision: PrecisionDtype,
         n: int,
+        dt: float,
         dxdt_function: Callable,
         observables_function: Callable,
         get_solver_helper_fn: Callable,
         driver_function: Optional[Callable] = None,
         preconditioner_order: int = 1,
-        linsolve_tolerance: float = 1e-6,
+        linsolve_tolerance: float = 1e-5,
         max_linear_iters: int = 100,
         linear_correction_type: str = "minimal_residual",
-        nonlinear_tolerance: float = 1e-6,
-        max_newton_iters: int = 1000,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 10,
+        nonlinear_tolerance: float = 1e-5,
+        max_newton_iters: int = 100,
+        newton_damping: float = 0.85,
+        newton_max_backtracks: int = 25,
     ) -> None:
         """Initialise the backward Euler step configuration.
 
@@ -67,6 +75,8 @@ class BackwardsEulerStep(ODEImplicitStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
         """
+        if dt is None:
+            dt = BE_DEFAULTS.step_controller_kwargs['dt']
 
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
@@ -77,6 +87,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
+            dt=dt,
             preconditioner_order=preconditioner_order,
             linsolve_tolerance=linsolve_tolerance,
             max_linear_iters=max_linear_iters,
@@ -90,7 +101,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             driver_function=driver_function,
             precision=precision,
         )
-        super().__init__(config)
+        super().__init__(config, BE_DEFAULTS.copy())
 
     def build_step(
         self,
@@ -127,7 +138,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
-
+        dt = self.dt
         @cuda.jit(
             (
                 numba_precision[:],
@@ -206,7 +217,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = state[i]
 
-            next_time = time_scalar + dt_scalar
+            next_time = time_scalar + dt
             if has_driver_function:
                 driver_function(
                     next_time,
@@ -221,7 +232,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 proposed_state,
                 parameters,
                 proposed_drivers,
-                dt_scalar,
+                dt,
                 a_ij,
                 state,
                 work_buffer,

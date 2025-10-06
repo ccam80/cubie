@@ -13,9 +13,8 @@ be rebuilt when any component is reconfigured.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
-import numpy as np
 from numpy.typing import ArrayLike
 
 from cubie.CUDAFactory import CUDAFactory
@@ -95,30 +94,30 @@ class SingleIntegratorRunCore(CUDAFactory):
         self,
         system: BaseODE,
         algorithm: str = "euler",
-        dt_min: float = 0.01,
-        dt_max: float = 0.1,
-        fixed_step_size: Optional[float] =None,
+        dt: Optional[float] = None,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        atol: float = 1e-6,
-        rtol: float = 1e-6,
+        dt_min: float = 1e-3,
+        dt_max: float = 0.1,
         saved_state_indices: Optional[ArrayLike] = None,
         saved_observable_indices: Optional[ArrayLike] = None,
         summarised_state_indices: Optional[ArrayLike] = None,
         summarised_observable_indices: Optional[ArrayLike] = None,
         output_types: Optional[list[str]] = None,
         driver_function: Optional[Callable] = None,
-        step_controller_kind: str = "fixed",
         algorithm_parameters: Optional[Dict[str, Any]] = None,
-        step_controller_parameters: Optional[Dict[str, Any]] = None,
+        step_control_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__()
-        config = IntegratorRunSettings(
-            precision=system.precision,
-            algorithm=algorithm,
-            step_controller_kind=step_controller_kind or "fixed",
-        )
-        self.setup_compile_settings(config)
+
+        if step_control_settings is None:
+            step_control_settings = {}
+        if algorithm_parameters is None:
+            algorithm_parameters = {}
+
+        precision = system.precision
+
+
         self._system = system
         system_sizes = system.sizes
 
@@ -132,34 +131,48 @@ class SingleIntegratorRunCore(CUDAFactory):
             summarised_observable_indices=summarised_observable_indices,
         )
 
-        if fixed_step_size is None:
-            fixed_step_size = dt_min
-        self._step_controller = self.instantiate_controller(
-                step_controller_kind,
-                dt_min=dt_min,
-                dt_max=dt_max,
-                fixed_step_size=fixed_step_size,
-                atol=atol,
-                rtol=rtol,
-                **(step_controller_parameters or {}),
-        )
+        if dt is None:
+            dt = dt_min
 
         self._algo_step = self.instantiate_step_object(
-            algorithm,
+            precision=precision,
+            kind=algorithm,
             n=system.sizes.states,
             dxdt_function=self._system.dxdt_function,
             observables_function=self._system.observables_function,
             get_solver_helper_fn=self._system.get_solver_helper,
             driver_function=driver_function,
-            step_size=fixed_step_size,
+            dt=dt,
             **(algorithm_parameters or {}),
         )
 
-        if self._step_controller.is_adaptive:
-            self._step_controller.update(algorithm_order=self._algo_step.order)
+        # Fetch and override controller defaults from algorithm settings
+        controller_defaults = self._algo_step.controller_defaults
+        step_controller_kind = controller_defaults.step_controller
+        if step_control_settings.get("step_controller_kind") is not None:
+            step_controller_kind = step_control_settings[
+                "step_controller_kind"
+            ]
+        step_control_settings = controller_defaults.step_controller_kwargs
+        step_control_settings.update(step_control_settings)
 
+        self._step_controller = self.instantiate_controller(
+                precision=precision,
+                kind=step_controller_kind,
+                dt_min=dt_min,
+                dt_max=dt_max,
+                **(step_control_settings or {})
+        )
 
+        config = IntegratorRunSettings(
+            precision=system.precision,
+            algorithm=algorithm,
+            step_controller_kind=step_controller_kind,
+        )
+
+        self.setup_compile_settings(config)
         self._loop = self.instantiate_loop(
+                precision=precision,
                 n_states=system_sizes.states,
                 n_parameters=system_sizes.parameters,
                 n_observables=system_sizes.observables,
@@ -201,13 +214,14 @@ class SingleIntegratorRunCore(CUDAFactory):
 
     def instantiate_step_object(
         self,
+        precision: type,
         kind: str = "euler",
         n: int = 1,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
-        step_size: float = 1e-3,
+        dt: float = 1e-3,
         **kwargs: Any,
     ) -> BaseAlgorithmStep:
         """Instantiate the algorithm step.
@@ -240,12 +254,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         Supported identifiers include ``"euler"``, ``"backwards_euler"``,
         ``"backwards_euler_pc"``, and ``"crank_nicolson"``.
         """
-        if kind.lower() in ["euler"]:  # fixed step algorithms
-            kwargs.update({"dt": step_size})
         algorithm = get_algorithm_step(
             kind,
-            precision=self.precision,
+            precision=precision,
             n=n,
+            dt=dt,
             dxdt_function=dxdt_function,
             get_solver_helper_fn=get_solver_helper_fn,
             observables_function=observables_function,
@@ -256,13 +269,8 @@ class SingleIntegratorRunCore(CUDAFactory):
 
     def instantiate_controller(
         self,
+        precision: type,
         kind: str = "fixed",
-        order: int = 1,
-        dt_min: float = 1e-3,
-        dt_max: float = 1e-1,
-        atol: Union[float, np.ndarray] = 1e-6,
-        rtol: Union[float, np.ndarray] = 1e-6,
-        fixed_step_size: Optional[float] = None,
         **kwargs: Any,
     ) -> BaseStepController:
         """Instantiate the step controller.
@@ -282,7 +290,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             Absolute tolerance forwarded to adaptive controllers.
         rtol
             Relative tolerance forwarded to adaptive controllers.
-        fixed_step_size
+        dt
             Step size supplied to fixed controllers.
         **kwargs
             Additional configuration forwarded to the controller factory.
@@ -297,25 +305,15 @@ class SingleIntegratorRunCore(CUDAFactory):
         Supported identifiers include ``"fixed"``, ``"i"``, ``"pi"``,
         ``"pid"``, and ``"gustafsson"``.
         """
-        if kind == 'fixed':
-            if fixed_step_size is None:
-                fixed_step_size = dt_min
-            controller = get_controller(kind,
-                    precision=self.precision,
-                    dt=fixed_step_size)
-        else:
-            controller = get_controller(kind,
-                    precision=self.precision,
-                    algorithm_order=order,
-                    dt_min=dt_min,
-                    dt_max=dt_max,
-                    atol=atol,
-                    rtol=rtol,
-                    **kwargs)
+
+        controller = get_controller(kind,
+                                    precision=precision,
+                                    **kwargs)
         return controller
 
     def instantiate_loop(
         self,
+        precision: type,
         n_states: int,
         n_parameters: int,
         n_observables: int,
@@ -454,8 +452,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             if new_step_controller_kind != self.step_controller_kind:
                 old_settings = self._step_controller.settings_dict
                 _step_controller = self.instantiate_controller(
-                        new_step_controller_kind,
-                )
+                    new_step_controller_kind)
                 _step_controller.update(old_settings, silent=True)
                 self._step_controller = _step_controller
             recognized.add("step_controller_kind")

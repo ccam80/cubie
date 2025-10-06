@@ -1,6 +1,6 @@
 """Fixed step-size controller implementations."""
 
-from typing import Callable
+from typing import Callable, Optional
 
 from attrs import define, field
 from numba import cuda, int32
@@ -67,7 +67,11 @@ class FixedStepControlConfig(BaseStepControllerConfig):
 class FixedStepController(BaseStepController):
     """Controller that enforces a constant time step."""
 
-    def __init__(self, precision: type, dt: float) -> None:
+    def __init__(self,
+                 precision: type,
+                 dt: float,
+                 dt_min: Optional[float],
+                 dt_max: Optional[float]) -> None:
         """Initialise the fixed step controller.
 
         Parameters

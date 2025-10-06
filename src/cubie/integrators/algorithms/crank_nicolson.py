@@ -7,13 +7,26 @@ import numpy as np
 
 from cubie._utils import PrecisionDtype
 from cubie.integrators.algorithms import ImplicitStepConfig
-from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
                   'M': np.eye}
 
+CN_DEFAULTS = StepControlDefaults(
+        step_controller='pi',
+        step_controller_kwargs={
+            'order': 2,
+            'kp': 0.6,
+            'kd': 0.4,
+            'deadband_min': 1.0,
+            'deadband_max': 1.1,
+            'min_gain': 0.5,
+            'max_gain': 2.0
+        }
+)
 class CrankNicolsonStep(ODEImplicitStep):
     """Crank–Nicolson step with embedded backward Euler error estimation."""
 
@@ -76,6 +89,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
         M = ALGO_CONSTANTS['M'](n, dtype=precision)
+
         config = ImplicitStepConfig(
             get_solver_helper_fn=get_solver_helper_fn,
             beta=beta,
@@ -95,7 +109,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             driver_function=driver_function,
             precision=precision,
         )
-        super().__init__(config)
+        super().__init__(config, CN_DEFAULTS)
 
     def build_step(
         self,

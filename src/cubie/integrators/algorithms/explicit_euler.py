@@ -4,11 +4,18 @@ from typing import Callable, Optional
 
 from numba import cuda, int32
 
-from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 from cubie.integrators.algorithms.ode_explicitstep import (
     ExplicitStepConfig,
     ODEExplicitStep,
 )
+
+EE_DEFAULTS = StepControlDefaults(
+        step_controller='fixed',
+        step_controller_kwargs={
+            'dt': 1e-3,
+        })
 
 class ExplicitEulerStep(ODEExplicitStep):
     """Forward Euler integration step for explicit ODE updates."""
@@ -43,6 +50,8 @@ class ExplicitEulerStep(ODEExplicitStep):
         solver_function_getter
             Present for interface parity with implicit steps and ignored here.
         """
+        if dt is None:
+            dt = EE_DEFAULTS.step_controller_kwargs['dt']
 
         config = ExplicitStepConfig(
             dt=dt,
@@ -53,7 +62,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             n=n,
         )
 
-        super().__init__(config)
+        super().__init__(config, EE_DEFAULTS.copy())
 
     def build_step(
         self,

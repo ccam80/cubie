@@ -1,7 +1,7 @@
 """Base classes and shared configuration for integration step factories."""
 
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, Optional, Set
+from typing import Callable, Dict, Optional, Set, Any, Union
 import warnings
 
 import attrs
@@ -15,6 +15,7 @@ from cubie._utils import (
     is_device_validator,
     precision_converter,
     precision_validator,
+    gttype_validator,
 )
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -33,6 +34,21 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'max_linear_iters', 'linear_correction_type', 'nonlinear_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks'
 }
+
+@attrs.define
+class StepControlDefaults:
+    """Per-algorithm defaults for step controller settings."""
+
+    step_controller: str = attrs.field(default="fixed")
+    step_controller_kwargs: Dict[str, Any] = attrs.field(factory=dict)
+
+    def copy(self) -> "StepControlDefaults":
+        """Return a deep-copy of the defaults container."""
+        return StepControlDefaults(
+            step_controller=self.step_controller,
+            step_controller_kwargs=dict(self.step_controller_kwargs),
+        )
+
 @attrs.define
 class BaseStepConfig(ABC):
     """Configuration shared by explicit and implicit integration steps.
@@ -63,6 +79,10 @@ class BaseStepConfig(ABC):
         validator=precision_validator,
     )
     n: int = attrs.field(default=1, validator=getype_validator(int, 1))
+    dt: Optional[float] = attrs.field(
+        default=None,
+        validator=validators.optional(gttype_validator(float, 0))
+    )
     dxdt_function: Optional[Callable] = attrs.field(
         default=None,
         validator=validators.optional(is_device_validator),
@@ -129,13 +149,19 @@ class BaseAlgorithmStep(CUDAFactory):
     usage.
     """
 
-    def __init__(self, config: BaseStepConfig) -> None:
-        """Initialise the algorithm step with its configuration.
+    def __init__(self,
+                 config: BaseStepConfig,
+                 _controller_defaults: StepControlDefaults
+                 ) -> None:
+        """Initialise the algorithm step with its configuration object and its
+        default runtime settings for collaborators.
 
         Parameters
         ----------
         config
             Configuration describing the algorithm step.
+        _controller_defaults
+            Per-algorithm default step controller settings.
 
         Returns
         -------
@@ -144,6 +170,7 @@ class BaseAlgorithmStep(CUDAFactory):
         """
 
         super().__init__()
+        self._controller_defaults = _controller_defaults.copy()
         self.setup_compile_settings(config)
 
     def update(
@@ -233,6 +260,16 @@ class BaseAlgorithmStep(CUDAFactory):
         """Return the number of state variables advanced per step."""
 
         return self.compile_settings.n
+
+    @property
+    def dt(self) -> Union[float, None]:
+        """Return the configured explicit step size."""
+        return self.compile_settings.dt
+
+    @property
+    def controller_defaults(self) -> StepControlDefaults:
+        """Return per-algorithm default settings for controllers, solvers."""
+        return self._controller_defaults.copy()
 
     @property
     @abstractmethod
