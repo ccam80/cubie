@@ -6,7 +6,6 @@ from typing import Callable, Optional, Union
 import attrs
 import numpy as np
 import sympy as sp
-from attrs import validators
 
 from cubie._utils import inrangetype_validator, gttype_validator
 from cubie.integrators.matrix_free_solvers import (
@@ -173,6 +172,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         dxdt_fn = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
+        dt = config.dt
         observables_function = config.observables_function
         driver_function = config.driver_function
 
@@ -183,6 +183,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
             driver_function,
             numba_precision,
             n,
+            dt
         )
 
     @abstractmethod
@@ -194,6 +195,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
+        dt: Optional[float],
     ) -> StepCache:
         """Build and return the implicit step device function.
 
@@ -211,6 +213,8 @@ class ODEImplicitStep(BaseAlgorithmStep):
             Numba precision for compiled device buffers.
         n
             Dimension of the state vector.
+        dt
+            Fixed step size for fixed-step algorithms. Optional
 
         Returns
         -------

@@ -36,6 +36,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         self,
         precision: PrecisionDtype,
         n: int,
+        dt: Optional[float],
         dxdt_function: Callable,
         observables_function: Callable,
         get_solver_helper_fn: Callable,
@@ -57,6 +58,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
+        dt
+            fixed step size for fixed-step algorithms
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function
@@ -121,6 +124,7 @@ class CrankNicolsonStep(ODEImplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
+        dt: Optional[float],
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for the Crank–Nicolson step.
 

@@ -71,7 +71,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        fixed_step_size: float,
+        dt: float,
     ) -> StepCache:
         """Build the device function for an explicit Euler step.
 
@@ -96,7 +96,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             Container holding the compiled step function.
         """
 
-        step_size = numba_precision(fixed_step_size)
+        step_size = numba_precision(dt)
         has_driver_function = driver_function is not None
         driver_function = driver_function
 
@@ -187,7 +187,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             for i in range(n):
                 proposed_state[i] = state[i] + step_size * work_buffer[i]
 
-            next_time = time_scalar + dt_scalar
+            next_time = time_scalar + step_size
             if has_driver_function:
                 driver_function(
                     next_time,

@@ -50,6 +50,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
+        dt
+            fixed step size for fixed-step algorithms
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function
@@ -111,6 +113,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
+        dt: Optional[float],
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for a backward Euler step.
 
@@ -138,7 +141,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
-        dt = self.dt
         @cuda.jit(
             (
                 numba_precision[:],

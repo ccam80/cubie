@@ -159,8 +159,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._step_controller = self.instantiate_controller(
                 precision=precision,
                 kind=step_controller_kind,
-                dt_min=dt_min,
-                dt_max=dt_max,
+                dt=dt,
+                n=system.sizes.states,
                 **(step_control_settings or {})
         )
 
@@ -271,6 +271,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         self,
         precision: type,
         kind: str = "fixed",
+        settings_dict: Dict[str, Any] = {},
         **kwargs: Any,
     ) -> BaseStepController:
         """Instantiate the step controller.
@@ -308,7 +309,8 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         controller = get_controller(kind,
                                     precision=precision,
-                                    **kwargs)
+                                    settings_dict=settings_dict,
+        )
         return controller
 
     def instantiate_loop(
@@ -387,7 +389,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                 algorithm_len=algorithm_local_elements
         )
 
-        loop = IVPLoop(self.precision,
+        loop = IVPLoop(precision,
                        shared_indices,
                        local_indices,
                        compile_flags,

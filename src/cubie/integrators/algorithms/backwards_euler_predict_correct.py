@@ -20,6 +20,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
+        dt: Optional[float],
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for the predictor-corrector scheme.
 
@@ -37,6 +38,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             Numba precision corresponding to the configured precision.
         n
             Dimension of the state vector.
+        dt
+            fixed step size for fixed-step algorithms
+
 
         Returns
         -------
@@ -47,7 +51,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
-        dt = self.dt
 
         @cuda.jit(
             (

@@ -31,6 +31,7 @@ _CONTROLLER_REGISTRY: Dict[str, Type[BaseStepController]] = {
 
 def get_controller(
     kind: str,
+    precision: type,
     settings: Optional[Mapping[str, Any]] = None,
     warn_on_unused: bool = True,
     **kwargs: Any,
@@ -73,6 +74,7 @@ def get_controller(
     if settings is not None:
         merged_settings.update(settings)
     merged_settings.update(kwargs)
+    merged_settings['precision'] = precision
 
     filtered, missing, unused = split_applicable_settings(
         controller_type,
