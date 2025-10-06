@@ -148,7 +148,7 @@ class GustafssonController(BaseAdaptiveStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: int,
+        algorithm_order: int,
         safety: float,
     ) -> Callable:
         """Create the device function for the Gustafsson controller.
@@ -173,7 +173,7 @@ class GustafssonController(BaseAdaptiveStepController):
             Absolute tolerance vector.
         rtol
             Relative tolerance vector.
-        order
+        algorithm_order
             Order of the integration algorithm.
         safety
             Safety factor used when scaling the step size.
@@ -183,7 +183,7 @@ class GustafssonController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the Gustafsson controller.
         """
-        expo = precision(1.0 / (2 * (order + 1)))
+        expo = precision(1.0 / (2 * (algorithm_order + 1)))
         gamma = precision(self.gamma)
         max_newton_iters = int(self.max_newton_iters)
         gain_numerator = precision((1 + 2 * max_newton_iters)) * gamma

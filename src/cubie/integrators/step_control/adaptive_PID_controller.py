@@ -162,7 +162,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: int,
+        algorithm_order: int,
         safety: float,
     ) -> Callable:
         """Create the device function for the PID controller.
@@ -187,7 +187,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             Absolute tolerance vector.
         rtol
             Relative tolerance vector.
-        order
+        algorithm_order
             Order of the integration algorithm.
         safety
             Safety factor used when scaling the step size.
@@ -201,9 +201,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         kp = self.kp
         ki = self.ki
         kd = self.kd
-        expo1 = precision(kp / (2 * (order + 1)))
-        expo2 = precision(ki / (2 * (order + 1)))
-        expo3 = precision(kd / (2 * (order + 1)))
+        expo1 = precision(kp / (2 * (algorithm_order + 1)))
+        expo2 = precision(ki / (2 * (algorithm_order + 1)))
+        expo3 = precision(kd / (2 * (algorithm_order + 1)))
         unity_gain = precision(1.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)

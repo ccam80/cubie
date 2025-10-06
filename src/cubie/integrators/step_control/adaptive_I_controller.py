@@ -90,7 +90,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: int,
+        algorithm_order: int,
         safety: float,
     ) -> Callable:
         """Create the device function for the integral controller.
@@ -115,7 +115,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
             Absolute tolerance vector.
         rtol
             Relative tolerance vector.
-        order
+        algorithm_order
             Order of the integration algorithm.
         safety
             Safety factor used when scaling the step size.
@@ -125,7 +125,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the integral controller.
         """
-        order_exponent = precision(1.0 / (2 * (1 + order)))
+        order_exponent = precision(1.0 / (2 * (1 + algorithm_order)))
         unity_gain = precision(1.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)

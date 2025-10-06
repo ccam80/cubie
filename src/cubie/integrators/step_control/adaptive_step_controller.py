@@ -223,7 +223,7 @@ class BaseAdaptiveStepController(BaseStepController):
             n=self.compile_settings.n,
             atol=self.atol,
             rtol=self.rtol,
-            order=self.compile_settings.algorithm_order,
+            algorithm_order=self.compile_settings.algorithm_order,
             safety=self.compile_settings.safety,
         )
 
@@ -239,7 +239,7 @@ class BaseAdaptiveStepController(BaseStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: int,
+        algorithm_order: int,
         safety: float,
     ) -> Callable:
         """Create the device function for the specific controller.
@@ -264,7 +264,7 @@ class BaseAdaptiveStepController(BaseStepController):
             Absolute tolerance vector.
         rtol
             Relative tolerance vector.
-        order
+        algorithm_order
             Order of the integration algorithm.
         safety
             Safety factor used when scaling the step size.

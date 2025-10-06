@@ -1,4 +1,3 @@
-import warnings
 from unittest.mock import patch
 
 import attrs
@@ -16,11 +15,11 @@ from cubie._utils import (
     in_attr,
     is_attrs_class,
     is_devfunc,
+    split_applicable_settings,
     round_list_sf,
     round_sf,
     slice_variable_dimension,
     timing,
-    update_dicts_from_kwargs,
 )
 
 
@@ -260,43 +259,32 @@ def test_is_attrs_class():
     assert is_attrs_class(42) == False
 
 
-def test_update_dicts_from_kwargs():
-    """Test update_dicts_from_kwargs function."""
-    # Test single dictionary
-    d1 = {"a": 1, "b": 2}
-    result = update_dicts_from_kwargs(d1, a=10, b=20)
-    assert result
-    assert d1 == {"a": 10, "b": 20}
+def test_split_applicable_settings_with_class():
+    class Example:
+        def __init__(self, required, optional=0):
+            self.required = required
+            self.optional = optional
+    with pytest.warns(UserWarning):
+        filtered, missing, unused = split_applicable_settings(
+            Example,
+            {"required": 1, "optional": 2, "ignored": 3},
+        )
+    assert filtered == {"required": 1, "optional": 2}
+    assert missing == set()
+    assert unused == {"ignored"}
 
-    # Test no changes
-    d2 = {"a": 10, "b": 20}
-    result = update_dicts_from_kwargs(d2, a=10, b=20)
-    assert not result
 
-    # Test multiple dictionaries
-    d3 = {"a": 1}
-    d4 = {"b": 2}
-    result = update_dicts_from_kwargs([d3, d4], a=10, b=20)
-    assert result
-    assert d3 == {"a": 10}
-    assert d4 == {"b": 20}
-
-    # Test warnings for missing keys
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        update_dicts_from_kwargs({"a": 1}, nonexistent=5)
-        assert len(w) == 1
-        assert "not found" in str(w[0].message)
-
-    # Test warnings for duplicate keys
-    d5 = {"a": 1}
-    d6 = {"a": 2}
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        update_dicts_from_kwargs([d5, d6], a=10)
-        assert len(w) == 1
-        assert "multiple dictionaries" in str(w[0].message)
-
+def test_split_applicable_settings_with_function():
+    def example(required, other=0):
+        return required + other
+    with pytest.warns(UserWarning):
+        filtered, missing, unused = split_applicable_settings(
+            example,
+            {"other": 4, "extra": 5},
+        )
+    assert filtered == {"other": 4}
+    assert missing == {"required"}
+    assert unused == {"extra"}
 
 def dummy_function():
     """Dummy function for timing tests."""

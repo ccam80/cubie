@@ -148,7 +148,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: int,
+        algorithm_order: int,
         safety: float,
     ) -> Callable:
         """Create the device function for the PI controller.
@@ -173,7 +173,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             Absolute tolerance vector.
         rtol
             Relative tolerance vector.
-        order
+        algorithm_order
             Order of the integration algorithm.
         safety
             Safety factor used when scaling the step size.
@@ -183,8 +183,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the PI controller.
         """
-        kp = precision(self.kp / ((order + 1) * 2))
-        ki = precision(self.ki / ((order + 1) * 2))
+        kp = precision(self.kp / ((algorithm_order + 1) * 2))
+        ki = precision(self.ki / ((algorithm_order + 1) * 2))
         unity_gain = precision(1.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)
