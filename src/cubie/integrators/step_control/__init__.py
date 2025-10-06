@@ -19,6 +19,7 @@ __all__ = [
     "GustafssonController",
     "FixedStepController",
     "get_controller",
+    "_CONTROLLER_REGISTRY",
 ]
 
 _CONTROLLER_REGISTRY: Dict[str, Type[BaseStepController]] = {

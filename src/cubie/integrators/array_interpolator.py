@@ -179,7 +179,7 @@ class ArrayInterpolator(CUDAFactory):
 
         input_array = self._normalise_input_array(inputs)
         if np.array_equal(input_array, self.input_array):
-            return
+            return False
         else:
             self._input_array = input_array
 

@@ -5,7 +5,7 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any
 
 import numpy as np
 
@@ -17,9 +17,10 @@ from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory import default_memmgr
 from cubie.odesystems.baseODE import BaseODE
 from cubie.integrators.array_interpolator import ArrayInterpolator
-
-if TYPE_CHECKING:
-    pass
+from cubie.integrators.step_control.base_step_controller import (
+    ALL_STEP_CONTROLLER_PARAMETERS,
+)
+from cubie._utils import merge_component_settings
 
 
 def solve_ivp(
@@ -126,6 +127,8 @@ class Solver:
         ``"solver"``.
     mem_proportion : float, optional
         Proportion of GPU memory reserved for the solver.
+    step_control_settings : dict[str, object], optional
+        Explicit controller configuration that overrides solver defaults.
     **kwargs
         Additional keyword arguments forwarded to internal components.
 
@@ -156,6 +159,7 @@ class Solver:
         memory_manager=default_memmgr,
         stream_group="solver",
         mem_proportion=None,
+        step_control_settings: Optional[Dict[str, object]] = None,
         **kwargs,
     ):
         super().__init__()
@@ -165,9 +169,14 @@ class Solver:
         self.driver_interpolator = ArrayInterpolator(
             precision=precision,
             input_dict={
-                'placeholder': np.zeros(6, dtype=precision),
-                'dt': 0.1
-            }
+                "placeholder": np.zeros(6, dtype=precision),
+                "dt": 0.1,
+            },
+        )
+        step_settings, recognized_kwargs = merge_component_settings(
+                kwargs,
+                step_control_settings,
+                ALL_STEP_CONTROLLER_PARAMETERS,
         )
 
         (
@@ -201,6 +210,10 @@ class Solver:
             stream_group=stream_group,
             mem_proportion=mem_proportion,
         )
+
+        if set(kwargs) - set(recognized_kwargs):
+            raise KeyError(f"Unrecognized keyword arguments: "
+                           f"{set(kwargs) - set(recognized_kwargs)}")
 
     def _variable_indices_from_list(
         self,

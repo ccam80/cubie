@@ -184,6 +184,7 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
                 'safety': self.safety,
                 'deadband_min': self.deadband_min,
                 'deadband_max': self.deadband_max,
+                'dt': self.dt0,
             }
         )
         return settings_dict

@@ -64,12 +64,10 @@ class SingleIntegratorRunCore(CUDAFactory):
         Output modes requested from the output handler.
     driver_function
         Optional device function which interpolates arbitrary driver inputs
-    step_controller_kind
-        Controller family used to manage step sizes. Defaults to
-        ``"fixed"``.
+
     algorithm_parameters
         Additional keyword arguments forwarded to the algorithm factory.
-   step_control_settings
+    step_control_settings
         Mapping of keyword arguments to merge with the algorithm default step
         controller settings. Include ``"step_controller_kind"`` to override
         the controller family selected by the algorithm defaults. Supply
@@ -143,13 +141,12 @@ class SingleIntegratorRunCore(CUDAFactory):
                      else default_ctrl_kind)
         merged_step_settings = controller_defaults.step_controller_kwargs
         merged_step_settings.update(step_control_settings)
+        merged_step_settings['n'] = system_sizes.states
 
         self._step_controller = self.instantiate_controller(
                 precision=precision,
                 kind=ctrl_kind,
-                dt=dt,
-                n=system.sizes.states,
-                **(step_control_settings or {})
+                settings_dict=merged_step_settings,
         )
 
         config = IntegratorRunSettings(
@@ -202,8 +199,8 @@ class SingleIntegratorRunCore(CUDAFactory):
 
     def instantiate_step_object(
         self,
+        kind: str,
         precision: type,
-        kind: str = "euler",
         n: int = 1,
         dxdt_function: Optional[Callable] = None,
         observables_function: Optional[Callable] = None,
@@ -219,6 +216,9 @@ class SingleIntegratorRunCore(CUDAFactory):
         kind
             Algorithm identifier recognised by
             :func:`cubie.integrators.algorithms.get_algorithm_step`.
+        precision
+            Floating-point precision used by the algorithm. One of
+            ``np.float32``, ``np.float64``.
         n
             Number of state variables supplied to the algorithm constructor.
         dxdt_function
@@ -246,7 +246,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         ``"backwards_euler_pc"``, and ``"crank_nicolson"``.
         """
         algorithm = get_algorithm_step(
-            kind,
+            name=kind,
             precision=precision,
             n=n,
             dt=dt,
@@ -272,18 +272,12 @@ class SingleIntegratorRunCore(CUDAFactory):
         kind
             Controller identifier accepted by
             :func:`cubie.integrators.step_control.get_controller`.
-        order
-            Order of the paired algorithm used for adaptive controllers.
-        dt_min
-            Minimum permitted step size for adaptive controllers.
-        dt_max
-            Maximum permitted step size for adaptive controllers.
-        atol
-            Absolute tolerance forwarded to adaptive controllers.
-        rtol
-            Relative tolerance forwarded to adaptive controllers.
-        dt
-            Step size supplied to fixed controllers.
+        precision
+            floating-point precision used by the controller. One of
+            ``np.float32``, ``np.float64``.
+        kind
+            Controller identifier
+            from``cubie.integrators.step_control._CONTROLLER_REGISTRY``.
         **kwargs
             Additional configuration forwarded to the controller factory.
 
@@ -300,7 +294,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         controller = get_controller(kind,
                                     precision=precision,
-                                    settings_dict=settings_dict,
+                                    settings=settings_dict,
         )
         return controller
 
@@ -439,14 +433,17 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         all_unrecognized = set(updates_dict.keys())
         recognized = set()
-
+        precision = updates_dict.get('precision', self.precision)
         if "step_controller_kind" in updates_dict.keys():
             new_step_controller_kind = updates_dict["step_controller_kind"]
+
             if new_step_controller_kind != self.step_controller_kind:
                 old_settings = self._step_controller.settings_dict
                 _step_controller = self.instantiate_controller(
-                    new_step_controller_kind)
-                _step_controller.update(old_settings, silent=True)
+                    kind=new_step_controller_kind,
+                    precision=precision,
+                    settings_dict=old_settings
+                    )
                 self._step_controller = _step_controller
             recognized.add("step_controller_kind")
 
@@ -454,10 +451,12 @@ class SingleIntegratorRunCore(CUDAFactory):
             # If the algorithm is being updated, we need to reset the
             # integrator instance
             new_algo_key = updates_dict["algorithm"].lower()
+
             if new_algo_key != self.algorithm_key:
                 old_settings = self._algo_step.settings_dict
                 _algo_step = self.instantiate_step_object(
-                    new_algo_key,
+                    kind=new_algo_key,
+                    precision=precision,
                     n=self.system_sizes.states,
                     dxdt_function=self._system.dxdt_function,
                     observables_function=self._system.observables_function,

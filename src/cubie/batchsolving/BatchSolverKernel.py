@@ -128,6 +128,8 @@ class BatchSolverKernel(CUDAFactory):
         stream_group="solver",
         mem_proportion=None,
         step_control_settings: Dict[str, Any] = None,
+        output_settings: Dict[str, Any] = None,
+        memory_settings: Dict[str, Any] = None,
     ):
         super().__init__()
         precision = system.precision

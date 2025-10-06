@@ -198,7 +198,32 @@ def test_all_lower_plumbing(system, solverkernel):
         ],
     }
     solverkernel.update(new_settings)
-    freshsolver = BatchSolverKernel(system, algorithm="euler", **new_settings)
+    
+    freshsolver = BatchSolverKernel(
+        system, 
+        algorithm="euler",
+        duration= 1.0,
+        dt_save= 0.01,
+        dt_summarise= 0.1,
+        saved_state_indices= np.asarray([0, 1, 2]),
+        saved_observable_indices= np.asarray([0, 1, 2]),
+        summarised_state_indices= np.asarray([0]),
+        summarised_observable_indices= np.asarray([0]),
+        output_types= [
+            "state",
+            "observables",
+            "mean",
+            "max",
+            "rms",
+            "peaks[3]",
+        ],
+        step_control_settings={
+            "dt_min": 0.0001,
+            "dt_max": 0.01,
+            "atol": 1e-2,
+            "rtol": 1e-1,
+        }
+    )
 
     assert freshsolver.compile_settings == solverkernel.compile_settings, (
         "BatchSolverConfig mismatch"

@@ -595,7 +595,7 @@ def single_integrator_run(system, solver_settings, driver_array,
         ],
         driver_function=driver_function,
         output_types=solver_settings["output_types"],
-        step_controller_settings=step_controller_settings,
+        step_control_settings=step_controller_settings,
     )
     return run
 

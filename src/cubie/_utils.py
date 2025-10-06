@@ -6,7 +6,7 @@ updates and CUDA utilities that are shared across the code base.
 import inspect
 from functools import wraps
 from time import time
-from typing import Any, Mapping, Tuple, Union
+from typing import Any, Mapping, Tuple, Union, Optional, Iterable
 from warnings import warn
 
 import numpy as np
@@ -196,6 +196,55 @@ def split_applicable_settings(
         warn(f"The following settings were ignored: {unused}",
              stacklevel=3)
     return filtered, missing, unused
+
+
+def merge_component_settings(
+    kwargs: dict[str, object],
+    user_settings: Optional[dict[str, object]],
+    valid_keys: Iterable[str],
+) -> Tuple[dict[str, object], set[str]]:
+    """Merge component settings from ``kwargs`` and ``user_settings``.
+
+    Parameters
+    ----------
+    kwargs
+        Keyword arguments supplied directly to a component.
+    user_settings
+        Explicit settings dictionary supplied by the caller. When provided,
+        these values take precedence over ``kwargs``.
+    valid_keys
+        Iterable of keys recognised by the component. Only these keys are
+        extracted from ``kwargs``.
+
+    Returns
+    -------
+    merged
+        Dictionary containing recognised settings with ``user_settings``
+        overriding values from ``kwargs``.
+    unused
+        Set of keys in ``kwargs`` that were not consumed.
+    """
+
+    allowed = set(valid_keys)
+    filtered = {key: value for key, value in kwargs.items() if key in allowed}
+    user_settings = user_settings or {}
+    duplicates = {key for key in filtered if key in user_settings}
+    if duplicates:
+        joined = ", ".join(sorted(duplicates))
+        warn(
+            (
+                "Duplicate settings were provided for keys "
+                f"{{{joined}}}; values from the explicit settings dictionary "
+                "take precedence."
+            ),
+            UserWarning,
+            stacklevel=2,
+        )
+
+    merged = dict(filtered)
+    merged.update(user_settings)
+    recognized = set(filtered)
+    return merged, recognized
 
 
 def timing(_func=None, *, nruns=1):
