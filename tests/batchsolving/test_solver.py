@@ -17,20 +17,16 @@ else:
 
 
 @pytest.fixture(scope="function")
-def solver_instance(system, solver_settings):
+def solver_instance(system, solver_settings, step_controller_settings):
     """Create a solver instance for testing."""
     return Solver(
         system,
         algorithm=solver_settings["algorithm"],
         duration=solver_settings["duration"],
         warmup=solver_settings["warmup"],
-        dt_min=solver_settings["dt_min"],
-        dt_max=solver_settings["dt_max"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
-        atol=solver_settings["atol"],
-        rtol=solver_settings["rtol"],
-        saved_states=None,  # Will use defaults
+        saved_states=None,
         saved_observables=None,  # Will use defaults
         output_types=solver_settings["output_types"],
         precision=solver_settings["precision"],
@@ -38,6 +34,7 @@ def solver_instance(system, solver_settings):
         memory_manager=solver_settings["memory_manager"],
         stream_group=solver_settings["stream_group"],
         mem_proportion=solver_settings["mem_proportion"],
+        step_control_settings=step_controller_settings
     )
 
 
