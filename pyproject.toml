@@ -40,7 +40,7 @@ dev = [
     "ruff",
     "cupy-cuda12x",
     "pandas",
-    "matplolib"
+    "matplotlib"
 
 ]
 cupy = [

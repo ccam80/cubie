@@ -593,8 +593,6 @@ def single_integrator_run(system, solver_settings, driver_array):
         dt=solver_settings["dt_min"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
-        atol=solver_settings["atol"],
-        rtol=solver_settings["rtol"],
         saved_state_indices=solver_settings["saved_state_indices"],
         saved_observable_indices=solver_settings["saved_observable_indices"],
         summarised_state_indices=solver_settings["summarised_state_indices"],
