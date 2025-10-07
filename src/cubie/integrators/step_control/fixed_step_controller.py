@@ -5,7 +5,7 @@ from typing import Callable
 from attrs import define, field
 from numba import cuda, int32
 
-from cubie._utils import getype_validator
+from cubie._utils import PrecisionDType, getype_validator
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepControllerConfig, BaseStepController)
 
@@ -69,7 +69,7 @@ class FixedStepController(BaseStepController):
 
     def __init__(
         self,
-        precision: type,
+        precision: PrecisionDType,
         dt: float,
         n: int = 1,
     ) -> None:

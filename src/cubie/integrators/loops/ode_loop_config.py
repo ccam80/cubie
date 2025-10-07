@@ -11,8 +11,14 @@ from attrs import define, field, validators
 import numba
 from numpy import float32
 
-from cubie._utils import (PrecisionDtype, getype_validator, gttype_validator,
-                          is_device_validator, precision_validator)
+from cubie._utils import (
+    PrecisionDType,
+    getype_validator,
+    gttype_validator,
+    is_device_validator,
+    precision_converter,
+    precision_validator,
+)
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.outputhandling.output_config import OutputCompileFlags
 
@@ -386,9 +392,11 @@ class ODELoopConfig:
         validator=validators.instance_of(LoopLocalIndices)
     )
 
-    precision: PrecisionDtype = field(
+    precision: PrecisionDType = field(
         default=float32,
-        validator=precision_validator)
+        converter=precision_converter,
+        validator=precision_validator,
+    )
     compile_flags: OutputCompileFlags = field(
         default=OutputCompileFlags(),
         validator=validators.instance_of(OutputCompileFlags),

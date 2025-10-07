@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 from sympy import Symbol
 
-from cubie._utils import PrecisionDtype
+from cubie._utils import PrecisionDType
 
 
 class SystemValues:
@@ -37,14 +37,14 @@ class SystemValues:
     indices_dict: dict[str, int] | None
     keys_by_index: dict[int, str] | None
     values_dict: dict[str, float]
-    precision: PrecisionDtype
+    precision: PrecisionDType
     n: int
     name: str | None
 
     def __init__(
         self,
         values_dict: Mapping[str, float] | Sequence[str] | None,
-        precision: PrecisionDtype,
+        precision: PrecisionDType,
         defaults: Mapping[str, float] | Sequence[str] | None = None,
         name: str | None = None,
         **kwargs: float,

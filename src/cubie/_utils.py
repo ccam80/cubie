@@ -21,7 +21,7 @@ from cubie.cuda_simsafe import is_devfunc, selp
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
-PrecisionDtype = Union[
+PrecisionDType = Union[
     type[np.float16],
     type[np.float32],
     type[np.float64],
@@ -37,7 +37,7 @@ ALLOWED_PRECISIONS = {
 }
 
 
-def precision_converter(value: PrecisionDtype) -> type[np.floating]:
+def precision_converter(value: PrecisionDType) -> type[np.floating]:
     """Return a canonical NumPy scalar type for precision configuration."""
 
     dtype = np.dtype(value)
@@ -51,7 +51,7 @@ def precision_converter(value: PrecisionDtype) -> type[np.floating]:
 def precision_validator(
     _: object,
     __: Attribute,
-    value: PrecisionDtype,
+    value: PrecisionDType,
 ) -> None:
     """Validate that ``value`` resolves to a supported precision."""
 

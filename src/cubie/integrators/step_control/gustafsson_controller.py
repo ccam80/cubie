@@ -10,7 +10,7 @@ from attrs import define, field
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
-from cubie._utils import getype_validator, inrangetype_validator
+from cubie._utils import PrecisionDType, getype_validator, inrangetype_validator
 from cubie.cuda_simsafe import selp
 
 @define
@@ -55,7 +55,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
     def __init__(
         self,
-        precision: type,
+        precision: PrecisionDType,
         dt_min: float = 1e-6,
         dt_max: float = 1.0,
         atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
@@ -139,7 +139,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
     def build_controller(
         self,
-        precision: type,
+        precision: PrecisionDType,
         clamp: Callable,
         min_gain: float,
         max_gain: float,

@@ -3,7 +3,7 @@
 import warnings
 from typing import Any, Dict, Mapping, Optional, Type
 
-from cubie._utils import split_applicable_settings
+from cubie._utils import PrecisionDType, split_applicable_settings
 
 from .adaptive_I_controller import AdaptiveIController
 from .adaptive_PI_controller import AdaptivePIController
@@ -31,7 +31,7 @@ _CONTROLLER_REGISTRY: Dict[str, Type[BaseStepController]] = {
 }
 
 def get_controller(
-    precision: type,
+    precision: PrecisionDType,
     settings: Optional[Mapping[str, Any]] = None,
     warn_on_unused: bool = True,
     **kwargs: Any,

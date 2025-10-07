@@ -8,7 +8,12 @@ import attrs
 import numba
 from numpy import float32
 
-from cubie._utils import getype_validator
+from cubie._utils import (
+    PrecisionDType,
+    getype_validator,
+    precision_converter,
+    precision_validator,
+)
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
@@ -34,8 +39,10 @@ class BatchSolverConfig:
         If ``True`` CUDA profiling is enabled. Defaults to ``False``.
     """
 
-    precision: type = attrs.field(
-        default=float32, validator=attrs.validators.instance_of(type)
+    precision: PrecisionDType = attrs.field(
+        default=float32,
+        converter=precision_converter,
+        validator=precision_validator,
     )
     _duration: float = attrs.field(
         default=1.0, validator=getype_validator(float, 0)

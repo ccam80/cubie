@@ -11,11 +11,14 @@ handlers occurs during initialisation so that the compiled CUDA loop can
 be rebuilt when any component is reconfigured.
 """
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from numpy.typing import ArrayLike
 
 from cubie.CUDAFactory import CUDAFactory
+from cubie._utils import PrecisionDType
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import IVPLoop
@@ -180,7 +183,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
     def instantiate_loop(
         self,
-        precision: type,
+        precision: PrecisionDType,
         n_states: int,
         n_parameters: int,
         n_observables: int,

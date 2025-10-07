@@ -18,10 +18,12 @@ from numpy.typing import NDArray
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import (
+    PrecisionDType,
     slice_variable_dimension,
     getype_validator,
     gttype_validator,
-    ALLOWED_PRECISIONS
+    precision_converter,
+    precision_validator,
 )
 
 
@@ -71,7 +73,10 @@ class SolveSpec:
     summarised_states: Optional[List[str]] = attrs.field()
     summarised_observables: Optional[List[str]] = attrs.field()
     output_types: Optional[List[str]] = attrs.field()
-    precision: type = attrs.field(validator=val.in_(ALLOWED_PRECISIONS))
+    precision: PrecisionDType = attrs.field(
+        converter=precision_converter,
+        validator=precision_validator,
+    )
 
 
 @attrs.define

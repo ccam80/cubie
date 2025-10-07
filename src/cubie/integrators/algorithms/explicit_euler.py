@@ -4,6 +4,7 @@ from typing import Callable, Optional
 
 from numba import cuda, int32
 
+from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
 from cubie.integrators.algorithms.ode_explicitstep import (
@@ -23,7 +24,7 @@ class ExplicitEulerStep(ODEExplicitStep):
 
     def __init__(
         self,
-        precision: type,
+        precision: PrecisionDType,
         n: int,
         dt: float,
         dxdt_function: Optional[Callable] = None,

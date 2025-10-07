@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 import numpy as np
 
+from cubie._utils import PrecisionDType
 from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
 from cubie.odesystems.ODEData import SystemSizes
 
@@ -35,7 +36,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     # Compile settings
     # ------------------------------------------------------------------
     @property
-    def precision(self) -> type:
+    def precision(self) -> PrecisionDType:
         """Return the numerical precision configured for the run."""
 
         return self.compile_settings.precision

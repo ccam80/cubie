@@ -683,7 +683,7 @@ def initial_state(system, precision, request):
             request_inits = np.asarray(request.param, dtype=precision)
             if request_inits.ndim != 1 or request_inits.shape[0] != system.sizes.states:
                 raise ValueError("initial state override has incorrect shape")
-        except:
+        except TypeError:
             raise TypeError("initial state override could not be coerced into numpy array")
         return request_inits
     return system.initial_values.values_array.astype(precision, copy=True)

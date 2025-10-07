@@ -17,7 +17,7 @@ from numpy import float32
 from attrs import define, field
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie._utils import getype_validator, precision_converter, \
+from cubie._utils import PrecisionDType, getype_validator, precision_converter, \
     precision_validator
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
@@ -42,7 +42,7 @@ class BaseStepControllerConfig(ABC):
         Number of state variables controlled per step.
     """
 
-    precision: type = field(
+    precision: PrecisionDType = field(
         default=float32,
         converter=precision_converter,
         validator=precision_validator,
@@ -109,7 +109,7 @@ class BaseStepController(CUDAFactory):
         """
 
     @property
-    def precision(self) -> type:
+    def precision(self) -> PrecisionDType:
         """Return the host precision used for computations."""
 
         return self.compile_settings.precision

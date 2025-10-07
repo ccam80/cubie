@@ -5,6 +5,7 @@ from typing import Callable, Optional, Union
 from numba import cuda, int32
 from numpy._typing import ArrayLike
 
+from cubie._utils import PrecisionDType
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
@@ -17,7 +18,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
 
     def __init__(
         self,
-        precision: type,
+        precision: PrecisionDType,
         dt_min: float = 1e-6,
         dt_max: float = 1.0,
         atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
@@ -81,7 +82,7 @@ class AdaptiveIController(BaseAdaptiveStepController):
 
     def build_controller(
         self,
-        precision: type,
+        precision: PrecisionDType,
         clamp: Callable,
         min_gain: float,
         max_gain: float,

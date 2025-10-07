@@ -7,7 +7,7 @@ from numba import cuda, int32
 from numpy._typing import ArrayLike
 from attrs import define, field, validators
 
-from cubie._utils import  _expand_dtype
+from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
@@ -35,7 +35,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
     def __init__(
         self,
-        precision: type,
+        precision: PrecisionDType,
         dt_min: float = 1e-6,
         dt_max: float = 1.0,
         atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
@@ -153,7 +153,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
     def build_controller(
         self,
-        precision: type,
+        precision: PrecisionDType,
         clamp: Callable,
         min_gain: float,
         max_gain: float,

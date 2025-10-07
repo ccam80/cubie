@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Union, Any
 
 import numpy as np
 
+from cubie._utils import PrecisionDType
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -542,7 +543,7 @@ class Solver:
         return self.system_interface.observable_indices(observable_labels)
 
     @property
-    def precision(self) -> type:
+    def precision(self) -> PrecisionDType:
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.precision` from
         the child BatchSolverKernel object."""
         return self.kernel.precision

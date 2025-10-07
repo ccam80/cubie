@@ -10,7 +10,7 @@ from attrs import validators
 import numba
 
 from cubie._utils import (
-    PrecisionDtype,
+    PrecisionDType,
     getype_validator,
     is_device_validator,
     precision_converter,
@@ -66,7 +66,7 @@ class BaseStepConfig(ABC):
         Device function computing system observables.
     """
 
-    precision: PrecisionDtype = attrs.field(
+    precision: PrecisionDType = attrs.field(
         default=np.float32,
         converter=precision_converter,
         validator=precision_validator,
@@ -231,7 +231,7 @@ class BaseAlgorithmStep(CUDAFactory):
         return recognised
 
     @property
-    def precision(self) -> PrecisionDtype:
+    def precision(self) -> PrecisionDType:
         """Return the configured numerical precision."""
 
         return self.compile_settings.precision

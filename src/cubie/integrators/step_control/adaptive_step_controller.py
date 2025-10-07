@@ -9,6 +9,7 @@ from attrs import Converter, define, field
 from numpy.typing import ArrayLike
 
 from cubie._utils import (
+    PrecisionDType,
     clamp_factory,
     float_array_validator,
     getype_validator,
@@ -231,7 +232,7 @@ class BaseAdaptiveStepController(BaseStepController):
     @abstractmethod
     def build_controller(
         self,
-        precision: type,
+        precision: PrecisionDType,
         clamp: Callable,
         min_gain: float,
         max_gain: float,

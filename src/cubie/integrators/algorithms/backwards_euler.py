@@ -5,7 +5,7 @@ from typing import Callable, Optional
 from numba import cuda
 import numpy as np
 
-from cubie._utils import PrecisionDtype
+from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms import ImplicitStepConfig
 from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
     StepControlDefaults
@@ -27,7 +27,7 @@ class BackwardsEulerStep(ODEImplicitStep):
 
     def __init__(
         self,
-        precision: PrecisionDtype,
+        precision: PrecisionDType,
         n: int,
         dt: float,
         dxdt_function: Optional[Callable] = None,

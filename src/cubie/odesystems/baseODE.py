@@ -8,6 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from cubie.CUDAFactory import CUDAFactory
+from cubie._utils import PrecisionDType
 from cubie.odesystems.ODEData import ODEData
 
 
@@ -54,7 +55,7 @@ class BaseODE(CUDAFactory):
         default_parameters: Optional[Dict[str, float]] = None,
         default_constants: Optional[Dict[str, float]] = None,
         default_observable_names: Optional[Dict[str, float]] = None,
-        precision: type = np.float64,
+        precision: PrecisionDType = np.float64,
         num_drivers: int = 1,
         name: Optional[str] = None,
     ) -> None:

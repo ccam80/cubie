@@ -9,7 +9,6 @@ from attrs import define, field, validators
 from numba import cuda, int32
 from numpy.typing import NDArray
 
-from cubie._utils import gttype_validator
 from cubie.cuda_simsafe import selp
 
 if TYPE_CHECKING:
@@ -17,8 +16,10 @@ if TYPE_CHECKING:
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie._utils import (
-    PrecisionDtype,
+    PrecisionDType,
     getype_validator,
+    gttype_validator,
+    precision_converter,
     precision_validator,
 )
 
@@ -53,7 +54,10 @@ class ArrayInterpolatorConfig:
         transition from and to zero-valued padding samples.
     """
 
-    precision: PrecisionDtype = field(validator=precision_validator)
+    precision: PrecisionDType = field(
+        converter=precision_converter,
+        validator=precision_validator,
+    )
     order: int = field(
         default=3,
         validator=gttype_validator(int, 0),
@@ -94,7 +98,7 @@ class ArrayInterpolator(CUDAFactory):
     time_info = ("time", "dt", "t0")
     def __init__(
         self,
-        precision: PrecisionDtype,
+        precision: PrecisionDType,
         input_dict: Dict[str, FloatArray],
     ) -> None:
         super().__init__()
@@ -871,7 +875,7 @@ class ArrayInterpolator(CUDAFactory):
         return self.compile_settings.num_segments
 
     @property
-    def precision(self) -> PrecisionDtype:
+    def precision(self) -> PrecisionDType:
         """Return the numerical precision used for the run."""
         return self.compile_settings.precision
 

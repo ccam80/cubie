@@ -9,7 +9,7 @@ import attrs
 import numba
 from numpy import float32
 
-from cubie._utils import PrecisionDtype, precision_converter, precision_validator
+from cubie._utils import PrecisionDType, precision_converter, precision_validator
 
 
 @attrs.define
@@ -26,7 +26,7 @@ class IntegratorRunSettings:
         Name of the step-size controller.
     """
 
-    precision: PrecisionDtype = attrs.field(
+    precision: PrecisionDType = attrs.field(
         default=float32,
         converter=precision_converter,
         validator=precision_validator,
