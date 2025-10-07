@@ -25,8 +25,8 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'algorithm',
     'precision', 'n', 'dxdt_function', 'observables_function',
     'driver_function', 'get_solver_helper_fn', 
-    'dt', 'beta', 'gamma', 'M', 'preconditione r_order', 'linsolve_tolerance',
-    'max_linear_iters', 'linear_correction_type', 'nonlinear_tolerance',
+    'dt', 'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
+    'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks'
 }
 

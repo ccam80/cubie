@@ -54,7 +54,7 @@ class SolveSpec:
     precision : type
         Floating point precision used.
     """
-
+    dt: float = attrs.field(validator=gttype_validator(float, 0.0))
     dt_min: float = attrs.field(validator=gttype_validator(float, 0.0))
     dt_max: float = attrs.field(validator=gttype_validator(float, 0.0))
     dt_save: float = attrs.field(validator=gttype_validator(float, 0.0))

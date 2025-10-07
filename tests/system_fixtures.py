@@ -9,10 +9,7 @@ system.  These helpers provide fast reference evaluations that mirror the
 behaviour of the compiled device functions.
 """
 
-from __future__ import annotations
-
-from types import MethodType
-from typing import Callable, Sequence
+from typing import Sequence
 
 import numpy as np
 from numpy.typing import NDArray

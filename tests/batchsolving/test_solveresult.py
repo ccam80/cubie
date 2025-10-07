@@ -104,6 +104,8 @@ class TestSolveResultInstantiation:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )
@@ -161,7 +163,9 @@ class TestSolveResultInstantiation:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
-          "duration": 0.05}],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
+          "duration": 0.06}],
         indirect=True,
     )
     def test_from_solver_full_instantiation(self, solver_with_arrays):
@@ -183,6 +187,8 @@ class TestSolveResultInstantiation:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )
@@ -202,6 +208,8 @@ class TestSolveResultInstantiation:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )
@@ -225,6 +233,8 @@ class TestSolveResultInstantiation:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           'duration': 0.05}],
         indirect=True,
     )
@@ -248,6 +258,8 @@ class TestSolveResultFromSolver:
         "solver_settings_override",
             [{
             "output_types": ["state", "observables", "time", "mean", "rms"],
+            "dt_save": 0.02,
+            "dt_summarise": 0.04,
             "duration": 0.05,
         }],
         indirect=True,
@@ -270,6 +282,8 @@ class TestSolveResultFromSolver:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )
@@ -292,6 +306,8 @@ class TestSolveResultFromSolver:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )
@@ -317,6 +333,8 @@ class TestSolveResultProperties:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )
@@ -340,6 +358,8 @@ class TestSolveResultProperties:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )
@@ -359,6 +379,8 @@ class TestSolveResultProperties:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
          'duration': 0.05}],
         indirect=True,
     )
@@ -392,6 +414,8 @@ class TestSolveResultProperties:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )
@@ -447,6 +471,8 @@ class TestSolveResultPandasIntegration:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )
@@ -476,6 +502,8 @@ class TestSolveResultPandasIntegration:
     @pytest.mark.parametrize(
         "solver_settings_override",
         [{"output_types": ["state", "observables", "time", "mean", "rms"],
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
           "duration": 0.05}],
         indirect=True,
     )

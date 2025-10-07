@@ -7,7 +7,9 @@ import numpy as np
 import pytest
 from pytest import MonkeyPatch
 
-from cubie import SingleIntegratorRun, merge_component_settings
+from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
+from cubie._utils import merge_component_settings
+from cubie.integrators.step_control import get_controller
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms import get_algorithm_step
@@ -16,13 +18,9 @@ from cubie.integrators.algorithms.base_algorithm_step import \
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
     LoopLocalIndices
-from cubie.integrators.step_control.adaptive_I_controller import AdaptiveIController
-from cubie.integrators.step_control.adaptive_PID_controller import (
-    AdaptivePIDController,
-)
-from cubie.integrators.step_control.adaptive_PI_controller import AdaptivePIController
-from cubie.integrators.step_control.fixed_step_controller import FixedStepController
-from cubie.integrators.step_control.gustafsson_controller import GustafssonController
+
+from cubie.integrators.step_control.base_step_controller import \
+    ALL_STEP_CONTROLLER_PARAMETERS
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
 from cubie.outputhandling.output_functions import OutputFunctions
@@ -140,14 +138,21 @@ def solver_settings_override(request):
     """Override for solver settings, if provided."""
     return request.param if hasattr(request, "param") else {}
 
+@pytest.fixture(scope="function")
+def solver_settings_override2(request):
+    """Override for solver settings, if provided. A second one, so that we
+    can do a class-level and function-level override without conflicts."""
+    return request.param if hasattr(request, "param") else {}
 
 @pytest.fixture(scope="function")
-def solver_settings(solver_settings_override, precision):
+def solver_settings(solver_settings_override, solver_settings_override2,
+    system, precision):
     """Create LoopStepConfig with default solver configuration."""
     defaults = {
         "algorithm": "euler",
         "duration": precision(1.0),
         "warmup": precision(0.0),
+        "dt": precision(0.01),
         "dt_min": precision(0.01),
         "dt_max": precision(1.0),
         "dt_save": precision(0.1),
@@ -169,25 +174,51 @@ def solver_settings(solver_settings_override, precision):
         "precision": precision,
         "driverspline_order": 3,
         "driverspline_wrap": False,
+        "krylov_tolerance": precision(1e-6),
+        "correction_type": "minimal_residual",
+        "newton_tolerance": precision(1e-6),
+        "preconditioner_order": 2,
+        "max_linear_iters": 500,
+        "max_newton_iters": 500,
+        "newton_damping": precision(0.85),
+        "newton_max_backtracks": 25,
+        "min_gain": precision(0.2),
+        "max_gain": precision(2.0),
+        "n": system.sizes.states,
+        "kp": precision(1 / 18),
+        "ki": precision(1 / 9),
+        "kd": precision(1 / 18),
+        "deadband_min": precision(1.0),
+        "deadband_max": precision(1.2),
     }
 
-    if solver_settings_override:
-        # Update defaults with any overrides provided
-        float_keys = {
-            "duration",
-            "warmup",
-            "dt_min",
-            "dt_max",
-            "dt_save",
-            "dt_summarise",
-            "atol",
-            "rtol",
-        }
-        for key, value in solver_settings_override.items():
-            if key in float_keys:
-                defaults[key] = precision(value)
-            else:
-                defaults[key] = value
+    float_keys = {
+        "duration",
+        "warmup",
+        "dt"
+        "dt_min",
+        "dt_max",
+        "dt_save",
+        "dt_summarise",
+        "atol",
+        "rtol",
+        "krylov_tolerance",
+        "newton_tolerance",
+        "newton_damping",
+        "kp",
+        "ki",
+        "kd",
+        "deadband_min",
+        "deadband_max",
+    }
+    for override in [solver_settings_override, solver_settings_override2]:
+        if override:
+            # Update defaults with any overrides provided
+            for key, value in override.items():
+                if key in float_keys:
+                    defaults[key] = precision(value)
+                else:
+                    defaults[key] = value
 
     return defaults
 
@@ -296,11 +327,6 @@ def cpu_driver_evaluator(
     )
 
 
-@pytest.fixture(scope="function")
-def implicit_step_settings_override(request):
-    """Override values for implicit solver helper settings."""
-
-    return request.param if hasattr(request, "param") else {}
 
 @pytest.fixture(scope="function")
 def algorithm_settings(system, solver_settings, driver_array):
@@ -311,84 +337,27 @@ def algorithm_settings(system, solver_settings, driver_array):
     driver_function = (driver_array.evaluation_function
                        if driver_array is not None
                        else None)
-    settings.update({
-        'driver_function': driver_function,
-        'dxdt_function':  system.dxdt_function,
-        'observables_function': system.observables_function,
-        'get_solver_helper_fn': system.get_solver_helper,
-    })
+    settings.update(
+        {
+            "driver_function": driver_function,
+            "dxdt_function": system.dxdt_function,
+            "observables_function": system.observables_function,
+            "get_solver_helper_fn": system.get_solver_helper,
+        }
+    )
     return settings
-
-@pytest.fixture(scope="function")
-def implicit_step_settings(solver_settings, implicit_step_settings_override):
-    """Default tolerances and iteration limits for implicit solves."""
-
-    defaults = {
-        "atol": solver_settings['atol'],
-        "rtol": solver_settings['rtol'],
-        "linear_tolerance": 1e-6,
-        "correction_type": 'minimal_residual',
-        "nonlinear_tolerance": 1e-6,
-        'preconditioner_order': 2,
-        "max_linear_iters": 500,
-        "max_newton_iters": 500,
-        "newton_damping": 0.85,
-        "newton_max_backtracks": 25
-    }
-    defaults.update(implicit_step_settings_override)
-    return defaults
-
-
-@pytest.fixture(scope="function")
-def step_controller_settings_override(request):
-    """Override dictionary for the step controller configuration."""
-
-    return request.param if hasattr(request, "param") else {}
 
 
 @pytest.fixture(scope="function")
 def step_controller_settings(
-    solver_settings, system, step_controller_settings_override
+    solver_settings, system, step_object
 ):
     """Base configuration used to instantiate loop step controllers."""
-    precision = solver_settings["precision"]
-
-    defaults = {
-        "step_controller": solver_settings["step_controller"].lower(),
-        "dt": precision(solver_settings["dt_min"]),
-        "dt_min": precision(solver_settings["dt_min"]),
-        "dt_max": precision(solver_settings["dt_max"]),
-        "atol": precision(solver_settings["atol"]),
-        "rtol": precision(solver_settings["rtol"]),
-        "order": 1,
-        "min_gain": precision(0.2),
-        "max_gain": precision(2.0),
-        "n": system.sizes.states,
-        "kp": precision(1/18),
-        "ki": precision(1/9),
-        "kd": precision(1/18),
-        "deadband_min": precision(1.0),
-        "deadband_max": precision(1.2),
-    }
-    overrides = {**step_controller_settings_override}
-    float_keys = {
-        "dt",
-        "dt_min",
-        "dt_max",
-        "atol",
-        "rtol",
-        "kp",
-        "ki",
-        "kd",
-        "deadband_min",
-        "deadband_max",
-    }
-    for key, value in overrides.items():
-        if key in float_keys:
-            defaults[key] = precision(value)
-        else:
-            defaults[key] = value
-    return defaults
+    settings, _ = merge_component_settings(
+        kwargs=solver_settings, valid_keys=ALL_STEP_CONTROLLER_PARAMETERS
+    )
+    settings.update(algorithm_order=step_object.order)
+    return settings
 
 
 # ========================================
@@ -465,6 +434,7 @@ def solver(system, solver_settings, driver_array, step_controller_settings):
         algorithm=solver_settings["algorithm"],
         duration=solver_settings["duration"],
         warmup=solver_settings["warmup"],
+        dt=solver_settings["dt"],
         dt_min=solver_settings["dt_min"],
         dt_max=solver_settings["dt_max"],
         dt_save=solver_settings["dt_save"],
@@ -488,68 +458,7 @@ def solver(system, solver_settings, driver_array, step_controller_settings):
 @pytest.fixture(scope="function")
 def step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
-
-    kind = step_controller_settings["step_controller"].lower()
-    settings = step_controller_settings
-    if kind == "fixed":
-        return FixedStepController(precision, step_controller_settings["dt"])
-    elif kind == "i":
-        controller = AdaptiveIController(
-                precision=precision,
-                dt_min=precision(settings["dt_min"]),
-                dt_max=precision(settings["dt_max"]),
-                atol=settings["atol"],
-                rtol=settings["rtol"],
-                algorithm_order=int(settings.get("order", 1)),
-                n=int(settings["n"]),
-                deadband_min=precision(settings["deadband_min"]),
-                deadband_max=precision(settings["deadband_max"]),
-        )
-    elif kind == "pi":
-        controller = AdaptivePIController(
-                precision=precision,
-                dt_min=precision(settings["dt_min"]),
-                dt_max=precision(settings["dt_max"]),
-                atol=settings["atol"],
-                rtol=settings["rtol"],
-                algorithm_order=int(settings.get("order", 1)),
-                n=int(settings["n"]),
-                kp=precision(settings["kp"]),
-                ki=precision(settings["ki"]),
-                deadband_min=precision(settings["deadband_min"]),
-                deadband_max=precision(settings["deadband_max"]),
-        )
-    elif kind == "pid":
-        controller = AdaptivePIDController(
-                precision=precision,
-                dt_min=precision(settings["dt_min"]),
-                dt_max=precision(settings["dt_max"]),
-                atol=settings["atol"],
-                rtol=settings["rtol"],
-                algorithm_order=int(settings.get("order", 1)),
-                n=int(settings["n"]),
-                kp=precision(settings["kp"]),
-                ki=precision(settings["ki"]),
-                kd=precision(settings["kd"]),
-                deadband_min=precision(settings["deadband_min"]),
-                deadband_max=precision(settings["deadband_max"]),
-        )
-    elif kind == "gustafsson":
-        controller = GustafssonController(
-                precision=precision,
-                dt_min=precision(settings["dt_min"]),
-                dt_max=precision(settings["dt_max"]),
-                atol=settings["atol"],
-                rtol=settings["rtol"],
-                algorithm_order=int(settings.get("order", 1)),
-                n=int(settings["n"]),
-                deadband_min=precision(settings["deadband_min"]),
-                deadband_max=precision(settings["deadband_max"]),
-        )
-    else:
-        raise ValueError(f"Unknown adaptive controller kind '{kind}'.")
-
-    controller.update(updates_dict=settings, silent=True)
+    controller = get_controller(precision, step_controller_settings)
     return controller
 
 
@@ -630,15 +539,10 @@ def cpu_system(system):
 @pytest.fixture
 def step_object(
     system,
-    step_controller_settings,
     algorithm_settings,
     precision,
 ):
     """Return a step object for the given solver settings."""
-    algorithm_settings.update({
-        'dt': step_controller_settings["dt"],
-        'n': system.sizes.states,
-    })
     return get_algorithm_step(precision, algorithm_settings)
 
 
@@ -649,16 +553,18 @@ def cpu_step_controller(precision, step_controller_settings):
 
     controller = CPUAdaptiveController(
         kind=step_controller_settings["step_controller"].lower(),
+        dt=step_controller_settings["dt"],
         dt_min=step_controller_settings["dt_min"],
         dt_max=step_controller_settings["dt_max"],
         atol=step_controller_settings["atol"],
         rtol=step_controller_settings["rtol"],
-        order=step_controller_settings["order"],
+        order=step_controller_settings["algorithm_order"],
         min_gain=step_controller_settings["min_gain"],
         max_gain=step_controller_settings["max_gain"],
         precision=precision,
         deadband_min=step_controller_settings["deadband_min"],
         deadband_max=step_controller_settings["deadband_max"],
+        max_newton_iters=step_controller_settings["max_newton_iters"],
     )
     if kind == 'pi':
         controller.kp = step_controller_settings["kp"]
@@ -707,7 +613,6 @@ def cpu_loop_runner(
     cpu_step_controller,
     solver_settings,
     step_controller_settings,
-    implicit_step_settings,
     output_functions,
     cpu_driver_evaluator,
 ):
@@ -739,16 +644,12 @@ def cpu_loop_runner(
                 driver_coefficients, dtype=precision, copy=True
             )
 
-        return run_reference_loop(
-            evaluator=cpu_system,
-            inputs=inputs,
-            driver_evaluator=cpu_driver_evaluator,
-            solver_settings=solver_settings,
-            implicit_step_settings=implicit_step_settings,
-            controller=cpu_step_controller,
-            output_functions=output_functions,
-            step_controller_settings=step_controller_settings,
-        )
+        return run_reference_loop(evaluator=cpu_system,
+                                  inputs=inputs,
+                                  driver_evaluator=cpu_driver_evaluator,
+                                  solver_settings=solver_settings,
+                                  output_functions=output_functions,
+                                  controller=cpu_step_controller)
 
     return _run_loop
 
@@ -758,7 +659,6 @@ def cpu_loop_outputs(
     cpu_system,
     precision,
     cpu_step_controller,
-    implicit_step_settings,
     initial_state,
     solver_settings,
     step_controller_settings,
@@ -774,16 +674,11 @@ def cpu_loop_outputs(
     coefficients = driver_array.coefficients if driver_array is not None else None
     inputs['driver_coefficients'] = coefficients
 
-    return run_reference_loop(
-        evaluator=cpu_system,
-        inputs=inputs,
-        driver_evaluator=cpu_driver_evaluator,
-        solver_settings=solver_settings,
-        implicit_step_settings=implicit_step_settings,
-        controller=cpu_step_controller,
-        output_functions=output_functions,
-        step_controller_settings=step_controller_settings,
-    )
+    return run_reference_loop(evaluator=cpu_system, inputs=inputs,
+                              driver_evaluator=cpu_driver_evaluator,
+                              solver_settings=solver_settings,
+                              output_functions=output_functions,
+                              controller=cpu_step_controller)
 
 
 @pytest.fixture(scope="function")

@@ -42,10 +42,10 @@ class CrankNicolsonStep(ODEImplicitStep):
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: int = 1,
-        linsolve_tolerance: float = 1e-6,
+        krylov_tolerance: float = 1e-6,
         max_linear_iters: int = 100,
         linear_correction_type: str = "minimal_residual",
-        nonlinear_tolerance: float = 1e-6,
+        newton_tolerance: float = 1e-6,
         max_newton_iters: int = 1000,
         newton_damping: float = 0.5,
         newton_max_backtracks: int = 10,
@@ -70,13 +70,13 @@ class CrankNicolsonStep(ODEImplicitStep):
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
             Order of the truncated Neumann preconditioner.
-        linsolve_tolerance
+        krylov_tolerance
             Tolerance used by the linear solver.
         max_linear_iters
             Maximum iterations permitted for the linear solver.
         linear_correction_type
             Identifier for the linear correction strategy.
-        nonlinear_tolerance
+        newton_tolerance
             Convergence tolerance for the Newton iteration.
         max_newton_iters
             Maximum iterations permitted for the Newton solver.
@@ -102,10 +102,10 @@ class CrankNicolsonStep(ODEImplicitStep):
             M=M,
             n=n,
             preconditioner_order=preconditioner_order,
-            linsolve_tolerance=linsolve_tolerance,
+            krylov_tolerance=krylov_tolerance,
             max_linear_iters=max_linear_iters,
             linear_correction_type=linear_correction_type,
-            nonlinear_tolerance=nonlinear_tolerance,
+            newton_tolerance=newton_tolerance,
             max_newton_iters=max_newton_iters,
             newton_damping=newton_damping,
             newton_max_backtracks=newton_max_backtracks,

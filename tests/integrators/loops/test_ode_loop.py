@@ -73,44 +73,44 @@ def test_initial_observable_seed_matches_reference(
                          ["three_chamber",
                           ],
                          ids=["3cm"], indirect=True)
-@pytest.mark.parametrize("implicit_step_settings_override",
-                         [{"nonlinear_tolerance": 5e-6,
-                           "linear_tolerance": 1e-6},
-                          ],
-                         ids=["tol"],
-                         indirect=True)
 @pytest.mark.parametrize(
     "solver_settings_override",
     [
         {
             "algorithm": "euler",
             "step_controller": "fixed",
-            "dt_min": 0.0025,
+            "dt": 0.0025,
             "dt_save": 0.2,
             "output_types": [
                 "state",
             ],
             "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6
         },
         {
             "algorithm": "backwards_euler",
             "step_controller": "fixed",
-            "dt_min": 0.0025,
+            "dt": 0.0025,
             "dt_save": 0.2,
             "output_types": [
                 "state",
             ],
             "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
         },
         {
             "algorithm": "backwards_euler_pc",
             "step_controller": "fixed",
-            "dt_min": 0.0025,
+            "dt": 0.0025,
             "dt_save": 0.2,
             "output_types": [
                 "state",
             ],
             "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
         },
         {
             "algorithm": "crank_nicolson",
@@ -123,6 +123,8 @@ def test_initial_observable_seed_matches_reference(
                 "state",
             ],
             "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
         },
         {
             "algorithm": "crank_nicolson",
@@ -135,6 +137,8 @@ def test_initial_observable_seed_matches_reference(
                 "state",
             ],
             "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
         },
         {
             "algorithm": "crank_nicolson",
@@ -165,12 +169,6 @@ def test_initial_observable_seed_matches_reference(
     indirect=True,
 )
 def test_loop(
-    loop,
-    step_controller,
-    step_object,
-    loop_buffer_sizes,
-    precision,
-    solver_settings,
     device_loop_outputs,
     cpu_loop_outputs,
     output_functions,

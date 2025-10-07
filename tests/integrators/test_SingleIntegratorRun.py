@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from cubie import SingleIntegratorRun
-from tests._utils import assert_integration_outputs, run_device_loop
+from tests._utils import assert_integration_outputs
 
 
 def _compare_scalar(actual, expected, tolerance):
@@ -58,7 +58,7 @@ def _settings_to_dict(settings_source):
         {
             "algorithm": "euler",
             "step_controller": "fixed",
-            "dt_min": 0.01,
+            "dt": 0.01,
             "dt_max": 0.01,
             "dt_save": 0.1,
             "dt_summarise": 0.3,
@@ -239,10 +239,10 @@ class TestSingleIntegratorRun:
             "gamma_coefficient": "gamma",
             "mass_matrix": "mass_matrix",
             "preconditioner_order": "preconditioner_order",
-            "linear_solver_tolerance": "linsolve_tolerance",
+            "linear_solver_tolerance": "krylov_tolerance",
             "max_linear_iterations": "max_linear_iters",
             "linear_correction_type": "linear_correction_type",
-            "nonlinear_tolerance": "nonlinear_tolerance",
+            "newton_tolerance": "newton_tolerance",
             "newton_iterations_limit": "max_newton_iters",
             "newton_damping": "newton_damping",
             "newton_max_backtracks": "newton_max_backtracks",
@@ -305,15 +305,6 @@ class TestSingleIntegratorRun:
 
         # Numerical equivalence with the CPU reference loop.
         cpu_reference = cpu_loop_outputs
-        device_outputs = run_device_loop(
-            loop=run._loop,
-            system=system,
-            initial_state=initial_state,
-            output_functions=run._output_functions,
-            solver_config=solver_settings,
-            localmem_required=run.local_memory_elements,
-            driver_array=driver_array,
-        )
         device_outputs = device_loop_outputs
 
         assert device_outputs.status == cpu_reference["status"]

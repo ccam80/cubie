@@ -18,7 +18,7 @@ def test_kernel_builds(solverkernel):
             "three_chamber",
             {
                 "duration": 0.3,
-                "dt_min": 0.0025,
+                "dt": 0.0025,
                 "dt_save": 0.1,
                 "dt_summarise": 0.3,
                 "output_types": [
@@ -36,15 +36,14 @@ def test_kernel_builds(solverkernel):
                 'summarised_observable_indices': [0, 1, 2],
             },
             {}),
-    #     ("three_chamber",
-    #      {"output_types": ["state", "observables", "time", "mean", "rms"],
-    #       'dt_min': 0.0025,
-    #       'dt_save': 0.1,
-    #       'dt_summarise': 0.3,
-    #       "duration": 0.3}, {})
-    #
+        ("three_chamber",
+         {"output_types": ["state", "observables", "time", "mean", "rms"],
+          'dt': 0.0025,
+          'dt_save': 0.1,
+          'dt_summarise': 0.3,
+          "duration": 0.3}, {})
     ),
-    ids=["smoke_test"],#, "fire_test"],
+    ids=["smoke_test", "fire_test"],
     indirect=True,
 )
 def test_run(

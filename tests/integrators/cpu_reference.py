@@ -711,6 +711,7 @@ class CPUAdaptiveController:
         self,
         *,
         kind: str,
+        dt: float,
         dt_min: float,
         dt_max: float,
         atol: float,
@@ -733,7 +734,7 @@ class CPUAdaptiveController:
         self.dt_min = precision(dt_min)
         self.dt_max = precision(dt_max)
         if kind == "fixed":
-            self.dt0 = precision(dt_min)
+            self.dt0 = precision(dt)
         else:
             self.dt0 = precision(np.sqrt(dt_min * dt_max))
         self.dt = self.dt0
@@ -924,10 +925,8 @@ def run_reference_loop(
     inputs: Mapping[str, Array],
     driver_evaluator: DriverEvaluator,
     solver_settings,
-    implicit_step_settings,
     output_functions,
     controller,
-    step_controller_settings: Optional[Dict] = None,
 ) -> dict[str, Array]:
     """Execute a CPU loop mirroring :class:`IVPLoop` behaviour."""
 
@@ -987,8 +986,8 @@ def run_reference_loop(
         time_history = [t]
 
     end_time = precision(warmup + duration)
-    max_iters = implicit_step_settings['max_newton_iters']
-    fixed_steps_per_save = int(np.ceil(dt_save / controller.dt_min))
+    max_iters = solver_settings['max_newton_iters']
+    fixed_steps_per_save = int(np.ceil(dt_save / controller.dt))
     fixed_step_count = 0
     equality_breaker = precision(1e-7) if precision is np.float32 else (
         precision(1e-14))
@@ -1014,7 +1013,7 @@ def run_reference_loop(
             state=state,
             params=params,
             dt=dt,
-            tol=implicit_step_settings['nonlinear_tolerance'],
+            tol=solver_settings['newton_tolerance'],
             max_iters=max_iters,
             time=precision(t),
         )

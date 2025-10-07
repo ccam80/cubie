@@ -471,8 +471,8 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
 
         step = self._algo_step
         return (
-            step.linsolve_tolerance
-            if hasattr(step, "linsolve_tolerance")
+            step.krylov_tolerance
+            if hasattr(step, "krylov_tolerance")
             else None
         )
 
@@ -495,13 +495,13 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         )
 
     @property
-    def nonlinear_tolerance(self) -> Optional[float]:
+    def newton_tolerance(self) -> Optional[float]:
         """Return the nonlinear solve tolerance."""
 
         step = self._algo_step
         return (
-            step.nonlinear_tolerance
-            if hasattr(step, "nonlinear_tolerance")
+            step.newton_tolerance
+            if hasattr(step, "newton_tolerance")
             else None
         )
 

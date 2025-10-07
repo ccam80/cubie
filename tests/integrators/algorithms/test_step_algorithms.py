@@ -111,7 +111,7 @@ def device_step_results(
     """Execute the CUDA step and collect host-side outputs."""
 
     step_function = step_object.step_function
-    step_size = solver_settings['dt_min']
+    step_size = solver_settings['dt']
     n_states = system.sizes.states
     params = step_inputs["parameters"]
     state = step_inputs["state"]
@@ -214,13 +214,12 @@ def cpu_step_results(
     solver_settings,
     cpu_system: CPUODESystem,
     step_inputs,
-    implicit_step_settings,
     cpu_driver_evaluator,
 ) -> StepResult:
     """Execute the CPU reference stepper."""
 
     step_function = get_ref_step_function(solver_settings["algorithm"])
-    dt = solver_settings["dt_min"]
+    dt = solver_settings["dt"]
     state = np.asarray(step_inputs["state"], dtype=cpu_system.precision)
     params = np.asarray(step_inputs["parameters"], dtype=cpu_system.precision)
     if cpu_system.system.num_drivers > 0:
@@ -236,7 +235,7 @@ def cpu_step_results(
         state=state,
         params=params,
         dt=dt,
-        tol=implicit_step_settings['nonlinear_tolerance'],
+        tol=solver_settings['newton_tolerance'],
         time=0.0,
     )
 
@@ -267,7 +266,6 @@ def test_algorithm(
        solver_settings,
        system,
        precision,
-       implicit_step_settings,
        expected_step_properties,
        cpu_step_results,
        device_step_results,
@@ -310,28 +308,28 @@ def test_algorithm(
         # assert config.get_solver_helper_fn is system.get_solver_helper
         matrix = config.M
         assert matrix.shape == (system.sizes.states, system.sizes.states)
-        assert config.preconditioner_order == implicit_step_settings[
+        assert config.preconditioner_order == solver_settings[
                 "preconditioner_order"], "preconditioner order set"
-        assert config.max_linear_iters == implicit_step_settings[
+        assert config.max_linear_iters == solver_settings[
     "max_linear_iters"], "max_linear_iters set"
-        assert config.linear_correction_type == implicit_step_settings[
+        assert config.linear_correction_type == solver_settings[
                 "correction_type"], "linear_correction_type set"
-        assert config.max_newton_iters == implicit_step_settings[
+        assert config.max_newton_iters == solver_settings[
             "max_newton_iters"], "max_newton_iters set"
-        assert config.newton_max_backtracks == implicit_step_settings[
+        assert config.newton_max_backtracks == solver_settings[
                 "newton_max_backtracks"], "newton_max_backtracks set"
-        assert config.linsolve_tolerance == pytest.approx(
-            implicit_step_settings["linear_tolerance"],
+        assert config.krylov_tolerance == pytest.approx(
+            solver_settings["krylov_tolerance"],
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
-        ), "linsolve_tolerance set"
-        assert config.nonlinear_tolerance == pytest.approx(
-            implicit_step_settings["nonlinear_tolerance"],
+        ), "krylov_tolerance set"
+        assert config.newton_tolerance == pytest.approx(
+            solver_settings["newton_tolerance"],
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
-        ), "nonlinear_tolerance set"
+        ), "newton_tolerance set"
         assert config.newton_damping == pytest.approx(
-            implicit_step_settings["newton_damping"],
+            solver_settings["newton_damping"],
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
         ), "newton_damping set"
@@ -347,16 +345,16 @@ def test_algorithm(
     if step_object.is_implicit:
         updates = {
             "max_newton_iters": int(
-                max(1, implicit_step_settings["max_newton_iters"] // 2)
+                max(1, solver_settings["max_newton_iters"] // 2)
             ),
-            "linsolve_tolerance":
-            implicit_step_settings["linear_tolerance"] * 0.5,
-            "nonlinear_tolerance":
-            implicit_step_settings["nonlinear_tolerance"] * 0.5,
+            "krylov_tolerance":
+            solver_settings["krylov_tolerance"] * 0.5,
+            "newton_tolerance":
+            solver_settings["newton_tolerance"] * 0.5,
             "newton_damping":
-            implicit_step_settings["newton_damping"] * 0.9,
+            solver_settings["newton_damping"] * 0.9,
             "preconditioner_order":
-            implicit_step_settings["preconditioner_order"] + 1,
+            solver_settings["preconditioner_order"] + 1,
         }
         recognised = step_object.update(updates)
         assert set(updates).issubset(recognised), "updates recognised"
@@ -366,16 +364,16 @@ def test_algorithm(
         assert config.preconditioner_order == updates[
             "preconditioner_order"
         ], "preconditioner_order update"
-        assert config.linsolve_tolerance == pytest.approx(
-            updates["linsolve_tolerance"],
+        assert config.krylov_tolerance == pytest.approx(
+            updates["krylov_tolerance"],
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
-        ), "linsolve_tolerance update"
-        assert config.nonlinear_tolerance == pytest.approx(
-            updates["nonlinear_tolerance"],
+        ), "krylov_tolerance update"
+        assert config.newton_tolerance == pytest.approx(
+            updates["newton_tolerance"],
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
-        ), "nonlinear_tolerance update"
+        ), "newton_tolerance update"
         assert config.newton_damping == pytest.approx(
             updates["newton_damping"],
             rel=tolerance.rel_tight,

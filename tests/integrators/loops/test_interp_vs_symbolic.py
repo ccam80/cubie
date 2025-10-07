@@ -3,14 +3,18 @@ import pytest
 
 from cubie import merge_component_settings
 from cubie.integrators.algorithms import get_algorithm_step
+from cubie.integrators.algorithms.base_algorithm_step import (
+    ALL_ALGORITHM_STEP_PARAMETERS,
+)
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.integrators.loops.ode_loop_config import (
     LoopLocalIndices,
     LoopSharedIndices,
 )
-from cubie.integrators.step_control.fixed_step_controller import (
-    FixedStepController,
+from cubie.integrators.step_control import get_controller
+from cubie.integrators.step_control.base_step_controller import (
+    ALL_STEP_CONTROLLER_PARAMETERS,
 )
 from cubie.outputhandling.output_functions import OutputFunctions
 from cubie.outputhandling.output_sizes import LoopBufferSizes
@@ -98,33 +102,64 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
     )
     return driver_array
 
-#TODO: Bring in line with dict instantiations
-def _build_loop(system, solver_settings, output_functions, precision, driver_array=None):
+def _build_loop(
+    system,
+    solver_settings,
+    output_functions,
+    precision,
+    driver_array=None,
+):
     loop_buffer_sizes = LoopBufferSizes.from_system_and_output_fns(
         system, output_functions
-    )
-    step_controller = FixedStepController(
-        precision, float(solver_settings["dt_min"])
     )
     driver_function = (
         driver_array.evaluation_function if driver_array is not None else None
     )
-    step_object = get_algorithm_step(precision,
-        solver_settings["algorithm"],
-        dt=float(solver_settings["dt_min"]),
+    algorithm_settings, _ = merge_component_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
+    )
+    algorithm_settings["algorithm"] = solver_settings["algorithm"]
+    algorithm_settings["dt"] = float(solver_settings["dt_min"])
+    algorithm_settings["n"] = system.sizes.states
+    algorithm_settings["dxdt_function"] = system.dxdt_function
+    algorithm_settings["observables_function"] = system.observables_function
+    algorithm_settings["get_solver_helper_fn"] = (
+        system.get_solver_helper
+    )
+    if driver_function is not None:
+        algorithm_settings["driver_function"] = driver_function
+
+    step_object = get_algorithm_step(
         precision=precision,
-        n=system.sizes.states,
-        dxdt_function=system.dxdt_function,
-        observables_function=system.observables_function,
-        driver_function=driver_function,
+        settings=algorithm_settings,
+    )
+
+    controller_settings, _ = merge_component_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
+    )
+    controller_settings["step_controller"] = solver_settings[
+        "step_controller"
+    ]
+    controller_settings.setdefault("dt", float(solver_settings["dt_min"]))
+    controller_settings["n"] = system.sizes.states
+
+    step_controller = get_controller(
+        precision=precision,
+        settings=controller_settings,
     )
     shared_indices = LoopSharedIndices.from_sizes(
         n_states=loop_buffer_sizes.state,
         n_observables=loop_buffer_sizes.observables,
         n_parameters=loop_buffer_sizes.parameters,
         n_drivers=loop_buffer_sizes.drivers,
-        state_summaries_buffer_height=loop_buffer_sizes.state_summaries,
-        observable_summaries_buffer_height=loop_buffer_sizes.observable_summaries,
+        state_summaries_buffer_height=(
+            loop_buffer_sizes.state_summaries
+        ),
+        observable_summaries_buffer_height=(
+            loop_buffer_sizes.observable_summaries
+        ),
     )
     local_indices = LoopLocalIndices.from_sizes(
         loop_buffer_sizes.state,

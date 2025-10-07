@@ -823,6 +823,10 @@ class BatchSolverKernel(CUDAFactory):
         self.compile_settings._duration = value
 
     @property
+    def dt(self) -> float:
+        return self.single_integrator._algo_step.dt or None
+
+    @property
     def warmup(self):
         """
         Get warmup time.

@@ -757,6 +757,7 @@ class Solver:
     def solve_info(self):
         """Returns a SolveSpec object with details of the solver run."""
         return SolveSpec(
+            dt=self.kernel.dt,
             dt_min=self.kernel.dt_min,
             dt_max=self.kernel.dt_max,
             dt_save=self.kernel.dt_save,
