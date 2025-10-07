@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from cubie import merge_component_settings
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.loops.ode_loop import IVPLoop
@@ -97,7 +98,7 @@ def sinusoid_driver_array(precision, time_driver_solver_settings):
     )
     return driver_array
 
-
+#TODO: Bring in line with dict instantiations
 def _build_loop(system, solver_settings, output_functions, precision, driver_array=None):
     loop_buffer_sizes = LoopBufferSizes.from_system_and_output_fns(
         system, output_functions
@@ -108,7 +109,7 @@ def _build_loop(system, solver_settings, output_functions, precision, driver_arr
     driver_function = (
         driver_array.evaluation_function if driver_array is not None else None
     )
-    step_object = get_algorithm_step(
+    step_object = get_algorithm_step(precision,
         solver_settings["algorithm"],
         dt=float(solver_settings["dt_min"]),
         precision=precision,

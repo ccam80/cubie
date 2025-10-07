@@ -6,7 +6,7 @@ layout metadata and feeds the appropriate slices into each device call so that
 compiled kernels only need to focus on algorithmic updates.
 """
 from math import ceil
-from typing import Callable, Optional
+from typing import Callable, Optional, Set
 
 import numpy as np
 from numba import cuda, int32
@@ -571,7 +571,7 @@ class IVPLoop(CUDAFactory):
         updates_dict: Optional[dict[str, object]] = None,
         silent: bool = False,
         **kwargs: object,
-    ) -> set[str]:
+    ) -> Set[str]:
         """Update compile settings through the CUDAFactory interface.
 
         Parameters

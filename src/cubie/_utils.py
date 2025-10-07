@@ -193,15 +193,14 @@ def split_applicable_settings(
     missing = required - filtered.keys()
     unused = set(settings.keys()) - accepted
     if warn_on_unused and unused:
-        warn(f"The following settings were ignored: {unused}",
-             stacklevel=3)
+        warn(f"The following settings were ignored: {unused}", stacklevel=3)
     return filtered, missing, unused
 
 
 def merge_component_settings(
     kwargs: dict[str, object],
-    user_settings: Optional[dict[str, object]],
     valid_keys: Iterable[str],
+    user_settings: Optional[dict[str, object]]=None,
 ) -> Tuple[dict[str, object], set[str]]:
     """Merge component settings from ``kwargs`` and ``user_settings``.
 

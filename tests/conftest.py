@@ -7,10 +7,12 @@ import numpy as np
 import pytest
 from pytest import MonkeyPatch
 
-from cubie import SingleIntegratorRun
+from cubie import SingleIntegratorRun, merge_component_settings
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms import get_algorithm_step
+from cubie.integrators.algorithms.base_algorithm_step import \
+    ALL_ALGORITHM_STEP_PARAMETERS
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
     LoopLocalIndices
@@ -300,6 +302,22 @@ def implicit_step_settings_override(request):
 
     return request.param if hasattr(request, "param") else {}
 
+@pytest.fixture(scope="function")
+def algorithm_settings(system, solver_settings, driver_array):
+    settings, _ = merge_component_settings(
+            kwargs=solver_settings,
+            valid_keys=ALL_ALGORITHM_STEP_PARAMETERS
+    )
+    driver_function = (driver_array.evaluation_function
+                       if driver_array is not None
+                       else None)
+    settings.update({
+        'driver_function': driver_function,
+        'dxdt_function':  system.dxdt_function,
+        'observables_function': system.observables_function,
+        'get_solver_helper_fn': system.get_solver_helper,
+    })
+    return settings
 
 @pytest.fixture(scope="function")
 def implicit_step_settings(solver_settings, implicit_step_settings_override):
@@ -417,11 +435,12 @@ def output_functions(solver_settings, system):
 
 
 @pytest.fixture(scope="function")
-def solverkernel(solver_settings, system, driver_array):
+def solverkernel(solver_settings, system, driver_array,
+                 step_controller_settings,
+                 algorithm_settings):
     driver_function = driver_array.evaluation_function if driver_array is not None else None
     return BatchSolverKernel(
         system,
-        algorithm=solver_settings["algorithm"],
         duration=solver_settings["duration"],
         warmup=solver_settings["warmup"],
         dt_save=solver_settings["dt_save"],
@@ -434,11 +453,13 @@ def solverkernel(solver_settings, system, driver_array):
         memory_manager=solver_settings["memory_manager"],
         stream_group=solver_settings["stream_group"],
         mem_proportion=solver_settings["mem_proportion"],
+        step_control_settings=step_controller_settings,
+        algorithm_settings=algorithm_settings,
     )
 
 
 @pytest.fixture(scope="function")
-def solver(system, solver_settings, driver_array):
+def solver(system, solver_settings, driver_array, step_controller_settings):
     solver = Solver(
         system,
         algorithm=solver_settings["algorithm"],
@@ -457,6 +478,7 @@ def solver(system, solver_settings, driver_array):
         memory_manager=solver_settings["memory_manager"],
         stream_group=solver_settings["stream_group"],
         mem_proportion=solver_settings["mem_proportion"],
+        step_control_settings=step_controller_settings,
     )
     driver_function = driver_array.evaluation_function if driver_array is not None else None
     solver.update({'driver_function':driver_function})
@@ -578,13 +600,12 @@ def loop(
 
 @pytest.fixture(scope="function")
 def single_integrator_run(system, solver_settings, driver_array,
-                          step_controller_settings):
+                          step_controller_settings, algorithm_settings):
     """Instantiate :class:`SingleIntegratorRun` with test fixtures."""
     driver_function = driver_array.evaluation_function if driver_array is not None else None
 
     run = SingleIntegratorRun(
         system=system,
-        algorithm=solver_settings["algorithm"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
         saved_state_indices=solver_settings["saved_state_indices"],
@@ -596,6 +617,7 @@ def single_integrator_run(system, solver_settings, driver_array,
         driver_function=driver_function,
         output_types=solver_settings["output_types"],
         step_control_settings=step_controller_settings,
+        algorithm_settings=algorithm_settings,
     )
     return run
 
@@ -607,49 +629,17 @@ def cpu_system(system):
 
 @pytest.fixture
 def step_object(
-    solver_settings,
-    implicit_step_settings,
-    precision,
     system,
-    driver_array,
+    step_controller_settings,
+    algorithm_settings,
+    precision,
 ):
     """Return a step object for the given solver settings."""
-
-    driver_function = driver_array.evaluation_function if driver_array is not None else None
-    if solver_settings["algorithm"].lower() == 'euler':
-        solver_kwargs = {
-            'dt': solver_settings["dt_min"],
-            'precision': precision,
-            'n': system.sizes.states,
-            'dxdt_function': system.dxdt_function,
-            'observables_function': system.observables_function,
-            'driver_function': driver_function,
-        }
-    else:
-        solver_kwargs = {
-            "precision": precision,
-            "n": system.sizes.states,
-            'dt': solver_settings["dt_min"],
-            'dxdt_function': system.dxdt_function,
-            'observables_function': system.observables_function,
-            'get_solver_helper_fn': system.get_solver_helper,
-            'preconditioner_order': implicit_step_settings[
-                "preconditioner_order"
-            ],
-            'linsolve_tolerance': implicit_step_settings["linear_tolerance"],
-            'max_linear_iters': implicit_step_settings["max_linear_iters"],
-            'linear_correction_type': implicit_step_settings[
-                "correction_type"
-            ],
-            'nonlinear_tolerance': implicit_step_settings["nonlinear_tolerance"],
-            'max_newton_iters': implicit_step_settings["max_newton_iters"],
-            'newton_damping': implicit_step_settings["newton_damping"],
-            'newton_max_backtracks': implicit_step_settings[
-                "newton_max_backtracks"
-            ],
-            'driver_function': driver_function,
-        }
-    return get_algorithm_step(solver_settings["algorithm"].lower(), **solver_kwargs)
+    algorithm_settings.update({
+        'dt': step_controller_settings["dt"],
+        'n': system.sizes.states,
+    })
+    return get_algorithm_step(precision, algorithm_settings)
 
 
 @pytest.fixture(scope="function")

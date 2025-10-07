@@ -17,6 +17,9 @@ from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory import default_memmgr
 from cubie.odesystems.baseODE import BaseODE
 from cubie.integrators.array_interpolator import ArrayInterpolator
+from cubie.integrators.algorithms.base_algorithm_step import (
+    ALL_ALGORITHM_STEP_PARAMETERS,
+)
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
@@ -129,6 +132,8 @@ class Solver:
         Proportion of GPU memory reserved for the solver.
     step_control_settings : dict[str, object], optional
         Explicit controller configuration that overrides solver defaults.
+    algorithm_settings : dict[str, object], optional
+        Explicit algorithm configuration overriding solver defaults.
     **kwargs
         Additional keyword arguments forwarded to internal components.
 
@@ -160,6 +165,7 @@ class Solver:
         stream_group="solver",
         mem_proportion=None,
         step_control_settings: Optional[Dict[str, object]] = None,
+        algorithm_settings: Optional[Dict[str, object]] = None,
         **kwargs,
     ):
         super().__init__()
@@ -174,30 +180,32 @@ class Solver:
             },
         )
 
-
-        (
-            saved_state_indices,
-            saved_observable_indices,
-            summarised_state_indices,
-            summarised_observable_indices,
-        ) = self._variable_indices_from_list(
-            saved_states,
-            saved_observables,
-            summarised_states,
-            summarised_observables,
-        )
+        saved_labels = [saved_states, saved_observables,
+                        summarised_states, summarised_observables]
+        saved_indices = self._variable_indices_from_list(*saved_labels)
+        saved_state_indices = saved_indices[0]
+        saved_observable_indices = saved_indices[1]
+        summarised_state_indices = saved_indices[2]
+        summarised_observable_indices = saved_indices[3]
 
         self.grid_builder = BatchGridBuilder(interface)
 
-        step_settings, recognized_kwargs = merge_component_settings(
-                kwargs,
-                step_control_settings,
-                ALL_STEP_CONTROLLER_PARAMETERS,
+        step_settings, step_recognized = merge_component_settings(
+            kwargs=kwargs,
+            user_settings=step_control_settings,
+            valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
         )
+        algorithm_settings, algorithm_recognized = merge_component_settings(
+            kwargs=kwargs,
+            user_settings=algorithm_settings,
+            valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
+        )
+        algorithm_settings = dict(algorithm_settings)
+        algorithm_settings["algorithm"] = algorithm
+        recognized_kwargs = step_recognized | algorithm_recognized
 
         self.kernel = BatchSolverKernel(
             system,
-            algorithm=algorithm,
             duration=duration,
             warmup=warmup,
             dt_save=dt_save,
@@ -211,12 +219,15 @@ class Solver:
             memory_manager=memory_manager,
             stream_group=stream_group,
             mem_proportion=mem_proportion,
-            step_control_settings=step_control_settings,
+            step_control_settings=step_settings,
+            algorithm_settings=algorithm_settings,
         )
 
-        if set(kwargs) - set(recognized_kwargs):
-            raise KeyError(f"Unrecognized keyword arguments: "
-                           f"{set(kwargs) - set(recognized_kwargs)}")
+        if set(kwargs) - recognized_kwargs:
+            raise KeyError(
+                "Unrecognized keyword arguments: "
+                f"{set(kwargs) - recognized_kwargs}"
+            )
 
     def _variable_indices_from_list(
         self,

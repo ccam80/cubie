@@ -37,7 +37,6 @@ class BatchSolverConfig:
     precision: type = attrs.field(
         default=float32, validator=attrs.validators.instance_of(type)
     )
-    algorithm: str = "euler"
     _duration: float = attrs.field(
         default=1.0, validator=getype_validator(float, 0)
     )

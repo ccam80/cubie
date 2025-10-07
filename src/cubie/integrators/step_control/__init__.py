@@ -67,7 +67,9 @@ def get_controller(
         controller_settings.update(settings)
     controller_settings.update(kwargs)
 
-    step_controller_value = controller_settings.get("step_controller")
+    step_controller_value = controller_settings.pop("step_controller", None)
+    if step_controller_value is None:
+        raise ValueError("No step controller specified")
     controller_key = step_controller_value.lower()
 
     try:
@@ -77,7 +79,6 @@ def get_controller(
             f"Unknown controller type: {step_controller_value}"
         ) from exc
 
-    controller_settings.pop("step_controller", None)
     controller_settings["precision"] = precision
 
     filtered, missing, unused = split_applicable_settings(

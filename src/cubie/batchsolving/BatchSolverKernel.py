@@ -11,7 +11,7 @@ Created on Tue May 27 17:45:03 2025
 @author: cca79
 """
 
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
 from warnings import warn
 
 import numpy as np
@@ -36,6 +36,8 @@ from cubie.outputhandling.output_sizes import (
 )
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 
+if TYPE_CHECKING:
+    from cubie.memory import MemoryManager
 
 class BatchSolverKernel(CUDAFactory):
     """
@@ -48,49 +50,41 @@ class BatchSolverKernel(CUDAFactory):
 
     Parameters
     ----------
-    system : object
+    system
         The ODE system to be integrated.
-    algorithm : str, default='euler'
-        Integration algorithm to use.
-    duration : float, default=1.0
+    duration :
         Duration of the simulation.
-    warmup : float, default=0.0
+    warmup
         Warmup time before the main simulation.
-    dt_min : float, default=0.01
-        Minimum allowed time step.
-    dt_max : float, default=0.1
-        Maximum allowed time step.
-    dt_save : float, default=0.1
+    dt_save
         Time step for saving output.
-    dt_summarise : float, default=1.0
+    dt_summarise
         Time step for saving summaries.
-    atol : float, default=1e-6
-        Absolute tolerance for adaptive stepping.
-    rtol : float, default=1e-6
-        Relative tolerance for adaptive stepping.
-    saved_state_indices : NDArray[np.int_], optional
+    saved_state_indices
         Indices of state variables to save.
-    saved_observable_indices : NDArray[np.int_], optional
+    saved_observable_indices
         Indices of observable variables to save.
-    summarised_state_indices : ArrayLike, optional
+    summarised_state_indices
         Indices of state variables to summarise.
-    summarised_observable_indices : ArrayLike, optional
+    summarised_observable_indices
         Indices of observable variables to summarise.
-    output_types : list[str], optional
+    output_types
         Types of outputs to generate. Default is ["state"].
-    precision : type, default=np.float64
-        Numerical precision to use.
-    profileCUDA : bool, default=False
+    profileCUDA
         Whether to enable CUDA profiling.
-    memory_manager : MemoryManager, default=default_memmgr
+    memory_manager
         Memory manager instance to use.
-    stream_group : str, default='solver'
+    stream_group
         CUDA stream group identifier.
-    mem_proportion : float, optional
+    mem_proportion
         Proportion of GPU memory to allocate.
-    step_control_settings : dict[str, Any], optional
+    step_control_settings
         Mapping of overrides forwarded to
         :class:`cubie.integrators.SingleIntegratorRun` for controller
+        configuration.
+    algorithm_settings
+        Mapping of overrides forwarded to
+        :class:`cubie.integrators.SingleIntegratorRun` for algorithm
         configuration.
 
     Notes
@@ -111,8 +105,7 @@ class BatchSolverKernel(CUDAFactory):
 
     def __init__(
         self,
-        system: BaseODE,
-        algorithm: str = "euler",
+        system: "BaseODE",
         duration: float = 1.0,
         warmup: float = 0.0,
         dt_save: float = 0.1,
@@ -124,10 +117,11 @@ class BatchSolverKernel(CUDAFactory):
         driver_function: Optional[Callable] = None,
         output_types: list[str] = None,
         profileCUDA: bool = False,
-        memory_manager=default_memmgr,
-        stream_group="solver",
-        mem_proportion=None,
+        memory_manager: "MemoryManager" = default_memmgr,
+        stream_group: str = "solver",
+        mem_proportion: float = None,
         step_control_settings: Dict[str, Any] = None,
+        algorithm_settings: Dict[str, Any] = None,
         output_settings: Dict[str, Any] = None,
         memory_settings: Dict[str, Any] = None,
     ):
@@ -145,22 +139,25 @@ class BatchSolverKernel(CUDAFactory):
         )
 
         config = BatchSolverConfig(
-            precision=precision,
-            algorithm=algorithm,
-            duration=duration,
-            warmup=warmup,
-            profileCUDA=profileCUDA,
+            precision=precision, # can be dug out of the system.
+            duration=duration, # doesn't belong to the batch, belongs to the
+                # loop
+            warmup=warmup,# doesn't belong to the batch, belongs to the
+                # loop
+            profileCUDA=profileCUDA, # not a compile-time setting
         )
+        # what actually is compile-critical for the batch solver? numruns or
+        # chunk details? or is that handled in the arrays?
 
         # Setup compile settings for the kernel
         self.setup_compile_settings(config)
 
-        if output_types is None:
+        if output_types is None: # Don't handle that here, this is an
+            # outputfunctions concern
             output_types = ["state"]
 
         self.single_integrator = SingleIntegratorRun(
             system,
-            algorithm=algorithm,
             dt_save=dt_save,
             dt_summarise=dt_summarise,
             saved_state_indices=saved_state_indices,
@@ -170,6 +167,7 @@ class BatchSolverKernel(CUDAFactory):
             output_types=output_types,
             driver_function=driver_function,
             step_control_settings=step_control_settings,
+            algorithm_settings=algorithm_settings,
         )
 
         self.input_arrays = InputArrays.from_solver(self)
@@ -185,8 +183,8 @@ class BatchSolverKernel(CUDAFactory):
         blocksize=256,
         stream=None,
         warmup=0.0,
+        t0=0.0,
         chunk_axis="run",
-        t0=0.0
     ):
         """
         Execute the solver kernel for batch integration.
@@ -230,79 +228,53 @@ class BatchSolverKernel(CUDAFactory):
         warmup = precision(warmup)
         t0 = precision(t0)
 
-        self.duration = precision(duration)
-        self.warmup = precision(warmup)
+        duration = precision(duration)
+        warmup = precision(warmup)
         numruns = inits.shape[0]
-        self.num_runs = numruns
+        self.num_runs = numruns # Don't delete - generates batchoutputsizes
 
+        # This adds the allocations for input and output arrays to a queue
         self.input_arrays.update(self, inits, params, driver_coefficients)
         self.output_arrays.update(self)
 
+        # And we process them all at once to divide into "chunks"
         self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
-        chunks = self.chunks
-
-        if chunk_axis == "run":
-            chunkruns = int(np.ceil(numruns / chunks))
-            chunk_duration = duration  # Each chunk processes full duration
-            chunk_warmup = warmup
-            chunk_t0 = t0
-            chunksize = chunkruns
-        elif chunk_axis == "time":
-            # Divide duration by number of chunks to maintain total sample count
-            chunk_duration = duration / chunks
-            chunkruns = numruns
-            chunksize = int(np.ceil(self.output_length / chunks))
-            chunk_warmup = warmup
-            chunk_t0 = t0
-        else:
-            chunk_duration = duration
-            chunkruns = numruns
-            chunk_warmup = warmup
-            chunk_t0 = t0
-            chunksize = None
-            chunks = 1
 
         # ------------ from here on dimensions are "chunked" -----------------
-        self.chunk_axis = chunk_axis
-        self.chunks = chunks
-        numruns = chunkruns
-        pad_perrun = 4 if self.shared_memory_needs_padding else 0
-        padded_bytes_perrun = self.shared_memory_bytes_per_run + pad_perrun
-        dynamic_sharedmem = int(
-            padded_bytes_perrun * min(numruns, blocksize)
+        chunk_params = self.chunk_run(
+                chunk_axis,
+                duration,
+                warmup,
+                t0,
+                numruns,
+                self.chunks
         )
-        while dynamic_sharedmem > 32768:
-            if blocksize < 32:
-                warn(
-                    "Block size has been reduced to less than 32 threads, "
-                    "which means your code will suffer a "
-                    "performance hit. This is due to your problem requiring "
-                    "too much shared memory - try casting "
-                    "some parameters to constants, or trying a different "
-                    "solving algorithm."
-                )
-            blocksize = blocksize / 2
-            dynamic_sharedmem = int(
-                padded_bytes_perrun * min(numruns, blocksize)
-            )
+        chunk_duration, chunk_warmup, chunk_t0, chunksize, chunkruns = chunk_params
 
+        pad = 4 if self.shared_memory_needs_padding else 0
+        padded_bytes = self.shared_memory_bytes_per_run + pad
+        dynamic_sharedmem = int(padded_bytes * min(chunkruns, blocksize)) #
+        # multiply by numruns before we get to calling the device function
+
+        blocksize, dynamic_sharedmem = self.limit_blocksize(
+                blocksize,
+                dynamic_sharedmem,
+                padded_bytes,
+                numruns,
+        )
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
         BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
 
-        # selectively chunk by chunk_size - depends on chunk_axis
-        if (
-            not is_cudasim_enabled()
-            and self.compile_settings.profileCUDA
-        ): # pragma: no cover
+        if self.profileCUDA: # pragma: no cover
             cuda.profile_start()
 
-        for i in range(chunks):
+        for i in range(self.chunks):
             indices = slice(i * chunksize, (i + 1) * chunksize)
             self.input_arrays.initialise(indices)
             self.output_arrays.initialise(indices)
 
-            # Apply warmup only to the first chunk
+            # Don't use warmup in runs starting after t=t0
             if (chunk_axis == "time") and (i != 0):
                 chunk_warmup = precision(0.0)
                 chunk_t0 = i * chunk_duration
@@ -330,38 +302,107 @@ class BatchSolverKernel(CUDAFactory):
             self.input_arrays.finalise(indices)
             self.output_arrays.finalise(indices)
 
-        if (
-            not is_cudasim_enabled() and self.compile_settings.profileCUDA
-        ):  # pragma: no cover
+        if self.profileCUDA: # pragma: no cover
             cuda.profile_stop()
 
-    @property
-    def shared_memory_needs_padding(self):
-        """True if a 4-byte pad would reduce bank conflicts.
+    def limit_blocksize(
+        self,
+        blocksize: int,
+        dynamic_sharedmem: int,
+        bytes_per_run: int,
+        numruns: int,
+    ) -> int:
+        """Reduce blocksize until dynamic shared memory fits within limits.
 
-        Shared memory load instructions for ``float64`` require eight-byte
-        alignment. Skewing run slices by four bytes would misalign every
-        alternate run and trigger a runtime ``misaligned address`` fault
-        [CUDAProgrammingGuide]_.  Consequently we only apply padding when
-        using single precision where a four-byte skew preserves alignment and
-        improves bank utilisation.
+        Notes:
+        Parameters
+        ----------
+        blocksize
+            User-provided blocksize
+        dynamic_sharedmem
+            Number of bytes required per block at current blocksize
+        bytes_per_run
+            Number of shared bytes requested per individual run
+        numruns
+            Total number of runs requested (in case it's less than blocksize)
 
         Returns
         -------
-        bool
-            ``True`` when a four-byte pad will reduce bank conflicts.
+        int, int
+            Adjusted blocksize, limited to a multiple of 32.
+            Dynamic shared memory bytes per block.
 
-        References
-        ----------
-        .. [CUDAProgrammingGuide] NVIDIA Corporation, *CUDA C Programming
-           Guide*, "Shared Memory", 2024.
+        Notes
+        -----
+        Dynamic shared memory limit is set to 16kB (magic number),
+        to allow for three blocks per SM on CC7*. This may still be too
+        large, and it will affect the amount of L1 Cache available to
+        the compiler for each thread.
         """
-        if self.precision == np.float64:
-            return False
-        elif self.shared_memory_elements_per_run % 2 == 0:
-            return True
+        while dynamic_sharedmem > 32768:
+            if blocksize < 32:
+                warn(
+                    "Block size has been reduced to less than 32 threads, "
+                    "which means your code will suffer a "
+                    "performance hit. This is due to your problem requiring "
+                    "too much shared memory - try changing "
+                    "some parameters to constants, or trying a different "
+                    "solving algorithm."
+                )
+            blocksize = blocksize / 2
+            dynamic_sharedmem = int(
+                    bytes_per_run * min(numruns, blocksize)
+            )
+        return blocksize, dynamic_sharedmem
+
+
+    def chunk_run(
+        self,
+        chunk_axis: str,
+        duration: float,
+        warmup: float,
+        t0: float,
+        numruns: int,
+        chunks: int,
+    ):
+        """Split up the run plan into chunks along the selected axis
+
+        Parameters
+        ----------
+        chunk_axis
+            Axis along which to chunk the computation ('run' or 'time').
+        duration
+            Duration of the simulation.
+        warmup
+            Warmup time before the main simulation.
+        t0
+            Initial time of the simulation.
+        numruns
+            Total number of separate input sets for the run
+        chunks
+            How many chunks to split the run into
+
+        Returns
+        -------
+        (float, float, float, int, int)
+            duration, warmup, t0, chunk size, numruns
+            The duration, warmup time, initial time, size of chunk along
+            chunk axis, and number of runs in the chunk.
+        """
+        chunkruns = numruns
+        chunk_warmup = warmup
+        chunk_duration = duration
+        chunk_t0 = t0
+        if chunk_axis == "run":
+            chunkruns = int(np.ceil(numruns / chunks))
+            chunksize = chunkruns
+        elif chunk_axis == "time":
+            chunk_duration = duration / chunks
+            chunksize = int(np.ceil(self.output_length / chunks))
         else:
-            return False
+            raise ValueError("chunk_axis must be either 'run' or 'time'")
+
+        return chunk_duration, chunk_warmup, chunk_t0, chunksize, chunkruns
 
     def build_kernel(self):
         """
@@ -391,6 +432,8 @@ class BatchSolverKernel(CUDAFactory):
         loopfunction = self.single_integrator.device_function
 
         output_flags = self.active_output_arrays
+        # TODO: check that this is updated correctly from output functions
+        #  This is the only compile-critical feature, I think.
         save_state = output_flags.state
         save_observables = output_flags.observables
         save_state_summaries = output_flags.state_summaries
@@ -399,6 +442,7 @@ class BatchSolverKernel(CUDAFactory):
 
         local_elements_per_run = self.local_memory_elements_per_run
         shared_elements_per_run = self.shared_memory_elements_per_run
+        # TODO: these also invalidate build.
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
         run_stride_f32 = int(
@@ -545,6 +589,34 @@ class BatchSolverKernel(CUDAFactory):
                 raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
         return recognised
 
+    @property
+    def shared_memory_needs_padding(self):
+        """True if a 4-byte pad would reduce bank conflicts.
+
+        Shared memory load instructions for ``float64`` require eight-byte
+        alignment. Skewing run slices by four bytes would misalign every
+        alternate run and trigger a runtime ``misaligned address`` fault
+        [CUDAProgrammingGuide]_.  Consequently we only apply padding when
+        using single precision where a four-byte skew preserves alignment and
+        improves bank utilisation.
+
+        Returns
+        -------
+        bool
+            ``True`` when a four-byte pad will reduce bank conflicts.
+
+        References
+        ----------
+        .. [CUDAProgrammingGuide] NVIDIA Corporation, *CUDA C Programming
+           Guide*, "Shared Memory", 2024.
+        """
+        if self.precision == np.float64:
+            return False
+        elif self.shared_memory_elements_per_run % 2 == 0:
+            return True
+        else:
+            return False
+
     def _on_allocation(self, response):
         """
         Handle memory allocation response.
@@ -597,7 +669,11 @@ class BatchSolverKernel(CUDAFactory):
         return self.build_kernel()
 
     @property
-    def memory_manager(self):
+    def profileCUDA(self) -> bool:
+        return self.compile_settings.profileCUDA and not is_cudasim_enabled()
+
+    @property
+    def memory_manager(self) -> "MemoryManager":
         """
         Get the memory manager.
 
@@ -643,10 +719,6 @@ class BatchSolverKernel(CUDAFactory):
             The memory proportion the solver is assigned.
         """
         return self.memory_manager.proportion(self)
-
-
-
-
 
     @property
     def shared_memory_bytes_per_run(self):

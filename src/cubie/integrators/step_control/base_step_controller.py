@@ -23,18 +23,10 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible step controller parameters across all controller types
 ALL_STEP_CONTROLLER_PARAMETERS = {
-    # Base parameters
-    'precision', 'n',
-    # Fixed step controller
-    'dt',
-    # Adaptive step controller parameters
+    'precision', 'n', 'step_controller', 'dt',
     'dt_min', 'dt_max', 'atol', 'rtol', 'algorithm_order',
     'min_gain', 'max_gain', 'safety',
-    # PI controller parameters
-    'kp', 'ki',
-    # PID controller parameters (kd in addition to PI)
-    'kd', 'deadband_min', 'deadband_max',
-    # Gustafsson controller parameters
+    'kp', 'ki', 'kd', 'deadband_min', 'deadband_max',
     'gamma', 'max_newton_iters'
 }
 

@@ -61,8 +61,7 @@ def test_run(
         tolerance
 ):
     """Big integration test. Runs a batch integration and checks outputs
-    match expected. Expensive, don't run
-    "scorcher" in CI."""
+    match expected. Expensive."""
     inits, params = batch_input_arrays
 
     solverkernel.run(
@@ -75,8 +74,6 @@ def test_run(
         warmup=solver_settings["warmup"],
     )
 
-    active_output_arrays = solverkernel.active_output_arrays
-
     state = solverkernel.state
     observables = solverkernel.observables
     state_summaries = solverkernel.state_summaries
@@ -86,7 +83,6 @@ def test_run(
                            state_summaries=state_summaries,
                            observable_summaries=observable_summaries,
                            status=0)
-
 
     assert_integration_outputs(device=device,
                                reference=cpu_batch_results,
@@ -173,7 +169,8 @@ def test_getters_get(solverkernel):
     # device arrays SHOULD be None.
 
 
-def test_all_lower_plumbing(system, solverkernel):
+def test_all_lower_plumbing(system, solverkernel, step_controller_settings,
+                            algorithm_settings):
     """Big plumbing integration check - check that config classes match exactly between an updated solver and one
     instantiated with the update settings."""
     new_settings = {
@@ -198,10 +195,15 @@ def test_all_lower_plumbing(system, solverkernel):
         ],
     }
     solverkernel.update(new_settings)
-    
+    updated_controller_settings = step_controller_settings.copy()
+    updated_controller_settings.update({
+            "dt_min": 0.0001,
+            "dt_max": 0.01,
+            "atol": 1e-2,
+            "rtol": 1e-1,
+        })
     freshsolver = BatchSolverKernel(
         system, 
-        algorithm="euler",
         duration= 1.0,
         dt_save= 0.01,
         dt_summarise= 0.1,
@@ -217,12 +219,8 @@ def test_all_lower_plumbing(system, solverkernel):
             "rms",
             "peaks[3]",
         ],
-        step_control_settings={
-            "dt_min": 0.0001,
-            "dt_max": 0.01,
-            "atol": 1e-2,
-            "rtol": 1e-1,
-        }
+        step_control_settings=updated_controller_settings,
+        algorithm_settings=algorithm_settings,
     )
 
     assert freshsolver.compile_settings == solverkernel.compile_settings, (

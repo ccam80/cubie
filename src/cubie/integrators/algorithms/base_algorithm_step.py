@@ -22,15 +22,10 @@ from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible algorithm step parameters across all algorithm types
 ALL_ALGORITHM_STEP_PARAMETERS = {
-    # Base parameters
+    'algorithm',
     'precision', 'n', 'dxdt_function', 'observables_function',
-    'driver_function',
-    'get_solver_helper_fn',
-    'observables_function',
-    # Explicit algorithm parameters
-    'dt',
-    # Implicit algorithm parameters
-    'beta', 'gamma', 'M', 'preconditioner_order', 'linsolve_tolerance',
+    'driver_function', 'get_solver_helper_fn', 
+    'dt', 'beta', 'gamma', 'M', 'preconditione r_order', 'linsolve_tolerance',
     'max_linear_iters', 'linear_correction_type', 'nonlinear_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks'
 }

@@ -23,11 +23,11 @@ class ExplicitEulerStep(ODEExplicitStep):
 
     def __init__(
         self,
-        dxdt_function: Callable,
-        observables_function: Callable,
         precision: type,
         n: int,
         dt: float,
+        dxdt_function: Optional[Callable] = None,
+        observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
     ) -> None:

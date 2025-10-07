@@ -445,13 +445,13 @@ def test_default_step_controller_settings_applied(
     system,
     solver_settings,
     driver_array,
+    algorithm_settings,
 ):
     """When no overrides are supplied algorithm defaults are applied."""
 
     driver_fn = driver_array.evaluation_function if driver_array else None
     run = SingleIntegratorRun(
         system=system,
-        algorithm=solver_settings["algorithm"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
         saved_state_indices=solver_settings["saved_state_indices"],
@@ -463,6 +463,7 @@ def test_default_step_controller_settings_applied(
         output_types=solver_settings["output_types"],
         driver_function=driver_fn,
         step_control_settings=None,
+        algorithm_settings=algorithm_settings,
     )
 
     defaults = run._algo_step.controller_defaults.copy()
@@ -500,9 +501,10 @@ def test_step_controller_overrides_take_precedence(
     driver_array,
     algorithm,
     overrides,
+    algorithm_settings,
 ):
     """User supplied settings override algorithm defaults."""
-
+    algorithm_settings["algorithm"] = algorithm
     precision = system.precision
     driver_fn = driver_array.evaluation_function if driver_array else None
     override_settings = {
@@ -511,7 +513,6 @@ def test_step_controller_overrides_take_precedence(
     }
     run = SingleIntegratorRun(
         system=system,
-        algorithm=algorithm,
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
         saved_state_indices=solver_settings["saved_state_indices"],
@@ -523,6 +524,7 @@ def test_step_controller_overrides_take_precedence(
         output_types=solver_settings["output_types"],
         driver_function=driver_fn,
         step_control_settings=dict(override_settings),
+        algorithm_settings=algorithm_settings,
     )
 
     assert run.step_controller == "pi"
