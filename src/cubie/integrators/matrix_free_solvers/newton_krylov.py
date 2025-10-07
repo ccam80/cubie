@@ -10,7 +10,7 @@ from typing import Callable
 from numba import cuda, int32, from_dtype
 import numpy as np
 
-from cubie._utils import ALLOWED_PRECISIONS, PrecisionDtype
+from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType
 from cubie.cuda_simsafe import activemask, all_sync, selp
 
 
@@ -22,7 +22,7 @@ def newton_krylov_solver_factory(
     max_iters: int,
     damping: float = 0.5,
     max_backtracks: int = 8,
-    precision: PrecisionDtype = np.float32,
+    precision: PrecisionDType = np.float32,
 ) -> Callable:
     """Create a damped Newton--Krylov solver device function.
 

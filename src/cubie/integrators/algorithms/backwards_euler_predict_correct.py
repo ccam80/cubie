@@ -5,7 +5,8 @@ from typing import Callable, Optional
 from numba import cuda
 
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
-from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 
 
 class BackwardsEulerPCStep(BackwardsEulerStep):
@@ -19,6 +20,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
+        dt: Optional[float],
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for the predictor-corrector scheme.
 
@@ -36,6 +38,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             Numba precision corresponding to the configured precision.
         n
             Dimension of the state vector.
+        dt
+            fixed step size for fixed-step algorithms
+
 
         Returns
         -------
@@ -131,9 +136,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 time_scalar,
             )
             for i in range(n):
-                proposed_state[i] = state[i] + dt_scalar * work_buffer[i]
+                proposed_state[i] = state[i] + dt * work_buffer[i]
 
-            next_time = time_scalar + dt_scalar
+            next_time = time_scalar + dt
             if has_driver_function:
                 driver_function(
                     next_time,
@@ -148,7 +153,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 proposed_state,
                 parameters,
                 proposed_drivers,
-                dt_scalar,
+                dt,
                 a_ij,
                 state,
                 work_buffer,

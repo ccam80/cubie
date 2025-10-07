@@ -182,16 +182,11 @@ class TestLhsPass:
         )
         lines = ["obs = x + a", "floating = obs", "dx = obs"]
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            anon_aux = _lhs_pass(lines, ib, strict=False)
+        anon_aux = _lhs_pass(lines, ib, strict=False)
 
         assert "floating" in anon_aux
         assert anon_aux["floating"] == sp.Symbol("floating", real=True)
         assert "floating" not in ib.observable_names
-        assert any(
-            issubclass(item.category, EquationWarning) for item in caught
-        )
 
     def test_lhs_pass_state_derivative(self):
         """Test processing state derivatives."""
@@ -569,21 +564,17 @@ class TestIntegrationWithFixtures:
             dxdt_list,
         ) = simple_system_defaults
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            index_map, all_symbols, _, equation_map, fn_hash = parse_input(
-                states=states,
-                parameters=parameters,
-                constants=constants,
-                observables=observables,
-                drivers=drivers,
-                dxdt=dxdt_str,
-                strict=True,
-            )
 
-        # Should have warnings about anonymous auxiliaries
-        warning_messages = [str(warning.message) for warning in w]
-        assert any("uninited" in msg for msg in warning_messages)
+        index_map, all_symbols, _, equation_map, fn_hash = parse_input(
+            states=states,
+            parameters=parameters,
+            constants=constants,
+            observables=observables,
+            drivers=drivers,
+            dxdt=dxdt_str,
+            strict=True,
+        )
+
         assigned_to = [expr[0] for expr in equation_map]
         expr = [expr[1] for expr in equation_map]
         # Check that equations were parsed correctly

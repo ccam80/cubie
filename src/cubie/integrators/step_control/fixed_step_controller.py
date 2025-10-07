@@ -5,7 +5,7 @@ from typing import Callable
 from attrs import define, field
 from numba import cuda, int32
 
-from cubie._utils import getype_validator
+from cubie._utils import PrecisionDType, getype_validator
 from cubie.integrators.step_control.base_step_controller import (
     BaseStepControllerConfig, BaseStepController)
 
@@ -67,7 +67,12 @@ class FixedStepControlConfig(BaseStepControllerConfig):
 class FixedStepController(BaseStepController):
     """Controller that enforces a constant time step."""
 
-    def __init__(self, precision: type, dt: float) -> None:
+    def __init__(
+        self,
+        precision: PrecisionDType,
+        dt: float,
+        n: int = 1,
+    ) -> None:
         """Initialise the fixed step controller.
 
         Parameters
@@ -76,10 +81,12 @@ class FixedStepController(BaseStepController):
             Precision used for controller calculations.
         dt
             Fixed step size to apply on every iteration.
+        n
+            Number of state variables advanced by the integrator.
         """
 
         super().__init__()
-        config = FixedStepControlConfig(precision=precision, n=1, dt=dt)
+        config = FixedStepControlConfig(precision=precision, n=n, dt=dt)
         self.setup_compile_settings(config)
 
     def build(self) -> Callable:

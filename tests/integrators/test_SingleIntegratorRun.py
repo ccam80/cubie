@@ -7,7 +7,8 @@ from typing import Dict
 import numpy as np
 import pytest
 
-from tests._utils import assert_integration_outputs, run_device_loop
+from cubie import SingleIntegratorRun
+from tests._utils import assert_integration_outputs
 
 
 def _compare_scalar(actual, expected, tolerance):
@@ -57,7 +58,7 @@ def _settings_to_dict(settings_source):
         {
             "algorithm": "euler",
             "step_controller": "fixed",
-            "dt_min": 0.01,
+            "dt": 0.01,
             "dt_max": 0.01,
             "dt_save": 0.1,
             "dt_summarise": 0.3,
@@ -114,7 +115,7 @@ class TestSingleIntegratorRun:
         assert run.algorithm_key == expected_algorithm
         assert solver_settings["algorithm"].lower() in expected_algorithm
         expected_controller = solver_settings["step_controller"].lower()
-        assert run.step_controller_kind == expected_controller
+        assert run.step_controller == expected_controller
 
         assert run.dt_save == pytest.approx(
             solver_settings["dt_save"],
@@ -238,10 +239,10 @@ class TestSingleIntegratorRun:
             "gamma_coefficient": "gamma",
             "mass_matrix": "mass_matrix",
             "preconditioner_order": "preconditioner_order",
-            "linear_solver_tolerance": "linsolve_tolerance",
+            "linear_solver_tolerance": "krylov_tolerance",
             "max_linear_iterations": "max_linear_iters",
             "linear_correction_type": "linear_correction_type",
-            "nonlinear_tolerance": "nonlinear_tolerance",
+            "newton_tolerance": "newton_tolerance",
             "newton_iterations_limit": "max_newton_iters",
             "newton_damping": "newton_damping",
             "newton_max_backtracks": "newton_max_backtracks",
@@ -304,15 +305,6 @@ class TestSingleIntegratorRun:
 
         # Numerical equivalence with the CPU reference loop.
         cpu_reference = cpu_loop_outputs
-        device_outputs = run_device_loop(
-            loop=run._loop,
-            system=system,
-            initial_state=initial_state,
-            output_functions=run._output_functions,
-            solver_config=solver_settings,
-            localmem_required=run.local_memory_elements,
-            driver_array=driver_array,
-        )
         device_outputs = device_loop_outputs
 
         assert device_outputs.status == cpu_reference["status"]
@@ -438,3 +430,98 @@ def test_update_routes_to_children(
         + run._step_controller.local_memory_elements
     )
     assert run.local_memory_elements == expected_local
+
+
+def test_default_step_controller_settings_applied(
+    system,
+    solver_settings,
+    driver_array,
+    algorithm_settings,
+):
+    """When no overrides are supplied algorithm defaults are applied."""
+
+    driver_fn = driver_array.evaluation_function if driver_array else None
+    run = SingleIntegratorRun(
+        system=system,
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        saved_state_indices=solver_settings["saved_state_indices"],
+        saved_observable_indices=solver_settings["saved_observable_indices"],
+        summarised_state_indices=solver_settings["summarised_state_indices"],
+        summarised_observable_indices=solver_settings[
+            "summarised_observable_indices"
+        ],
+        output_types=solver_settings["output_types"],
+        driver_function=driver_fn,
+        step_control_settings=None,
+        algorithm_settings=algorithm_settings,
+    )
+
+    defaults = run._algo_step.controller_defaults.copy()
+    assert run.step_controller == defaults.step_controller['step_controller']
+    controller_settings = run._step_controller.settings_dict
+    defaults.step_controller.pop('step_controller')
+    for key, expected in defaults.step_controller.items():
+
+        assert key in controller_settings
+        actual = controller_settings[key]
+        if isinstance(expected, (float, np.floating)):
+            assert actual == pytest.approx(expected)
+        else:
+            assert actual == expected
+    assert run._step_controller.n == system.sizes.states
+
+
+@pytest.mark.parametrize(
+    "algorithm, overrides",
+    [
+        (
+            "crank_nicolson",
+            {
+                "dt_min": 5e-5,
+                "dt_max": 5e-2,
+                "min_gain": 0.3,
+            },
+        )
+    ],
+)
+
+def test_step_controller_overrides_take_precedence(
+    system,
+    solver_settings,
+    driver_array,
+    algorithm,
+    overrides,
+    algorithm_settings,
+):
+    """User supplied settings override algorithm defaults."""
+    algorithm_settings["algorithm"] = algorithm
+    precision = system.precision
+    driver_fn = driver_array.evaluation_function if driver_array else None
+    override_settings = {
+        key: precision(value) if isinstance(value, float) else value
+        for key, value in overrides.items()
+    }
+    run = SingleIntegratorRun(
+        system=system,
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        saved_state_indices=solver_settings["saved_state_indices"],
+        saved_observable_indices=solver_settings["saved_observable_indices"],
+        summarised_state_indices=solver_settings["summarised_state_indices"],
+        summarised_observable_indices=solver_settings[
+            "summarised_observable_indices"
+        ],
+        output_types=solver_settings["output_types"],
+        driver_function=driver_fn,
+        step_control_settings=dict(override_settings),
+        algorithm_settings=algorithm_settings,
+    )
+
+    assert run.step_controller == "pi"
+    assert run.dt_min == pytest.approx(override_settings["dt_min"])
+    assert run.dt_max == pytest.approx(override_settings["dt_max"])
+    controller_settings = run._step_controller.settings_dict
+    assert controller_settings["min_gain"] == pytest.approx(
+        override_settings["min_gain"]
+    )

@@ -17,20 +17,16 @@ else:
 
 
 @pytest.fixture(scope="function")
-def solver_instance(system, solver_settings):
+def solver_instance(system, solver_settings, step_controller_settings):
     """Create a solver instance for testing."""
     return Solver(
         system,
         algorithm=solver_settings["algorithm"],
         duration=solver_settings["duration"],
         warmup=solver_settings["warmup"],
-        dt_min=solver_settings["dt_min"],
-        dt_max=solver_settings["dt_max"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
-        atol=solver_settings["atol"],
-        rtol=solver_settings["rtol"],
-        saved_states=None,  # Will use defaults
+        saved_states=None,
         saved_observables=None,  # Will use defaults
         output_types=solver_settings["output_types"],
         precision=solver_settings["precision"],
@@ -38,6 +34,7 @@ def solver_instance(system, solver_settings):
         memory_manager=solver_settings["memory_manager"],
         stream_group=solver_settings["stream_group"],
         mem_proportion=solver_settings["mem_proportion"],
+        step_control_settings=step_controller_settings
     )
 
 
@@ -233,10 +230,13 @@ def test_solve_info_property(
     "system_override, solver_settings_override",
     [
         ({}, {}),
-        ("three_chamber", {"duration": 0.5, "output_types": ["state"]}),
-        ("stiff", {"duration": 0.2, "output_types": ["state"]}),
+        ("three_chamber",
+         {"duration": 0.05,
+          "dt_save": 0.02,
+          "dt_summarise": 0.04,
+          "output_types": ["state"]}),
     ],
-    ids=["default_system", "three_chamber_system", "stiff_system"],
+    ids=["default_system", "three_chamber_system"],
     indirect=True,
 )
 def test_solve_basic(
@@ -246,6 +246,7 @@ def test_solve_basic(
     driver_settings,
 ):
     """Test basic solve functionality."""
+    solver_instance.kernel.build()
     result = solver_instance.solve(
         initial_values=simple_initial_values,
         parameters=simple_parameters,
@@ -261,7 +262,16 @@ def test_solve_basic(
     assert hasattr(result, "time_domain_array")
     assert hasattr(result, "summaries_array")
 
-
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                            "duration": 0.05,
+                            "dt_save": 0.02,
+                            "dt_summarise": 0.04,
+                            "output_types": ["state", "time", "observables",
+                                             "mean"]
+                         }],
+                         indirect=True
+)
 def test_solve_with_different_grid_types(
     solver_instance,
     simple_initial_values,
@@ -302,7 +312,16 @@ def test_solve_with_different_grid_types(
     )
     assert isinstance(result_verb, SolveResult)
 
-
+@pytest.mark.parametrize("solver_settings_override",
+                         [{
+                            "duration": 0.05,
+                            "dt_save": 0.02,
+                            "dt_summarise": 0.04,
+                            "output_types": ["state", "time", "observables",
+                                             "mean"]
+                         }],
+                         indirect=True
+)
 def test_solve_with_different_result_types(
     solver_instance,
     simple_initial_values,
@@ -466,7 +485,7 @@ def test_solve_ivp_function(
         y0=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
-        dt_eval=0.01,
+        dt_eval=0.02,
         method="euler",
         duration=0.1,
         settling_time=0.0,

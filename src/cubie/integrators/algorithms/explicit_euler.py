@@ -4,10 +4,19 @@ from typing import Callable, Optional
 
 from numba import cuda, int32
 
-from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie._utils import PrecisionDType
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 from cubie.integrators.algorithms.ode_explicitstep import (
     ExplicitStepConfig,
     ODEExplicitStep,
+)
+
+EE_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
+    }
 )
 
 class ExplicitEulerStep(ODEExplicitStep):
@@ -15,11 +24,11 @@ class ExplicitEulerStep(ODEExplicitStep):
 
     def __init__(
         self,
-        dxdt_function: Callable,
-        observables_function: Callable,
-        precision: type,
+        precision: PrecisionDType,
         n: int,
         dt: float,
+        dxdt_function: Optional[Callable] = None,
+        observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
     ) -> None:
@@ -43,6 +52,8 @@ class ExplicitEulerStep(ODEExplicitStep):
         solver_function_getter
             Present for interface parity with implicit steps and ignored here.
         """
+        if dt is None:
+            dt = EE_DEFAULTS.step_controller['dt']
 
         config = ExplicitStepConfig(
             dt=dt,
@@ -53,7 +64,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             n=n,
         )
 
-        super().__init__(config)
+        super().__init__(config, EE_DEFAULTS.copy())
 
     def build_step(
         self,
@@ -62,7 +73,7 @@ class ExplicitEulerStep(ODEExplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        fixed_step_size: float,
+        dt: float,
     ) -> StepCache:
         """Build the device function for an explicit Euler step.
 
@@ -87,7 +98,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             Container holding the compiled step function.
         """
 
-        step_size = numba_precision(fixed_step_size)
+        step_size = numba_precision(dt)
         has_driver_function = driver_function is not None
         driver_function = driver_function
 
@@ -178,7 +189,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             for i in range(n):
                 proposed_state[i] = state[i] + step_size * work_buffer[i]
 
-            next_time = time_scalar + dt_scalar
+            next_time = time_scalar + step_size
             if has_driver_function:
                 driver_function(
                     next_time,

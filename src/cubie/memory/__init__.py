@@ -35,4 +35,5 @@ __all__ = [
     "CuPySyncNumbaManager",
     "CuPyAsyncNumbaManager",
     "default_memmgr",
+    "MemoryManager"
 ]

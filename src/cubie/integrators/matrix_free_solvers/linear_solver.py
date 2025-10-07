@@ -11,7 +11,7 @@ from typing import Callable, Optional
 from numba import cuda, int32, from_dtype
 import numpy as np
 
-from cubie._utils import PrecisionDtype
+from cubie._utils import PrecisionDType
 from cubie.cuda_simsafe import activemask, all_sync, selp
 
 
@@ -22,7 +22,7 @@ def linear_solver_factory(
     correction_type: str = "minimal_residual",
     tolerance: float = 1e-6,
     max_iters: int = 100,
-    precision: PrecisionDtype = np.float64,
+    precision: PrecisionDType = np.float64,
 ) -> Callable:
     """Create a CUDA device function implementing steepest-descent or MR.
 

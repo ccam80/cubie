@@ -7,7 +7,7 @@ import numpy as np
 from numpy._typing import ArrayLike
 from attrs import field, define, validators
 
-from cubie._utils import _expand_dtype
+from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.integrators.step_control.adaptive_step_controller import (
     AdaptiveStepControlConfig, BaseAdaptiveStepController
 )
@@ -48,9 +48,9 @@ class AdaptivePIController(BaseAdaptiveStepController):
 
     def __init__(
         self,
-        precision: type,
-        dt_min: float,
-        dt_max: Optional[float] = None,
+        precision: PrecisionDType,
+        dt_min: float = 1e-6,
+        dt_max: float = 1.0,
         atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         algorithm_order: int = 2,
@@ -139,7 +139,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
 
     def build_controller(
         self,
-        precision: type,
+        precision: PrecisionDType,
         clamp: Callable,
         min_gain: float,
         max_gain: float,
@@ -148,7 +148,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: int,
+        algorithm_order: int,
         safety: float,
     ) -> Callable:
         """Create the device function for the PI controller.
@@ -173,7 +173,7 @@ class AdaptivePIController(BaseAdaptiveStepController):
             Absolute tolerance vector.
         rtol
             Relative tolerance vector.
-        order
+        algorithm_order
             Order of the integration algorithm.
         safety
             Safety factor used when scaling the step size.
@@ -183,8 +183,8 @@ class AdaptivePIController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the PI controller.
         """
-        kp = precision(self.kp / ((order + 1) * 2))
-        ki = precision(self.ki / ((order + 1) * 2))
+        kp = precision(self.kp / ((algorithm_order + 1) * 2))
+        ki = precision(self.ki / ((algorithm_order + 1) * 2))
         unity_gain = precision(1.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)

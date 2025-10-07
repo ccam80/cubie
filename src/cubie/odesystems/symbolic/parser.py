@@ -466,13 +466,6 @@ def _lhs_pass(
 
         else:
             if lhs not in observable_names:
-                warn(
-                    f"The intermediate variable {lhs} was assigned to "
-                    f"but not listed as an observable. It will be treated "
-                    f"as an anonymous auxiliary and its trajectory will "
-                    f"not be saved.",
-                    EquationWarning,
-                )
                 anonymous_auxiliaries[lhs] = sp.Symbol(lhs, real=True)
             if lhs in observable_names:
                 assigned_obs.add(lhs)

@@ -18,7 +18,7 @@ def test_kernel_builds(solverkernel):
             "three_chamber",
             {
                 "duration": 0.3,
-                "dt_min": 0.0025,
+                "dt": 0.0025,
                 "dt_save": 0.1,
                 "dt_summarise": 0.3,
                 "output_types": [
@@ -38,11 +38,10 @@ def test_kernel_builds(solverkernel):
             {}),
         ("three_chamber",
          {"output_types": ["state", "observables", "time", "mean", "rms"],
-          'dt_min': 0.0025,
+          'dt': 0.0025,
           'dt_save': 0.1,
           'dt_summarise': 0.3,
           "duration": 0.3}, {})
-
     ),
     ids=["smoke_test", "fire_test"],
     indirect=True,
@@ -61,8 +60,7 @@ def test_run(
         tolerance
 ):
     """Big integration test. Runs a batch integration and checks outputs
-    match expected. Expensive, don't run
-    "scorcher" in CI."""
+    match expected. Expensive."""
     inits, params = batch_input_arrays
 
     solverkernel.run(
@@ -75,8 +73,6 @@ def test_run(
         warmup=solver_settings["warmup"],
     )
 
-    active_output_arrays = solverkernel.active_output_arrays
-
     state = solverkernel.state
     observables = solverkernel.observables
     state_summaries = solverkernel.state_summaries
@@ -87,7 +83,6 @@ def test_run(
                            observable_summaries=observable_summaries,
                            status=0)
 
-
     assert_integration_outputs(device=device,
                                reference=cpu_batch_results,
                                output_functions=output_functions,
@@ -97,7 +92,7 @@ def test_run(
 
 def test_algorithm_change(solverkernel):
     solverkernel.update({"algorithm": "crank_nicolson",
-                         "step_controller_kind": "pid"})
+                         "step_controller": "pid"})
     assert (
         solverkernel.single_integrator._step_controller.atol is not None)
 
@@ -173,7 +168,8 @@ def test_getters_get(solverkernel):
     # device arrays SHOULD be None.
 
 
-def test_all_lower_plumbing(system, solverkernel):
+def test_all_lower_plumbing(system, solverkernel, step_controller_settings,
+                            algorithm_settings):
     """Big plumbing integration check - check that config classes match exactly between an updated solver and one
     instantiated with the update settings."""
     new_settings = {
@@ -198,7 +194,33 @@ def test_all_lower_plumbing(system, solverkernel):
         ],
     }
     solverkernel.update(new_settings)
-    freshsolver = BatchSolverKernel(system, algorithm="euler", **new_settings)
+    updated_controller_settings = step_controller_settings.copy()
+    updated_controller_settings.update({
+            "dt_min": 0.0001,
+            "dt_max": 0.01,
+            "atol": 1e-2,
+            "rtol": 1e-1,
+        })
+    freshsolver = BatchSolverKernel(
+        system, 
+        duration= 1.0,
+        dt_save= 0.01,
+        dt_summarise= 0.1,
+        saved_state_indices= np.asarray([0, 1, 2]),
+        saved_observable_indices= np.asarray([0, 1, 2]),
+        summarised_state_indices= np.asarray([0]),
+        summarised_observable_indices= np.asarray([0]),
+        output_types= [
+            "state",
+            "observables",
+            "mean",
+            "max",
+            "rms",
+            "peaks[3]",
+        ],
+        step_control_settings=updated_controller_settings,
+        algorithm_settings=algorithm_settings,
+    )
 
     assert freshsolver.compile_settings == solverkernel.compile_settings, (
         "BatchSolverConfig mismatch"

@@ -9,7 +9,7 @@ from numpy import float32
 import numba
 
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
-from cubie._utils import precision_converter, precision_validator
+from cubie._utils import PrecisionDType, precision_converter, precision_validator
 from cubie.odesystems.SystemValues import SystemValues
 
 
@@ -98,7 +98,7 @@ class ODEData:
             ),
         ),
     )
-    precision: type = attrs.field(
+    precision: PrecisionDType = attrs.field(
         converter=precision_converter,
         validator=precision_validator,
         default=float32
@@ -159,7 +159,7 @@ class ODEData:
         default_parameters: Optional[Dict[str, float]] = None,
         default_constants: Optional[Dict[str, float]] = None,
         default_observable_names: Optional[Dict[str, float]] = None,
-        precision: type = np.float64,
+        precision: PrecisionDType = np.float64,
         num_drivers: int = 1,
     ) -> "ODEData":
         """Create :class:`ODEData` from ``BaseODE`` initialization arguments.

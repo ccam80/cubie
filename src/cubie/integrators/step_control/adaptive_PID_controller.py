@@ -7,7 +7,7 @@ from numba import cuda, int32
 from numpy._typing import ArrayLike
 from attrs import define, field, validators
 
-from cubie._utils import  _expand_dtype
+from cubie._utils import PrecisionDType, _expand_dtype
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController,
 )
@@ -35,8 +35,8 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
     def __init__(
         self,
-        precision: type,
-        dt_min: float,
+        precision: PrecisionDType,
+        dt_min: float = 1e-6,
         dt_max: float = 1.0,
         atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
@@ -153,7 +153,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
 
     def build_controller(
         self,
-        precision: type,
+        precision: PrecisionDType,
         clamp: Callable,
         min_gain: float,
         max_gain: float,
@@ -162,7 +162,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: int,
+        algorithm_order: int,
         safety: float,
     ) -> Callable:
         """Create the device function for the PID controller.
@@ -187,7 +187,7 @@ class AdaptivePIDController(BaseAdaptiveStepController):
             Absolute tolerance vector.
         rtol
             Relative tolerance vector.
-        order
+        algorithm_order
             Order of the integration algorithm.
         safety
             Safety factor used when scaling the step size.
@@ -201,9 +201,9 @@ class AdaptivePIDController(BaseAdaptiveStepController):
         kp = self.kp
         ki = self.ki
         kd = self.kd
-        expo1 = precision(kp / (2 * (order + 1)))
-        expo2 = precision(ki / (2 * (order + 1)))
-        expo3 = precision(kd / (2 * (order + 1)))
+        expo1 = precision(kp / (2 * (algorithm_order + 1)))
+        expo2 = precision(ki / (2 * (algorithm_order + 1)))
+        expo3 = precision(kd / (2 * (algorithm_order + 1)))
         unity_gain = precision(1.0)
         deadband_min = precision(self.deadband_min)
         deadband_max = precision(self.deadband_max)

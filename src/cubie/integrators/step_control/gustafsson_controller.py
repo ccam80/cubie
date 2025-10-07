@@ -10,7 +10,7 @@ from attrs import define, field
 from cubie.integrators.step_control.adaptive_step_controller import (
     BaseAdaptiveStepController, AdaptiveStepControlConfig
 )
-from cubie._utils import getype_validator, inrangetype_validator
+from cubie._utils import PrecisionDType, getype_validator, inrangetype_validator
 from cubie.cuda_simsafe import selp
 
 @define
@@ -55,9 +55,9 @@ class GustafssonController(BaseAdaptiveStepController):
 
     def __init__(
         self,
-        precision: type,
-        dt_min: float,
-        dt_max: Optional[float] = None,
+        precision: PrecisionDType,
+        dt_min: float = 1e-6,
+        dt_max: float = 1.0,
         atol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         rtol: Optional[Union[float, np.ndarray, ArrayLike]] = 1e-6,
         algorithm_order: int = 2,
@@ -139,7 +139,7 @@ class GustafssonController(BaseAdaptiveStepController):
 
     def build_controller(
         self,
-        precision: type,
+        precision: PrecisionDType,
         clamp: Callable,
         min_gain: float,
         max_gain: float,
@@ -148,7 +148,7 @@ class GustafssonController(BaseAdaptiveStepController):
         n: int,
         atol: np.ndarray,
         rtol: np.ndarray,
-        order: int,
+        algorithm_order: int,
         safety: float,
     ) -> Callable:
         """Create the device function for the Gustafsson controller.
@@ -173,7 +173,7 @@ class GustafssonController(BaseAdaptiveStepController):
             Absolute tolerance vector.
         rtol
             Relative tolerance vector.
-        order
+        algorithm_order
             Order of the integration algorithm.
         safety
             Safety factor used when scaling the step size.
@@ -183,7 +183,7 @@ class GustafssonController(BaseAdaptiveStepController):
         Callable
             CUDA device function implementing the Gustafsson controller.
         """
-        expo = precision(1.0 / (2 * (order + 1)))
+        expo = precision(1.0 / (2 * (algorithm_order + 1)))
         gamma = precision(self.gamma)
         max_newton_iters = int(self.max_newton_iters)
         gain_numerator = precision((1 + 2 * max_newton_iters)) * gamma

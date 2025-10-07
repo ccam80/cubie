@@ -1,6 +1,8 @@
 """Factories for explicit and implicit algorithm step implementations."""
 
-from typing import Any
+from typing import Any, Dict, Mapping, Optional, Type
+
+from cubie._utils import split_applicable_settings
 
 from .base_algorithm_step import BaseStepConfig, BaseAlgorithmStep
 from .ode_explicitstep import ExplicitStepConfig, ODEExplicitStep
@@ -19,38 +21,77 @@ __all__ = [
     "BackwardsEulerStep",
     "BackwardsEulerPCStep",
     "CrankNicolsonStep",
+    "_ALGORITHM_REGISTRY",
 ]
 
+_ALGORITHM_REGISTRY: Dict[str, Type[BaseAlgorithmStep]] = {
+    "euler": ExplicitEulerStep,
+    "backwards_euler": BackwardsEulerStep,
+    "backwards_euler_pc": BackwardsEulerPCStep,
+    "crank_nicolson": CrankNicolsonStep,
+}
 
-def get_algorithm_step(name: str, **kwargs: Any) -> BaseAlgorithmStep:
-    """Instantiate an algorithm step implementation.
+
+def get_algorithm_step(
+    precision: type,
+    settings: Optional[Mapping[str, Any]] = None,
+    warn_on_unused: bool = True,
+    **kwargs: Any,
+) -> BaseAlgorithmStep:
+    """Thin factory which filters arguments and instantiates an algorithm.
 
     Parameters
     ----------
-    name
-        Identifier for the desired algorithm implementation. Supported
-        values are ``"euler"``, ``"backwards_euler"``,
-        ``"backwards_euler_pc"``, and ``"crank_nicolson"``.
+    precision
+        Floating-point datatype to use for computation
+    settings
+        Dictionary of settings to apply to the algorithm, can include any
+        keywords from ``ALL_ALGORITHM_STEP_PARAMETERS``
+    warn_on_unused
+        If True, issue a warning for any values in ``settings`` that are not
+        part of the requested algorithm's init signature.
     **kwargs
-        Configuration parameters forwarded to the selected step class.
+        Can be any additional keywords from ``ALL_ALGORITHM_STEP_PARAMETERS``.
+        These will override any values in ``settings``.
 
     Returns
     -------
     BaseAlgorithmStep
-        Instance of the requested algorithm step implementation.
+        The requested step instance.
 
     Raises
     ------
     ValueError
-        Raised when ``name`` does not match a known algorithm identifier.
+        Raised when settings['algorithm'] does not match a known algorithm
+        type or when required configuration keys are missing.
     """
 
-    if name == "euler":
-        return ExplicitEulerStep(**kwargs)
-    if name == "backwards_euler":
-        return BackwardsEulerStep(**kwargs)
-    if name == "backwards_euler_pc":
-        return BackwardsEulerPCStep(**kwargs)
-    if name == "crank_nicolson":
-        return CrankNicolsonStep(**kwargs)
-    raise ValueError(f"Unknown algorithm '{name}'.")
+    algorithm_settings: Dict[str, Any] = {}
+    if settings is not None:
+        algorithm_settings.update(settings)
+    algorithm_settings.update(kwargs)
+
+    algorithm_value = algorithm_settings.pop("algorithm", None)
+    if algorithm_value is None:
+        raise ValueError("Algorithm settings must include 'algorithm'.")
+    algorithm_key = str(algorithm_value).lower()
+
+    try:
+        algorithm_type = _ALGORITHM_REGISTRY[algorithm_key]
+    except KeyError as exc:  # pragma: no cover - defensive guard
+        raise ValueError(f"Unknown algorithm '{algorithm_value}'.") from exc
+
+    algorithm_settings["precision"] = precision
+
+    filtered, missing, unused = split_applicable_settings(
+        algorithm_type,
+        algorithm_settings,
+        warn_on_unused=warn_on_unused,
+    )
+    if missing:
+        missing_keys = ", ".join(sorted(missing))
+        raise ValueError(
+            f"{algorithm_type.__name__} requires settings for: {missing_keys}"
+        )
+
+    return algorithm_type(**filtered)

@@ -13,12 +13,12 @@ be rebuilt when any component is reconfigured.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
-import numpy as np
 from numpy.typing import ArrayLike
 
 from cubie.CUDAFactory import CUDAFactory
+from cubie._utils import PrecisionDType
 from cubie.integrators.IntegratorRunSettings import IntegratorRunSettings
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.loops.ode_loop import IVPLoop
@@ -30,12 +30,6 @@ from cubie.integrators.step_control import get_controller
 
 
 if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
-    from cubie.integrators.algorithms.base_algorithm_step import (
-        BaseAlgorithmStep,
-    )
-    from cubie.integrators.step_control.base_step_controller import (
-        BaseStepController,
-    )
     from cubie.odesystems.baseODE import BaseODE
 
 
@@ -48,23 +42,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         ODE system whose device functions drive the integration.
     algorithm
         Name of the algorithm step implementation. Defaults to ``"euler"``.
-    dt_min
-        Minimum step size forwarded to the controller. Defaults to ``0.01``.
-    dt_max
-        Maximum step size forwarded to the controller. Defaults to ``0.1``.
-    fixed_step_size
-        Step size supplied to fixed-step algorithms. Defaults to ``0.01``.
     dt_save
         Interval used when saving full state trajectories. Defaults to
         ``0.1``.
     dt_summarise
         Interval used when saving summary metrics. Defaults to ``1.0``.
-    atol
-        Absolute tolerance supplied to adaptive controllers. Defaults to
-        ``1e-6``.
-    rtol
-        Relative tolerance supplied to adaptive controllers. Defaults to
-        ``1e-6``.
     saved_state_indices
         Indices of state variables saved by the output handler.
     saved_observable_indices
@@ -77,13 +59,16 @@ class SingleIntegratorRunCore(CUDAFactory):
         Output modes requested from the output handler.
     driver_function
         Optional device function which interpolates arbitrary driver inputs
-    step_controller_kind
-        Controller family used to manage step sizes. Defaults to
-        ``"fixed"``.
+
     algorithm_parameters
         Additional keyword arguments forwarded to the algorithm factory.
-    step_controller_parameters
-        Additional keyword arguments forwarded to the controller factory.
+    step_control_settings
+        Mapping of keyword arguments to merge with the algorithm default step
+        controller settings. Include ``"step_controller"`` to override the
+        controller family selected by the algorithm defaults. Supply bounds
+        such as ``"dt_min"`` and ``"dt_max"`` here when configuring adaptive
+        controllers. Supported identifiers include ``"fixed"``, ``"i"``,
+        ``"pi"``, ``"pid"``, and ``"gustafsson"``.
 
     Returns
     -------
@@ -93,34 +78,31 @@ class SingleIntegratorRunCore(CUDAFactory):
 
     def __init__(
         self,
-        system: BaseODE,
-        algorithm: str = "euler",
-        dt_min: float = 0.01,
-        dt_max: float = 0.1,
-        fixed_step_size: Optional[float] =None,
+        system: "BaseODE",
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        atol: float = 1e-6,
-        rtol: float = 1e-6,
         saved_state_indices: Optional[ArrayLike] = None,
         saved_observable_indices: Optional[ArrayLike] = None,
         summarised_state_indices: Optional[ArrayLike] = None,
         summarised_observable_indices: Optional[ArrayLike] = None,
         output_types: Optional[list[str]] = None,
         driver_function: Optional[Callable] = None,
-        step_controller_kind: str = "fixed",
-        algorithm_parameters: Optional[Dict[str, Any]] = None,
-        step_controller_parameters: Optional[Dict[str, Any]] = None,
+        algorithm_settings: Optional[Dict[str, Any]] = None,
+        step_control_settings: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__()
-        config = IntegratorRunSettings(
-            precision=system.precision,
-            algorithm=algorithm,
-            step_controller_kind=step_controller_kind or "fixed",
-        )
-        self.setup_compile_settings(config)
+
+        if step_control_settings is None:
+            step_control_settings = {}
+        if algorithm_settings is None:
+            algorithm_settings = {}
+
+        precision = system.precision
+
+
         self._system = system
         system_sizes = system.sizes
+        n = system_sizes.states
 
         self._output_functions = OutputFunctions(
             max_states=system_sizes.states,
@@ -132,34 +114,34 @@ class SingleIntegratorRunCore(CUDAFactory):
             summarised_observable_indices=summarised_observable_indices,
         )
 
-        if fixed_step_size is None:
-            fixed_step_size = dt_min
-        self._step_controller = self.instantiate_controller(
-                step_controller_kind,
-                dt_min=dt_min,
-                dt_max=dt_max,
-                fixed_step_size=fixed_step_size,
-                atol=atol,
-                rtol=rtol,
-                **(step_controller_parameters or {}),
+        dt = step_control_settings.get("dt", None)
+        algorithm_settings["n"] = n
+        algorithm_settings["dt"] = dt
+        algorithm_settings["driver_function"] = driver_function
+        self._algo_step = get_algorithm_step(
+                precision=precision,
+                settings=algorithm_settings,
+        )
+        # Fetch and override controller defaults from algorithm settings
+        controller_settings = (
+            self._algo_step.controller_defaults.step_controller.copy())
+        controller_settings.update(step_control_settings)
+        controller_settings["n"] = system_sizes.states
+
+        self._step_controller = get_controller(
+            precision=precision,
+            settings=controller_settings,
         )
 
-        self._algo_step = self.instantiate_step_object(
-            algorithm,
-            n=system.sizes.states,
-            dxdt_function=self._system.dxdt_function,
-            observables_function=self._system.observables_function,
-            get_solver_helper_fn=self._system.get_solver_helper,
-            driver_function=driver_function,
-            step_size=fixed_step_size,
-            **(algorithm_parameters or {}),
+        config = IntegratorRunSettings(
+            precision=system.precision,
+            algorithm=algorithm_settings["algorithm"],
+            step_controller=controller_settings["step_controller"],
         )
 
-        if self._step_controller.is_adaptive:
-            self._step_controller.update(algorithm_order=self._algo_step.order)
-
-
+        self.setup_compile_settings(config)
         self._loop = self.instantiate_loop(
+                precision=precision,
                 n_states=system_sizes.states,
                 n_parameters=system_sizes.parameters,
                 n_observables=system_sizes.observables,
@@ -199,123 +181,9 @@ class SingleIntegratorRunCore(CUDAFactory):
                 "algorithm.",
             )
 
-    def instantiate_step_object(
-        self,
-        kind: str = "euler",
-        n: int = 1,
-        dxdt_function: Optional[Callable] = None,
-        observables_function: Optional[Callable] = None,
-        get_solver_helper_fn: Optional[Callable] = None,
-        driver_function: Optional[Callable] = None,
-        step_size: float = 1e-3,
-        **kwargs: Any,
-    ) -> BaseAlgorithmStep:
-        """Instantiate the algorithm step.
-
-        Parameters
-        ----------
-        kind
-            Algorithm identifier recognised by
-            :func:`cubie.integrators.algorithms.get_algorithm_step`.
-        n
-            Number of state variables supplied to the algorithm constructor.
-        dxdt_function
-            Device function computing the derivative of the ODE system.
-        observables_function
-            Device function computing system observables.
-        get_solver_helper_fn
-            Factory returning linear solver helpers for implicit algorithms.
-        step_size
-            Step size supplied to fixed-step algorithms.
-        **kwargs
-            Additional configuration forwarded to the algorithm factory.
-
-        Returns
-        -------
-        BaseAlgorithmStep
-            Instantiated algorithm step configured for the current system.
-
-        Notes
-        -----
-        Supported identifiers include ``"euler"``, ``"backwards_euler"``,
-        ``"backwards_euler_pc"``, and ``"crank_nicolson"``.
-        """
-        if kind.lower() in ["euler"]:  # fixed step algorithms
-            kwargs.update({"dt": step_size})
-        algorithm = get_algorithm_step(
-            kind,
-            precision=self.precision,
-            n=n,
-            dxdt_function=dxdt_function,
-            get_solver_helper_fn=get_solver_helper_fn,
-            observables_function=observables_function,
-            driver_function=driver_function,
-            **kwargs,
-        )
-        return algorithm
-
-    def instantiate_controller(
-        self,
-        kind: str = "fixed",
-        order: int = 1,
-        dt_min: float = 1e-3,
-        dt_max: float = 1e-1,
-        atol: Union[float, np.ndarray] = 1e-6,
-        rtol: Union[float, np.ndarray] = 1e-6,
-        fixed_step_size: Optional[float] = None,
-        **kwargs: Any,
-    ) -> BaseStepController:
-        """Instantiate the step controller.
-
-        Parameters
-        ----------
-        kind
-            Controller identifier accepted by
-            :func:`cubie.integrators.step_control.get_controller`.
-        order
-            Order of the paired algorithm used for adaptive controllers.
-        dt_min
-            Minimum permitted step size for adaptive controllers.
-        dt_max
-            Maximum permitted step size for adaptive controllers.
-        atol
-            Absolute tolerance forwarded to adaptive controllers.
-        rtol
-            Relative tolerance forwarded to adaptive controllers.
-        fixed_step_size
-            Step size supplied to fixed controllers.
-        **kwargs
-            Additional configuration forwarded to the controller factory.
-
-        Returns
-        -------
-        BaseStepController
-            Instantiated controller configured for the integration run.
-
-        Notes
-        -----
-        Supported identifiers include ``"fixed"``, ``"i"``, ``"pi"``,
-        ``"pid"``, and ``"gustafsson"``.
-        """
-        if kind == 'fixed':
-            if fixed_step_size is None:
-                fixed_step_size = dt_min
-            controller = get_controller(kind,
-                    precision=self.precision,
-                    dt=fixed_step_size)
-        else:
-            controller = get_controller(kind,
-                    precision=self.precision,
-                    algorithm_order=order,
-                    dt_min=dt_min,
-                    dt_max=dt_max,
-                    atol=atol,
-                    rtol=rtol,
-                    **kwargs)
-        return controller
-
     def instantiate_loop(
         self,
+        precision: PrecisionDType,
         n_states: int,
         n_parameters: int,
         n_observables: int,
@@ -389,7 +257,7 @@ class SingleIntegratorRunCore(CUDAFactory):
                 algorithm_len=algorithm_local_elements
         )
 
-        loop = IVPLoop(self.precision,
+        loop = IVPLoop(precision,
                        shared_indices,
                        local_indices,
                        compile_flags,
@@ -432,7 +300,7 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         Notes
         -----
-        When algorithm or controller kinds change, new instances are
+        When algorithm or controller selections change, new instances are
         created and primed with settings from their predecessors before
         applying ``updates_dict``. Parameters present only on the new
         instance are ignored unless explicitly provided in the update.
@@ -448,61 +316,30 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         all_unrecognized = set(updates_dict.keys())
         recognized = set()
-
-        if "step_controller_kind" in updates_dict.keys():
-            new_step_controller_kind = updates_dict["step_controller_kind"]
-            if new_step_controller_kind != self.step_controller_kind:
-                old_settings = self._step_controller.settings_dict
-                _step_controller = self.instantiate_controller(
-                        new_step_controller_kind,
-                )
-                _step_controller.update(old_settings, silent=True)
-                self._step_controller = _step_controller
-            recognized.add("step_controller_kind")
-
-        if "algorithm" in updates_dict.keys():
-            # If the algorithm is being updated, we need to reset the
-            # integrator instance
-            new_algo_key = updates_dict["algorithm"].lower()
-            if new_algo_key != self.algorithm_key:
-                old_settings = self._algo_step.settings_dict
-                _algo_step = self.instantiate_step_object(
-                    new_algo_key,
-                    n=self.system_sizes.states,
-                    dxdt_function=self._system.dxdt_function,
-                    observables_function=self._system.observables_function,
-                    get_solver_helper_fn=self._system.get_solver_helper,
-                )
-                _algo_step.update(old_settings, silent=True)
-                self._algo_step = _algo_step
-            recognized.add("algorithm")
-            updates_dict.update({'algorithm_order':self._algo_step.order})
-
-        output_recognized = self._output_functions.update(updates_dict,
-                                                      silent=True)
-        ctrl_recognized = self._step_controller.update(updates_dict,
-                                                      silent=True)
-        step_recognized = self._algo_step.update(updates_dict, silent=True)
         system_recognized = self._system.update(updates_dict, silent=True)
-        loop_recognized = self._loop.update(updates_dict, silent=True)
 
-        recognized |= output_recognized
-        recognized |= ctrl_recognized
-        recognized |= step_recognized
-        recognized |= system_recognized
-        recognized |= loop_recognized
+        # Capture n whether or not system updated, in case of an algo/step swap
+        updates_dict.update({'n': self._system.sizes.states})
 
-        #Recalculate settings derived from changes in children
-        if system_recognized:
-            updates_dict.update({'n': self._system.sizes.states})
-        if output_recognized:
+        out_rcgnzd = self._output_functions.update(updates_dict, silent=True)
+        if out_rcgnzd:
             updates_dict.update({
                 'n_saved_states': self._output_functions.n_saved_states,
                 'n_summarised_states':
                     self._output_functions.n_summarised_states,
                 'compile_flags': self._output_functions.compile_flags,
             })
-        if ctrl_recognized:
+
+        step_recognized = self._switch_algos(updates_dict)
+        step_recognized |= self._algo_step.update(updates_dict, silent=True)
+        if step_recognized:
+            updates_dict.update(
+                {"threads_per_step": self._algo_step.threads_per_step}
+            )
+
+        ctrl_rcgnzd = self._switch_controllers(updates_dict)
+        ctrl_rcgnzd |= self._step_controller.update(updates_dict, silent=True)
+        if ctrl_rcgnzd:
             updates_dict.update(
                 {
                     "is_adaptive": self._step_controller.is_adaptive,
@@ -511,13 +348,8 @@ class SingleIntegratorRunCore(CUDAFactory):
                     "dt0": self._step_controller.dt0,
                 }
             )
-        if step_recognized:
-            updates_dict.update(
-                {
-                    "threads_per_step": self._algo_step.threads_per_step,
-                }
-            )
 
+        #Recalculate settings derived from changes in children
         system_sizes=self.system_sizes
         shared_indices = LoopSharedIndices.from_sizes(
             n_states=system_sizes.states,
@@ -537,7 +369,11 @@ class SingleIntegratorRunCore(CUDAFactory):
         updates_dict.update({'shared_buffer_indices': shared_indices,
                              'local_indices': local_indices})
 
+        loop_recognized = self._loop.update(updates_dict, silent=True)
         recognized |= self.update_compile_settings(updates_dict, silent=True)
+
+        recognized |= (out_rcgnzd | ctrl_rcgnzd | step_recognized |
+                       system_recognized | loop_recognized)
 
         all_unrecognized -= recognized
         if all_unrecognized and not silent:
@@ -548,6 +384,47 @@ class SingleIntegratorRunCore(CUDAFactory):
         self.check_compatibility()
 
         return recognized
+
+    def _switch_algos(self, updates_dict):
+        if "algorithm" not in updates_dict:
+            return set()
+        precision = updates_dict.get('precision', self.precision)
+
+        new_algo = updates_dict.get("algorithm").lower()
+        if new_algo != self.compile_settings.algorithm:
+            old_settings = self._algo_step.settings_dict
+            old_settings["algorithm"] = new_algo
+            self._algo_step = get_algorithm_step(
+                    precision=precision,
+                    settings=old_settings,
+            )
+            self.compile_settings.algorithm = new_algo
+        updates_dict["algorithm"] = new_algo
+
+        # Update any not-deliberately-updated controller settings with defaults
+        algo_defaults = self._algo_step.controller_defaults.step_controller
+        for key, value in algo_defaults.items():
+            if key not in updates_dict:
+                updates_dict[key] = value
+        return set("algorithm")
+
+    def _switch_controllers(self, updates_dict):
+        if "step_controller" not in updates_dict:
+            return set()
+        precision = updates_dict.get('precision', self.precision)
+
+        new_controller = updates_dict.get("step_controller").lower()
+
+        if new_controller != self.compile_settings.step_controller:
+            old_settings = self._step_controller.settings_dict
+            old_settings["step_controller"] = new_controller
+            self._step_controller = get_controller(
+                    precision=precision,
+                    settings=old_settings,
+            )
+            self.compile_settings.step_controller = new_controller
+        updates_dict["step_controller"] = new_controller
+        return set("step_controller")
 
     def build(self) -> Callable:
         """Instantiate the step controller, algorithm step, and loop.
@@ -579,8 +456,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             'save_summaries_fn': self._output_functions.save_summary_metrics_func,
             'step_controller_fn': self._step_controller.device_function,
             'step_function': self._algo_step.step_function,
-            'observables_fn': observables_fn
-        }
+            'observables_fn': observables_fn}
 
         self._loop.update(compiled_functions)
         loop_fn = self._loop.device_function

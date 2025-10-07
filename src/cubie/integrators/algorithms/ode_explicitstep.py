@@ -51,16 +51,16 @@ class ODEExplicitStep(BaseAlgorithmStep):
         dxdt_function = config.dxdt_function
         numba_precision = config.numba_precision
         n = config.n
-        fixed_step_size = config.dt
         observables_function = config.observables_function
         driver_function = config.driver_function
+        dt = config.dt
         return self.build_step(
             dxdt_function,
             observables_function,
             driver_function,
             numba_precision,
             n,
-            fixed_step_size,
+            dt,
         )
 
     @abstractmethod
@@ -71,7 +71,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
-        fixed_step_size: float,
+        dt: Optional[float],
     ) -> StepCache:
         """Build and return the explicit step device function.
 

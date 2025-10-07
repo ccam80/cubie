@@ -123,7 +123,7 @@ def _sequence_inputs(
 
 
 @pytest.mark.parametrize(
-    "solver_settings_override",
+    "solver_settings_override2",
     [
         {"step_controller": "i"},
         {"step_controller": "pi"},
@@ -134,7 +134,7 @@ def _sequence_inputs(
     indirect=True,
 )
 @pytest.mark.parametrize(
-    "step_controller_settings_override",
+    "solver_settings_override",
     [
         {
             "dt_min": 1e-4,

@@ -147,9 +147,9 @@ def build_implicit_step_settings(
     return {
         "atol": solver_settings["atol"],
         "rtol": solver_settings["rtol"],
-        "linear_tolerance": 1e-5,
+        "krylov_tolerance": 1e-5,
         "correction_type": "minimal_residual",
-        "nonlinear_tolerance": 1e-5,
+        "newton_tolerance": 1e-5,
         "preconditioner_order": 2,
         "max_linear_iters": 500,
         "max_newton_iters": 500,
@@ -652,7 +652,7 @@ def run_reference_loop_with_history(
             state=state,
             params=params,
             dt=dt,
-            tol=implicit_step_settings["nonlinear_tolerance"],
+            tol=implicit_step_settings["newton_tolerance"],
             max_iters=max_iters,
             time=precision(t),
         )

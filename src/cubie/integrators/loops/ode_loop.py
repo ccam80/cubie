@@ -6,7 +6,7 @@ layout metadata and feeds the appropriate slices into each device call so that
 compiled kernels only need to focus on algorithmic updates.
 """
 from math import ceil
-from typing import Callable, Optional
+from typing import Callable, Optional, Set
 
 import numpy as np
 from numba import cuda, int32
@@ -14,7 +14,7 @@ from numba import cuda, int32
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 from cubie.cuda_simsafe import activemask, all_sync, selp
-from cubie._utils import PrecisionDtype
+from cubie._utils import PrecisionDType
 from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
                                                      LoopSharedIndices,
                                                      ODELoopConfig)
@@ -62,7 +62,7 @@ class IVPLoop(CUDAFactory):
 
     def __init__(
         self,
-        precision: PrecisionDtype,
+        precision: PrecisionDType,
         shared_indices: LoopSharedIndices,
         local_indices: LoopLocalIndices,
         compile_flags: OutputCompileFlags,
@@ -104,7 +104,7 @@ class IVPLoop(CUDAFactory):
         self.setup_compile_settings(config)
 
     @property
-    def precision(self) -> PrecisionDtype:
+    def precision(self) -> PrecisionDType:
         """Return the numerical precision used for the loop."""
         return self.compile_settings.precision
 
@@ -571,7 +571,7 @@ class IVPLoop(CUDAFactory):
         updates_dict: Optional[dict[str, object]] = None,
         silent: bool = False,
         **kwargs: object,
-    ) -> set[str]:
+    ) -> Set[str]:
         """Update compile settings through the CUDAFactory interface.
 
         Parameters

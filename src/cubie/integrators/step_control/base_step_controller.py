@@ -17,24 +17,16 @@ from numpy import float32
 from attrs import define, field
 
 from cubie.CUDAFactory import CUDAFactory
-from cubie._utils import getype_validator, precision_converter, \
+from cubie._utils import PrecisionDType, getype_validator, precision_converter, \
     precision_validator
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 # Define all possible step controller parameters across all controller types
 ALL_STEP_CONTROLLER_PARAMETERS = {
-    # Base parameters
-    'precision', 'n',
-    # Fixed step controller
-    'dt',
-    # Adaptive step controller parameters
+    'precision', 'n', 'step_controller', 'dt',
     'dt_min', 'dt_max', 'atol', 'rtol', 'algorithm_order',
     'min_gain', 'max_gain', 'safety',
-    # PI controller parameters
-    'kp', 'ki',
-    # PID controller parameters (kd in addition to PI)
-    'kd', 'deadband_min', 'deadband_max',
-    # Gustafsson controller parameters
+    'kp', 'ki', 'kd', 'deadband_min', 'deadband_max',
     'gamma', 'max_newton_iters'
 }
 
@@ -50,7 +42,7 @@ class BaseStepControllerConfig(ABC):
         Number of state variables controlled per step.
     """
 
-    precision: type = field(
+    precision: PrecisionDType = field(
         default=float32,
         converter=precision_converter,
         validator=precision_validator,
@@ -117,7 +109,7 @@ class BaseStepController(CUDAFactory):
         """
 
     @property
-    def precision(self) -> type:
+    def precision(self) -> PrecisionDType:
         """Return the host precision used for computations."""
 
         return self.compile_settings.precision
@@ -174,7 +166,6 @@ class BaseStepController(CUDAFactory):
     @property
     def settings_dict(self) -> dict[str, object]:
         """Return the compile-time settings as a dictionary."""
-
         return self.compile_settings.settings_dict
 
     def update(

@@ -5,34 +5,43 @@ from typing import Callable, Optional
 from numba import cuda
 import numpy as np
 
-from cubie._utils import PrecisionDtype
+from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms import ImplicitStepConfig
-from cubie.integrators.algorithms.base_algorithm_step import StepCache
+from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
+    StepControlDefaults
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 ALGO_CONSTANTS = {'beta': 1.0,
                   'gamma': 1.0,
                   'M': np.eye}
 
+BE_DEFAULTS = StepControlDefaults(
+    step_controller={
+        "step_controller": "fixed",
+        "dt": 1e-3,
+    }
+)
+
 class BackwardsEulerStep(ODEImplicitStep):
     """Backward Euler step solved with matrix-free Newton–Krylov."""
 
     def __init__(
         self,
-        precision: PrecisionDtype,
+        precision: PrecisionDType,
         n: int,
-        dxdt_function: Callable,
-        observables_function: Callable,
-        get_solver_helper_fn: Callable,
+        dt: float,
+        dxdt_function: Optional[Callable] = None,
+        observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
+        get_solver_helper_fn: Optional[Callable] = None,
         preconditioner_order: int = 1,
-        linsolve_tolerance: float = 1e-6,
+        krylov_tolerance: float = 1e-5,
         max_linear_iters: int = 100,
         linear_correction_type: str = "minimal_residual",
-        nonlinear_tolerance: float = 1e-6,
-        max_newton_iters: int = 1000,
-        newton_damping: float = 0.5,
-        newton_max_backtracks: int = 10,
+        newton_tolerance: float = 1e-5,
+        max_newton_iters: int = 100,
+        newton_damping: float = 0.85,
+        newton_max_backtracks: int = 25,
     ) -> None:
         """Initialise the backward Euler step configuration.
 
@@ -42,6 +51,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
+        dt
+            fixed step size for fixed-step algorithms
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function
@@ -52,13 +63,13 @@ class BackwardsEulerStep(ODEImplicitStep):
             Callable returning device helpers used by the nonlinear solver.
         preconditioner_order
             Order of the truncated Neumann preconditioner.
-        linsolve_tolerance
+        krylov_tolerance
             Tolerance used by the linear solver.
         max_linear_iters
             Maximum iterations permitted for the linear solver.
         linear_correction_type
             Identifier for the linear correction strategy.
-        nonlinear_tolerance
+        newton_tolerance
             Convergence tolerance for the Newton iteration.
         max_newton_iters
             Maximum iterations permitted for the Newton solver.
@@ -67,6 +78,8 @@ class BackwardsEulerStep(ODEImplicitStep):
         newton_max_backtracks
             Maximum number of backtracking steps within the Newton solver.
         """
+        if dt is None:
+            dt = BE_DEFAULTS.step_controller['dt']
 
         beta = ALGO_CONSTANTS['beta']
         gamma = ALGO_CONSTANTS['gamma']
@@ -77,11 +90,12 @@ class BackwardsEulerStep(ODEImplicitStep):
             gamma=gamma,
             M=M,
             n=n,
+            dt=dt,
             preconditioner_order=preconditioner_order,
-            linsolve_tolerance=linsolve_tolerance,
+            krylov_tolerance=krylov_tolerance,
             max_linear_iters=max_linear_iters,
             linear_correction_type=linear_correction_type,
-            nonlinear_tolerance=nonlinear_tolerance,
+            newton_tolerance=newton_tolerance,
             max_newton_iters=max_newton_iters,
             newton_damping=newton_damping,
             newton_max_backtracks=newton_max_backtracks,
@@ -90,7 +104,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             driver_function=driver_function,
             precision=precision,
         )
-        super().__init__(config)
+        super().__init__(config, BE_DEFAULTS.copy())
 
     def build_step(
         self,
@@ -100,6 +114,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         driver_function: Optional[Callable],
         numba_precision: type,
         n: int,
+        dt: Optional[float],
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for a backward Euler step.
 
@@ -127,7 +142,6 @@ class BackwardsEulerStep(ODEImplicitStep):
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
-
         @cuda.jit(
             (
                 numba_precision[:],
@@ -206,7 +220,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = state[i]
 
-            next_time = time_scalar + dt_scalar
+            next_time = time_scalar + dt
             if has_driver_function:
                 driver_function(
                     next_time,
@@ -221,7 +235,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 proposed_state,
                 parameters,
                 proposed_drivers,
-                dt_scalar,
+                dt,
                 a_ij,
                 state,
                 work_buffer,
@@ -268,7 +282,7 @@ class BackwardsEulerStep(ODEImplicitStep):
 
     @property
     def is_adaptive(self) -> bool:
-        """Return ``False`` because backward Euler is fixed step here."""
+        """Return ``False`` because backward Euler is fixed step."""
 
         return False
 
@@ -294,3 +308,7 @@ class BackwardsEulerStep(ODEImplicitStep):
         """Return the derivative device function."""
 
         return self.compile_settings.dxdt_function
+
+    @property
+    def identifier(self) -> str:
+        return "backwards_euler"

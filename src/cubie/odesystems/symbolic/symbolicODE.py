@@ -19,7 +19,7 @@ from cubie.odesystems.symbolic.solver_helpers import (
 from cubie.odesystems.symbolic.parser import IndexedBases, parse_input
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
-from cubie._utils import PrecisionDtype
+from cubie._utils import PrecisionDType
 
 
 def create_ODE_system(
@@ -31,7 +31,7 @@ def create_ODE_system(
     drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
     user_functions: Optional[dict[str, Callable]] = None,
     name: Optional[str] = None,
-    precision: PrecisionDtype = np.float32,
+    precision: PrecisionDType = np.float32,
     strict: bool = False,
 ) -> "SymbolicODE":
     """Create a :class:`SymbolicODE` from SymPy definitions.
@@ -119,7 +119,7 @@ class SymbolicODE(BaseODE):
         equations: Iterable[tuple[sp.Symbol, sp.Expr]],
         all_indexed_bases: IndexedBases,
         all_symbols: Optional[dict[str, sp.Symbol]] = None,
-        precision: PrecisionDtype = np.float64,
+        precision: PrecisionDType = np.float64,
         fn_hash: Optional[int] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
@@ -193,7 +193,7 @@ class SymbolicODE(BaseODE):
         drivers: Optional[Union[Iterable[str], dict[str, Any]]] = None,
         user_functions: Optional[dict[str, Callable]] = None,
         name: Optional[str] = None,
-        precision: PrecisionDtype = np.float32,
+        precision: PrecisionDType = np.float32,
         strict: bool = False,
     ) -> "SymbolicODE":
         """Parse user inputs and instantiate a :class:`SymbolicODE`.

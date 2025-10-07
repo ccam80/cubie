@@ -9,7 +9,7 @@ import attrs
 import numba
 from numpy import float32
 
-from cubie._utils import PrecisionDtype, precision_converter, precision_validator
+from cubie._utils import PrecisionDType, precision_converter, precision_validator
 
 
 @attrs.define
@@ -22,11 +22,11 @@ class IntegratorRunSettings:
         Numerical precision used for timing comparisons.
     algorithm
         Name of the integration step algorithm.
-    step_controller_kind
+    step_controller
         Name of the step-size controller.
     """
 
-    precision: PrecisionDtype = attrs.field(
+    precision: PrecisionDType = attrs.field(
         default=float32,
         converter=precision_converter,
         validator=precision_validator,
@@ -35,7 +35,7 @@ class IntegratorRunSettings:
         default="euler",
         validator=attrs.validators.instance_of(str),
     )
-    step_controller_kind: str = attrs.field(
+    step_controller: str = attrs.field(
         default="fixed",
         validator=attrs.validators.instance_of(str),
     )

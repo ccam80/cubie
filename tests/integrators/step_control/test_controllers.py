@@ -44,7 +44,8 @@ def _run_device_step(
 
     dt = np.asarray([dt0], dtype=precision)
     accept = np.zeros(1, dtype=np.int32)
-    temp = np.asarray(local_mem, dtype=precision) if local_mem is not None else np.empty(0, dtype=precision)
+    temp = np.asarray(local_mem, dtype=precision) if local_mem is not None \
+        else np.zeros(2, dtype=precision)
     niters_val = np.int32(niters)
 
     @cuda.jit
@@ -113,7 +114,7 @@ def cpu_step_results(cpu_step_controller, precision, step_setup):
     return StepResult(controller.dt, int(accept), out_local)
 
 @pytest.mark.parametrize(
-    "solver_settings_override",
+    "solver_settings_override2",
     [
         ({"step_controller": "i", 'atol':1e-3,'rtol':0.0}),
         ({"step_controller": "pi", 'atol':1e-3,'rtol':0.0}),
@@ -127,7 +128,7 @@ class TestControllers:
     def test_controller_builds(self, step_controller, precision):
         assert callable(step_controller.device_function)
 
-    @pytest.mark.parametrize('step_controller_settings_override, step_setup',
+    @pytest.mark.parametrize('solver_settings_override, step_setup',
                              (({'dt_min': 0.1, 'dt_max': 0.2},
                                {'dt0': 1.0, 'error': np.asarray([1e-12, 1e-12, 1e-12])}),
                               ({'dt_min': 0.1, 'dt_max': 0.2},
@@ -157,7 +158,7 @@ class TestControllers:
         )
 
     @pytest.mark.parametrize(
-        'step_controller_settings_override, step_setup',
+        'solver_settings_override, step_setup',
         (
             (
                 {
@@ -211,13 +212,13 @@ class TestControllers:
         (
             {'dt0': 0.005, 'error': np.asarray([5e-4, 5e-4, 5e-4])},
             {'dt0': 0.005, 'error': np.asarray([5e-3, 5e-3, 5e-3])},
-            {'dt0': 0.005, 'error': np.asarray([5e-4, 5e-4, 5e-4]), 'local_mem': np.asarray([0.005, 0.8, 0.0, 1.0])},
-            {'dt0': 0.005, 'error': np.asarray([5e-3, 5e-3, 5e-3]), 'local_mem': np.asarray([0.005, 0.8, 0.0, 1.0])},
+            {'dt0': 0.005, 'error': np.asarray([5e-4, 5e-4, 5e-4]), 'local_mem': np.asarray([0.005, 0.8])},
+            {'dt0': 0.005, 'error': np.asarray([5e-3, 5e-3, 5e-3]), 'local_mem': np.asarray([0.005, 0.8])},
         ),
         ids=("low_err", "high_err", "low_err_with_mem", "high_err_with_mem"),
         indirect=True,
     )
-    @pytest.mark.parametrize('step_controller_settings_override',
+    @pytest.mark.parametrize('solver_settings_override',
                              [{'dt_min': 1e-6}], indirect=True)
     def test_matches_cpu(
         self,
@@ -241,7 +242,7 @@ class TestControllers:
             atol=tolerance.abs_tight,
         )
 
-    @pytest.mark.parametrize('step_controller_settings_override',
+    @pytest.mark.parametrize('solver_settings_override',
                              ({'dt_min': 1e-4, 'dt_max': 0.2},),
                              indirect=True)
     def test_cpu_gpu_sequence_agree(

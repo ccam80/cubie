@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 import numpy as np
 
+from cubie._utils import PrecisionDType
 from cubie.integrators.SingleIntegratorRunCore import SingleIntegratorRunCore
 from cubie.odesystems.ODEData import SystemSizes
 
@@ -35,7 +36,7 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
     # Compile settings
     # ------------------------------------------------------------------
     @property
-    def precision(self) -> type:
+    def precision(self) -> PrecisionDType:
         """Return the numerical precision configured for the run."""
 
         return self.compile_settings.precision
@@ -59,10 +60,10 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return self.compile_settings.algorithm
 
     @property
-    def step_controller_kind(self) -> str:
+    def step_controller(self) -> str:
         """Return the configured step-controller identifier."""
 
-        return self.compile_settings.step_controller_kind
+        return self.compile_settings.step_controller
 
     # ------------------------------------------------------------------
     # Aggregated memory usage
@@ -470,8 +471,8 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
 
         step = self._algo_step
         return (
-            step.linsolve_tolerance
-            if hasattr(step, "linsolve_tolerance")
+            step.krylov_tolerance
+            if hasattr(step, "krylov_tolerance")
             else None
         )
 
@@ -494,13 +495,13 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         )
 
     @property
-    def nonlinear_tolerance(self) -> Optional[float]:
+    def newton_tolerance(self) -> Optional[float]:
         """Return the nonlinear solve tolerance."""
 
         step = self._algo_step
         return (
-            step.nonlinear_tolerance
-            if hasattr(step, "nonlinear_tolerance")
+            step.newton_tolerance
+            if hasattr(step, "newton_tolerance")
             else None
         )
 

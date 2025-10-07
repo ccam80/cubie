@@ -5,10 +5,11 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any
 
 import numpy as np
 
+from cubie._utils import PrecisionDType
 from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
@@ -17,9 +18,13 @@ from cubie.batchsolving.SystemInterface import SystemInterface
 from cubie.memory import default_memmgr
 from cubie.odesystems.baseODE import BaseODE
 from cubie.integrators.array_interpolator import ArrayInterpolator
-
-if TYPE_CHECKING:
-    pass
+from cubie.integrators.algorithms.base_algorithm_step import (
+    ALL_ALGORITHM_STEP_PARAMETERS,
+)
+from cubie.integrators.step_control.base_step_controller import (
+    ALL_STEP_CONTROLLER_PARAMETERS,
+)
+from cubie._utils import merge_component_settings
 
 
 def solve_ivp(
@@ -32,7 +37,7 @@ def solve_ivp(
     duration=1.0,
     settling_time=0.0,
     grid_type='combinatorial',
-    **options,
+    **kwargs,
 ) -> SolveResult:
     """Solve a batch initial value problem.
 
@@ -60,7 +65,7 @@ def solve_ivp(
         will pair each input value and parameter set so that index 0 of all
         inputs form one "run". 'combinatorial' will generate every combination
         of every input variable, which scales combinatorially.
-    **options
+    **kwargs
         Additional keyword arguments passed to :class:`Solver`.
 
     Returns
@@ -74,7 +79,7 @@ def solve_ivp(
         dt_save=dt_eval,
         duration=duration,
         warmup=settling_time,
-        **options,
+        **kwargs,
     )
     results = solver.solve(
         y0,
@@ -83,7 +88,7 @@ def solve_ivp(
         duration=duration,
         warmup=settling_time,
         grid_type=grid_type,
-        **options,
+        **kwargs,
     )
     return results
 
@@ -126,6 +131,10 @@ class Solver:
         ``"solver"``.
     mem_proportion : float, optional
         Proportion of GPU memory reserved for the solver.
+    step_control_settings : dict[str, object], optional
+        Explicit controller configuration that overrides solver defaults.
+    algorithm_settings : dict[str, object], optional
+        Explicit algorithm configuration overriding solver defaults.
     **kwargs
         Additional keyword arguments forwarded to internal components.
 
@@ -145,12 +154,8 @@ class Solver:
         algorithm: str = "euler",
         duration: float = 1.0,
         warmup: float = 0.0,
-        dt_min: float = 0.01,
-        dt_max: float = 0.01,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        atol: float = 1e-6,
-        rtol: float = 1e-6,
         saved_states: Optional[List[Union[str, int]]] = None,
         saved_observables: Optional[List[Union[str, int]]] = None,
         summarised_states: Optional[List[Union[str, int]]] = None,
@@ -160,6 +165,8 @@ class Solver:
         memory_manager=default_memmgr,
         stream_group="solver",
         mem_proportion=None,
+        step_control_settings: Optional[Dict[str, object]] = None,
+        algorithm_settings: Optional[Dict[str, object]] = None,
         **kwargs,
     ):
         super().__init__()
@@ -169,36 +176,41 @@ class Solver:
         self.driver_interpolator = ArrayInterpolator(
             precision=precision,
             input_dict={
-                'placeholder': np.zeros(6, dtype=precision),
-                'dt': 0.1
-            }
+                "placeholder": np.zeros(6, dtype=precision),
+                "dt": 0.1,
+            },
         )
 
-        (
-            saved_state_indices,
-            saved_observable_indices,
-            summarised_state_indices,
-            summarised_observable_indices,
-        ) = self._variable_indices_from_list(
-            saved_states,
-            saved_observables,
-            summarised_states,
-            summarised_observables,
-        )
+        saved_labels = [saved_states, saved_observables,
+                        summarised_states, summarised_observables]
+        saved_indices = self._variable_indices_from_list(*saved_labels)
+        saved_state_indices = saved_indices[0]
+        saved_observable_indices = saved_indices[1]
+        summarised_state_indices = saved_indices[2]
+        summarised_observable_indices = saved_indices[3]
 
         self.grid_builder = BatchGridBuilder(interface)
 
+        step_settings, step_recognized = merge_component_settings(
+            kwargs=kwargs,
+            user_settings=step_control_settings,
+            valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
+        )
+        algorithm_settings, algorithm_recognized = merge_component_settings(
+            kwargs=kwargs,
+            user_settings=algorithm_settings,
+            valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
+        )
+        algorithm_settings = dict(algorithm_settings)
+        algorithm_settings["algorithm"] = algorithm
+        recognized_kwargs = step_recognized | algorithm_recognized
+
         self.kernel = BatchSolverKernel(
             system,
-            algorithm=algorithm,
             duration=duration,
             warmup=warmup,
-            dt_min=dt_min,
-            dt_max=dt_max,
             dt_save=dt_save,
             dt_summarise=dt_summarise,
-            atol=atol,
-            rtol=rtol,
             saved_state_indices=saved_state_indices,
             saved_observable_indices=saved_observable_indices,
             summarised_state_indices=summarised_state_indices,
@@ -208,7 +220,15 @@ class Solver:
             memory_manager=memory_manager,
             stream_group=stream_group,
             mem_proportion=mem_proportion,
+            step_control_settings=step_settings,
+            algorithm_settings=algorithm_settings,
         )
+
+        if set(kwargs) - recognized_kwargs:
+            raise KeyError(
+                "Unrecognized keyword arguments: "
+                f"{set(kwargs) - recognized_kwargs}"
+            )
 
     def _variable_indices_from_list(
         self,
@@ -523,7 +543,7 @@ class Solver:
         return self.system_interface.observable_indices(observable_labels)
 
     @property
-    def precision(self) -> type:
+    def precision(self) -> PrecisionDType:
         """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.precision` from
         the child BatchSolverKernel object."""
         return self.kernel.precision
@@ -737,6 +757,7 @@ class Solver:
     def solve_info(self):
         """Returns a SolveSpec object with details of the solver run."""
         return SolveSpec(
+            dt=self.kernel.dt,
             dt_min=self.kernel.dt_min,
             dt_max=self.kernel.dt_max,
             dt_save=self.kernel.dt_save,

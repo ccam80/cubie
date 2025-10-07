@@ -3,9 +3,10 @@
 This module provides general-purpose helpers for array slicing, dictionary
 updates and CUDA utilities that are shared across the code base.
 """
+import inspect
 from functools import wraps
 from time import time
-from typing import Union
+from typing import Any, Mapping, Tuple, Union, Optional, Iterable
 from warnings import warn
 
 import numpy as np
@@ -20,7 +21,7 @@ from cubie.cuda_simsafe import is_devfunc, selp
 
 xoro_type = from_dtype(xoroshiro128p_dtype)
 
-PrecisionDtype = Union[
+PrecisionDType = Union[
     type[np.float16],
     type[np.float32],
     type[np.float64],
@@ -36,7 +37,7 @@ ALLOWED_PRECISIONS = {
 }
 
 
-def precision_converter(value: PrecisionDtype) -> type[np.floating]:
+def precision_converter(value: PrecisionDType) -> type[np.floating]:
     """Return a canonical NumPy scalar type for precision configuration."""
 
     dtype = np.dtype(value)
@@ -50,7 +51,7 @@ def precision_converter(value: PrecisionDtype) -> type[np.floating]:
 def precision_validator(
     _: object,
     __: Attribute,
-    value: PrecisionDtype,
+    value: PrecisionDType,
 ) -> None:
     """Validate that ``value`` resolves to a supported precision."""
 
@@ -136,59 +137,113 @@ def is_attrs_class(putative_class_instance):
     return has(putative_class_instance)
 
 
-def update_dicts_from_kwargs(dicts: list | dict, **kwargs):
-    """Update dictionaries with supplied keyword arguments.
+def split_applicable_settings(
+    target: Any,
+    settings: Mapping[str, Any],
+    warn_on_unused: bool = True,
+) -> Tuple[dict[str, Any], set[str], set[str]]:
+    """Partition ``settings`` into accepted, missing, and unused entries.
 
-    Scans the provided dictionaries for keys matching ``kwargs`` and updates
-    their values. The function returns ``True`` if any dictionary was modified
-    so callers can determine when cached objects require rebuilding.
+    Uses the signature of ``target`` to determine which settings are
+    applicable, then divides a mapping of arguments into three sets:
+
+    - accepted: settings that are accepted by ``target``
+    - missing: settings that are required by ``target`` but not provided
+    - unused: settings that were provided but are not applicable to ``target``
 
     Parameters
     ----------
-    dicts : list or dict
-        Dictionaries to update.
-    **kwargs
-        Key-value pairs to apply to ``dicts``.
+    target : Any
+        Callable or class whose signature defines accepted keywords.
+    settings : Mapping[str, Any]
+        Mapping containing candidate configuration entries.
+    warn_for_unused : bool, default=True
+        If true, issue a warning for unused settings.
+    Returns
+    -------
+    tuple
+        Three-element tuple containing the filtered settings dictionary,
+        the set of missing required keys, and the set of unused keys.
+    """
+
+    if inspect.isclass(target):
+        signature = inspect.signature(target.__init__)
+    else:
+        signature = inspect.signature(target)
+
+    accepted: set[str] = set()
+    required: set[str] = set()
+    for name, parameter in signature.parameters.items():
+        if name == "self":
+            continue
+        if parameter.kind in {
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        }:
+            continue
+        accepted.add(name)
+        if parameter.default is inspect._empty:
+            required.add(name)
+
+    filtered = {
+        key: value
+        for key, value in settings.items()
+        if key in accepted
+    }
+    missing = required - filtered.keys()
+    unused = set(settings.keys()) - accepted
+    if warn_on_unused and unused:
+        warn(f"The following settings were ignored: {unused}", stacklevel=3)
+    return filtered, missing, unused
+
+
+def merge_component_settings(
+    kwargs: dict[str, object],
+    valid_keys: Iterable[str],
+    user_settings: Optional[dict[str, object]]=None,
+) -> Tuple[dict[str, object], set[str]]:
+    """Merge component settings from ``kwargs`` and ``user_settings``.
+
+    Parameters
+    ----------
+    kwargs
+        Keyword arguments supplied directly to a component.
+    user_settings
+        Explicit settings dictionary supplied by the caller. When provided,
+        these values take precedence over ``kwargs``.
+    valid_keys
+        Iterable of keys recognised by the component. Only these keys are
+        extracted from ``kwargs``.
 
     Returns
     -------
-    bool
-        ``True`` if any dictionary entries were changed.
-
-    Warns
-    -----
-    UserWarning
-        If a key is not found or appears in multiple dictionaries.
+    merged
+        Dictionary containing recognised settings with ``user_settings``
+        overriding values from ``kwargs``.
+    unused
+        Set of keys in ``kwargs`` that were not consumed.
     """
-    if isinstance(dicts, dict):
-        dicts = [dicts]
 
-    dicts_modified = False
+    allowed = set(valid_keys)
+    filtered = {key: value for key, value in kwargs.items() if key in allowed}
+    user_settings = user_settings or {}
+    duplicates = {key for key in filtered if key in user_settings}
+    if duplicates:
+        joined = ", ".join(sorted(duplicates))
+        warn(
+            (
+                "Duplicate settings were provided for keys "
+                f"{{{joined}}}; values from the explicit settings dictionary "
+                "take precedence."
+            ),
+            UserWarning,
+            stacklevel=2,
+        )
 
-    for key, value in kwargs.items():
-        kwarg_found = False
-        for d in dicts:
-            if key in d:
-                if kwarg_found:
-                    warn(
-                        f"The parameter {key} was found in multiple dictionaries, and was updated in both.",
-                        UserWarning,
-                    )
-                else:
-                    kwarg_found = True
-
-                if d[key] != value:
-                    d[key] = value
-                    dicts_modified = True
-
-        if kwarg_found is False:
-            warn(
-                f"The parameter {key} was not found in the ODE algorithms dictionary"
-                "of parameters",
-                UserWarning,
-            )
-
-    return dicts_modified
+    merged = dict(filtered)
+    merged.update(user_settings)
+    recognized = set(filtered)
+    return merged, recognized
 
 
 def timing(_func=None, *, nruns=1):
