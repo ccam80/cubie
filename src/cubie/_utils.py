@@ -200,7 +200,7 @@ def split_applicable_settings(
 def merge_component_settings(
     kwargs: dict[str, object],
     valid_keys: Iterable[str],
-    user_settings: Optional[dict[str, object]]=None,
+    user_settings: Optional[dict[str, object]] = None,
 ) -> Tuple[dict[str, object], set[str]]:
     """Merge component settings from ``kwargs`` and ``user_settings``.
 
@@ -210,7 +210,7 @@ def merge_component_settings(
         Keyword arguments supplied directly to a component.
     user_settings
         Explicit settings dictionary supplied by the caller. When provided,
-        these values take precedence over ``kwargs``.
+        these values supply defaults that keyword arguments may override.
     valid_keys
         Iterable of keys recognised by the component. Only these keys are
         extracted from ``kwargs``.
@@ -218,32 +218,31 @@ def merge_component_settings(
     Returns
     -------
     merged
-        Dictionary containing recognised settings with ``user_settings``
-        overriding values from ``kwargs``.
+        Dictionary containing recognised settings with keyword arguments
+        overriding values from ``user_settings``.
     unused
         Set of keys in ``kwargs`` that were not consumed.
     """
 
     allowed = set(valid_keys)
     filtered = {key: value for key, value in kwargs.items() if key in allowed}
-    user_settings = user_settings or {}
+    user_settings = {} if user_settings is None else user_settings.copy()
     duplicates = {key for key in filtered if key in user_settings}
     if duplicates:
         joined = ", ".join(sorted(duplicates))
         warn(
             (
                 "Duplicate settings were provided for keys "
-                f"{{{joined}}}; values from the explicit settings dictionary "
-                "take precedence."
+                f"{{{joined}}}; values from keyword arguments take "
+                "precedence over the explicit settings dictionary."
             ),
             UserWarning,
             stacklevel=2,
         )
 
-    merged = dict(filtered)
-    merged.update(user_settings)
+    user_settings.update(filtered)
     recognized = set(filtered)
-    return merged, recognized
+    return user_settings, recognized
 
 
 def timing(_func=None, *, nruns=1):

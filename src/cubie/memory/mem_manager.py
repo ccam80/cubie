@@ -24,6 +24,17 @@ from cubie.memory.array_requests import ArrayRequest, ArrayResponse
 from cubie.memory.cupy_emm import CuPyAsyncNumbaManager, CuPySyncNumbaManager
 
 
+# Recognised configuration parameters for memory manager settings.
+# These keys mirror the solver API so helpers can filter keyword
+# arguments consistently.
+ALL_MEMORY_MANAGER_PARAMETERS = {
+    "memory_manager",
+    "stream_group",
+    "mem_proportion",
+    "allocator",
+}
+
+
 MIN_AUTOPOOL_SIZE = 0.05
 
 

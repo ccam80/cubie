@@ -23,7 +23,11 @@ from cubie.integrators.step_control.base_step_controller import \
     ALL_STEP_CONTROLLER_PARAMETERS
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
-from cubie.outputhandling.output_functions import OutputFunctions
+from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
+from cubie.outputhandling.output_functions import (
+    OutputFunctions,
+    ALL_OUTPUT_FUNCTION_PARAMETERS,
+)
 from cubie.outputhandling.output_sizes import LoopBufferSizes
 from tests.integrators.cpu_reference import (CPUODESystem,
                                               run_reference_loop, \
@@ -388,25 +392,43 @@ def codegen_dir():
 
 
 @pytest.fixture(scope="function")
-def output_functions(solver_settings, system):
-    # Merge the default config with any overrides
+def output_settings(solver_settings):
+    settings, _ = merge_component_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
+    )
+    return settings
 
+
+@pytest.fixture(scope="function")
+def memory_settings(solver_settings):
+    settings, _ = merge_component_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
+    )
+    return settings
+
+
+@pytest.fixture(scope="function")
+def output_functions(output_settings, system):
     outputfunctions = OutputFunctions(
         system.sizes.states,
         system.sizes.parameters,
-        solver_settings["output_types"],
-        solver_settings["saved_state_indices"],
-        solver_settings["saved_observable_indices"],
-        solver_settings["summarised_state_indices"],
-        solver_settings["summarised_observable_indices"],
+        **output_settings,
     )
     return outputfunctions
 
 
 @pytest.fixture(scope="function")
-def solverkernel(solver_settings, system, driver_array,
-                 step_controller_settings,
-                 algorithm_settings):
+def solverkernel(
+    solver_settings,
+    system,
+    driver_array,
+    step_controller_settings,
+    algorithm_settings,
+    output_settings,
+    memory_settings,
+):
     driver_function = driver_array.evaluation_function if driver_array is not None else None
     return BatchSolverKernel(
         system,
@@ -414,41 +436,27 @@ def solverkernel(solver_settings, system, driver_array,
         warmup=solver_settings["warmup"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
-        saved_state_indices=solver_settings["saved_state_indices"],
-        saved_observable_indices=solver_settings["saved_observable_indices"],
-        output_types=solver_settings["output_types"],
         driver_function=driver_function,
         profileCUDA=solver_settings["profileCUDA"],
-        memory_manager=solver_settings["memory_manager"],
-        stream_group=solver_settings["stream_group"],
-        mem_proportion=solver_settings["mem_proportion"],
         step_control_settings=step_controller_settings,
         algorithm_settings=algorithm_settings,
+        output_settings=output_settings,
+        memory_settings=memory_settings,
     )
 
 
 @pytest.fixture(scope="function")
-def solver(system, solver_settings, driver_array, step_controller_settings):
+def solver(
+    system,
+    solver_settings,
+    driver_array,
+    step_controller_settings,
+    output_settings,
+    memory_settings,
+):
     solver = Solver(
         system,
-        algorithm=solver_settings["algorithm"],
-        duration=solver_settings["duration"],
-        warmup=solver_settings["warmup"],
-        dt=solver_settings["dt"],
-        dt_min=solver_settings["dt_min"],
-        dt_max=solver_settings["dt_max"],
-        dt_save=solver_settings["dt_save"],
-        dt_summarise=solver_settings["dt_summarise"],
-        atol=solver_settings["atol"],
-        rtol=solver_settings["rtol"],
-        saved_states=solver_settings["saved_state_indices"],
-        saved_observables=solver_settings["saved_observable_indices"],
-        output_types=solver_settings["output_types"],
-        profileCUDA=solver_settings["profileCUDA"],
-        memory_manager=solver_settings["memory_manager"],
-        stream_group=solver_settings["stream_group"],
-        mem_proportion=solver_settings["mem_proportion"],
-        step_control_settings=step_controller_settings,
+        **solver_settings,
     )
     driver_function = driver_array.evaluation_function if driver_array is not None else None
     solver.update({'driver_function':driver_function})
@@ -508,8 +516,14 @@ def loop(
                    is_adaptive=step_controller.is_adaptive)
 
 @pytest.fixture(scope="function")
-def single_integrator_run(system, solver_settings, driver_array,
-                          step_controller_settings, algorithm_settings):
+def single_integrator_run(
+    system,
+    solver_settings,
+    driver_array,
+    step_controller_settings,
+    algorithm_settings,
+    output_settings,
+):
     """Instantiate :class:`SingleIntegratorRun` with test fixtures."""
     driver_function = driver_array.evaluation_function if driver_array is not None else None
 
@@ -517,16 +531,10 @@ def single_integrator_run(system, solver_settings, driver_array,
         system=system,
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
-        saved_state_indices=solver_settings["saved_state_indices"],
-        saved_observable_indices=solver_settings["saved_observable_indices"],
-        summarised_state_indices=solver_settings["summarised_state_indices"],
-        summarised_observable_indices=solver_settings[
-            "summarised_observable_indices"
-        ],
         driver_function=driver_function,
-        output_types=solver_settings["output_types"],
         step_control_settings=step_controller_settings,
         algorithm_settings=algorithm_settings,
+        output_settings=output_settings,
     )
     return run
 

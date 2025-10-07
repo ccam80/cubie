@@ -19,7 +19,7 @@ from numba import cuda, float64, float32
 from numba import int32, int16
 
 from cubie.cuda_simsafe import is_cudasim_enabled
-from numpy.typing import NDArray, ArrayLike
+from numpy.typing import NDArray
 
 from cubie.memory import default_memmgr
 from cubie.CUDAFactory import CUDAFactory
@@ -38,6 +38,13 @@ from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
+
+DEFAULT_MEMORY_SETTINGS = {
+    "memory_manager": default_memmgr,
+    "stream_group": "solver",
+    "mem_proportion": None,
+}
+
 
 class BatchSolverKernel(CUDAFactory):
     """
@@ -60,24 +67,8 @@ class BatchSolverKernel(CUDAFactory):
         Time step for saving output.
     dt_summarise
         Time step for saving summaries.
-    saved_state_indices
-        Indices of state variables to save.
-    saved_observable_indices
-        Indices of observable variables to save.
-    summarised_state_indices
-        Indices of state variables to summarise.
-    summarised_observable_indices
-        Indices of observable variables to summarise.
-    output_types
-        Types of outputs to generate. Default is ["state"].
     profileCUDA
         Whether to enable CUDA profiling.
-    memory_manager
-        Memory manager instance to use.
-    stream_group
-        CUDA stream group identifier.
-    mem_proportion
-        Proportion of GPU memory to allocate.
     step_control_settings
         Mapping of overrides forwarded to
         :class:`cubie.integrators.SingleIntegratorRun` for controller
@@ -86,6 +77,17 @@ class BatchSolverKernel(CUDAFactory):
         Mapping of overrides forwarded to
         :class:`cubie.integrators.SingleIntegratorRun` for algorithm
         configuration.
+    output_settings
+        Mapping of output configuration forwarded to the integrator.
+        Recognised keys include ``"output_types"`` and the saved or
+        summarised index selectors:
+        ``"saved_states"``, ``"saved_observables"``,
+        ``"summarised_states"``, and
+        ``"summarised_observables"``.
+    memory_settings
+        Mapping of memory configuration forwarded to the memory manager.
+        Recognised keys include ``"memory_manager"``, ``"stream_group"``,
+        and ``"mem_proportion"``.
 
     Notes
     -----
@@ -110,33 +112,22 @@ class BatchSolverKernel(CUDAFactory):
         warmup: float = 0.0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        saved_state_indices: NDArray[np.int_] = None,
-        saved_observable_indices: NDArray[np.int_] = None,
-        summarised_state_indices: Optional[ArrayLike] = None,
-        summarised_observable_indices: Optional[ArrayLike] = None,
         driver_function: Optional[Callable] = None,
-        output_types: list[str] = None,
         profileCUDA: bool = False,
-        memory_manager: "MemoryManager" = default_memmgr,
-        stream_group: str = "solver",
-        mem_proportion: float = None,
         step_control_settings: Dict[str, Any] = None,
         algorithm_settings: Dict[str, Any] = None,
         output_settings: Dict[str, Any] = None,
         memory_settings: Dict[str, Any] = None,
     ):
         super().__init__()
+        if memory_settings is None:
+            memory_settings = {}
         precision = system.precision
         self.chunks = None
         self.chunk_axis = "run"
         self.num_runs = 1
-        self._memory_manager = memory_manager
-        self._memory_manager.register(
-            self,
-            stream_group=stream_group,
-            proportion=mem_proportion,
-            allocation_ready_hook=self._on_allocation,
-        )
+
+        self._memory_manager = self._setup_memory_manager(memory_settings)
 
         config = BatchSolverConfig(
             precision=precision, # can be dug out of the system.
@@ -152,26 +143,49 @@ class BatchSolverKernel(CUDAFactory):
         # Setup compile settings for the kernel
         self.setup_compile_settings(config)
 
-        if output_types is None: # Don't handle that here, this is an
-            # outputfunctions concern
-            output_types = ["state"]
-
+        if output_settings is None:
+            output_settings = {}
         self.single_integrator = SingleIntegratorRun(
             system,
             dt_save=dt_save,
             dt_summarise=dt_summarise,
-            saved_state_indices=saved_state_indices,
-            saved_observable_indices=saved_observable_indices,
-            summarised_state_indices=summarised_state_indices,
-            summarised_observable_indices=summarised_observable_indices,
-            output_types=output_types,
             driver_function=driver_function,
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,
+            output_settings=output_settings,
         )
 
         self.input_arrays = InputArrays.from_solver(self)
         self.output_arrays = OutputArrays.from_solver(self)
+
+    def _setup_memory_manager(self, settings: Dict[str, Any]) -> "MemoryManager":
+        """Configure and register the kernel with the memory manager.
+
+        Parameters
+        ----------
+        settings
+            Mapping of memory configuration options recognised by the memory
+            manager.
+
+        Returns
+        -------
+        MemoryManager
+            Registered memory manager ready to serve allocations for the
+            kernel.
+        """
+
+        merged_settings = DEFAULT_MEMORY_SETTINGS.copy()
+        merged_settings.update(settings)
+        memory_manager = merged_settings["memory_manager"]
+        stream_group = merged_settings["stream_group"]
+        mem_proportion = merged_settings["mem_proportion"]
+        memory_manager.register(
+            self,
+            stream_group=stream_group,
+            proportion=mem_proportion,
+            allocation_ready_hook=self._on_allocation,
+        )
+        return memory_manager
 
 
     def run(
@@ -824,7 +838,7 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def dt(self) -> float:
-        return self.single_integrator._algo_step.dt or None
+        return self.single_integrator.dt or None
 
     @property
     def warmup(self):
@@ -926,22 +940,6 @@ class BatchSolverKernel(CUDAFactory):
             The integration algorithm being used.
         """
         return self.single_integrator.algorithm_key
-
-    @property
-    def fixed_step_size(self):
-        """
-        Get the fixed step size.
-
-        Returns
-        -------
-        float
-            Fixed step size for the solver.
-
-        Notes
-        -----
-        Exposes the dt attribute from the child SingleIntegratorRun object.
-        """
-        return self.single_integrator.fixed_step_size
 
     @property
     def dt_min(self):

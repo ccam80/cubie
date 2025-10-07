@@ -24,6 +24,19 @@ from cubie.outputhandling.save_summaries import save_summary_factory
 from cubie.outputhandling.update_summaries import update_summary_factory
 
 
+# Define the complete set of recognised configuration keys so callers can
+# filter keyword arguments consistently before instantiating the factory.
+ALL_OUTPUT_FUNCTION_PARAMETERS = {
+    "output_types",
+    "saved_states", "saved_observables",           # Solver-level aliases
+    "summarised_states", "summarised_observables", # Solver-level aliases
+    "saved_state_indices",
+    "saved_observable_indices",
+    "summarised_state_indices",
+    "summarised_observable_indices",
+}
+
+
 @attrs.define
 class OutputFunctionCache:
     """Cache container for compiled output functions.

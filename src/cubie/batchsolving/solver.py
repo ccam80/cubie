@@ -5,7 +5,7 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Any
 
 import numpy as np
 
@@ -15,7 +15,7 @@ from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solveresult import SolveResult, SolveSpec
 from cubie.batchsolving.SystemInterface import SystemInterface
-from cubie.memory import default_memmgr
+from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
 from cubie.odesystems.baseODE import BaseODE
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -25,6 +25,9 @@ from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
 from cubie._utils import merge_component_settings
+from cubie.outputhandling.output_functions import (
+    ALL_OUTPUT_FUNCTION_PARAMETERS,
+)
 
 
 def solve_ivp(
@@ -114,27 +117,24 @@ class Solver:
         Interval for computing summary outputs. Default is ``1.0``.
     atol, rtol : float, optional
         Absolute and relative error tolerances. Defaults are ``1e-6``.
-    saved_states, saved_observables : list of str or int, optional
-        Variables to save verbatim at each output step.
-    summarised_states, summarised_observables : list of str or int, optional
-        Variables for which summary statistics are computed.
-    output_types : list of str, optional
-        Output arrays to generate (e.g. ``["state"]``).
     precision : type, optional
         Floating point precision. Defaults to ``numpy.float64``.
     profileCUDA : bool, optional
         Enable CUDA profiling. Defaults to ``False``.
-    memory_manager : MemoryManager, optional
-        Manager responsible for CUDA memory allocations.
-    stream_group : str, optional
-        Name of the CUDA stream group used by the solver. Defaults to
-        ``"solver"``.
-    mem_proportion : float, optional
-        Proportion of GPU memory reserved for the solver.
     step_control_settings : dict[str, object], optional
         Explicit controller configuration that overrides solver defaults.
     algorithm_settings : dict[str, object], optional
         Explicit algorithm configuration overriding solver defaults.
+    output_settings : dict[str, object], optional
+        Explicit output configuration overriding solver defaults. Individual
+        keys such as ``output_types`` or the saved and summarised selectors
+        may also be supplied directly via keyword arguments.
+    memory_settings : dict[str, object], optional
+        Explicit memory configuration overriding solver defaults. Keys like
+        ``memory_manager``, ``stream_group``, ``mem_proportion``, and
+        ``allocator`` may likewise be provided as keyword arguments.
+    strict:
+        If True, raise an error if any unknown keyword arguments are provided.
     **kwargs
         Additional keyword arguments forwarded to internal components.
 
@@ -156,19 +156,23 @@ class Solver:
         warmup: float = 0.0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        saved_states: Optional[List[Union[str, int]]] = None,
-        saved_observables: Optional[List[Union[str, int]]] = None,
-        summarised_states: Optional[List[Union[str, int]]] = None,
-        summarised_observables: Optional[List[Union[str, int]]] = None,
-        output_types: list[str] = None,
         profileCUDA: bool = False,
-        memory_manager=default_memmgr,
-        stream_group="solver",
-        mem_proportion=None,
         step_control_settings: Optional[Dict[str, object]] = None,
         algorithm_settings: Optional[Dict[str, object]] = None,
+        output_settings: Optional[Dict[str, object]] = None,
+        memory_settings: Optional[Dict[str, object]] = None,
+        strict: bool = False,
         **kwargs,
     ):
+        if output_settings is None:
+            output_settings = {}
+        if memory_settings is None:
+            memory_settings = {}
+        if step_control_settings is None:
+            step_control_settings = {}
+        if algorithm_settings is None:
+            step_control_settings = {}
+
         super().__init__()
         precision = system.precision
         interface = SystemInterface.from_system(system)
@@ -181,15 +185,22 @@ class Solver:
             },
         )
 
-        saved_labels = [saved_states, saved_observables,
-                        summarised_states, summarised_observables]
-        saved_indices = self._variable_indices_from_list(*saved_labels)
-        saved_state_indices = saved_indices[0]
-        saved_observable_indices = saved_indices[1]
-        summarised_state_indices = saved_indices[2]
-        summarised_observable_indices = saved_indices[3]
-
         self.grid_builder = BatchGridBuilder(interface)
+
+        recognized_kwargs: set[str] = set()
+
+        output_settings, output_recognized = merge_component_settings(
+            kwargs=kwargs,
+            user_settings=output_settings,
+            valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
+        )
+        self.convert_output_labels(output_settings)
+
+        memory_settings, memory_recognized = merge_component_settings(
+            kwargs=kwargs,
+            user_settings=memory_settings,
+            valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
+        )
 
         step_settings, step_recognized = merge_component_settings(
             kwargs=kwargs,
@@ -203,7 +214,8 @@ class Solver:
         )
         algorithm_settings = dict(algorithm_settings)
         algorithm_settings["algorithm"] = algorithm
-        recognized_kwargs = step_recognized | algorithm_recognized
+        recognized_kwargs = (step_recognized | algorithm_recognized
+                             | output_recognized | memory_recognized)
 
         self.kernel = BatchSolverKernel(
             system,
@@ -211,69 +223,82 @@ class Solver:
             warmup=warmup,
             dt_save=dt_save,
             dt_summarise=dt_summarise,
-            saved_state_indices=saved_state_indices,
-            saved_observable_indices=saved_observable_indices,
-            summarised_state_indices=summarised_state_indices,
-            summarised_observable_indices=summarised_observable_indices,
-            output_types=output_types,
             profileCUDA=profileCUDA,
-            memory_manager=memory_manager,
-            stream_group=stream_group,
-            mem_proportion=mem_proportion,
             step_control_settings=step_settings,
             algorithm_settings=algorithm_settings,
+            output_settings=output_settings,
+            memory_settings=memory_settings,
         )
 
-        if set(kwargs) - recognized_kwargs:
-            raise KeyError(
-                "Unrecognized keyword arguments: "
-                f"{set(kwargs) - recognized_kwargs}"
-            )
+        if strict:
+            if set(kwargs) - recognized_kwargs:
+                raise KeyError(
+                    "Unrecognized keyword arguments: "
+                    f"{set(kwargs) - recognized_kwargs}"
+                )
 
-    def _variable_indices_from_list(
+    def convert_output_labels(
         self,
-        saved_states,
-        saved_observables,
-        summarised_states,
-        summarised_observables,
-    ):
-        """Translate variable labels into index arrays.
+        output_settings: Dict[str, Any],
+    ) -> None:
+        """Resolve and sanitise saved/summarised variable settings in-place
 
         Parameters
         ----------
-        saved_states, saved_observables, summarised_states,
-        summarised_observables : list[str] or None
-            Lists of variable labels. ``None`` leaves the corresponding
-            selection unchanged.
+        output_settings
+            Mapping of output configuration keys recognised by the solver.
+            Entries describing saved or summarised selectors are replaced with
+            integer indices when provided. Modified in-place
 
-        Returns
-        -------
-        tuple of ndarray or None
-            Index arrays for each variable list in the order provided.
+        Raises
+        ------
+        ValueError
+            If the settings dict contains duplicate entries, e.g. "saved_states"
+            and "saved_state_indices".
+
+        Notes
+        -----
+        There is some ambiguity in the way that a user can provide input
+        information. They may provide an iterable of labels,
+        e.g. "saved_states = ['V_a', 'V_b']" or the form which
+
         """
 
-        def _get_indices(getter, items):
-            return getter(items) if items is not None else None
+        resolvers = {
+            "saved_states": self.system_interface.state_indices,
+            "saved_state_indices": self.system_interface.state_indices,
+            "summarised_states": self.system_interface.state_indices,
+            "summarised_state_indices": self.system_interface.state_indices,
+            "saved_observables": self.system_interface.observable_indices,
+            "saved_observable_indices": self.system_interface.observable_indices,
+            "summarised_observables": self.system_interface.observable_indices,
+            "summarised_observable_indices": self.system_interface.observable_indices,
+        }
 
-        saved_state_indices = _get_indices(
-            self.system_interface.state_indices, saved_states
-        )
-        saved_observable_indices = _get_indices(
-            self.system_interface.observable_indices, saved_observables
-        )
-        summarised_state_indices = _get_indices(
-            self.system_interface.state_indices, summarised_states
-        )
-        summarised_observable_indices = _get_indices(
-            self.system_interface.observable_indices, summarised_observables
-        )
+        labels2index_keys = {
+            "saved_states": "saved_state_indices",
+            "saved_observables": "saved_observable_indices",
+            "summarised_states": "summarised_state_indices",
+            "summarised_observable_indices": "summarised_observable_indices",
+        }
+        # Replace any labels with integer indices
+        for key, resolver in resolvers.items():
+            values = output_settings.get(key)
+            if values is not None:
+                output_settings[key] = resolver(values)
 
-        return (
-            saved_state_indices,
-            saved_observable_indices,
-            summarised_state_indices,
-            summarised_observable_indices,
-        )
+        # Replace names for a list of labels, e.g. saved_states, with the
+        # indices key that outputfunctions expects
+        for inkey, outkey in labels2index_keys.items():
+            indices = output_settings.pop(inkey, None)
+            if indices is not None:
+                if output_settings.get(outkey, None) is not None:
+                    raise ValueError("Duplicate output settings provided: got "
+                                     f"{inkey}={output_settings[inkey]} and "
+                                     f"{outkey} = {output_settings[outkey]}")
+                output_settings[outkey] = indices
+
+
 
     def solve(
         self,
@@ -378,7 +403,7 @@ class Solver:
         if updates_dict == {}:
             return set()
 
-        updates_dict = self.update_saved_variables(updates_dict)
+        self.convert_output_labels(updates_dict)
 
 
         driver_recognised = self.driver_interpolator.update(updates_dict,
@@ -411,38 +436,6 @@ class Solver:
             if not silent:
                 raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
         return recognised
-
-    def update_saved_variables(self, updates_dict):
-        """Interpret label lists and insert resolved indices.
-
-        Parameters
-        ----------
-        updates_dict : dict
-            Dictionary potentially containing ``saved_states``,
-            ``saved_observables``, ``summarised_states`` or
-            ``summarised_observables`` entries as labels.
-
-        Returns
-        -------
-        dict
-            Updated dictionary with label lists replaced by index arrays.
-        """
-        labels = [
-            ("saved_states", "saved_state_indices"),
-            ("saved_observables", "saved_observable_indices"),
-            ("summarised_states", "summarised_state_indices"),
-            ("summarised_observables", "summarised_observable_indices"),
-        ]
-
-        label_values = [updates_dict.pop(label, None) for label, _ in labels]
-
-        indices = self._variable_indices_from_list(*label_values)
-
-        for (_, key), value in zip(labels, indices):
-            if value is not None:
-                updates_dict[key] = value
-
-        return updates_dict
 
     def update_memory_settings(
         self, updates_dict=None, silent=False, **kwargs

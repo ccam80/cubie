@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
-from numpy.typing import ArrayLike
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie._utils import PrecisionDType
@@ -45,16 +44,13 @@ class SingleIntegratorRunCore(CUDAFactory):
         ``0.1``.
     dt_summarise
         Interval used when saving summary metrics. Defaults to ``1.0``.
-    saved_state_indices
-        Indices of state variables saved by the output handler.
-    saved_observable_indices
-        Indices of observables saved by the output handler.
-    summarised_state_indices
-        Indices of state variables summarised by the output handler.
-    summarised_observable_indices
-        Indices of observables summarised by the output handler.
-    output_types
-        Output modes requested from the output handler.
+    output_settings
+        Mapping forwarded to :class:`cubie.outputhandling.output_functions.
+        OutputFunctions`. Recognised keys include ``"output_types"`` and
+        the saved or summarised selector fields:
+        ``"saved_state_indices"``, ``"saved_observable_indices"``,
+        ``"summarised_state_indices"``, and
+        ``"summarised_observable_indices"``.
     driver_function
         Optional device function which interpolates arbitrary driver inputs
         for use by step algorithms.
@@ -83,11 +79,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         system: "BaseODE",
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
-        saved_state_indices: Optional[ArrayLike] = None,
-        saved_observable_indices: Optional[ArrayLike] = None,
-        summarised_state_indices: Optional[ArrayLike] = None,
-        summarised_observable_indices: Optional[ArrayLike] = None,
-        output_types: Optional[list[str]] = None,
+        output_settings: Optional[Dict[str, Any]] = None,
         driver_function: Optional[Callable] = None,
         algorithm_settings: Optional[Dict[str, Any]] = None,
         step_control_settings: Optional[Dict[str, Any]] = None,
@@ -98,9 +90,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             step_control_settings = {}
         if algorithm_settings is None:
             algorithm_settings = {}
+        if output_settings is None:
+            output_settings = {}
 
         precision = system.precision
-
 
         self._system = system
         system_sizes = system.sizes
@@ -109,11 +102,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         self._output_functions = OutputFunctions(
             max_states=system_sizes.states,
             max_observables=system_sizes.observables,
-            output_types=output_types,
-            saved_state_indices=saved_state_indices,
-            saved_observable_indices=saved_observable_indices,
-            summarised_state_indices=summarised_state_indices,
-            summarised_observable_indices=summarised_observable_indices,
+            **output_settings,
         )
 
         dt = step_control_settings.get("dt", None)

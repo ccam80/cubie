@@ -201,16 +201,12 @@ def test_all_lower_plumbing(system, solverkernel, step_controller_settings,
             "atol": 1e-2,
             "rtol": 1e-1,
         })
-    freshsolver = BatchSolverKernel(
-        system, 
-        duration= 1.0,
-        dt_save= 0.01,
-        dt_summarise= 0.1,
-        saved_state_indices= np.asarray([0, 1, 2]),
-        saved_observable_indices= np.asarray([0, 1, 2]),
-        summarised_state_indices= np.asarray([0]),
-        summarised_observable_indices= np.asarray([0]),
-        output_types= [
+    output_settings = {
+        "saved_state_indices": np.asarray([0, 1, 2]),
+        "saved_observable_indices": np.asarray([0, 1, 2]),
+        "summarised_state_indices": np.asarray([0]),
+        "summarised_observable_indices": np.asarray([0]),
+        "output_types": [
             "state",
             "observables",
             "mean",
@@ -218,8 +214,15 @@ def test_all_lower_plumbing(system, solverkernel, step_controller_settings,
             "rms",
             "peaks[3]",
         ],
+    }
+    freshsolver = BatchSolverKernel(
+        system,
+        duration=1.0,
+        dt_save=0.01,
+        dt_summarise=0.1,
         step_control_settings=updated_controller_settings,
         algorithm_settings=algorithm_settings,
+        output_settings=output_settings,
     )
 
     assert freshsolver.compile_settings == solverkernel.compile_settings, (

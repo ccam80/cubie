@@ -457,7 +457,7 @@ class SystemValues:
             )
         else:
             # Update the dictionary
-            self.values_dict.update(values_dict)
+            self.values_dict.update(recognised)
             # Update the values_array
             for key, value in recognised.items():
                 index = self.get_index_of_key(key, silent=silent)

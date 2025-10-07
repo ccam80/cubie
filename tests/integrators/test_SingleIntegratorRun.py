@@ -146,7 +146,7 @@ class TestSingleIntegratorRun:
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             )
-            assert run.fixed_step_size == pytest.approx(
+            assert run.dt == pytest.approx(
                 dt_min,
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
@@ -353,7 +353,7 @@ def test_update_routes_to_children(
     assert expected_keys.issubset(recognized)
     assert run.cache_valid is False
 
-    assert run.fixed_step_size == pytest.approx(
+    assert run.dt == pytest.approx(
         new_dt,
         rel=tolerance.rel_tight,
         abs=tolerance.abs_tight,
@@ -437,6 +437,7 @@ def test_default_step_controller_settings_applied(
     solver_settings,
     driver_array,
     algorithm_settings,
+    output_settings,
 ):
     """When no overrides are supplied algorithm defaults are applied."""
 
@@ -445,16 +446,10 @@ def test_default_step_controller_settings_applied(
         system=system,
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
-        saved_state_indices=solver_settings["saved_state_indices"],
-        saved_observable_indices=solver_settings["saved_observable_indices"],
-        summarised_state_indices=solver_settings["summarised_state_indices"],
-        summarised_observable_indices=solver_settings[
-            "summarised_observable_indices"
-        ],
-        output_types=solver_settings["output_types"],
         driver_function=driver_fn,
         step_control_settings=None,
         algorithm_settings=algorithm_settings,
+        output_settings=output_settings,
     )
 
     defaults = run._algo_step.controller_defaults.copy()
@@ -489,6 +484,8 @@ def test_default_step_controller_settings_applied(
 def test_step_controller_overrides_take_precedence(
     system,
     solver_settings,
+        output_settings,
+
     driver_array,
     algorithm,
     overrides,
@@ -506,13 +503,7 @@ def test_step_controller_overrides_take_precedence(
         system=system,
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
-        saved_state_indices=solver_settings["saved_state_indices"],
-        saved_observable_indices=solver_settings["saved_observable_indices"],
-        summarised_state_indices=solver_settings["summarised_state_indices"],
-        summarised_observable_indices=solver_settings[
-            "summarised_observable_indices"
-        ],
-        output_types=solver_settings["output_types"],
+        output_settings=output_settings,
         driver_function=driver_fn,
         step_control_settings=dict(override_settings),
         algorithm_settings=algorithm_settings,

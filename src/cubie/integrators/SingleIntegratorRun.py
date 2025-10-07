@@ -346,9 +346,8 @@ class SingleIntegratorRun(SingleIntegratorRunCore):
         return None
 
     @property
-    def fixed_step_size(self) -> Optional[float]:
+    def dt(self) -> Optional[float]:
         """Return the fixed step size for fixed controllers."""
-
         controller = self._step_controller
         return controller.dt if hasattr(controller, "dt") else None
 
