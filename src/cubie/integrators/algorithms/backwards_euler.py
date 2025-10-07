@@ -282,7 +282,7 @@ class BackwardsEulerStep(ODEImplicitStep):
 
     @property
     def is_adaptive(self) -> bool:
-        """Return ``False`` because backward Euler is fixed step here."""
+        """Return ``False`` because backward Euler is fixed step."""
 
         return False
 
