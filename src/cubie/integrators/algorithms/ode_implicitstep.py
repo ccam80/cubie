@@ -33,7 +33,7 @@ class ImplicitStepConfig(BaseStepConfig):
     preconditioner_order
         Order of the truncated Neumann preconditioner.
     dt
-        fixed step size for fixed-step algorithms
+        Optional fixed step size for fixed-step algorithms.
     krylov_tolerance
         Linear solver tolerance used by the Krylov iteration.
     max_linear_iters
@@ -214,7 +214,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
         n
             Dimension of the state vector.
         dt
-            Fixed step size for fixed-step algorithms. Optional
+            Fixed step size provided for fixed-step operation.
 
         Returns
         -------

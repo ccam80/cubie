@@ -40,6 +40,8 @@ def get_controller(
 
     Parameters
     ----------
+    precision
+        Floating-point dtype used when compiling the controller.
     settings
         Mapping of step control keyword arguments supplied by the caller.
         Values in ``settings`` are merged with ``kwargs``. The mapping must

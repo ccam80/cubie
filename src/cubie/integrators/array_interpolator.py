@@ -112,7 +112,7 @@ class ArrayInterpolator(CUDAFactory):
 
 
     def update_from_dict(self, input_dict: Dict[str, Any]) -> bool:
-        """Update the factory configuration from a user-supplied dictionary
+        """Update the factory configuration from a user-supplied dictionary.
 
         Parameters
         ----------
@@ -122,7 +122,8 @@ class ArrayInterpolator(CUDAFactory):
 
         Returns
         -------
-        None
+        bool
+            ``True`` when the coefficients or configuration changed.
 
         Notes
         -----
@@ -435,7 +436,7 @@ class ArrayInterpolator(CUDAFactory):
 
     @property
     def evaluation_function(self) -> Callable:
-        """Return the device function for evaluating all inputs."""
+        """Device function for evaluating all inputs."""
         return self.device_function
 
     @property
@@ -447,7 +448,9 @@ class ArrayInterpolator(CUDAFactory):
     # Inspection interface
     # ---------------------------------------------------------------------- #
     def get_input_array(self) -> FloatArray:
-        """Return the input array."""
+        """Return the input array.
+        """
+        return self._input_array
 
     def get_interpolated(
         self,

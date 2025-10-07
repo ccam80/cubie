@@ -53,6 +53,8 @@ class BaseStepConfig(ABC):
         ``float16``, ``float32``, and ``float64``.
     n
         Number of state entries advanced by each step call.
+    dt
+        Optional fixed step size supplied by explicit algorithms.
     dxdt_function
         Device function that evaluates the system right-hand side.
     observables_function
@@ -62,8 +64,6 @@ class BaseStepConfig(ABC):
     get_solver_helper_fn
         Optional callable that returns device helpers required by the
         nonlinear solver construction.
-    observables_function
-        Device function computing system observables.
     """
 
     precision: PrecisionDType = attrs.field(

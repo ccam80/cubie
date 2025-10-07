@@ -373,6 +373,8 @@ class ODELoopConfig:
         Device function that updates the timestep and acceptance flag.
     step_function
         Device function that advances the solution by one tentative step.
+    driver_function
+        Device function that evaluates driver signals for a given time.
     observables_fn
         Device function that evaluates observables for the current state.
     _dt0

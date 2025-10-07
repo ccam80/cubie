@@ -58,6 +58,8 @@ class IVPLoop(CUDAFactory):
         Device function that advances the solution by one tentative step.
     driver_function
         Device function that evaluates drivers for a given time.
+    observables_fn
+        Device function that computes observables for proposed states.
     """
 
     def __init__(

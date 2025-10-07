@@ -36,20 +36,21 @@ class ExplicitEulerStep(ODEExplicitStep):
 
         Parameters
         ----------
-        dxdt_function
-            Device derivative function evaluating ``dx/dt``.
-        observables_function
-            Device function computing system observables.
         precision
             Precision applied to device buffers.
         n
             Number of state entries advanced per step.
         dt
-            Fixed step size.
+            Fixed step size used by the explicit update. Defaults to the
+            controller value when ``None`` is supplied.
+        dxdt_function
+            Device derivative function evaluating ``dx/dt``.
+        observables_function
+            Device function computing system observables.
         driver_function
             Optional device function evaluating spline drivers at arbitrary
             times.
-        solver_function_getter
+        get_solver_helper_fn
             Present for interface parity with implicit steps and ignored here.
         """
         if dt is None:
@@ -89,7 +90,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             Numba precision corresponding to the configured precision.
         n
             Dimension of the state vector.
-        fixed_step_size
+        dt
             Step size used for integration.
 
         Returns

@@ -52,7 +52,8 @@ class BackwardsEulerStep(ODEImplicitStep):
         n
             Number of state entries advanced per step.
         dt
-            fixed step size for fixed-step algorithms
+            Fixed step size for fixed-step algorithms. When ``None`` the
+            controller default is used.
         dxdt_function
             Device derivative function evaluating ``dx/dt``.
         observables_function
@@ -132,6 +133,8 @@ class BackwardsEulerStep(ODEImplicitStep):
             Numba precision corresponding to the configured precision.
         n
             Dimension of the state vector.
+        dt
+            Fixed step size supplied for fixed-step execution.
 
         Returns
         -------

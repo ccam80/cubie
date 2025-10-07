@@ -40,8 +40,6 @@ class SingleIntegratorRunCore(CUDAFactory):
     ----------
     system
         ODE system whose device functions drive the integration.
-    algorithm
-        Name of the algorithm step implementation. Defaults to ``"euler"``.
     dt_save
         Interval used when saving full state trajectories. Defaults to
         ``0.1``.
@@ -59,16 +57,20 @@ class SingleIntegratorRunCore(CUDAFactory):
         Output modes requested from the output handler.
     driver_function
         Optional device function which interpolates arbitrary driver inputs
-
-    algorithm_parameters
-        Additional keyword arguments forwarded to the algorithm factory.
+        for use by step algorithms.
+    algorithm_settings
+        Mapping forwarded to :func:`cubie.integrators.algorithms.get_algorithm_step`
+        containing ``"algorithm"`` and any additional parameters required by
+        the selected step factory. When ``None`` the algorithm defaults are
+        used.
     step_control_settings
-        Mapping of keyword arguments to merge with the algorithm default step
-        controller settings. Include ``"step_controller"`` to override the
-        controller family selected by the algorithm defaults. Supply bounds
-        such as ``"dt_min"`` and ``"dt_max"`` here when configuring adaptive
+        Mapping merged with the algorithm defaults before calling
+        :func:`cubie.integrators.step_control.get_controller`. Include
+        ``"step_controller"`` to select a controller family and provide bounds
+        such as ``"dt_min"`` and ``"dt_max"`` when configuring adaptive
         controllers. Supported identifiers include ``"fixed"``, ``"i"``,
-        ``"pi"``, ``"pid"``, and ``"gustafsson"``.
+        ``"pi"``, ``"pid"``, and ``"gustafsson"``. When ``None`` the
+        algorithm defaults are used.
 
     Returns
     -------
@@ -205,6 +207,8 @@ class SingleIntegratorRunCore(CUDAFactory):
 
         Parameters
         ----------
+        precision
+            Numerical precision used when compiling the loop.
         n_states
             Number of state variables in the system.
         n_parameters
@@ -213,10 +217,10 @@ class SingleIntegratorRunCore(CUDAFactory):
             Number of observables emitted by the system.
         n_drivers
             Number of external driver signals consumed by the loop.
-        n_state_summaries
-            Number of state summary metrics produced by outputs.
-        n_observable_summaries
-            Number of observable summary metrics produced by outputs.
+        state_summaries_buffer_height
+            Height of the state summary buffer managed by the outputs.
+        observable_summaries_buffer_height
+            Height of the observable summary buffer managed by the outputs.
         controller_local_elements
             Persistent local memory elements required by the controller.
         algorithm_local_elements
@@ -236,6 +240,8 @@ class SingleIntegratorRunCore(CUDAFactory):
             Maximum allowed step size.
         is_adaptive
             Whether the controller performs adaptive stepping.
+        driver_function
+            Optional device function that evaluates drivers for proposed times.
 
         Returns
         -------

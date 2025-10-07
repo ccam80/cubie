@@ -87,7 +87,7 @@ class ODEExplicitStep(BaseAlgorithmStep):
             Numba precision for compiled device buffers.
         n
             Dimension of the state vector.
-        fixed_step_size
+        dt
             Fixed step size applied by the integrator.
 
         Returns

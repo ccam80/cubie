@@ -43,16 +43,17 @@ def get_algorithm_step(
     Parameters
     ----------
     precision
-        Floating-point datatype to use for computation
+        Floating-point dtype used when compiling the step implementation.
     settings
-        Dictionary of settings to apply to the algorithm, can include any
-        keywords from ``ALL_ALGORITHM_STEP_PARAMETERS``
+        Mapping of settings applied to the algorithm. Must include
+        ``"algorithm"`` and can contain any keywords from
+        ``ALL_ALGORITHM_STEP_PARAMETERS``.
     warn_on_unused
-        If True, issue a warning for any values in ``settings`` that are not
-        part of the requested algorithm's init signature.
+        If ``True``, issue a warning for settings that the selected algorithm
+        does not accept.
     **kwargs
-        Can be any additional keywords from ``ALL_ALGORITHM_STEP_PARAMETERS``.
-        These will override any values in ``settings``.
+        Additional keywords from ``ALL_ALGORITHM_STEP_PARAMETERS``. These
+        override entries provided in ``settings``.
 
     Returns
     -------

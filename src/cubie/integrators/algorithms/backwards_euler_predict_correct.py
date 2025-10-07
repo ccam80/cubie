@@ -39,7 +39,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
         n
             Dimension of the state vector.
         dt
-            fixed step size for fixed-step algorithms
+            Fixed step size supplied for fixed-step execution.
 
 
         Returns
