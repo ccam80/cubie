@@ -7,7 +7,7 @@ for converting between user-facing labels/indices and internal representations.
 Classes
 -------
 SystemInterface
-    Convenient accessor for system values with label/index conversion methods.
+    Convenience accessor for system values with label/index conversion methods.
 
 Notes
 -----
@@ -25,7 +25,7 @@ from cubie.odesystems.SystemValues import SystemValues
 
 
 class SystemInterface:
-    """Convenient accessor for system values.
+    """Convenience accessor for system values.
 
     This class wraps SystemValues instances for parameters, states, and
     observables and provides methods for converting between user-facing
@@ -319,4 +319,3 @@ class SystemInterface:
         return self.state_labels() + self.observable_labels()
 
 
-__all__ = ["SystemInterface"]

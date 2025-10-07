@@ -10,9 +10,7 @@ import numpy as np
 from numba import cuda
 import os
 
-from cubie.batchsolving._utils import (
-    ensure_nonzero_size,
-    is_cuda_array,
+from cubie.batchsolving._utils import (is_cuda_array,
     cuda_array_validator,
     optional_cuda_array_validator,
     optional_cuda_array_validator_3d,
@@ -20,6 +18,7 @@ from cubie.batchsolving._utils import (
     cuda_array_validator_3d,
     cuda_array_validator_2d,
 )
+from cubie._utils import ensure_nonzero_size
 
 
 class TestEnsureNonzeroSize:

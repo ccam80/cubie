@@ -20,7 +20,7 @@ from abc import ABC
 import attrs
 from numpy import ceil
 
-from cubie.batchsolving._utils import ensure_nonzero_size
+from cubie._utils import ensure_nonzero_size
 
 
 @attrs.define

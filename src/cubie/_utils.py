@@ -490,3 +490,43 @@ def getype_validator(dtype, min_):
         validators.instance_of(_expand_dtype(dtype)),
         validators.ge(min_)
     )
+
+
+def ensure_nonzero_size(
+    value: Union[int, Tuple[int, ...]],
+) -> Union[int, Tuple[int, ...]]:
+    """
+    Replace zero-size shape with a one-size shape to ensure non-zero sizes.
+
+    Parameters
+    ----------
+    value : Union[int, Tuple[int, ...]]
+        Input value or tuple of values to process.
+
+    Returns
+    -------
+    Union[int, Tuple[int, ...]]
+        The input value with any zeros replaced by ones. For integers,
+        returns max(1, value). For tuples, if any element is zero,
+        returns a tuple of all ones with the same length.
+
+    Examples
+    --------
+    >>> ensure_nonzero_size(0)
+    1
+    >>> ensure_nonzero_size(5)
+    5
+    >>> ensure_nonzero_size((0, 2, 0))
+    (1, 1, 1)
+    >>> ensure_nonzero_size((2, 3, 4))
+    (2, 3, 4)
+    """
+    if isinstance(value, int):
+        return max(1, value)
+    elif isinstance(value, tuple):
+        if any(v == 0 for v in value):
+            return tuple(1 for v in value)
+        else:
+            return value
+    else:
+        return value
