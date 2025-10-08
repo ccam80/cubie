@@ -80,8 +80,6 @@ def solve_ivp(
         system,
         algorithm=method,
         dt_save=dt_eval,
-        duration=duration,
-        warmup=settling_time,
         **kwargs,
     )
     results = solver.solve(
@@ -342,12 +340,13 @@ class Solver:
             Collected results from the integration run.
         """
         if kwargs:
-            self.update(kwargs)
+            self.update(kwargs, silent=True)
 
         inits, params = self.grid_builder(
             states=initial_values, params=parameters, kind=grid_type
         )
 
+        fn_changed = False  # ensure defined if drivers is None
         if drivers is not None:
             ArrayInterpolator.check_against_system_drivers(drivers,
                                                                self.system)
@@ -616,147 +615,181 @@ class Solver:
 
     @property
     def summarised_observable_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .summarised_observable_indices` from the child BatchSolverKernel
-        object."""
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel .summarised_observable_indices`."""
         return self.kernel.summarised_observable_indices
 
     @property
     def summarised_observables(self):
-        """Returns a list of observable labels for the summarised observables."""
+        """Returns labels of summarised observables."""
         return self.system_interface.observable_labels(
             self.summarised_observable_indices
         )
 
     @property
     def active_output_arrays(self) -> ActiveOutputs:
-        """Exposes
-        :attr:`~cubie.batchsolving.BatchSolverKernel.active_output_arrays` from
-        the child BatchSolverKernel object."""
+        """Exposes active output array containers."""
         return self.kernel.active_output_arrays
 
     @property
     def state(self):
-        """Exposes :attr:~cubie.batchsolving.BatchSolverKernel.state from the
-        child BatchSolverKernel object."""
+        """Exposes latest state outputs."""
         return self.kernel.state
 
     @property
     def observables(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.observables`
-        from the child BatchSolverKernel object."""
+        """Exposes latest observable outputs."""
         return self.kernel.observables
 
     @property
     def state_summaries(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .state_summaries` from the child BatchSolverKernel object."""
+        """Exposes state summary outputs."""
         return self.kernel.state_summaries
 
     @property
     def observable_summaries(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.
-        observable_summaries` from the child BatchSolverKernel object."""
+        """Exposes observable summary outputs."""
         return self.kernel.observable_summaries
 
     @property
     def parameters(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.parameters`
-        from the child BatchSolverKernel object."""
+        """Exposes parameter array used in last run."""
         return self.kernel.parameters
 
     @property
     def initial_values(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.initial_values`
-        from the child BatchSolverKernel object."""
+        """Exposes initial values array used in last run."""
         return self.kernel.initial_values
 
     @property
     def driver_coefficients(self):
-        """Expose driver coefficients staged on the BatchSolverKernel."""
+        """Exposes driver interpolation coefficients."""
         return self.kernel.driver_coefficients
 
     @property
     def save_time(self) -> bool:
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.save_time` from
-        the child BatchSolverKernel object."""
+        """Whether time points are saved."""
         return self.kernel.save_time
 
     @property
     def output_types(self) -> list[str]:
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_types`
-        from the child BatchSolverKernel object."""
+        """List of active output types."""
         return self.kernel.output_types
 
     @property
     def state_stride_order(self) -> Tuple[str, ...]:
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .state_stride_order
-        ` from the child BatchSolverKernel object."""
+        """Tuple describing stride order of state arrays."""
         return self.kernel.state_stride_order
 
     @property
     def input_variables(self) -> List[str]:
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.input_variables
-        ` from the child BatchSolverKernel object."""
+        """All input variable labels (states, params, drivers)."""
         return self.system_interface.all_input_labels
 
     @property
     def output_variables(self) -> List[str]:
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .output_variables` from the child BatchSolverKernel object."""
+        """All output variable labels (states, observables, summaries)."""
         return self.system_interface.all_output_labels
 
     @property
     def chunk_axis(self) -> str:
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.chunk_axis`
-        from the child BatchSolverKernel object."""
+        """Axis used for chunking large runs."""
         return self.kernel.chunk_axis
 
     @property
     def chunks(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.chunks` from the
-        child BatchSolverKernel object."""
+        """Number of chunks used in last run."""
         return self.kernel.chunks
 
     @property
     def memory_manager(self):
-        """Returns the memory manager the solver is registered with."""
+        """Memory manager instance."""
         return self.kernel.memory_manager
 
     @property
     def stream_group(self):
-        """Returns the stream_group the solver is in."""
+        """CUDA stream group assigned to this solver."""
         return self.kernel.stream_group
 
     @property
     def mem_proportion(self):
-        """Returns the memory proportion the solver is assigned."""
+        """Proportion of global memory allocated."""
         return self.kernel.mem_proportion
 
     @property
     def system(self) -> "BaseODE":
-        """Returns the system the solver is associated with."""
+        """Underlying ODE system instance."""
         return self.kernel.system
+
+    # Pass-through properties for solve_info components
+    @property
+    def dt(self):
+        """Current step size."""
+        return self.kernel.dt
+
+    @property
+    def dt_min(self):
+        """Minimum allowed step size."""
+        return self.kernel.dt_min
+
+    @property
+    def dt_max(self):
+        """Maximum allowed step size."""
+        return self.kernel.dt_max
+
+    @property
+    def dt_save(self):
+        """Interval between saved outputs."""
+        return self.kernel.dt_save
+
+    @property
+    def dt_summarise(self):
+        """Interval between summary computations."""
+        return self.kernel.dt_summarise
+
+    @property
+    def duration(self):
+        """Integration duration requested."""
+        return self.kernel.duration
+
+    @property
+    def warmup(self):
+        """Warm-up period length."""
+        return self.kernel.warmup
+
+    @property
+    def atol(self):
+        """Absolute tolerance."""
+        return self.kernel.atol
+
+    @property
+    def rtol(self):
+        """Relative tolerance."""
+        return self.kernel.rtol
+
+    @property
+    def algorithm(self):
+        """Algorithm name."""
+        return self.kernel.algorithm
 
     @property
     def solve_info(self):
-        """Returns a SolveSpec object with details of the solver run."""
+        """SolveSpec describing current solver configuration."""
         return SolveSpec(
-            dt=self.kernel.dt,
-            dt_min=self.kernel.dt_min,
-            dt_max=self.kernel.dt_max,
-            dt_save=self.kernel.dt_save,
-            dt_summarise=self.kernel.dt_summarise,
-            duration=self.kernel.duration,
-            warmup=self.kernel.warmup,
-            atol=self.kernel.atol,
-            rtol=self.kernel.rtol,
-            algorithm=self.kernel.algorithm,
+            dt=self.dt,
+            dt_min=self.dt_min,
+            dt_max=self.dt_max,
+            dt_save=self.dt_save,
+            dt_summarise=self.dt_summarise,
+            duration=self.duration,
+            warmup=self.warmup,
+            atol=self.atol,
+            rtol=self.rtol,
+            algorithm=self.algorithm,
             saved_states=self.saved_states,
             saved_observables=self.saved_observables,
             summarised_states=self.summarised_states,
             summarised_observables=self.summarised_observables,
-            output_types=self.kernel.output_types,
+            output_types=self.output_types,
             precision=self.precision,
         )
+

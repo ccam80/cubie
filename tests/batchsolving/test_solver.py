@@ -204,8 +204,8 @@ def test_solve_info_property(
     assert solve_info.precision ==  solver_settings["precision"]
 
     # Test that solver kernel properties are correctly exposed
-    assert solve_info.duration == solver.kernel.duration
-    assert solve_info.warmup == solver.kernel.warmup
+    assert solve_info.duration == solver.duration
+    assert solve_info.warmup == solver.warmup
 
     # Test that variable lists are correctly exposed
     assert solve_info.saved_states == solver.saved_states
@@ -337,17 +337,18 @@ def test_solve_with_different_result_types(
         assert result is not None
 
 
-def test_update_basic(solver):
-    """Test basic update functionality."""
-    original_duration = solver.kernel.duration
-
-    updates = {"duration": 2.0}
-    updated_keys = solver.update(updates)
-
-    assert "duration" in updated_keys
-    assert solver.kernel.duration == 2.0
-    assert solver.kernel.duration != original_duration
-
+def test_update_basic(solver, tolerance, precision):
+    """Test basic update functionality updating the fixed step size."""
+    original_dt = solver.dt
+    # Choose a new dt distinct from the original
+    new_dt = precision(original_dt * 0.5 if original_dt not in (0,
+                                                                None) else
+                       1e-7)
+    updated_keys = solver.update({"dt": new_dt})
+    assert "dt" in updated_keys
+    # For fixed-step integrators dt should now reflect the new value if not getattr(solver.kernel.single_integrator, "is_adaptive", False):
+    assert solver.dt == pytest.approx(
+        new_dt, rel=tolerance.rel_tight, abs=tolerance.abs_tight)
 
 def test_update_with_kwargs(solver, tolerance):
     """Test update with keyword arguments."""
@@ -376,17 +377,19 @@ def test_update_unrecognized_keys(solver):
         solver.update({"nonexistent_parameter": 42})
 
 
-def test_update_silent_mode(solver):
+def test_update_silent_mode(precision,solver):
     """Test update in silent mode ignores unrecognized keys."""
-    original_duration = solver.kernel.duration
+    original_dt = solver.dt
+    # Choose a new dt distinct from the original
+    new_dt = precision(original_dt * 0.5 if original_dt not in (0, None) else \
+        1e-7)
+    updated_keys = solver.update({"dt": new_dt, "nonexistent_parameter":
+        42}, silent=True)
 
-    updated_keys = solver.update(
-        {"duration": 3.0, "nonexistent_parameter": 42}, silent=True
-    )
+    assert "dt" in updated_keys
 
-    assert "duration" in updated_keys
     assert "nonexistent_parameter" not in updated_keys
-    assert solver.kernel.duration == 3.0
+    assert solver.kernel.dt == new_dt
 
 
 def test_update_saved_variables(solver, system):
@@ -480,9 +483,13 @@ def test_solve_ivp_function(
         y0=simple_initial_values,
         parameters=simple_parameters,
         drivers=driver_settings,
+        dt=1e-2,
         dt_eval=0.02,
+        duration= 0.05,
+        dt_summarise= 0.04,
+        output_types= ["state", "time", "observables",
+                     "mean"],
         method="euler",
-        duration=0.1,
         settling_time=0.0,
     )
 

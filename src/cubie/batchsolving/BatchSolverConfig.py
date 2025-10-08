@@ -3,6 +3,7 @@
 This module provides :class:`BatchSolverConfig`, a small container that holds
 settings used when compiling and running the CUDA integration kernel.
 """
+from typing import Optional, Callable
 
 import attrs
 import numba
@@ -13,30 +14,30 @@ from cubie._utils import (
     getype_validator,
     precision_converter,
     precision_validator,
+    is_device_validator
 )
+from cubie.batchsolving.arrays.BatchOutputArrays import ActiveOutputs
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
 
 
 @attrs.define
 class BatchSolverConfig:
-    """Settings for configuring a batch solver kernel.
+    """Compile-critical settings for the batch solver kernel.
 
     Attributes
     ----------
-    precision : type, optional
+    precision
         Data type used for computation. Defaults to ``float32``.
-    algorithm : str, optional
-        Name of the integration algorithm. Defaults to ``'euler'``.
-    duration : float, optional
-        Total integration duration in seconds. Defaults to ``1.0``.
-    warmup : float, optional
-        Length of the warm-up period before outputs are stored. Defaults to
-        ``0.0``.
-    stream : int, optional
-        Identifier for the CUDA stream to execute on. ``None`` defaults to the
-        solver's stream. Defaults to ``0``.
-    profileCUDA : bool, optional
-        If ``True`` CUDA profiling is enabled. Defaults to ``False``.
+    loop_fn
+        The loop function constructed by singleintegratorrun. This is
+        compiled into the kernel.
+    local_memory_elements
+        size of the local memory buffer, allocated at build time.
+    shared_memory_elements
+        size of the shared memory buffer, allocated at build time
+    ActiveOutputs
+        Which array outputs are active/not.
+
     """
 
     precision: PrecisionDType = attrs.field(
@@ -44,21 +45,22 @@ class BatchSolverConfig:
         converter=precision_converter,
         validator=precision_validator,
     )
-    _duration: float = attrs.field(
-        default=1.0, validator=getype_validator(float, 0)
+    loop_fn: Optional[Callable] = attrs.field(
+            default=None,
+            validator=attrs.validators.optional(is_device_validator)
     )
-    _warmup: float = attrs.field(
-        default=0.0, validator=getype_validator(float, 0)
+    local_memory_elements: int = attrs.field(
+            default=0,
+            validator=getype_validator(int, 0)
     )
-    stream: int = attrs.field(
-        default=0,
-        validator=attrs.validators.optional(
-            attrs.validators.instance_of(
-                int,
-            ),
-        ),
+    shared_memory_elements: int = attrs.field(
+            default=0,
+            validator=getype_validator(int, 0)
     )
-    profileCUDA: bool = False
+    ActiveOutputs: ActiveOutputs = attrs.field(
+            factory=ActiveOutputs,
+            validator=attrs.validators.instance_of(ActiveOutputs)
+    )
 
     @property
     def numba_precision(self) -> type:
@@ -69,13 +71,3 @@ class BatchSolverConfig:
     def simsafe_precision(self) -> type:
         """Returns simulator safe precision."""
         return simsafe_dtype(self.precision)
-
-    @property
-    def duration(self) -> float:
-        """Returns integration duration."""
-        return self.precision(self._duration)
-
-    @property
-    def warmup(self) -> float:
-        """Returns warm-up duration."""
-        return self.precision(self._warmup)

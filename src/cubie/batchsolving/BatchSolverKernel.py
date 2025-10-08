@@ -100,7 +100,8 @@ class BatchSolverKernel(CUDAFactory):
     - Input sanitisation / batch construction - this is handled in the solver api
     - System equations - these are handled in the system model classes
 
-    The class runs the loop device function on a given slice of its allocated
+    The kernel runs the loop device function from a
+    ::class::SingleIntegratorRun object on a given slice of kernel-allocated
     memory and serves as the distributor of work amongst the individual runs
     of the integrators.
     """
@@ -122,6 +123,14 @@ class BatchSolverKernel(CUDAFactory):
         super().__init__()
         if memory_settings is None:
             memory_settings = {}
+        if output_settings is None:
+            output_settings = {}
+
+        # Store non compile-critical run parameters locally (removed from config)
+        self._duration = duration
+        self._warmup = warmup
+        self._profileCUDA = profileCUDA
+
         precision = system.precision
         self.chunks = None
         self.chunk_axis = "run"
@@ -129,22 +138,7 @@ class BatchSolverKernel(CUDAFactory):
 
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
-        config = BatchSolverConfig(
-            precision=precision, # can be dug out of the system.
-            duration=duration, # doesn't belong to the batch, belongs to the
-                # loop
-            warmup=warmup,# doesn't belong to the batch, belongs to the
-                # loop
-            profileCUDA=profileCUDA, # not a compile-time setting
-        )
-        # what actually is compile-critical for the batch solver? numruns or
-        # chunk details? or is that handled in the arrays?
-
-        # Setup compile settings for the kernel
-        self.setup_compile_settings(config)
-
-        if output_settings is None:
-            output_settings = {}
+        # Build the single integrator first so we can derive compile-critical data
         self.single_integrator = SingleIntegratorRun(
             system,
             dt_save=dt_save,
@@ -155,8 +149,28 @@ class BatchSolverKernel(CUDAFactory):
             output_settings=output_settings,
         )
 
+        initial_config = BatchSolverConfig(
+            precision=precision,
+            loop_fn=None,
+            local_memory_elements=self.single_integrator.local_memory_elements,
+            shared_memory_elements=self.single_integrator.shared_memory_elements,
+            ActiveOutputs=ActiveOutputs(),  # placeholder, updated after arrays allocate
+        )
+        self.setup_compile_settings(initial_config)
+
         self.input_arrays = InputArrays.from_solver(self)
         self.output_arrays = OutputArrays.from_solver(self)
+
+        # Allocate/update to set active outputs then refresh compile settings
+        self.output_arrays.update(self)
+        self.update_compile_settings(
+            {
+                "ActiveOutputs": self.output_arrays.active_outputs,
+                "local_memory_elements": self.single_integrator.local_memory_elements,
+                "shared_memory_elements": self.single_integrator.shared_memory_elements,
+                "precision": self.single_integrator.precision,
+            }
+        )
 
     def _setup_memory_manager(self, settings: Dict[str, Any]) -> "MemoryManager":
         """Configure and register the kernel with the memory manager.
@@ -186,7 +200,6 @@ class BatchSolverKernel(CUDAFactory):
             allocation_ready_hook=self._on_allocation,
         )
         return memory_manager
-
 
     def run(
         self,
@@ -242,45 +255,53 @@ class BatchSolverKernel(CUDAFactory):
         warmup = precision(warmup)
         t0 = precision(t0)
 
-        duration = precision(duration)
-        warmup = precision(warmup)
         numruns = inits.shape[0]
-        self.num_runs = numruns # Don't delete - generates batchoutputsizes
+        self.num_runs = numruns  # Don't delete - generates batchoutputsizes
 
-        # This adds the allocations for input and output arrays to a queue
+        # Queue allocations
         self.input_arrays.update(self, inits, params, driver_coefficients)
         self.output_arrays.update(self)
 
-        # And we process them all at once to divide into "chunks"
+        # Refresh compile-critical settings (may trigger rebuild)
+        self.update_compile_settings(
+            {
+                "loop_fn": self.single_integrator.compiled_loop_function,
+                "precision": self.single_integrator.precision,
+                "local_memory_elements": self.single_integrator.local_memory_elements,
+                "shared_memory_elements": self.single_integrator.shared_memory_elements,
+                "ActiveOutputs": self.output_arrays.active_outputs,
+            }
+        )
+
+        # Process allocations into chunks
         self.memory_manager.allocate_queue(self, chunk_axis=chunk_axis)
 
         # ------------ from here on dimensions are "chunked" -----------------
         chunk_params = self.chunk_run(
-                chunk_axis,
-                duration,
-                warmup,
-                t0,
-                numruns,
-                self.chunks
+            chunk_axis,
+            duration,
+            warmup,
+            t0,
+            numruns,
+            self.chunks,
         )
         chunk_duration, chunk_warmup, chunk_t0, chunksize, chunkruns = chunk_params
 
         pad = 4 if self.shared_memory_needs_padding else 0
-        padded_bytes = self.shared_memory_bytes_per_run + pad
-        dynamic_sharedmem = int(padded_bytes * min(chunkruns, blocksize)) #
-        # multiply by numruns before we get to calling the device function
+        padded_bytes = self.shared_memory_bytes + pad
+        dynamic_sharedmem = int(padded_bytes * min(chunkruns, blocksize))
 
         blocksize, dynamic_sharedmem = self.limit_blocksize(
-                blocksize,
-                dynamic_sharedmem,
-                padded_bytes,
-                numruns,
+            blocksize,
+            dynamic_sharedmem,
+            padded_bytes,
+            numruns,
         )
         threads_per_loop = self.single_integrator.threads_per_loop
         runsperblock = int(blocksize / self.single_integrator.threads_per_loop)
         BLOCKSPERGRID = int(max(1, np.ceil(numruns / blocksize)))
 
-        if self.profileCUDA: # pragma: no cover
+        if self.profileCUDA:  # pragma: no cover
             cuda.profile_start()
 
         for i in range(self.chunks):
@@ -317,7 +338,7 @@ class BatchSolverKernel(CUDAFactory):
             self.input_arrays.finalise(indices)
             self.output_arrays.finalise(indices)
 
-        if self.profileCUDA: # pragma: no cover
+        if self.profileCUDA:  # pragma: no cover
             cuda.profile_stop()
 
     def limit_blocksize(
@@ -326,7 +347,7 @@ class BatchSolverKernel(CUDAFactory):
         dynamic_sharedmem: int,
         bytes_per_run: int,
         numruns: int,
-    ) -> int:
+    ) -> tuple[int, int]:
         """Reduce blocksize until dynamic shared memory fits within limits.
 
         Notes:
@@ -364,12 +385,11 @@ class BatchSolverKernel(CUDAFactory):
                     "some parameters to constants, or trying a different "
                     "solving algorithm."
                 )
-            blocksize = blocksize / 2
+            blocksize = int(blocksize // 2)
             dynamic_sharedmem = int(
                     bytes_per_run * min(numruns, blocksize)
             )
         return blocksize, dynamic_sharedmem
-
 
     def chunk_run(
         self,
@@ -420,50 +440,27 @@ class BatchSolverKernel(CUDAFactory):
         return chunk_duration, chunk_warmup, chunk_t0, chunksize, chunkruns
 
     def build_kernel(self):
-        """
-        Build and compile the CUDA integration kernel.
-
-        Returns
-        -------
-        function
-            Compiled CUDA kernel function for integration.
-
-        Notes
-        -----
-        This method creates a CUDA kernel that:
-        1. Distributes work across GPU threads
-        2. Manages shared memory allocation
-        3. Calls the underlying integration loop function
-        4. Handles output array indexing and slicing
-
-        The kernel uses a 2D thread block structure where:
-        - x-dimension handles intra-run parallelism
-        - y-dimension handles different runs
-        """
+        """Build and compile the CUDA integration kernel."""
         config = self.compile_settings
         simsafe_precision = config.simsafe_precision
         precision = config.numba_precision
 
         loopfunction = self.single_integrator.device_function
 
-        output_flags = self.active_output_arrays
-        # TODO: check that this is updated correctly from output functions
-        #  This is the only compile-critical feature, I think.
+        output_flags = config.ActiveOutputs
         save_state = output_flags.state
         save_observables = output_flags.observables
         save_state_summaries = output_flags.state_summaries
         save_observable_summaries = output_flags.observable_summaries
         needs_padding = self.shared_memory_needs_padding
 
-        local_elements_per_run = self.local_memory_elements_per_run
-        shared_elements_per_run = self.shared_memory_elements_per_run
-        # TODO: these also invalidate build.
+        local_elements_per_run = config.local_memory_elements
+        shared_elems_per_run = config.shared_memory_elements
         f32_per_element = 2 if (precision is float64) else 1
         f32_pad_perrun = 1 if needs_padding else 0
         run_stride_f32 = int(
-            (f32_per_element * shared_elements_per_run + f32_pad_perrun)
+            (f32_per_element * shared_elems_per_run + f32_pad_perrun)
         )
-
         # no cover: start
         @cuda.jit(
             (
@@ -497,31 +494,25 @@ class BatchSolverKernel(CUDAFactory):
         ):
             tx = int16(cuda.threadIdx.x)
             ty = int16(cuda.threadIdx.y)
-
             block_index = int32(cuda.blockIdx.x)
             runs_per_block = cuda.blockDim.y
             run_index = int32(runs_per_block * block_index + ty)
-
             if run_index >= n_runs:
                 return None
+            shared_memory = cuda.shared.array(0, dtype=float32)
 
             # Declare shared memory in 32b units to allow for skewing/padding
-            shared_memory = cuda.shared.array(0, dtype=float32)
             local_scratch = cuda.local.array(
                 local_elements_per_run, dtype=float32
             )
             c_coefficients = cuda.const.array_like(d_coefficients)
-
-            # Run-indexed slices of shared and output memory
             run_idx_low = ty * run_stride_f32
             run_idx_high = (
-                run_idx_low + f32_per_element * shared_elements_per_run
+                run_idx_low + f32_per_element * shared_elems_per_run
             )
-
             rx_shared_memory = shared_memory[run_idx_low:run_idx_high].view(
                 simsafe_precision
             )
-
             rx_inits = inits[run_index, :]
             rx_params = params[run_index, :]
             rx_state = state_output[:, run_index * save_state, :]
@@ -529,12 +520,11 @@ class BatchSolverKernel(CUDAFactory):
                 :, run_index * save_observables, :
             ]
             rx_state_summaries = state_summaries_output[
-                :, run_index * save_state_summaries, :
+                :, run_index * save_observables, :
             ]
             rx_observables_summaries = observables_summaries_output[
-                :, run_index * save_observable_summaries, :
+                :, run_index * save_state_summaries, :
             ]
-
             status = loopfunction(
                 rx_inits,
                 rx_params,
@@ -549,12 +539,9 @@ class BatchSolverKernel(CUDAFactory):
                 warmup,
                 t0,
             )
-
             if tx == 0:
                 status_codes_output[run_index] = status
-
             return None
-
         # no cover: end
         return integration_kernel
 
@@ -562,6 +549,7 @@ class BatchSolverKernel(CUDAFactory):
         """
         Update solver configuration parameters.
 
+        Reorders logic to first update the single integrator, then regenerate
         Parameters
         ----------
         updates_dict : dict, optional
@@ -596,18 +584,47 @@ class BatchSolverKernel(CUDAFactory):
             return set()
 
         all_unrecognized = set(updates_dict.keys())
-        all_unrecognized -= self.update_compile_settings(
-                updates_dict, silent=True
-        )
         all_unrecognized -= self.single_integrator.update(
                 updates_dict, silent=True
         )
+        updates_dict.update({
+            "loop_function": self.single_integrator.device_function,
+             "local_memory_elements": self.single_integrator.local_memory_elements,
+             "shared_memory_elements": self.single_integrator.shared_memory_elements,
+             "ActiveOutputs": self.output_arrays.active_outputs,
+        })
+
+        all_unrecognized -= self.update_compile_settings(
+                updates_dict, silent=True
+        )
+
         recognised = set(updates_dict.keys()) - all_unrecognized
 
         if all_unrecognized:
             if not silent:
                 raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
+
         return recognised
+
+    @property
+    def precision(self):
+        """Get numerical precision used in computations."""
+        return self.compile_settings.precision
+
+    @property
+    def local_memory_elements(self):
+        """Get number of local memory elements per run"""
+        return self.compile_settings.local_memory_elements
+
+    @property
+    def shared_memory_elements(self):
+        """Get number of shared memory elements per run"""
+        return self.compile_settings.shared_memory_elements
+
+    @property
+    def ActiveOutputs(self):
+        """Get acive output array flags"""
+        return self.compile_settings.ActiveOutputs
 
     @property
     def shared_memory_needs_padding(self):
@@ -627,220 +644,69 @@ class BatchSolverKernel(CUDAFactory):
 
         References
         ----------
-        .. [CUDAProgrammingGuide] NVIDIA Corporation, *CUDA C Programming
+        elif self.shared_memory_elements_per_run % 2 == 0:
            Guide*, "Shared Memory", 2024.
         """
         if self.precision == np.float64:
             return False
-        elif self.shared_memory_elements_per_run % 2 == 0:
+        elif self.shared_memory_elements % 2 == 0:
             return True
         else:
             return False
 
     def _on_allocation(self, response):
-        """
-        Handle memory allocation response.
-
-        Parameters
-        ----------
-        response : ArrayResponse
-            Memory allocation response containing chunk information.
-        """
+        """Hook to save chunks value after array allocation."""
         self.chunks = response.chunks
 
     @property
     def output_heights(self):
-        """
-        Get output array heights.
-
-        Returns
-        -------
-        OutputArrayHeights
-            Output array heights from the child SingleIntegratorRun object.
-
-        Notes
-        -----
-        Exposes the output_array_heights attribute from the child
-        SingleIntegratorRun object.
-        """
+        """Get output array heights."""
         return self.single_integrator.output_array_heights
 
     @property
     def kernel(self):
-        """
-        Get the device function kernel.
-
-        Returns
-        -------
-        object
-            The compiled CUDA device function.
-        """
+        """Get the compiled kernel."""
         return self.device_function
 
     def build(self):
-        """
-        Build the integration kernel.
-
-        Returns
-        -------
-        CUDA device function
-            The built integration kernel.
-        """
         return self.build_kernel()
 
     @property
     def profileCUDA(self) -> bool:
-        return self.compile_settings.profileCUDA and not is_cudasim_enabled()
+        return self._profileCUDA and not is_cudasim_enabled()
 
     @property
     def memory_manager(self) -> "MemoryManager":
-        """
-        Get the memory manager.
-
-        Returns
-        -------
-        MemoryManager
-            The memory manager the solver is registered with.
-        """
         return self._memory_manager
 
     @property
     def stream_group(self):
-        """
-        Get the stream group.
-
-        Returns
-        -------
-        str
-            The stream group the solver is in.
-        """
         return self.memory_manager.get_stream_group(self)
 
     @property
     def stream(self):
-        """
-        Get the assigned CUDA stream.
-
-        Returns
-        -------
-        Stream
-            The CUDA stream assigned to the solver.
-        """
         return self.memory_manager.get_stream(self)
 
     @property
     def mem_proportion(self):
-        """
-        Get the memory proportion.
-
-        Returns
-        -------
-        float
-            The memory proportion the solver is assigned.
-        """
         return self.memory_manager.proportion(self)
 
     @property
-    def shared_memory_bytes_per_run(self):
-        """
-        Get shared memory bytes per run.
-
-        Returns
-        -------
-        int
-            Shared memory bytes required per run.
-
-        Notes
-        -----
-        Exposes the shared_memory_bytes attribute from the child
-        SingleIntegratorRun object.
-        """
+    def shared_memory_bytes(self):
         return self.single_integrator.shared_memory_bytes
 
-    @property
-    def shared_memory_elements_per_run(self):
-        """
-        Get shared memory elements per run.
-
-        Returns
-        -------
-        int
-            Number of shared memory elements required per run.
-
-        Notes
-        -----
-        Exposes the shared_memory_elements attribute from the child
-        SingleIntegratorRun object.
-        """
-        return self.single_integrator.shared_memory_elements
-
-    @property
-    def local_memory_elements_per_run(self):
-        """Get local memory elements per run.
-
-        Returns
-        -------
-        int
-            Number of local memory elements per run.
-        """
-        return self.single_integrator.local_memory_elements
-
-    @property
-    def precision(self):
-        """
-        Get numerical precision type.
-
-        Returns
-        -------
-        type
-            Numerical precision type (e.g., np.float64).
-
-        Notes
-        -----
-        Exposes the precision attribute from the child SingleIntegratorRun object.
-        """
-        return self.single_integrator.precision
 
     @property
     def threads_per_loop(self):
-        """
-        Get threads per loop.
-
-        Returns
-        -------
-        int
-            Number of threads per integration loop.
-
-        Notes
-        -----
-        Exposes the threads_per_loop attribute from the child
-        SingleIntegratorRun object.
-        """
         return self.single_integrator.threads_per_loop
 
     @property
     def duration(self):
-        """
-        Get simulation duration.
-
-        Returns
-        -------
-        float
-            Duration of the simulation.
-        """
-        return self.compile_settings.duration
+        return self.precision(self._duration)
 
     @duration.setter
     def duration(self, value):
-        """
-        Set simulation duration.
-
-        Parameters
-        ----------
-        value : float
-            Duration of the simulation.
-        """
-        self.compile_settings._duration = value
+        self._duration = self.precision(value)
 
     @property
     def dt(self) -> float:
@@ -848,581 +714,171 @@ class BatchSolverKernel(CUDAFactory):
 
     @property
     def warmup(self):
-        """
-        Get warmup time.
-
-        Returns
-        -------
-        float
-            Warmup time of the simulation.
-        """
-        return self.compile_settings.warmup
+        return self.precision(self._warmup)
 
     @warmup.setter
     def warmup(self, value):
-        """
-        Set warmup time.
-
-        Parameters
-        ----------
-        value : float
-            Warmup time of the simulation.
-        """
-        self.compile_settings._warmup = value
+        self._warmup = self.precision(value)
 
     @property
     def output_length(self):
-        """
-        Get number of output samples per run.
-
-        Returns
-        -------
-        int
-            Number of output samples per run.
-        """
-        return int(
-            np.ceil(
-                self.compile_settings.duration / self.single_integrator.dt_save
-            )
-        )
+        return int(np.ceil(self.duration / self.single_integrator.dt_save))
 
     @property
     def summaries_length(self):
-        """
-        Get number of summary samples per run.
-
-        Returns
-        -------
-        int
-            Number of summary samples per run.
-        """
-        return int(
-            np.ceil(
-                self.compile_settings.duration
-                / self.single_integrator.dt_summarise
-            )
-        )
+        return int(np.ceil(self._duration / self.single_integrator.dt_summarise))
 
     @property
     def warmup_length(self):
-        """
-        Get number of warmup samples.
-
-        Returns
-        -------
-        int
-            Number of warmup samples.
-        """
-        return int(
-            np.ceil(
-                self.compile_settings.warmup / self.single_integrator.dt_save
-            )
-        )
+        return int(np.ceil(self._warmup / self.single_integrator.dt_save))
 
     @property
     def system(self) -> "BaseODE":
-        """
-        Get the ODE system.
-
-        Returns
-        -------
-        object
-            The ODE system being integrated.
-
-        Notes
-        -----
-        Exposes the system attribute from the SingleIntegratorRun instance.
-        """
         return self.single_integrator.system
 
     @property
     def algorithm(self):
-        """
-        Get the integration algorithm.
-
-        Returns
-        -------
-        str
-            The integration algorithm being used.
-        """
         return self.single_integrator.algorithm_key
 
     @property
     def dt_min(self):
-        """
-        Get minimum step size.
-
-        Returns
-        -------
-        float
-            Minimum step size allowed for the solver.
-        """
         return self.single_integrator.dt_min
 
     @property
     def dt_max(self):
-        """
-        Get maximum step size.
-
-        Returns
-        -------
-        float
-            Maximum step size allowed for the solver.
-        """
         return self.single_integrator.dt_max
 
     @property
     def atol(self):
-        """
-        Get absolute tolerance.
-
-        Returns
-        -------
-        float
-            Absolute tolerance for the solver.
-        """
         return self.single_integrator.atol
 
     @property
     def rtol(self):
-        """
-        Get relative tolerance.
-
-        Returns
-        -------
-        float
-            Relative tolerance for the solver.
-        """
         return self.single_integrator.rtol
 
     @property
     def dt_save(self):
-        """
-        Get save time step.
-
-        Returns
-        -------
-        float
-            Time step for saving output.
-
-        Notes
-        -----
-        Exposes the dt_save attribute from the child SingleIntegratorRun object.
-        """
         return self.single_integrator.dt_save
 
     @property
     def dt_summarise(self):
-        """
-        Get summary time step.
-
-        Returns
-        -------
-        float
-            Time step for saving summaries.
-
-        Notes
-        -----
-        Exposes the dt_summarise attribute from the child SingleIntegratorRun object.
-        """
         return self.single_integrator.dt_summarise
 
     @property
     def system_sizes(self):
-        """
-        Get system sizes.
-
-        Returns
-        -------
-        object
-            System sizes information.
-
-        Notes
-        -----
-        Exposes the system_sizes attribute from the child SingleIntegratorRun object.
-        """
         return self.single_integrator.system_sizes
 
     @property
     def output_array_heights(self):
-        """
-        Get output array heights.
-
-        Returns
-        -------
-        object
-            Output array heights information.
-
-        Notes
-        -----
-        Exposes the output_array_heights attribute from the child
-        SingleIntegratorRun object.
-        """
         return self.single_integrator.output_array_heights
 
     @property
     def ouput_array_sizes_2d(self):
-        """
-        Get 2D output array sizes.
-
-        Returns
-        -------
-        object
-            The 2D output array sizes for a single run.
-        """
         return SingleRunOutputSizes.from_solver(self)
 
     @property
     def output_array_sizes_3d(self):
-        """
-        Get 3D output array sizes.
-
-        Returns
-        -------
-        object
-            The 3D output array sizes for a batch of runs.
-        """
         return BatchOutputSizes.from_solver(self)
 
     @property
     def summaries_buffer_sizes(self):
-        """
-        Get summaries buffer sizes.
-
-        Returns
-        -------
-        object
-            Summaries buffer sizes information.
-
-        Notes
-        -----
-        Exposes the summaries_buffer_sizes attribute from the child
-        SingleIntegratorRun object.
-        """
         return self.single_integrator.summaries_buffer_sizes
 
     @property
     def summary_legend_per_variable(self):
-        """
-        Get summary legend per variable.
-
-        Returns
-        -------
-        object
-            Summary legend per variable information.
-
-        Notes
-        -----
-        Exposes the summary_legend_per_variable attribute from the child
-        SingleIntegratorRun object.
-        """
         return self.single_integrator.summary_legend_per_variable
 
     @property
     def saved_state_indices(self):
-        """
-        Get saved state indices.
-
-        Returns
-        -------
-        NDArray[np.int_]
-            Indices of state variables to save.
-
-        Notes
-        -----
-        Exposes the saved_state_indices attribute from the child
-        SingleIntegratorRun object.
-        """
         return self.single_integrator.saved_state_indices
 
     @property
     def saved_observable_indices(self):
-        """
-        Get saved observable indices.
-
-        Returns
-        -------
-        NDArray[np.int_]
-            Indices of observable variables to save.
-
-        Notes
-        -----
-        Exposes the saved_observable_indices attribute from the child
-        SingleIntegratorRun object.
-        """
         return self.single_integrator.saved_observable_indices
 
     @property
     def summarised_state_indices(self):
-        """
-        Get summarised state indices.
-
-        Returns
-        -------
-        ArrayLike
-            Indices of state variables to summarise.
-
-        Notes
-        -----
-        Exposes the summarised_state_indices attribute from the child
-        SingleIntegratorRun object.
-        """
         return self.single_integrator.summarised_state_indices
 
     @property
     def summarised_observable_indices(self):
-        """
-        Get summarised observable indices.
-
-        Returns
-        -------
-        ArrayLike
-            Indices of observable variables to summarise.
-
-        Notes
-        -----
-        Exposes the summarised_observable_indices attribute from the child
-        SingleIntegratorRun object.
-        """
         return self.single_integrator.summarised_observable_indices
 
     @property
     def active_output_arrays(self) -> "ActiveOutputs":
-        """
-        Get active output arrays.
-
-        Returns
-        -------
-        ActiveOutputs
-            Active output arrays configuration.
-
-        Notes
-        -----
-        Exposes the _active_outputs attribute from the child OutputArrays object.
-        """
         self.output_arrays.allocate()
         return self.output_arrays.active_outputs
 
     @property
     def device_state_array(self):
-        """
-        Get device state array.
-
-        Returns
-        -------
-        object
-            Device state array.
-
-        Notes
-        -----
-        Exposes the state attribute from the child OutputArrays object.
-        """
         return self.output_arrays.device_state
 
     @property
     def device_observables_array(self):
-        """
-        Get device observables array.
-
-        Returns
-        -------
-        object
-            Device observables array.
-
-        Notes
-        -----
-        Exposes the observables attribute from the child OutputArrays object.
-        """
         return self.output_arrays.device_observables
 
     @property
     def device_state_summaries_array(self):
-        """
-        Get device state summaries array.
-
-        Returns
-        -------
-        object
-            Device state summaries array.
-
-        Notes
-        -----
-        Exposes the state_summaries attribute from the child OutputArrays object.
-        """
         return self.output_arrays.device_state_summaries
 
     @property
     def device_observable_summaries_array(self):
-        """
-        Get device observable summaries array.
-
-        Returns
-        -------
-        object
-            Device observable summaries array.
-
-        Notes
-        -----
-        Exposes the observable_summaries attribute from the child OutputArrays object.
-        """
         return self.output_arrays.device_observable_summaries
 
     @property
     def d_statuscodes(self):
-        """Get the device status code array."""
-
         return self.output_arrays.device_status_codes
 
     @property
     def state(self):
-        """
-        Get state array.
-
-        Returns
-        -------
-        array_like
-            The state array.
-        """
         return self.output_arrays.state
 
     @property
     def observables(self):
-        """
-        Get observables array.
-
-        Returns
-        -------
-        array_like
-            The observables array.
-        """
         return self.output_arrays.observables
 
     @property
     def state_summaries(self):
-        """
-        Get state summaries array.
-
-        Returns
-        -------
-        array_like
-            The state summaries array.
-        """
         return self.output_arrays.state_summaries
 
     @property
     def status_codes(self):
-        """Get the host status code array."""
-
         return self.output_arrays.status_codes
 
     @property
     def observable_summaries(self):
-        """
-        Get observable summaries array.
-
-        Returns
-        -------
-        array_like
-            The observable summaries array.
-        """
         return self.output_arrays.observable_summaries
 
     @property
     def initial_values(self):
-        """
-        Get initial values array.
-
-        Returns
-        -------
-        array_like
-            The initial values array.
-        """
         return self.input_arrays.initial_values
 
     @property
     def parameters(self):
-        """
-        Get parameters array.
-
-        Returns
-        -------
-        array_like
-            The parameters array.
-        """
         return self.input_arrays.parameters
 
     @property
     def driver_coefficients(self) -> NDArray[np.generic]:
-        """Return the host-side driver coefficient array."""
-
         return self.input_arrays.driver_coefficients
 
     @property
     def device_driver_coefficients(self) -> NDArray[np.generic]:
-        """Return the device driver coefficient array."""
-
         return self.input_arrays.device_driver_coefficients
 
     @property
     def state_stride_order(self) -> Tuple[str, ...]:
-        """
-        Get output stride order.
-        """
         return self.output_arrays.host.state.stride_order
 
     @property
     def save_time(self):
-        """
-        Get save time array.
-
-        Returns
-        -------
-        array_like
-            Time points for saved output.
-
-        Notes
-        -----
-        Exposes the save_time attribute from the child SingleIntegratorRun object.
-        """
         return self.single_integrator.save_time
 
     def enable_profiling(self):
-        """
-        Enable CUDA profiling for the solver.
-
-        Notes
-        -----
-        This will allow you to profile the performance of the solver on the
-        GPU, but will slow things down. Consider disabling optimisation and
-        enabling debug and line info for profiling.
-        """
-        # Consider disabling optimisation and enabling debug and line info
-        # for profiling
-        self.compile_settings.profileCUDA = True
+        self._profileCUDA = True
 
     def disable_profiling(self):
-        """
-        Disable CUDA profiling for the solver.
-
-        Notes
-        -----
-        This will stop profiling the performance of the solver on the GPU,
-        but will speed things up.
-        """
-        self.compile_settings.profileCUDA = False
+        self._profileCUDA = False
 
     @property
     def output_types(self):
-        """
-        Get output types.
-
-        Returns
-        -------
-        list[str]
-            Types of outputs generated.
-
-        Notes
-        -----
-        Exposes the output_types attribute from the child SingleIntegratorRun object.
-        """
         return self.single_integrator.output_types

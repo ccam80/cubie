@@ -99,10 +99,10 @@ def test_algorithm_change(solverkernel):
 
 def test_getters_get(solverkernel):
     """Check for dead getters"""
-    assert solverkernel.shared_memory_bytes_per_run is not None, (
-        "BatchSolverKernel.shared_memory_bytes_per_run returning None"
+    assert solverkernel.shared_memory_bytes is not None, (
+        "BatchSolverKernel.shared_memory_bytes returning None"
     )
-    assert solverkernel.shared_memory_elements_per_run is not None, (
+    assert solverkernel.shared_memory_elements is not None, (
         "BatchSolverKernel.shared_memory_elements_per_run returning None"
     )
     assert solverkernel.precision is not None, (
@@ -173,7 +173,7 @@ def test_all_lower_plumbing(system, solverkernel, step_controller_settings,
     """Big plumbing integration check - check that config classes match exactly between an updated solver and one
     instantiated with the update settings."""
     new_settings = {
-        "duration": 1.0,
+        # "duration": 1.0,
         "dt_min": 0.0001,
         "dt_max": 0.01,
         "dt_save": 0.01,
@@ -217,7 +217,7 @@ def test_all_lower_plumbing(system, solverkernel, step_controller_settings,
     }
     freshsolver = BatchSolverKernel(
         system,
-        duration=1.0,
+        # duration=1.0,
         dt_save=0.01,
         dt_summarise=0.1,
         step_control_settings=updated_controller_settings,
