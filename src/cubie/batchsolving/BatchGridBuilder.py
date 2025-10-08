@@ -718,3 +718,65 @@ class BatchGridBuilder:
             return None
 
         return arr  # correctly sized array just falls through untouched
+
+    # ------------------------------------------------------------------
+    # Static convenience wrappers
+    # ------------------------------------------------------------------
+    # These wrappers mirror the module-level helper functions so that when
+    # the package re-exports the ``BatchGridBuilder`` *class* under the same
+    # name as this module (via ``cubie.batchsolving.__init__``), an import
+    # like ``import cubie.batchsolving.BatchGridBuilder as batchgridmodule``
+    # that unexpectedly resolves to the class (name shadowing) will still
+    # provide access to the expected helper functions used in tests.
+    #
+    # Keeping the original module-level functions preserves backward
+    # compatibility and avoids duplicating logic.
+
+    @staticmethod
+    def unique_cartesian_product(arrays: List[np.ndarray]) -> np.ndarray:  # type: ignore[override]
+        return unique_cartesian_product(arrays)
+
+    @staticmethod
+    def combinatorial_grid(
+        request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
+        values_instance: SystemValues,
+        silent: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return combinatorial_grid(request, values_instance, silent=silent)
+
+    @staticmethod
+    def verbatim_grid(
+        request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
+        values_instance: SystemValues,
+        silent: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return verbatim_grid(request, values_instance, silent=silent)
+
+    @staticmethod
+    def generate_grid(
+        request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
+        values_instance: SystemValues,
+        kind: str = "combinatorial",
+        silent: bool = False,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return generate_grid(request, values_instance, kind=kind, silent=silent)
+
+    @staticmethod
+    def combine_grids(
+        grid1: np.ndarray, grid2: np.ndarray, kind: str = "combinatorial"
+    ) -> tuple[np.ndarray, np.ndarray]:
+        return combine_grids(grid1, grid2, kind=kind)
+
+    @staticmethod
+    def extend_grid_to_array(
+        grid: np.ndarray, indices: np.ndarray, default_values: np.ndarray
+    ) -> np.ndarray:
+        return extend_grid_to_array(grid, indices, default_values)
+
+    @staticmethod
+    def generate_array(
+        request: Dict[Union[str, int], Union[float, ArrayLike, np.ndarray]],
+        values_instance: SystemValues,
+        kind: str = "combinatorial",
+    ) -> np.ndarray:
+        return generate_array(request, values_instance, kind=kind)

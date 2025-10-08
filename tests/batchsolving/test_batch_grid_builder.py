@@ -3,7 +3,7 @@ import pytest
 from numpy.testing import assert_array_equal, assert_allclose
 
 from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
-from cubie.batchsolving import BatchGridBuilder as BGB
+import cubie.batchsolving.BatchGridBuilder as batchgridmodule
 import itertools
 # from cubie.odesystems.systems.decays import Decays
 
@@ -67,11 +67,11 @@ def test_combinatorial_and_verbatim_grid(system):
         param.names[0]: np.array([0, 1]),
         param.names[1]: np.array([10, 20]),
     }
-    idx, grid = BGB.combinatorial_grid(request, param)
+    idx, grid = batchgridmodule.combinatorial_grid(request, param)
     assert_array_equal(idx, np.array([0, 1]))
     assert grid.shape == (4, 2)
 
-    idx_v, grid_v = BGB.verbatim_grid(request, param)
+    idx_v, grid_v = batchgridmodule.verbatim_grid(request, param)
     assert_array_equal(idx_v, np.array([0, 1]))
     assert_array_equal(grid_v, np.array([[0, 10], [1, 20]]))
 
@@ -95,7 +95,7 @@ def test_call_with_request(grid_builder, system):
 
 def test_unique_cartesian_product(example_arrays, example_grids):
     a, b = example_arrays
-    cartesian_product = BGB.unique_cartesian_product([a, b])
+    cartesian_product = batchgridmodule.unique_cartesian_product([a, b])
     combinatorial_grid, _ = example_grids
     assert_array_equal(cartesian_product, combinatorial_grid)
 
@@ -106,7 +106,7 @@ def test_combinatorial_grid(system, batch_settings):
     a = np.arange(numvals)
     b = np.arange(numvals - 1) + numvals - 1
     request = {param.names[0]: a, param.names[1]: b}
-    indices, grid = BGB.combinatorial_grid(request, param)
+    indices, grid = batchgridmodule.combinatorial_grid(request, param)
     test_result = np.zeros(shape=(numvals * (numvals - 1), 2))
 
     for i, val_a in enumerate(a):
@@ -129,7 +129,7 @@ def test_verbatim_grid(system, batch_settings):
     test_result[:, 0] = a
     test_result[:, 1] = b
 
-    indices, grid = BGB.verbatim_grid(request, param)
+    indices, grid = batchgridmodule.verbatim_grid(request, param)
     assert grid.shape[0] == numvals
     assert grid.shape[1] == 2
     assert_array_equal(indices, np.array([0, 1]))
@@ -142,19 +142,19 @@ def test_generate_grid(system, batch_settings):
     a = np.arange(numvals)
     b = np.arange(numvals) + numvals
     request = {state.names[0]: a, state.names[1]: b}
-    indices, grid = BGB.generate_grid(request, state, kind="combinatorial")
+    indices, grid = batchgridmodule.generate_grid(request, state, kind="combinatorial")
     assert grid.shape[0] == numvals * numvals
-    indices, grid = BGB.generate_grid(request, state, kind="verbatim")
+    indices, grid = batchgridmodule.generate_grid(request, state, kind="verbatim")
     assert grid.shape[0] == numvals
     with pytest.raises(ValueError):
-        BGB.generate_grid(request, state, kind="badkind")
+        batchgridmodule.generate_grid(request, state, kind="badkind")
 
 
 def test_grid_size_errors(system):
     """Test that ValueError is raised for invalid grid sizes."""
     param = system.parameters
     with pytest.raises(ValueError):
-        BGB.verbatim_grid(
+        batchgridmodule.verbatim_grid(
             {param.names[0]: [1, 2, 3], param.names[1]: [1, 2]}, param
         )
 
@@ -168,7 +168,7 @@ def test_combine_grids(example_arrays):
     expected_grid2 = np.array(
         [[10, 20], [30, 40], [50, 60], [10, 20], [30, 40], [50, 60]]
     )
-    result_grid1, result_grid2 = BGB.combine_grids(
+    result_grid1, result_grid2 = batchgridmodule.combine_grids(
         grid1, grid2, kind="combinatorial"
     )
     assert np.array_equal(result_grid1, expected_grid1)
@@ -177,7 +177,7 @@ def test_combine_grids(example_arrays):
     # Verbatim test: grids with matching number of rows should be returned as is
     grid1_v = np.array([[1, 2], [3, 4]])
     grid2_v = np.array([[10, 20], [30, 40]])
-    result_grid1_v, result_grid2_v = BGB.combine_grids(
+    result_grid1_v, result_grid2_v = batchgridmodule.combine_grids(
         grid1_v, grid2_v, kind="verbatim"
     )
     assert np.array_equal(result_grid1_v, grid1_v)
@@ -188,7 +188,7 @@ def test_extend_grid_to_array(system):
     param = system.parameters
     indices = np.array([0, 1])
     grid = np.array([[1, 2], [3, 4], [5, 6]])
-    arr = BGB.extend_grid_to_array(grid, indices, param.values_array)
+    arr = batchgridmodule.extend_grid_to_array(grid, indices, param.values_array)
     assert arr.shape[1] == param.values_array.shape[0]
     assert_array_equal(arr[:, indices], grid)
     assert np.all(arr[:, 2] == param.values_array[2])
@@ -202,7 +202,7 @@ def test_generate_array(system, batch_settings, batch_request):
     request = {
         param.names[0]: a,
     }
-    arr = BGB.generate_array(request, param)
+    arr = batchgridmodule.generate_array(request, param)
     assert arr.ndim == 2
     assert arr.shape[1] == param.values_array.shape[0]
     assert arr.shape[0] == numvals

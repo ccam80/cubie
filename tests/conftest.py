@@ -15,7 +15,7 @@ from cubie.batchsolving.solver import Solver
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.algorithms.base_algorithm_step import \
     ALL_ALGORITHM_STEP_PARAMETERS
-from cubie.integrators.loops.ode_loop import IVPLoop
+from cubie.integrators.loops.ode_loop import IVPLoop, ALL_LOOP_SETTINGS
 from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
     LoopLocalIndices
 
@@ -351,6 +351,15 @@ def algorithm_settings(system, solver_settings, driver_array):
 
 
 @pytest.fixture(scope="function")
+def loop_settings(solver_settings):
+    settings, _ = merge_kwargs_into_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_LOOP_SETTINGS,
+    )
+    return settings
+
+
+@pytest.fixture(scope="function")
 def step_controller_settings(
     solver_settings, system, step_object
 ):
@@ -421,18 +430,18 @@ def solverkernel(
     algorithm_settings,
     output_settings,
     memory_settings,
+    loop_settings,
 ):
     driver_function = driver_array.evaluation_function if driver_array is not None else None
     return BatchSolverKernel(
         system,
-        dt_save=solver_settings["dt_save"],
-        dt_summarise=solver_settings["dt_summarise"],
         driver_function=driver_function,
         profileCUDA=solver_settings["profileCUDA"],
         step_control_settings=step_controller_settings,
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,
         memory_settings=memory_settings,
+        loop_settings=loop_settings,
     )
 
 
@@ -444,9 +453,11 @@ def solver(
     step_controller_settings,
     output_settings,
     memory_settings,
+    loop_settings,
 ):
     solver = Solver(
         system,
+        loop_settings=loop_settings,
         **solver_settings,
     )
     driver_function = driver_array.evaluation_function if driver_array is not None else None
@@ -471,6 +482,7 @@ def loop(
     step_controller,
     solver_settings,
     driver_array,
+    loop_settings,
 ):
     """Construct the :class:`IVPLoop` instance used in loop tests."""
     shared_indices = LoopSharedIndices.from_sizes(
@@ -489,22 +501,30 @@ def loop(
 
     driver_function = driver_array.evaluation_function if driver_array is not None else None
 
-    return IVPLoop(precision=precision, shared_indices=shared_indices,
-                   local_indices=local_indices,
-                   compile_flags=output_functions.compile_flags,
-                   save_state_func=output_functions.save_state_func,
-                   update_summaries_func=output_functions.update_summaries_func,
-                   save_summaries_func=output_functions.save_summary_metrics_func,
-                   step_controller_fn=step_controller.device_function,
-                   step_function=step_object.step_function,
-                   driver_function=driver_function,
-                   observables_fn=system.observables_function,
-                   dt_save=solver_settings["dt_save"],
-                   dt_summarise=solver_settings["dt_summarise"],
-                   dt0=step_controller.dt0,
-                   dt_min=step_controller.dt_min,
-                   dt_max=step_controller.dt_max,
-                   is_adaptive=step_controller.is_adaptive)
+    dt_save = loop_settings.get("dt_save", solver_settings["dt_save"])
+    dt_summarise = loop_settings.get(
+        "dt_summarise", solver_settings["dt_summarise"]
+    )
+
+    return IVPLoop(
+        precision=precision,
+        shared_indices=shared_indices,
+        local_indices=local_indices,
+        compile_flags=output_functions.compile_flags,
+        save_state_func=output_functions.save_state_func,
+        update_summaries_func=output_functions.update_summaries_func,
+        save_summaries_func=output_functions.save_summary_metrics_func,
+        step_controller_fn=step_controller.device_function,
+        step_function=step_object.step_function,
+        driver_function=driver_function,
+        observables_fn=system.observables_function,
+        dt_save=dt_save,
+        dt_summarise=dt_summarise,
+        dt0=step_controller.dt0,
+        dt_min=step_controller.dt_min,
+        dt_max=step_controller.dt_max,
+        is_adaptive=step_controller.is_adaptive,
+    )
 
 @pytest.fixture(scope="function")
 def single_integrator_run(
@@ -514,14 +534,14 @@ def single_integrator_run(
     step_controller_settings,
     algorithm_settings,
     output_settings,
+    loop_settings,
 ):
     """Instantiate :class:`SingleIntegratorRun` with test fixtures."""
     driver_function = driver_array.evaluation_function if driver_array is not None else None
 
     run = SingleIntegratorRun(
         system=system,
-        dt_save=solver_settings["dt_save"],
-        dt_summarise=solver_settings["dt_summarise"],
+        loop_settings=loop_settings,
         driver_function=driver_function,
         step_control_settings=step_controller_settings,
         algorithm_settings=algorithm_settings,

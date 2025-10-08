@@ -21,6 +21,19 @@ from cubie.integrators.loops.ode_loop_config import (LoopLocalIndices,
 from cubie.outputhandling import OutputCompileFlags
 
 
+# Recognised compile-critical loop configuration parameters. These keys mirror
+# the solver API so helper utilities can consistently merge keyword arguments
+# into loop-specific settings dictionaries.
+ALL_LOOP_SETTINGS = {
+    "dt_save",
+    "dt_summarise",
+    "dt0",
+    "dt_min",
+    "dt_max",
+    "is_adaptive",
+}
+
+
 class IVPLoop(CUDAFactory):
     """Factory for CUDA device loops that advance an IVP integration.
 
@@ -35,9 +48,11 @@ class IVPLoop(CUDAFactory):
     compile_flags
         Output configuration that drives save and summary behaviour.
     dt_save
-        Interval between accepted saves.
+        Interval between accepted saves. Defaults to ``0.1`` when not
+        provided.
     dt_summarise
-        Interval between summary accumulations.
+        Interval between summary accumulations. Defaults to ``1.0`` when not
+        provided.
     dt0
         Initial timestep applied before controller feedback.
     dt_min
@@ -68,8 +83,8 @@ class IVPLoop(CUDAFactory):
         shared_indices: LoopSharedIndices,
         local_indices: LoopLocalIndices,
         compile_flags: OutputCompileFlags,
-        dt_save: float,
-        dt_summarise: float,
+        dt_save: float = 0.1,
+        dt_summarise: float = 1.0,
         dt0: Optional[float]=None,
         dt_min: Optional[float]=None,
         dt_max: Optional[float]=None,

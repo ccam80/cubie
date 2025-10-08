@@ -71,10 +71,10 @@ class BatchSolverKernel(CUDAFactory):
     ----------
     system
         ODE system describing the problem to integrate.
-    dt_save
-        Interval between saved trajectory samples.
-    dt_summarise
-        Interval between summary reductions.
+    loop_settings
+        Mapping of loop configuration forwarded to
+        :class:`cubie.integrators.SingleIntegratorRun`. Recognised keys include
+        ``"dt_save"`` and ``"dt_summarise"``.
     driver_function
         Optional evaluation function for an interpolated forcing term.
     profileCUDA
@@ -105,8 +105,7 @@ class BatchSolverKernel(CUDAFactory):
     def __init__(
         self,
         system: "BaseODE",
-        dt_save: float = 0.1,
-        dt_summarise: float = 1.0,
+        loop_settings: Optional[Dict[str, Any]] = None,
         driver_function: Optional[Callable] = None,
         profileCUDA: bool = False,
         step_control_settings: Optional[Dict[str, Any]] = None,
@@ -119,6 +118,8 @@ class BatchSolverKernel(CUDAFactory):
             memory_settings = {}
         if output_settings is None:
             output_settings = {}
+        if loop_settings is None:
+            loop_settings = {}
 
         # Store non compile-critical run parameters locally
         self._profileCUDA = profileCUDA
@@ -136,8 +137,7 @@ class BatchSolverKernel(CUDAFactory):
         # Build the single integrator to derive compile-critical metadata
         self.single_integrator = SingleIntegratorRun(
             system,
-            dt_save=dt_save,
-            dt_summarise=dt_summarise,
+            loop_settings=loop_settings,
             driver_function=driver_function,
             step_control_settings=step_control_settings,
             algorithm_settings=algorithm_settings,

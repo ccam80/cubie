@@ -21,6 +21,7 @@ from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
 )
+from cubie.integrators.loops.ode_loop import ALL_LOOP_SETTINGS
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
@@ -35,7 +36,7 @@ def solve_ivp(
     y0: Union[np.ndarray, Dict[str, np.ndarray]],
     parameters: Optional[Union[np.ndarray, Dict[str, np.ndarray]]] = None,
     drivers: Optional[Dict[str, object]] = None,
-    dt_eval: float = 1e-2,
+    dt_save: Optional[float] = None,
     method: str = "euler",
     duration: float = 1.0,
     settling_time: float = 0.0,
@@ -57,7 +58,7 @@ def solve_ivp(
         to arrays.
     drivers
         Driver configuration to interpolate during integration.
-    dt_eval
+    dt_save
         Interval at which solution values are stored.
     method
         Integration algorithm to use. Default is ``"euler"``.
@@ -78,10 +79,14 @@ def solve_ivp(
     SolveResult
         Results returned from :meth:`Solver.solve`.
     """
+    loop_settings = kwargs.pop("loop_settings", None)
+    if dt_save is not None:
+        kwargs.setdefault("dt_save", dt_save)
+
     solver = Solver(
         system,
         algorithm=method,
-        dt_save=dt_eval,
+        loop_settings=loop_settings,
         **kwargs,
     )
     results = solver.solve(
@@ -106,10 +111,6 @@ class Solver:
         System model containing the ODEs to integrate.
     algorithm
         Integration algorithm to use. Defaults to ``"euler"``.
-    dt_save
-        Sampling interval for storing state values. Default is ``0.1``.
-    dt_summarise
-        Interval for computing summary outputs. Default is ``1.0``.
     profileCUDA
         Enable CUDA profiling. Defaults to ``False``.
     step_control_settings
@@ -124,6 +125,10 @@ class Solver:
         Explicit memory configuration overriding solver defaults. Keys like
         ``memory_manager`` or ``mem_proportion`` may likewise be provided as
         keyword arguments.
+    loop_settings
+        Explicit loop configuration overriding solver defaults. Keys such as
+        ``dt_save`` and ``dt_summarise`` may also be supplied as loose keyword
+        arguments.
     strict
         If ``True`` unknown keyword arguments raise ``KeyError``.
     **kwargs
@@ -140,13 +145,12 @@ class Solver:
         self,
         system: BaseODE,
         algorithm: str = "euler",
-        dt_save: float = 0.1,
-        dt_summarise: float = 1.0,
         profileCUDA: bool = False,
         step_control_settings: Optional[Dict[str, object]] = None,
         algorithm_settings: Optional[Dict[str, object]] = None,
         output_settings: Optional[Dict[str, object]] = None,
         memory_settings: Optional[Dict[str, object]] = None,
+        loop_settings: Optional[Dict[str, object]] = None,
         strict: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -157,7 +161,9 @@ class Solver:
         if step_control_settings is None:
             step_control_settings = {}
         if algorithm_settings is None:
-            step_control_settings = {}
+            algorithm_settings = {}
+        if loop_settings is None:
+            loop_settings = {}
 
         super().__init__()
         precision = system.precision
@@ -190,15 +196,17 @@ class Solver:
         algorithm_settings, algorithm_recognized = merge_kwargs_into_settings(
             kwargs=kwargs, valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
             user_settings=algorithm_settings)
-        algorithm_settings = dict(algorithm_settings)
         algorithm_settings["algorithm"] = algorithm
+        loop_settings, loop_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs, valid_keys=ALL_LOOP_SETTINGS,
+            user_settings=loop_settings)
         recognized_kwargs = (step_recognized | algorithm_recognized
-                             | output_recognized | memory_recognized)
+                             | output_recognized | memory_recognized
+                             | loop_recognized)
 
         self.kernel = BatchSolverKernel(
             system,
-            dt_save=dt_save,
-            dt_summarise=dt_summarise,
+            loop_settings=loop_settings,
             profileCUDA=profileCUDA,
             step_control_settings=step_settings,
             algorithm_settings=algorithm_settings,

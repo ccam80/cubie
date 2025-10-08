@@ -486,7 +486,7 @@ def test_solve_ivp_function(
         parameters=simple_parameters,
         drivers=driver_settings,
         dt=1e-2,
-        dt_eval=0.02,
+        dt_save=0.02,
         duration= 0.05,
         dt_summarise= 0.04,
         output_types= ["state", "time", "observables",
@@ -508,10 +508,10 @@ def test_solver_with_different_algorithms(system, solver_settings):
             algorithm=algorithm,
             dt_min=solver_settings["dt_min"],
             dt_max=solver_settings["dt_max"],
-            dt_save=solver_settings["dt_save"],
             precision=solver_settings["precision"],
             memory_manager=solver_settings["memory_manager"],
             stream_group=solver_settings["stream_group"],
+            loop_settings={"dt_save": solver_settings["dt_save"]},
         )
 
         assert solver is not None
@@ -528,9 +528,9 @@ def test_solver_precision_types(system, solver_settings, precision):
         precision=solver_settings["precision"],
         dt_min=solver_settings["dt_min"],
         dt_max=solver_settings["dt_max"],
-        dt_save=solver_settings["dt_save"],
         memory_manager=solver_settings["memory_manager"],
         stream_group=solver_settings["stream_group"],
+        loop_settings={"dt_save": solver_settings["dt_save"]},
     )
 
     assert solver.precision == precision
@@ -551,10 +551,10 @@ def test_solver_output_types(system, solver_settings):
             output_types=output_types,
             dt_min=solver_settings["dt_min"],
             dt_max=solver_settings["dt_max"],
-            dt_save=solver_settings["dt_save"],
             precision=solver_settings["precision"],
             memory_manager=solver_settings["memory_manager"],
             stream_group=solver_settings["stream_group"],
+            loop_settings={"dt_save": solver_settings["dt_save"]},
         )
 
         assert solver.output_types == output_types
