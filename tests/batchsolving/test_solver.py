@@ -148,6 +148,7 @@ def test_solve_info_property(
     tolerance,
 ):
     """Test that solve_info returns a valid SolveSpec."""
+    solver.kernel.duration = 1.0
     solve_info = solver.solve_info
     assert isinstance(solve_info, SolveSpec)
 
@@ -206,6 +207,7 @@ def test_solve_info_property(
     # Test that solver kernel properties are correctly exposed
     assert solve_info.duration == solver.duration
     assert solve_info.warmup == solver.warmup
+    assert solve_info.t0 == solver.t0
 
     # Test that variable lists are correctly exposed
     assert solve_info.saved_states == solver.saved_states
@@ -504,7 +506,6 @@ def test_solver_with_different_algorithms(system, solver_settings):
         solver = Solver(
             system,
             algorithm=algorithm,
-            duration=solver_settings["duration"],
             dt_min=solver_settings["dt_min"],
             dt_max=solver_settings["dt_max"],
             dt_save=solver_settings["dt_save"],
@@ -525,7 +526,6 @@ def test_solver_precision_types(system, solver_settings, precision):
     solver = Solver(
         system,
         precision=solver_settings["precision"],
-        duration=solver_settings["duration"],
         dt_min=solver_settings["dt_min"],
         dt_max=solver_settings["dt_max"],
         dt_save=solver_settings["dt_save"],
@@ -549,7 +549,6 @@ def test_solver_output_types(system, solver_settings):
         solver = Solver(
             system,
             output_types=output_types,
-            duration=solver_settings["duration"],
             dt_min=solver_settings["dt_min"],
             dt_max=solver_settings["dt_max"],
             dt_save=solver_settings["dt_save"],

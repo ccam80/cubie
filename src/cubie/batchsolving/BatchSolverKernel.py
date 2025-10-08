@@ -71,10 +71,6 @@ class BatchSolverKernel(CUDAFactory):
     ----------
     system
         ODE system describing the problem to integrate.
-    duration
-        Duration of the simulation window.
-    warmup
-        Warmup time to integrate before capturing output.
     dt_save
         Interval between saved trajectory samples.
     dt_summarise
@@ -109,8 +105,6 @@ class BatchSolverKernel(CUDAFactory):
     def __init__(
         self,
         system: "BaseODE",
-        duration: float = 1.0,
-        warmup: float = 0.0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
         driver_function: Optional[Callable] = None,
@@ -127,11 +121,12 @@ class BatchSolverKernel(CUDAFactory):
             output_settings = {}
 
         # Store non compile-critical run parameters locally
-        self._duration = duration
-        self._warmup = warmup
         self._profileCUDA = profileCUDA
 
         precision = system.precision
+        self._duration = precision(0.0)
+        self._warmup = precision(0.0)
+        self._t0 = precision(0.0)
         self.chunks = None
         self.chunk_axis = "run"
         self.num_runs = 1
@@ -268,6 +263,10 @@ class BatchSolverKernel(CUDAFactory):
         warmup = precision(warmup)
         t0 = precision(t0)
 
+        self._duration = duration
+        self._warmup = warmup
+        self._t0 = t0
+
         numruns = inits.shape[0]
         self.num_runs = numruns  # Don't delete - generates batchoutputsizes
 
@@ -332,7 +331,7 @@ class BatchSolverKernel(CUDAFactory):
             # Don't use warmup in runs starting after t=t0
             if (chunk_axis == "time") and (i != 0):
                 chunk_warmup = precision(0.0)
-                chunk_t0 = i * chunk_params.duration
+                chunk_t0 = t0 + precision(i) * chunk_params.duration
             
             self.device_function[
                 BLOCKSPERGRID,
@@ -805,6 +804,16 @@ class BatchSolverKernel(CUDAFactory):
     @warmup.setter
     def warmup(self, value: float) -> None:
         self._warmup = self.precision(value)
+
+    @property
+    def t0(self) -> float:
+        """Configured initial integration time."""
+
+        return self.precision(self._t0)
+
+    @t0.setter
+    def t0(self, value: float) -> None:
+        self._t0 = self.precision(value)
 
     @property
     def output_length(self) -> int:

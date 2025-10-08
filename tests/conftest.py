@@ -425,8 +425,6 @@ def solverkernel(
     driver_function = driver_array.evaluation_function if driver_array is not None else None
     return BatchSolverKernel(
         system,
-        duration=solver_settings["duration"],
-        warmup=solver_settings["warmup"],
         dt_save=solver_settings["dt_save"],
         dt_summarise=solver_settings["dt_summarise"],
         driver_function=driver_function,

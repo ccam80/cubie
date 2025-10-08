@@ -39,6 +39,7 @@ def solve_ivp(
     method: str = "euler",
     duration: float = 1.0,
     settling_time: float = 0.0,
+    t0: float = 0.0,
     grid_type: str = "combinatorial",
     **kwargs: Any,
 ) -> SolveResult:
@@ -64,6 +65,8 @@ def solve_ivp(
         Total integration time. Default is ``1.0``.
     settling_time
         Warm-up period prior to storing outputs. Default is ``0.0``.
+    t0
+        Initial integration time supplied to the solver. Default is ``0.0``.
     grid_type
         ``"verbatim"`` pairs each input vector while ``"combinatorial"``
         produces every combination of provided values.
@@ -87,6 +90,7 @@ def solve_ivp(
         drivers=drivers,
         duration=duration,
         warmup=settling_time,
+        t0=t0,
         grid_type=grid_type,
         **kwargs,
     )
@@ -102,10 +106,6 @@ class Solver:
         System model containing the ODEs to integrate.
     algorithm
         Integration algorithm to use. Defaults to ``"euler"``.
-    duration
-        Total integration time. Defaults to ``1.0``.
-    warmup
-        Warm-up period before outputs are stored. Defaults to ``0.0``.
     dt_save
         Sampling interval for storing state values. Default is ``0.1``.
     dt_summarise
@@ -140,8 +140,6 @@ class Solver:
         self,
         system: BaseODE,
         algorithm: str = "euler",
-        duration: float = 1.0,
-        warmup: float = 0.0,
         dt_save: float = 0.1,
         dt_summarise: float = 1.0,
         profileCUDA: bool = False,
@@ -199,8 +197,6 @@ class Solver:
 
         self.kernel = BatchSolverKernel(
             system,
-            duration=duration,
-            warmup=warmup,
             dt_save=dt_save,
             dt_summarise=dt_summarise,
             profileCUDA=profileCUDA,
@@ -296,6 +292,7 @@ class Solver:
         drivers: Optional[Dict[str, Any]] = None,
         duration: float = 1.0,
         settling_time: float = 0.0,
+        t0: float = 0.0,
         blocksize: int = 256,
         stream: Any = None,
         chunk_axis: str = "run",
@@ -318,6 +315,8 @@ class Solver:
             Total integration time. Default is ``1.0``.
         settling_time
             Warm-up period before recording outputs. Default ``0.0``.
+        t0
+            Initial integration time. Default ``0.0``.
         blocksize
             CUDA block size used for kernel launch. Default ``256``.
         stream
@@ -362,6 +361,7 @@ class Solver:
             driver_coefficients=self.driver_interpolator.coefficients,
             duration=duration,
             warmup=settling_time,
+            t0=t0,
             blocksize=blocksize,
             stream=stream,
             chunk_axis=chunk_axis,
@@ -771,6 +771,12 @@ class Solver:
         return self.kernel.warmup
 
     @property
+    def t0(self) -> float:
+        """Return the starting integration time."""
+
+        return self.kernel.t0
+
+    @property
     def atol(self) -> Optional[float]:
         """Return the absolute tolerance for adaptive controllers."""
         return self.kernel.atol
@@ -796,6 +802,7 @@ class Solver:
             dt_summarise=self.dt_summarise,
             duration=self.duration,
             warmup=self.warmup,
+            t0=self.t0,
             atol=self.atol,
             rtol=self.rtol,
             algorithm=self.algorithm,

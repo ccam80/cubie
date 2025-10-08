@@ -43,6 +43,8 @@ def test_memory_manager():
 def output_arrays_manager(precision, solver, output_test_settings,
                           test_memory_manager):
     """Create a OutputArrays instance using real solver"""
+    solver.kernel.duration = 1.0
+
     batch_output_sizes = BatchOutputSizes.from_solver(solver)
     return OutputArrays(
         sizes=batch_output_sizes,
@@ -481,6 +483,7 @@ def test_output_arrays_with_different_configs(
 def test_output_arrays_with_different_systems(output_arrays_manager, solver):
     """Test OutputArrays with different system models"""
     # Test that the manager works with different system types
+    solver.kernel.duration = 1.0
     output_arrays_manager.update(solver)
 
     # Verify the arrays match the system's requirements

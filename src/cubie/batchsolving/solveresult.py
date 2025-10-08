@@ -50,6 +50,8 @@ class SolveSpec:
         Total integration time.
     warmup
         Initial warm-up period prior to recording outputs.
+    t0
+        Initial integration time supplied to the solver.
     algorithm
         Name of the integration algorithm.
     saved_states
@@ -78,6 +80,9 @@ class SolveSpec:
     )
     duration: float = attrs.field(validator=gttype_validator(float, 0.0))
     warmup: float = attrs.field(validator=getype_validator(float, 0.0))
+    t0: float = attrs.field(
+        validator=getype_validator(float, float("-inf"))
+    )
     algorithm: str = attrs.field(validator=val.instance_of(str))
     saved_states: Optional[List[str]] = attrs.field()
     saved_observables: Optional[List[str]] = attrs.field()
