@@ -34,9 +34,18 @@ in calls to __init__. Attrs handles both internally.
 ### src
 #### src/cubie
 ##### src/cubie/batchsolving
+ - Package root exposes :class:`cubie.batchsolving.Solver` and
+   :func:`cubie.batchsolving.solve_ivp` for GPU batch IVP runs, bundling grid
+   construction, kernel compilation, and result aggregation helpers.
+ - ``BatchSolverKernel``, ``BatchSolverConfig``, and ``BatchGridBuilder`` wire
+   integrator loops, CUDA factories, and batch grids together using
+   :mod:`cubie.integrators` components plus :mod:`cubie.memory` for allocations.
+ - ``SystemInterface`` adapts :class:`cubie.odesystems.baseODE.BaseODE`
+   instances for kernels, while ``solveresult`` collects output arrays and
+   summary flags registered through :mod:`cubie.outputhandling.summary_metrics`.
 ###### src/cubie/batchsolving/arrays
 - Base utilities in ``BaseArrayManager`` register array containers with
-  :mod:`cubie.memory` and centralisea chunk-aware transfer helpers that concrete
+  :mod:`cubie.memory` and centralise chunk-aware transfer helpers that concrete
   input and output managers reuse for host/device copies.
 - ``BatchInputArrays`` and ``BatchOutputArrays`` wrap attrs containers so
   solvers expose host views while device buffers stay synchronised via the
