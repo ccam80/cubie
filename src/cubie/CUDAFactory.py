@@ -1,9 +1,11 @@
 """Base classes for constructing cached CUDA device functions with Numba."""
 
 from abc import ABC, abstractmethod
-from typing import Set
+from typing import Set, Any
 
 import attrs
+import numpy as np
+from numpy import array_equal, asarray
 
 from cubie._utils import in_attr, is_attrs_class
 
@@ -164,30 +166,73 @@ class CUDAFactory(ABC):
             )
 
         recognized_params = []
+        updated_params = []
 
         for key, value in updates_dict.items():
-            if in_attr(f"_{key}", self._compile_settings):
-                setattr(self._compile_settings, f"_{key}", value)
-                recognized_params.append(key)
-            # Only check if no underscored var available - avoid setting a
-            # getter-only property.
-            elif in_attr(key, self._compile_settings):
-                setattr(self._compile_settings, key, value)
-                recognized_params.append(key)
+            recognized, updated = self._check_and_update(f"_{key}", value)
+            # Only check for a non-underscored name if there's no private attr
+            if not recognized:
+                r, u = self._check_and_update(key, value)
+                recognized |= r
+                updated |= u
 
+            if recognized:
+                recognized_params.append(key)
+            if updated:
+                updated_params.append(key)
 
         unrecognised_params = set(updates_dict.keys()) - set(recognized_params)
-
         if unrecognised_params and not silent:
             invalid = ", ".join(sorted(unrecognised_params))
             raise KeyError(
                 f"'{invalid}' is not a valid compile setting for this "
                 "object, and so was not updated.",
             )
-        if recognized_params:
+        if updated_params:
             self._invalidate_cache()
 
         return set(recognized_params)
+
+    def _check_and_update(self,
+                          key: str,
+                          value: Any):
+        """Check a single compile setting and update if changed.
+
+        More permissive than !=, as it catches arrays too and registers a
+        mismatch for incompatible types instead of raising an error.
+
+        Parameters
+        ----------
+        key
+            Attribute name in the compile_settings object
+        value
+            New value for the attribute
+
+        Returns
+        -------
+        tuple (bool, bool)
+            recognized: The key appears in the compile_settings object
+            updated: The value has changed.
+        """
+        updated = False
+        recognized = False
+        if in_attr(key, self._compile_settings):
+            old_value = getattr(self._compile_settings, key)
+            try:
+                value_changed = (
+                    getattr(self._compile_settings, key) != value
+                )
+            except ValueError:
+                # Maybe the size of an array has changed?
+                value_changed = not array_equal(
+                    asarray(old_value), asarray(value)
+                )
+            if np.any(value_changed): # Arrays will return an array of bools
+                setattr(self._compile_settings, key, value)
+                updated = True
+            recognized = True
+
+        return recognized, updated
 
     def _invalidate_cache(self):
         """Mark cached outputs as invalid."""

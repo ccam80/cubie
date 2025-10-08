@@ -74,6 +74,7 @@ class ArrayInterpolatorConfig:
     )
     dt: FloatArray = field(
         init=False,
+        default=1e-16,
         validator=getype_validator(float, 0)
     )
     t0: float = field(
@@ -82,10 +83,12 @@ class ArrayInterpolatorConfig:
     )
     num_inputs: int = field(
         init=False,
+        default=0,
         validator=validators.instance_of(int),
     )
     num_segments: int = field(
         init=False,
+        default=0,
         validator=validators.instance_of(int),
     )
 
