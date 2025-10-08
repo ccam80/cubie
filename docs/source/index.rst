@@ -15,7 +15,7 @@ value problems. The source code is available on `Github
    userfunctions
    drivers
    Algorithms
-   api/index
+   project_structure/index
 
 Indices and tables
 ==================
