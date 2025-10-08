@@ -1,22 +1,14 @@
 # -*- coding: utf-8 -*-
-"""
-Batch Solver Kernel Module.
+"""CUDA batch solver kernel utilities."""
 
-This module provides the BatchSolverKernel class, which manages GPU-based
-batch integration of ODE systems using CUDA. The kernel handles the distribution
-of work across GPU threads and manages memory allocation for batched integrations.
-
-Created on Tue May 27 17:45:03 2025
-
-@author: cca79
-"""
-
-from typing import Optional, Callable, Dict, Any, TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 from warnings import warn
 
 import numpy as np
 from numba import cuda, float64, float32
 from numba import int32, int16
+
+import attrs
 
 from cubie.cuda_simsafe import is_cudasim_enabled
 from numpy.typing import NDArray
@@ -35,6 +27,7 @@ from cubie.outputhandling.output_sizes import (
     SingleRunOutputSizes,
 )
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
+from cubie._utils import PrecisionDType
 
 if TYPE_CHECKING:
     from cubie.memory import MemoryManager
@@ -46,29 +39,50 @@ DEFAULT_MEMORY_SETTINGS = {
 }
 
 
-class BatchSolverKernel(CUDAFactory):
-    """
-    CUDA-based batch solver kernel for ODE integration.
+@attrs.define(frozen=True)
+class ChunkParams:
+    """Chunked execution parameters calculated for a batch run.
 
-    This class builds and holds the integrating kernel and interfaces with
-    lower-level modules including loop algorithms, ODE systems, and output
-    functions. The kernel function accepts single or batched sets of inputs
-    and distributes those amongst the threads on the GPU.
+    Attributes
+    ----------
+    duration
+        Duration assigned to each chunk.
+    warmup
+        Warmup duration applied to the current chunk.
+    t0
+        Start time of the chunk.
+    size
+        Number of indices processed per chunk.
+    runs
+        Number of runs scheduled within a chunk.
+    """
+
+    duration: float
+    warmup: float
+    t0: float
+    size: int
+    runs: int
+
+
+class BatchSolverKernel(CUDAFactory):
+    """Factory for CUDA kernel which coordinates a batch integration.
 
     Parameters
     ----------
     system
-        The ODE system to be integrated.
-    duration :
-        Duration of the simulation.
+        ODE system describing the problem to integrate.
+    duration
+        Duration of the simulation window.
     warmup
-        Warmup time before the main simulation.
+        Warmup time to integrate before capturing output.
     dt_save
-        Time step for saving output.
+        Interval between saved trajectory samples.
     dt_summarise
-        Time step for saving summaries.
+        Interval between summary reductions.
+    driver_function
+        Optional evaluation function for an interpolated forcing term.
     profileCUDA
-        Whether to enable CUDA profiling.
+        Flag enabling CUDA profiling hooks.
     step_control_settings
         Mapping of overrides forwarded to
         :class:`cubie.integrators.SingleIntegratorRun` for controller
@@ -78,32 +92,18 @@ class BatchSolverKernel(CUDAFactory):
         :class:`cubie.integrators.SingleIntegratorRun` for algorithm
         configuration.
     output_settings
-        Mapping of output configuration forwarded to the integrator.
-        Recognised keys include ``"output_types"`` and the saved or
-        summarised index selectors:
-        ``"saved_states"``, ``"saved_observables"``,
-        ``"summarised_states"``, and
-        ``"summarised_observables"``.
+        Mapping of output configuration forwarded to the integrator. See
+        :class:`cubie.outputhandling.OutputFunctions` for recognised keys.
     memory_settings
-        Mapping of memory configuration forwarded to the memory manager.
-        Recognised keys include ``"memory_manager"``, ``"stream_group"``,
-        and ``"mem_proportion"``.
+        Mapping of memory configuration forwarded to the memory manager,
+        typically via :mod:`cubie.memory`.
 
     Notes
     -----
-    This class is one level down from the user, managing sanitised inputs
-    and handling the machinery of batching and running integrators. It does
-    not handle:
-
-    - Integration logic/algorithms - these are handled in SingleIntegratorRun
-      and below
-    - Input sanitisation / batch construction - this is handled in the solver api
-    - System equations - these are handled in the system model classes
-
-    The kernel runs the loop device function from a
-    ::class::SingleIntegratorRun object on a given slice of kernel-allocated
-    memory and serves as the distributor of work amongst the individual runs
-    of the integrators.
+    The kernel delegates integration logic to :class:`SingleIntegratorRun`
+    instances and expects upstream APIs to perform batch construction. It
+    executes the compiled loop function against kernel-managed memory slices
+    and distributes work across GPU threads for each input batch.
     """
 
     def __init__(
@@ -115,18 +115,18 @@ class BatchSolverKernel(CUDAFactory):
         dt_summarise: float = 1.0,
         driver_function: Optional[Callable] = None,
         profileCUDA: bool = False,
-        step_control_settings: Dict[str, Any] = None,
-        algorithm_settings: Dict[str, Any] = None,
-        output_settings: Dict[str, Any] = None,
-        memory_settings: Dict[str, Any] = None,
-    ):
+        step_control_settings: Optional[Dict[str, Any]] = None,
+        algorithm_settings: Optional[Dict[str, Any]] = None,
+        output_settings: Optional[Dict[str, Any]] = None,
+        memory_settings: Optional[Dict[str, Any]] = None,
+    ) -> None:
         super().__init__()
         if memory_settings is None:
             memory_settings = {}
         if output_settings is None:
             output_settings = {}
 
-        # Store non compile-critical run parameters locally (removed from config)
+        # Store non compile-critical run parameters locally
         self._duration = duration
         self._warmup = warmup
         self._profileCUDA = profileCUDA
@@ -138,7 +138,7 @@ class BatchSolverKernel(CUDAFactory):
 
         self._memory_manager = self._setup_memory_manager(memory_settings)
 
-        # Build the single integrator first so we can derive compile-critical data
+        # Build the single integrator to derive compile-critical metadata
         self.single_integrator = SingleIntegratorRun(
             system,
             dt_save=dt_save,
@@ -152,9 +152,14 @@ class BatchSolverKernel(CUDAFactory):
         initial_config = BatchSolverConfig(
             precision=precision,
             loop_fn=None,
-            local_memory_elements=self.single_integrator.local_memory_elements,
-            shared_memory_elements=self.single_integrator.shared_memory_elements,
-            ActiveOutputs=ActiveOutputs(),  # placeholder, updated after arrays allocate
+            local_memory_elements=(
+                self.single_integrator.local_memory_elements
+            ),
+            shared_memory_elements=(
+                self.single_integrator.shared_memory_elements
+            ),
+            ActiveOutputs=ActiveOutputs(),
+            # placeholder, updated after arrays allocate
         )
         self.setup_compile_settings(initial_config)
 
@@ -166,14 +171,20 @@ class BatchSolverKernel(CUDAFactory):
         self.update_compile_settings(
             {
                 "ActiveOutputs": self.output_arrays.active_outputs,
-                "local_memory_elements": self.single_integrator.local_memory_elements,
-                "shared_memory_elements": self.single_integrator.shared_memory_elements,
+                "local_memory_elements": (
+                    self.single_integrator.local_memory_elements
+                ),
+                "shared_memory_elements": (
+                    self.single_integrator.shared_memory_elements
+                ),
                 "precision": self.single_integrator.precision,
             }
         )
 
-    def _setup_memory_manager(self, settings: Dict[str, Any]) -> "MemoryManager":
-        """Configure and register the kernel with the memory manager.
+    def _setup_memory_manager(
+        self, settings: Dict[str, Any]
+    ) -> "MemoryManager":
+        """Register the kernel with a memory manager instance.
 
         Parameters
         ----------
@@ -184,8 +195,7 @@ class BatchSolverKernel(CUDAFactory):
         Returns
         -------
         MemoryManager
-            Registered memory manager ready to serve allocations for the
-            kernel.
+            Memory manager configured for solver allocations.
         """
 
         merged_settings = DEFAULT_MEMORY_SETTINGS.copy()
@@ -203,49 +213,52 @@ class BatchSolverKernel(CUDAFactory):
 
     def run(
         self,
-        inits,
-        params,
-        driver_coefficients,
-        duration,
-        blocksize=256,
-        stream=None,
-        warmup=0.0,
-        t0=0.0,
-        chunk_axis="run",
-    ):
-        """
-        Execute the solver kernel for batch integration.
+        inits: NDArray[np.floating],
+        params: NDArray[np.floating],
+        driver_coefficients: Optional[NDArray[np.floating]],
+        duration: float,
+        blocksize: int = 256,
+        stream: Optional[Any] = None,
+        warmup: float = 0.0,
+        t0: float = 0.0,
+        chunk_axis: str = "run",
+    ) -> None:
+        """Execute the solver kernel for batch integration.
 
         Parameters
         ----------
-        inits : array_like
-            Initial conditions for each run. Shape should be (n_runs, n_states).
-        params : array_like
-            Parameters for each run. Shape should be (n_runs, n_params).
-        driver_coefficients : array_like or None
-            Horner-ordered driver interpolation coefficients with shape
-            ``(num_segments, num_drivers, order + 1)``.
-        duration : float
-            Duration of the simulation.
-        blocksize : int, default=256
+        inits
+            Initial conditions with shape ``(n_runs, n_states)``.
+        params
+            Parameter table with shape ``(n_runs, n_params)``.
+        driver_coefficients
+            Optional Horner-ordered driver interpolation coefficients with
+            shape ``(num_segments, num_drivers, order + 1)``.
+        duration
+            Duration of the simulation window.
+        blocksize
             CUDA block size for kernel execution.
-        stream : object, optional
-            CUDA stream to use. If None, uses the solver's assigned stream.
-        warmup : float, default=0.0
+        stream
+            CUDA stream assigned to the batch launch.
+        warmup
             Warmup time before the main simulation.
-        chunk_axis : str, default='run'
-            Axis along which to chunk the computation ('run' or 'time').
+        t0
+            Initial integration time.
+        chunk_axis
+            Axis used to partition the workload, either ``"run"`` or
+            ``"time"``.
+
+        Returns
+        -------
+        None
+            This method performs the integration for its side effects.
 
         Notes
         -----
-        This method performs the main batch integration by:
-        1. Setting up input and output arrays
-        2. Allocating GPU memory in chunks
-        3. Executing the CUDA kernel for each chunk
-        4. Handling memory management and synchronization
-
-        The method automatically adjusts block size if shared memory requirements
-        exceed GPU limits, warning the user about potential performance impacts.
+        The kernel prepares array views, queues allocations, and executes the
+        device loop on each chunked workload. Shared-memory demand may reduce
+        the block size automatically, emitting a warning when the limit drops
+        below a warp.
         """
         if stream is None:
             stream = self.stream
@@ -267,8 +280,12 @@ class BatchSolverKernel(CUDAFactory):
             {
                 "loop_fn": self.single_integrator.compiled_loop_function,
                 "precision": self.single_integrator.precision,
-                "local_memory_elements": self.single_integrator.local_memory_elements,
-                "shared_memory_elements": self.single_integrator.shared_memory_elements,
+                "local_memory_elements": (
+                    self.single_integrator.local_memory_elements
+                ),
+                "shared_memory_elements": (
+                    self.single_integrator.shared_memory_elements
+                ),
                 "ActiveOutputs": self.output_arrays.active_outputs,
             }
         )
@@ -285,11 +302,14 @@ class BatchSolverKernel(CUDAFactory):
             numruns,
             self.chunks,
         )
-        chunk_duration, chunk_warmup, chunk_t0, chunksize, chunkruns = chunk_params
+        chunk_warmup = chunk_params.warmup
+        chunk_t0 = chunk_params.t0
 
         pad = 4 if self.shared_memory_needs_padding else 0
         padded_bytes = self.shared_memory_bytes + pad
-        dynamic_sharedmem = int(padded_bytes * min(chunkruns, blocksize))
+        dynamic_sharedmem = int(
+            padded_bytes * min(chunk_params.runs, blocksize)
+        )
 
         blocksize, dynamic_sharedmem = self.limit_blocksize(
             blocksize,
@@ -305,15 +325,15 @@ class BatchSolverKernel(CUDAFactory):
             cuda.profile_start()
 
         for i in range(self.chunks):
-            indices = slice(i * chunksize, (i + 1) * chunksize)
+            indices = slice(i * chunk_params.size, (i + 1) * chunk_params.size)
             self.input_arrays.initialise(indices)
             self.output_arrays.initialise(indices)
 
             # Don't use warmup in runs starting after t=t0
             if (chunk_axis == "time") and (i != 0):
                 chunk_warmup = precision(0.0)
-                chunk_t0 = i * chunk_duration
-
+                chunk_t0 = i * chunk_params.duration
+            
             self.device_function[
                 BLOCKSPERGRID,
                 (threads_per_loop, runsperblock),
@@ -328,7 +348,7 @@ class BatchSolverKernel(CUDAFactory):
                 self.output_arrays.device_state_summaries,
                 self.output_arrays.device_observable_summaries,
                 self.output_arrays.device_status_codes,
-                chunk_duration,
+                chunk_params.duration,
                 chunk_warmup,
                 chunk_t0,
                 numruns,
@@ -348,32 +368,28 @@ class BatchSolverKernel(CUDAFactory):
         bytes_per_run: int,
         numruns: int,
     ) -> tuple[int, int]:
-        """Reduce blocksize until dynamic shared memory fits within limits.
+        """Reduce block size until dynamic shared memory fits within limits.
 
-        Notes:
         Parameters
         ----------
         blocksize
-            User-provided blocksize
+            Requested CUDA block size.
         dynamic_sharedmem
-            Number of bytes required per block at current blocksize
+            Shared-memory footprint per block at the current block size.
         bytes_per_run
-            Number of shared bytes requested per individual run
+            Shared-memory requirement per run.
         numruns
-            Total number of runs requested (in case it's less than blocksize)
+            Total number of runs queued for the launch.
 
         Returns
         -------
-        int, int
-            Adjusted blocksize, limited to a multiple of 32.
-            Dynamic shared memory bytes per block.
+        tuple[int, int]
+            Adjusted block size and shared-memory footprint per block.
 
         Notes
         -----
-        Dynamic shared memory limit is set to 16kB (magic number),
-        to allow for three blocks per SM on CC7*. This may still be too
-        large, and it will affect the amount of L1 Cache available to
-        the compiler for each thread.
+        The shared-memory ceiling uses 32 kiB so three blocks can reside per SM
+        on CC7* hardware. Larger requests reduce per-thread L1 availability.
         """
         while dynamic_sharedmem > 32768:
             if blocksize < 32:
@@ -387,7 +403,7 @@ class BatchSolverKernel(CUDAFactory):
                 )
             blocksize = int(blocksize // 2)
             dynamic_sharedmem = int(
-                    bytes_per_run * min(numruns, blocksize)
+                bytes_per_run * min(numruns, blocksize)
             )
         return blocksize, dynamic_sharedmem
 
@@ -399,30 +415,29 @@ class BatchSolverKernel(CUDAFactory):
         t0: float,
         numruns: int,
         chunks: int,
-    ):
-        """Split up the run plan into chunks along the selected axis
+    ) -> ChunkParams:
+        """Split the workload into chunks along the selected axis.
 
         Parameters
         ----------
         chunk_axis
-            Axis along which to chunk the computation ('run' or 'time').
+            Axis along which to partition the workload, either ``"run"`` or
+            ``"time"``.
         duration
-            Duration of the simulation.
+            Duration of the simulation window.
         warmup
             Warmup time before the main simulation.
         t0
-            Initial time of the simulation.
+            Initial integration time.
         numruns
-            Total number of separate input sets for the run
+            Total number of runs in the batch.
         chunks
-            How many chunks to split the run into
+            Number of partitions requested by the memory manager.
 
         Returns
         -------
-        (float, float, float, int, int)
-            duration, warmup, t0, chunk size, numruns
-            The duration, warmup time, initial time, size of chunk along
-            chunk axis, and number of runs in the chunk.
+        ChunkParams
+            Chunked execution parameters describing the per-chunk workload.
         """
         chunkruns = numruns
         chunk_warmup = warmup
@@ -437,9 +452,15 @@ class BatchSolverKernel(CUDAFactory):
         else:
             raise ValueError("chunk_axis must be either 'run' or 'time'")
 
-        return chunk_duration, chunk_warmup, chunk_t0, chunksize, chunkruns
+        return ChunkParams(
+            duration=chunk_duration,
+            warmup=chunk_warmup,
+            t0=chunk_t0,
+            size=chunksize,
+            runs=chunkruns,
+        )
 
-    def build_kernel(self):
+    def build_kernel(self) -> None:
         """Build and compile the CUDA integration kernel."""
         config = self.compile_settings
         simsafe_precision = config.simsafe_precision
@@ -492,6 +513,40 @@ class BatchSolverKernel(CUDAFactory):
             t0=precision(0.0),
             n_runs=1,
         ):
+            """Execute the compiled single-run loop for each batch chunk.
+
+            Parameters
+            ----------
+            inits
+                Device array containing initial values for each run.
+            params
+                Device array containing parameter values for each run.
+            d_coefficients
+                Device array of driver interpolation coefficients.
+            state_output
+                Device array where state trajectories are written.
+            observables_output
+                Device array where observable trajectories are written.
+            state_summaries_output
+                Device array containing state summary reductions.
+            observables_summaries_output
+                Device array containing observable summary reductions.
+            status_codes_output
+                Device array storing per-run solver status codes.
+            duration
+                Duration assigned to the current chunk integration.
+            warmup
+                Warmup duration applied before the chunk starts.
+            t0
+                Start time of the chunk integration window.
+            n_runs
+                Number of runs scheduled for the kernel launch.
+
+            Returns
+            -------
+            None
+                The device kernel performs integration for its side effects.
+            """
             tx = int16(cuda.threadIdx.x)
             ty = int16(cuda.threadIdx.y)
             block_index = int32(cuda.blockIdx.x)
@@ -545,35 +600,38 @@ class BatchSolverKernel(CUDAFactory):
         # no cover: end
         return integration_kernel
 
-    def update(self, updates_dict=None, silent=False, **kwargs):
-        """
-        Update solver configuration parameters.
+    def update(
+        self,
+        updates_dict: Optional[Dict[str, Any]] = None,
+        silent: bool = False,
+        **kwargs: Any,
+    ) -> set[str]:
+        """Update solver configuration parameters.
 
-        Reorders logic to first update the single integrator, then regenerate
         Parameters
         ----------
-        updates_dict : dict, optional
-            Dictionary of parameter updates.
-        silent : bool, default=False
-            If True, suppresses error messages for unrecognized parameters.
+        updates_dict
+            Mapping of parameter updates forwarded to the single integrator and
+            compile settings.
+        silent
+            Flag suppressing errors when unrecognised parameters remain.
         **kwargs
-            Additional parameter updates passed as keyword arguments.
+            Additional parameter overrides merged into ``updates_dict``.
 
         Returns
         -------
-        set
-            Set of recognized parameter names that were updated.
+        set[str]
+            Names of parameters successfully applied.
 
         Raises
         ------
         KeyError
-            If unrecognized parameters are provided and silent=False.
+            Raised when unknown parameters persist and ``silent`` is ``False``.
 
         Notes
         -----
-        This method attempts to update parameters in both the compile settings
-        and the single integrator instance. Unrecognized parameters are
-        collected and reported as an error unless silent mode is enabled.
+        The method applies updates to the single integrator before refreshing
+        compile-critical settings so the kernel rebuild picks up new metadata.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -589,8 +647,12 @@ class BatchSolverKernel(CUDAFactory):
         )
         updates_dict.update({
             "loop_function": self.single_integrator.device_function,
-             "local_memory_elements": self.single_integrator.local_memory_elements,
-             "shared_memory_elements": self.single_integrator.shared_memory_elements,
+            "local_memory_elements": (
+                self.single_integrator.local_memory_elements
+            ),
+            "shared_memory_elements": (
+                self.single_integrator.shared_memory_elements
+            ),
              "ActiveOutputs": self.output_arrays.active_outputs,
         })
 
@@ -607,45 +669,45 @@ class BatchSolverKernel(CUDAFactory):
         return recognised
 
     @property
-    def precision(self):
-        """Get numerical precision used in computations."""
+    def precision(self) -> PrecisionDType:
+        """Precision dtype used in computations."""
+
         return self.compile_settings.precision
 
     @property
-    def local_memory_elements(self):
-        """Get number of local memory elements per run"""
+    def local_memory_elements(self) -> int:
+        """Number of precision elements required in local memory per run."""
+
         return self.compile_settings.local_memory_elements
 
     @property
-    def shared_memory_elements(self):
-        """Get number of shared memory elements per run"""
+    def shared_memory_elements(self) -> int:
+        """Number of precision elements required in shared memory per run."""
+
         return self.compile_settings.shared_memory_elements
 
     @property
-    def ActiveOutputs(self):
-        """Get acive output array flags"""
+    def ActiveOutputs(self) -> ActiveOutputs:
+        """Active output array flags."""
+
         return self.compile_settings.ActiveOutputs
 
     @property
-    def shared_memory_needs_padding(self):
-        """True if a 4-byte pad would reduce bank conflicts.
-
-        Shared memory load instructions for ``float64`` require eight-byte
-        alignment. Skewing run slices by four bytes would misalign every
-        alternate run and trigger a runtime ``misaligned address`` fault
-        [CUDAProgrammingGuide]_.  Consequently we only apply padding when
-        using single precision where a four-byte skew preserves alignment and
-        improves bank utilisation.
+    def shared_memory_needs_padding(self) -> bool:
+        """Indicate whether shared-memory padding is required.
 
         Returns
         -------
         bool
-            ``True`` when a four-byte pad will reduce bank conflicts.
+            ``True`` when a four-byte skew reduces bank conflicts for single
+            precision.
 
-        References
-        ----------
-        elif self.shared_memory_elements_per_run % 2 == 0:
-           Guide*, "Shared Memory", 2024.
+        Notes
+        -----
+        Shared memory load instructions for ``float64`` require eight-byte
+        alignment. Padding in that scenario would misalign alternate runs and
+        trigger misaligned-access faults, so padding only applies to single
+        precision workloads where the skew preserves alignment.
         """
         if self.precision == np.float64:
             return False
@@ -654,231 +716,339 @@ class BatchSolverKernel(CUDAFactory):
         else:
             return False
 
-    def _on_allocation(self, response):
-        """Hook to save chunks value after array allocation."""
+    def _on_allocation(self, response: Any) -> None:
+        """Record the number of chunks required by the memory manager."""
         self.chunks = response.chunks
 
     @property
-    def output_heights(self):
-        """Get output array heights."""
+    def output_heights(self) -> Any:
+        """Height metadata for each host output array."""
+
         return self.single_integrator.output_array_heights
 
     @property
-    def kernel(self):
-        """Get the compiled kernel."""
+    def kernel(self) -> Callable:
+        """Compiled integration kernel callable."""
+
         return self.device_function
 
-    def build(self):
+    def build(self) -> Callable:
+        """Compile the integration kernel and return it."""
+
         return self.build_kernel()
 
     @property
     def profileCUDA(self) -> bool:
+        """Indicate whether CUDA profiling hooks are enabled."""
+
         return self._profileCUDA and not is_cudasim_enabled()
 
     @property
     def memory_manager(self) -> "MemoryManager":
+        """Registered memory manager for this kernel."""
+
         return self._memory_manager
 
     @property
-    def stream_group(self):
+    def stream_group(self) -> str:
+        """Stream group label assigned by the memory manager."""
+
         return self.memory_manager.get_stream_group(self)
 
     @property
-    def stream(self):
+    def stream(self) -> Any:
+        """CUDA stream used for kernel launches."""
+
         return self.memory_manager.get_stream(self)
 
     @property
-    def mem_proportion(self):
+    def mem_proportion(self) -> Optional[float]:
+        """Fraction of managed memory reserved for this kernel."""
+
         return self.memory_manager.proportion(self)
 
     @property
-    def shared_memory_bytes(self):
+    def shared_memory_bytes(self) -> int:
+        """Shared-memory footprint per run for the compiled kernel."""
+
         return self.single_integrator.shared_memory_bytes
 
 
     @property
-    def threads_per_loop(self):
+    def threads_per_loop(self) -> int:
+        """CUDA threads consumed by each run in the loop."""
+
         return self.single_integrator.threads_per_loop
 
     @property
-    def duration(self):
+    def duration(self) -> float:
+        """Requested integration duration."""
+
         return self.precision(self._duration)
 
     @duration.setter
-    def duration(self, value):
+    def duration(self, value: float) -> None:
         self._duration = self.precision(value)
 
     @property
-    def dt(self) -> float:
+    def dt(self) -> Optional[float]:
+        """Current integrator step size when available."""
+
         return self.single_integrator.dt or None
 
     @property
-    def warmup(self):
+    def warmup(self) -> float:
+        """Configured warmup duration."""
+
         return self.precision(self._warmup)
 
     @warmup.setter
-    def warmup(self, value):
+    def warmup(self, value: float) -> None:
         self._warmup = self.precision(value)
 
     @property
-    def output_length(self):
+    def output_length(self) -> int:
+        """Number of saved trajectory samples in the main run."""
+
         return int(np.ceil(self.duration / self.single_integrator.dt_save))
 
     @property
-    def summaries_length(self):
-        return int(np.ceil(self._duration / self.single_integrator.dt_summarise))
+    def summaries_length(self) -> int:
+        """Number of summary intervals across the integration window."""
+
+        return int(
+            np.ceil(self._duration / self.single_integrator.dt_summarise)
+        )
 
     @property
-    def warmup_length(self):
+    def warmup_length(self) -> int:
+        """Number of warmup save intervals completed before capturing output."""
+
         return int(np.ceil(self._warmup / self.single_integrator.dt_save))
 
     @property
     def system(self) -> "BaseODE":
+        """Underlying ODE system handled by the kernel."""
+
         return self.single_integrator.system
 
     @property
-    def algorithm(self):
+    def algorithm(self) -> str:
+        """Identifier of the selected integration algorithm."""
+
         return self.single_integrator.algorithm_key
 
     @property
-    def dt_min(self):
+    def dt_min(self) -> float:
+        """Minimum allowable step size from the controller."""
+
         return self.single_integrator.dt_min
 
     @property
-    def dt_max(self):
+    def dt_max(self) -> float:
+        """Maximum allowable step size from the controller."""
+
         return self.single_integrator.dt_max
 
     @property
-    def atol(self):
+    def atol(self) -> float:
+        """Absolute error tolerance applied during adaptive stepping."""
+
         return self.single_integrator.atol
 
     @property
-    def rtol(self):
+    def rtol(self) -> float:
+        """Relative error tolerance applied during adaptive stepping."""
+
         return self.single_integrator.rtol
 
     @property
-    def dt_save(self):
+    def dt_save(self) -> float:
+        """Interval between saved samples from the loop."""
+
         return self.single_integrator.dt_save
 
     @property
-    def dt_summarise(self):
+    def dt_summarise(self) -> float:
+        """Interval between summary reductions from the loop."""
+
         return self.single_integrator.dt_summarise
 
     @property
-    def system_sizes(self):
+    def system_sizes(self) -> Any:
+        """Structured size metadata for the system."""
+
         return self.single_integrator.system_sizes
 
     @property
-    def output_array_heights(self):
+    def output_array_heights(self) -> Any:
+        """Height metadata for the batched output arrays."""
+
         return self.single_integrator.output_array_heights
 
     @property
-    def ouput_array_sizes_2d(self):
+    def ouput_array_sizes_2d(self) -> SingleRunOutputSizes:
+        """Two-dimensional output sizes for individual runs."""
+
         return SingleRunOutputSizes.from_solver(self)
 
     @property
-    def output_array_sizes_3d(self):
+    def output_array_sizes_3d(self) -> BatchOutputSizes:
+        """Three-dimensional output sizes for batched runs."""
+
         return BatchOutputSizes.from_solver(self)
 
     @property
-    def summaries_buffer_sizes(self):
+    def summaries_buffer_sizes(self) -> Any:
+        """Device buffer sizes required for summary reductions."""
+
         return self.single_integrator.summaries_buffer_sizes
 
     @property
-    def summary_legend_per_variable(self):
+    def summary_legend_per_variable(self) -> Any:
+        """Legend entries describing each summarised variable."""
+
         return self.single_integrator.summary_legend_per_variable
 
     @property
-    def saved_state_indices(self):
+    def saved_state_indices(self) -> Any:
+        """Indices of saved state variables."""
+
         return self.single_integrator.saved_state_indices
 
     @property
-    def saved_observable_indices(self):
+    def saved_observable_indices(self) -> Any:
+        """Indices of saved observable variables."""
+
         return self.single_integrator.saved_observable_indices
 
     @property
-    def summarised_state_indices(self):
+    def summarised_state_indices(self) -> Any:
+        """Indices of summarised state variables."""
+
         return self.single_integrator.summarised_state_indices
 
     @property
-    def summarised_observable_indices(self):
+    def summarised_observable_indices(self) -> Any:
+        """Indices of summarised observable variables."""
+
         return self.single_integrator.summarised_observable_indices
 
     @property
     def active_output_arrays(self) -> "ActiveOutputs":
+        """Active output flags after ensuring arrays are allocated."""
+
         self.output_arrays.allocate()
         return self.output_arrays.active_outputs
 
     @property
-    def device_state_array(self):
+    def device_state_array(self) -> Any:
+        """Device buffer storing saved state trajectories."""
+
         return self.output_arrays.device_state
 
     @property
-    def device_observables_array(self):
+    def device_observables_array(self) -> Any:
+        """Device buffer storing saved observable trajectories."""
+
         return self.output_arrays.device_observables
 
     @property
-    def device_state_summaries_array(self):
+    def device_state_summaries_array(self) -> Any:
+        """Device buffer storing state summary reductions."""
+
         return self.output_arrays.device_state_summaries
 
     @property
-    def device_observable_summaries_array(self):
+    def device_observable_summaries_array(self) -> Any:
+        """Device buffer storing observable summary reductions."""
+
         return self.output_arrays.device_observable_summaries
 
     @property
-    def d_statuscodes(self):
+    def d_statuscodes(self) -> Any:
+        """Device buffer storing integration status codes."""
+
         return self.output_arrays.device_status_codes
 
     @property
-    def state(self):
+    def state(self) -> Any:
+        """Host view of saved state trajectories."""
+
         return self.output_arrays.state
 
     @property
-    def observables(self):
+    def observables(self) -> Any:
+        """Host view of saved observable trajectories."""
+
         return self.output_arrays.observables
 
     @property
-    def state_summaries(self):
+    def state_summaries(self) -> Any:
+        """Host view of state summary reductions."""
+
         return self.output_arrays.state_summaries
 
     @property
-    def status_codes(self):
+    def status_codes(self) -> Any:
+        """Host view of integration status codes."""
+
         return self.output_arrays.status_codes
 
     @property
-    def observable_summaries(self):
+    def observable_summaries(self) -> Any:
+        """Host view of observable summary reductions."""
+
         return self.output_arrays.observable_summaries
 
     @property
-    def initial_values(self):
+    def initial_values(self) -> Any:
+        """Host view of initial state values."""
+
         return self.input_arrays.initial_values
 
     @property
-    def parameters(self):
+    def parameters(self) -> Any:
+        """Host view of parameter tables."""
+
         return self.input_arrays.parameters
 
     @property
-    def driver_coefficients(self) -> NDArray[np.generic]:
+    def driver_coefficients(self) -> Optional[NDArray[np.floating]]:
+        """Horner-ordered driver coefficients on the host."""
+
         return self.input_arrays.driver_coefficients
 
     @property
-    def device_driver_coefficients(self) -> NDArray[np.generic]:
+    def device_driver_coefficients(self) -> Optional[NDArray[np.floating]]:
+        """Device-resident driver coefficients."""
+
         return self.input_arrays.device_driver_coefficients
 
     @property
     def state_stride_order(self) -> Tuple[str, ...]:
+        """Stride order for state arrays on the host."""
+
         return self.output_arrays.host.state.stride_order
 
     @property
-    def save_time(self):
+    def save_time(self) -> float:
+        """Elapsed time spent saving outputs during integration."""
+
         return self.single_integrator.save_time
 
-    def enable_profiling(self):
+    def enable_profiling(self) -> None:
+        """Enable CUDA profiling hooks for subsequent launches."""
+
         self._profileCUDA = True
 
-    def disable_profiling(self):
+    def disable_profiling(self) -> None:
+        """Disable CUDA profiling hooks for subsequent launches."""
+
         self._profileCUDA = False
 
     @property
-    def output_types(self):
+    def output_types(self) -> Any:
+        """Active output type identifiers configured for the run."""
+
         return self.single_integrator.output_types

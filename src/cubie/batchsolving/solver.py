@@ -5,7 +5,7 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import numpy as np
 
@@ -31,43 +31,42 @@ from cubie.outputhandling.output_functions import (
 
 
 def solve_ivp(
-    system,
-    y0,
-    parameters = None,
+    system: BaseODE,
+    y0: Union[np.ndarray, Dict[str, np.ndarray]],
+    parameters: Optional[Union[np.ndarray, Dict[str, np.ndarray]]] = None,
     drivers: Optional[Dict[str, object]] = None,
-    dt_eval = 1e-2,
-    method="euler",
-    duration=1.0,
-    settling_time=0.0,
-    grid_type='combinatorial',
-    **kwargs,
+    dt_eval: float = 1e-2,
+    method: str = "euler",
+    duration: float = 1.0,
+    settling_time: float = 0.0,
+    grid_type: str = "combinatorial",
+    **kwargs: Any,
 ) -> SolveResult:
     """Solve a batch initial value problem.
 
     Parameters
     ----------
-
-    system : object
+    system
         System model defining the differential equations.
-    y0 : array-like
-        Initial state values for each run.
-    parameters : array-like or dict
-        Parameter values for each run.
-    drivers : dict[str, object], optional
+    y0
+        Initial state values for each run as arrays or dictionaries mapping
+        labels to arrays.
+    parameters
+        Parameter values for each run as arrays or dictionaries mapping labels
+        to arrays.
+    drivers
         Driver configuration to interpolate during integration.
-    dt_eval : float
+    dt_eval
         Interval at which solution values are stored.
-    method : str, optional
+    method
         Integration algorithm to use. Default is ``"euler"``.
-    duration : float, optional
+    duration
         Total integration time. Default is ``1.0``.
-    settling_time : float, optional
+    settling_time
         Warm-up period prior to storing outputs. Default is ``0.0``.
-    grid_type : str, optional
-        'verbatim' or 'combinatorial' strategy for building the batch. Verbatim
-        will pair each input value and parameter set so that index 0 of all
-        inputs form one "run". 'combinatorial' will generate every combination
-        of every input variable, which scales combinatorially.
+    grid_type
+        ``"verbatim"`` pairs each input vector while ``"combinatorial"``
+        produces every combination of provided values.
     **kwargs
         Additional keyword arguments passed to :class:`Solver`.
 
@@ -99,51 +98,42 @@ class Solver:
 
     Parameters
     ----------
-    system : BaseODE
+    system
         System model containing the ODEs to integrate.
-    algorithm : str, optional
+    algorithm
         Integration algorithm to use. Defaults to ``"euler"``.
-    duration : float, optional
+    duration
         Total integration time. Defaults to ``1.0``.
-    warmup : float, optional
+    warmup
         Warm-up period before outputs are stored. Defaults to ``0.0``.
-    dt_min, dt_max : float, optional
-        Minimum and maximum timestep sizes. Defaults are ``0.01`` and ``0.1``.
-    dt_save : float, optional
+    dt_save
         Sampling interval for storing state values. Default is ``0.1``.
-    dt_summarise : float, optional
+    dt_summarise
         Interval for computing summary outputs. Default is ``1.0``.
-    atol, rtol : float, optional
-        Absolute and relative error tolerances. Defaults are ``1e-6``.
-    precision : type, optional
-        Floating point precision. Defaults to ``numpy.float64``.
-    profileCUDA : bool, optional
+    profileCUDA
         Enable CUDA profiling. Defaults to ``False``.
-    step_control_settings : dict[str, object], optional
+    step_control_settings
         Explicit controller configuration that overrides solver defaults.
-    algorithm_settings : dict[str, object], optional
+    algorithm_settings
         Explicit algorithm configuration overriding solver defaults.
-    output_settings : dict[str, object], optional
+    output_settings
         Explicit output configuration overriding solver defaults. Individual
-        keys such as ``output_types`` or the saved and summarised selectors
-        may also be supplied directly via keyword arguments.
-    memory_settings : dict[str, object], optional
+        selectors such as ``saved_states`` may also be supplied as keyword
+        arguments.
+    memory_settings
         Explicit memory configuration overriding solver defaults. Keys like
-        ``memory_manager``, ``stream_group``, ``mem_proportion``, and
-        ``allocator`` may likewise be provided as keyword arguments.
-    strict:
-        If True, raise an error if any unknown keyword arguments are provided.
+        ``memory_manager`` or ``mem_proportion`` may likewise be provided as
+        keyword arguments.
+    strict
+        If ``True`` unknown keyword arguments raise ``KeyError``.
     **kwargs
         Additional keyword arguments forwarded to internal components.
 
-    Attributes
-    ----------
-    system_interface : SystemInterface
-        Object translating between user-world and GPU-world variables.
-    grid_builder : BatchGridBuilder
-        Helper that constructs integration grids from user inputs.
-    kernel : BatchSolverKernel
-        Low-level component that executes integrations on the GPU.
+    Notes
+    -----
+    Instances coordinate batch grid construction, kernel configuration, and
+    driver interpolation so that :meth:`solve` orchestrates a complete GPU
+    integration run.
     """
 
     def __init__(
@@ -160,8 +150,8 @@ class Solver:
         output_settings: Optional[Dict[str, object]] = None,
         memory_settings: Optional[Dict[str, object]] = None,
         strict: bool = False,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
         if output_settings is None:
             output_settings = {}
         if memory_settings is None:
@@ -231,27 +221,30 @@ class Solver:
         self,
         output_settings: Dict[str, Any],
     ) -> None:
-        """Resolve and sanitise saved/summarised variable settings in-place
+        """Resolve output label settings in-place.
 
         Parameters
         ----------
         output_settings
             Mapping of output configuration keys recognised by the solver.
             Entries describing saved or summarised selectors are replaced with
-            integer indices when provided. Modified in-place
+            integer indices when provided.
+
+        Returns
+        -------
+        None
+            This method mutates ``output_settings`` in-place.
 
         Raises
         ------
         ValueError
-            If the settings dict contains duplicate entries, e.g. "saved_states"
-            and "saved_state_indices".
+            If the settings dict contains duplicate entries, for example both
+            ``"saved_states"`` and ``"saved_state_indices"``.
 
         Notes
         -----
-        There is some ambiguity in the way that a user can provide input
-        information. They may provide an iterable of labels,
-        e.g. "saved_states = ['V_a', 'V_b']" or the form which
-
+        Users may supply selectors as labels or integers; this resolver ensures
+        that downstream components receive numeric indices and canonical keys.
         """
 
         resolvers = {
@@ -260,16 +253,22 @@ class Solver:
             "summarised_states": self.system_interface.state_indices,
             "summarised_state_indices": self.system_interface.state_indices,
             "saved_observables": self.system_interface.observable_indices,
-            "saved_observable_indices": self.system_interface.observable_indices,
+            "saved_observable_indices": (
+                self.system_interface.observable_indices
+            ),
             "summarised_observables": self.system_interface.observable_indices,
-            "summarised_observable_indices": self.system_interface.observable_indices,
+            "summarised_observable_indices": (
+                self.system_interface.observable_indices
+            ),
         }
 
         labels2index_keys = {
             "saved_states": "saved_state_indices",
             "saved_observables": "saved_observable_indices",
             "summarised_states": "summarised_state_indices",
-            "summarised_observable_indices": "summarised_observable_indices",
+            "summarised_observable_indices": (
+                "summarised_observable_indices"
+            ),
         }
         # Replace any labels with integer indices
         for key, resolver in resolvers.items():
@@ -283,54 +282,54 @@ class Solver:
             indices = output_settings.pop(inkey, None)
             if indices is not None:
                 if output_settings.get(outkey, None) is not None:
-                    raise ValueError("Duplicate output settings provided: got "
-                                     f"{inkey}={output_settings[inkey]} and "
-                                     f"{outkey} = {output_settings[outkey]}")
+                    raise ValueError(
+                        "Duplicate output settings provided: got "
+                        f"{inkey}={output_settings[inkey]} and "
+                        f"{outkey} = {output_settings[outkey]}"
+                    )
                 output_settings[outkey] = indices
-
-
 
     def solve(
         self,
-        initial_values,
-        parameters,
+        initial_values: Union[np.ndarray, Dict[str, np.ndarray]],
+        parameters: Union[np.ndarray, Dict[str, np.ndarray]],
         drivers: Optional[Dict[str, Any]] = None,
-        duration=1.0,
-        settling_time=0.0,
-        blocksize=256,
-        stream=None,
-        chunk_axis="run",
+        duration: float = 1.0,
+        settling_time: float = 0.0,
+        blocksize: int = 256,
+        stream: Any = None,
+        chunk_axis: str = "run",
         grid_type: str = "combinatorial",
         results_type: str = "full",
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> SolveResult:
         """Solve a batch initial value problem.
 
         Parameters
         ----------
-        initial_values : array-like or dict
+        initial_values
             Initial state values for each integration run.
-        parameters : array-like or dict
+        parameters
             Parameter values for each run.
-        drivers : dict[str, object], optional
+        drivers
             Driver samples or configuration matching
             :class:`cubie.integrators.array_interpolator.ArrayInterpolator`.
-        duration : float, optional
+        duration
             Total integration time. Default is ``1.0``.
-        settling_time : float, optional
+        settling_time
             Warm-up period before recording outputs. Default ``0.0``.
-        blocksize : int, optional
+        blocksize
             CUDA block size used for kernel launch. Default ``256``.
-        stream : cuda.stream or None, optional
+        stream
             Stream on which to execute the kernel. ``None`` uses the solver's
             default stream.
-        chunk_axis : {'run', 'time'}, optional
-            Dimension along which to chunk when memory is limited. Default
-            ``'run'``.
-        grid_type : {'combinatorial', 'verbatim'}, optional
+        chunk_axis
+            Dimension along which to chunk when memory is limited. Default is
+            ``"run"``.
+        grid_type
             Strategy for constructing the integration grid from inputs.
-        results_type : {'full', 'numpy', 'numpy_per_summary', 'pandas'}, optional
-            Format of returned results. Default ``'full'``.
+        results_type
+            Format of returned results, for example ``"full"`` or ``"numpy"``.
         **kwargs
             Additional options forwarded to :meth:`update`.
 
@@ -348,12 +347,14 @@ class Solver:
 
         fn_changed = False  # ensure defined if drivers is None
         if drivers is not None:
-            ArrayInterpolator.check_against_system_drivers(drivers,
-                                                               self.system)
+            ArrayInterpolator.check_against_system_drivers(
+                drivers, self.system
+            )
             fn_changed = self.driver_interpolator.update_from_dict(drivers)
         if fn_changed:
-            self.update({"driver_function": (
-                self.driver_interpolator.device_function)})
+            self.update(
+                {"driver_function": self.driver_interpolator.device_function}
+            )
 
         self.kernel.run(
             inits=inits,
@@ -368,23 +369,33 @@ class Solver:
 
         return SolveResult.from_solver(self, results_type=results_type)
 
-    def update(self, updates_dict, silent=False, **kwargs):
-        """Update solver, integrator and system settings.
+    def update(
+        self,
+        updates_dict: Optional[Dict[str, Any]] = None,
+        silent: bool = False,
+        **kwargs: Any,
+    ) -> Set[str]:
+        """Update solver, integrator, and system settings.
 
         Parameters
         ----------
-        updates_dict : dict
+        updates_dict
             Mapping of attribute names to new values.
-        silent : bool, optional
+        silent
             If ``True`` unknown keys are ignored instead of raising
-            ``KeyError``. Defaults to ``False``.
+            ``KeyError``.
         **kwargs
             Additional updates supplied as keyword arguments.
 
         Returns
         -------
-        set
+        Set[str]
             Set of keys that were successfully updated.
+
+        Raises
+        ------
+        KeyError
+            If ``silent`` is ``False`` and unknown settings are supplied.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -396,12 +407,13 @@ class Solver:
 
         self.convert_output_labels(updates_dict)
 
-
-        driver_recognised = self.driver_interpolator.update(updates_dict,
-                                                      silent=True)
+        driver_recognised = self.driver_interpolator.update(
+            updates_dict, silent=True
+        )
         if driver_recognised:
             updates_dict["driver_function"] = (
-                self.driver_interpolator.evaluation_function)
+                self.driver_interpolator.evaluation_function
+            )
 
         recognised = set()
         all_unrecognized = set(updates_dict.keys())
@@ -414,7 +426,7 @@ class Solver:
         )
         all_unrecognized -= self.kernel.update(updates_dict, silent=True)
 
-        if "profileCUDA" in updates_dict: # pragma: no cover
+        if "profileCUDA" in updates_dict:  # pragma: no cover
             if updates_dict["profileCUDA"]:
                 self.enable_profiling()
             else:
@@ -429,23 +441,32 @@ class Solver:
         return recognised
 
     def update_memory_settings(
-        self, updates_dict=None, silent=False, **kwargs
-    ):
+        self,
+        updates_dict: Optional[Dict[str, Any]] = None,
+        silent: bool = False,
+        **kwargs: Any,
+    ) -> Set[str]:
         """Update memory manager parameters.
 
         Parameters
         ----------
-        updates_dict : dict, optional
-            Mapping of settings to update.
-        silent : bool, optional
-            If ``True`` unknown keys are ignored. Default ``False``.
+        updates_dict
+            Mapping of memory manager settings to update.
+        silent
+            If ``True`` unknown keys are ignored instead of raising
+            ``KeyError``.
         **kwargs
             Additional updates supplied as keyword arguments.
 
         Returns
         -------
-        set
+        Set[str]
             Set of keys that were successfully updated.
+
+        Raises
+        ------
+        KeyError
+            If ``silent`` is ``False`` and unknown settings are supplied.
         """
         if updates_dict is None:
             updates_dict = {}
@@ -475,305 +496,298 @@ class Solver:
                 raise KeyError(f"Unrecognized parameters: {all_unrecognized}")
         return recognised
 
-    def enable_profiling(self):
+    def enable_profiling(self) -> None:
         """Enable CUDA profiling for the solver.
 
-        Profiling collects detailed performance information but can slow down
-        execution considerably.
+        Returns
+        -------
+        None
+            This method alters kernel profiling configuration in-place.
         """
         # Consider disabling optimisation and enabling debug and line info
         # for profiling
         self.kernel.enable_profiling()
 
-    def disable_profiling(self):
+    def disable_profiling(self) -> None:
         """Disable CUDA profiling for the solver.
 
-        This reverts the effect of :meth:`enable_profiling` and returns the
-        solver to normal execution speed.
+        Returns
+        -------
+        None
+            This method alters kernel profiling configuration in-place.
         """
         self.kernel.disable_profiling()
 
-    def get_state_indices(self, state_labels: Optional[List[str]] = None):
+    def get_state_indices(
+        self, state_labels: Optional[List[str]] = None
+    ) -> np.ndarray:
         """Return indices for the specified state variables.
 
         Parameters
         ----------
-        state_labels : list[str], optional
+        state_labels
             Labels of states to query. ``None`` returns indices for all states.
 
         Returns
         -------
-        ndarray
+        np.ndarray
             Integer indices corresponding to the requested states.
         """
         return self.system_interface.state_indices(state_labels)
 
     def get_observable_indices(
         self, observable_labels: Optional[List[str]] = None
-    ):
+    ) -> np.ndarray:
         """Return indices for the specified observables.
 
         Parameters
         ----------
-        observable_labels : list[str], optional
+        observable_labels
             Labels of observables to query. ``None`` returns indices for all
             observables.
 
         Returns
         -------
-        ndarray
+        np.ndarray
             Integer indices corresponding to the requested observables.
         """
         return self.system_interface.observable_indices(observable_labels)
 
     @property
     def precision(self) -> PrecisionDType:
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.precision` from
-        the child BatchSolverKernel object."""
+        """Expose the kernel precision."""
         return self.kernel.precision
 
     @property
     def system_sizes(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.system_sizes`
-        from the child BatchSolverKernel object."""
+        """Expose cached system size metadata."""
         return self.kernel.system_sizes
 
     @property
     def output_array_heights(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_array_heights`
-        from the child BatchSolverKernel object.
-        """
+        """Expose output array heights from the kernel."""
         return self.kernel.output_array_heights
 
     @property
     def summaries_buffer_sizes(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .summaries_buffer_sizes` from the child BatchSolverKernel object."""
+        """Expose summary buffer sizes."""
         return self.kernel.summaries_buffer_sizes
 
     @property
     def num_runs(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.num_runs` from
-        the child BatchSolverKernel object."""
+        """Expose the number of runs in the last solve."""
         return self.kernel.num_runs
 
     @property
     def output_length(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_length`
-        from the child BatchSolverKernel object."""
+        """Expose the flattened output length."""
         return self.kernel.output_length
 
     @property
     def summaries_length(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.summaries_length`
-        from the child BatchSolverKernel object."""
+        """Expose the flattened summary length."""
         return self.kernel.summaries_length
 
     @property
     def summary_legend_per_variable(self) -> dict[int, str]:
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .summary_legend_per_variable` from the child BatchSolverKernel
-        object."""
+        """Expose summary legends keyed by variable index."""
         return self.kernel.summary_legend_per_variable
 
     @property
     def saved_state_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .saved_state_indices` from the child BatchSolverKernel object."""
+        """Expose saved state indices."""
         return self.kernel.saved_state_indices
 
     @property
     def saved_states(self):
-        """Returns a list of state labels for the saved states."""
+        """List saved state labels."""
         return self.system_interface.state_labels(self.saved_state_indices)
 
     @property
     def saved_observable_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .saved_observable_indices` from the child BatchSolverKernel object."""
+        """Expose saved observable indices."""
         return self.kernel.saved_observable_indices
 
     @property
     def saved_observables(self):
-        """Returns a list of observable labels for the saved observables."""
+        """List saved observable labels."""
         return self.system_interface.observable_labels(
             self.saved_observable_indices
         )
 
     @property
     def summarised_state_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
-        .summarised_state_indices` from the child BatchSolverKernel object."""
+        """Expose summarised state indices."""
         return self.kernel.summarised_state_indices
 
     @property
     def summarised_states(self):
-        """Returns a list of state labels for the summarised states."""
+        """List summarised state labels."""
         return self.system_interface.state_labels(
             self.summarised_state_indices
         )
 
     @property
     def summarised_observable_indices(self):
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel .summarised_observable_indices`."""
+        """Expose summarised observable indices."""
         return self.kernel.summarised_observable_indices
 
     @property
     def summarised_observables(self):
-        """Returns labels of summarised observables."""
+        """List summarised observable labels."""
         return self.system_interface.observable_labels(
             self.summarised_observable_indices
         )
 
     @property
     def active_output_arrays(self) -> ActiveOutputs:
-        """Exposes active output array containers."""
+        """Expose active output array containers."""
         return self.kernel.active_output_arrays
 
     @property
     def state(self):
-        """Exposes latest state outputs."""
+        """Expose latest state outputs."""
         return self.kernel.state
 
     @property
     def observables(self):
-        """Exposes latest observable outputs."""
+        """Expose latest observable outputs."""
         return self.kernel.observables
 
     @property
     def state_summaries(self):
-        """Exposes state summary outputs."""
+        """Expose state summary outputs."""
         return self.kernel.state_summaries
 
     @property
     def observable_summaries(self):
-        """Exposes observable summary outputs."""
+        """Expose observable summary outputs."""
         return self.kernel.observable_summaries
 
     @property
     def parameters(self):
-        """Exposes parameter array used in last run."""
+        """Expose parameter array used in the last run."""
         return self.kernel.parameters
 
     @property
     def initial_values(self):
-        """Exposes initial values array used in last run."""
+        """Expose initial values array used in the last run."""
         return self.kernel.initial_values
 
     @property
     def driver_coefficients(self):
-        """Exposes driver interpolation coefficients."""
+        """Expose driver interpolation coefficients."""
         return self.kernel.driver_coefficients
 
     @property
     def save_time(self) -> bool:
-        """Whether time points are saved."""
+        """Return whether time points are saved."""
         return self.kernel.save_time
 
     @property
-    def output_types(self) -> list[str]:
-        """List of active output types."""
+    def output_types(self) -> List[str]:
+        """List active output types."""
         return self.kernel.output_types
 
     @property
     def state_stride_order(self) -> Tuple[str, ...]:
-        """Tuple describing stride order of state arrays."""
+        """Describe the stride order of state arrays."""
         return self.kernel.state_stride_order
 
     @property
     def input_variables(self) -> List[str]:
-        """All input variable labels (states, params, drivers)."""
+        """List all input variable labels."""
         return self.system_interface.all_input_labels
 
     @property
     def output_variables(self) -> List[str]:
-        """All output variable labels (states, observables, summaries)."""
+        """List all output variable labels."""
         return self.system_interface.all_output_labels
 
     @property
     def chunk_axis(self) -> str:
-        """Axis used for chunking large runs."""
+        """Return the axis used for chunking large runs."""
         return self.kernel.chunk_axis
 
     @property
     def chunks(self):
-        """Number of chunks used in last run."""
+        """Return the number of chunks used in the last run."""
         return self.kernel.chunks
 
     @property
     def memory_manager(self):
-        """Memory manager instance."""
+        """Return the associated memory manager instance."""
         return self.kernel.memory_manager
 
     @property
     def stream_group(self):
-        """CUDA stream group assigned to this solver."""
+        """Return the CUDA stream group assigned to this solver."""
         return self.kernel.stream_group
 
     @property
     def mem_proportion(self):
-        """Proportion of global memory allocated."""
+        """Return the proportion of global memory allocated."""
         return self.kernel.mem_proportion
 
     @property
     def system(self) -> "BaseODE":
-        """Underlying ODE system instance."""
+        """Return the underlying ODE system instance."""
         return self.kernel.system
 
     # Pass-through properties for solve_info components
     @property
-    def dt(self):
-        """Current step size."""
+    def dt(self) -> Optional[float]:
+        """Return the fixed-step size or ``None`` for adaptive controllers."""
         return self.kernel.dt
 
     @property
-    def dt_min(self):
-        """Minimum allowed step size."""
+    def dt_min(self) -> Optional[float]:
+        """Return the minimum step size for adaptive controllers."""
         return self.kernel.dt_min
 
     @property
-    def dt_max(self):
-        """Maximum allowed step size."""
+    def dt_max(self) -> Optional[float]:
+        """Return the maximum step size for adaptive controllers."""
         return self.kernel.dt_max
 
     @property
     def dt_save(self):
-        """Interval between saved outputs."""
+        """Return the interval between saved outputs."""
         return self.kernel.dt_save
 
     @property
     def dt_summarise(self):
-        """Interval between summary computations."""
+        """Return the interval between summary computations."""
         return self.kernel.dt_summarise
 
     @property
     def duration(self):
-        """Integration duration requested."""
+        """Return the requested integration duration."""
         return self.kernel.duration
 
     @property
     def warmup(self):
-        """Warm-up period length."""
+        """Return the warm-up period length."""
         return self.kernel.warmup
 
     @property
-    def atol(self):
-        """Absolute tolerance."""
+    def atol(self) -> Optional[float]:
+        """Return the absolute tolerance for adaptive controllers."""
         return self.kernel.atol
 
     @property
-    def rtol(self):
-        """Relative tolerance."""
+    def rtol(self) -> Optional[float]:
+        """Return the relative tolerance for adaptive controllers."""
         return self.kernel.rtol
 
     @property
     def algorithm(self):
-        """Algorithm name."""
+        """Return the configured algorithm name."""
         return self.kernel.algorithm
 
     @property
-    def solve_info(self):
-        """SolveSpec describing current solver configuration."""
+    def solve_info(self) -> SolveSpec:
+        """Construct a SolveSpec describing the current configuration."""
         return SolveSpec(
             dt=self.dt,
             dt_min=self.dt_min,
@@ -792,4 +806,3 @@ class Solver:
             output_types=self.output_types,
             precision=self.precision,
         )
-

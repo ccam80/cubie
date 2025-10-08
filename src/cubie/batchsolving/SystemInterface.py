@@ -1,22 +1,18 @@
 """Convenience interface for accessing system values.
 
-This module provides the SystemInterface class which wraps SystemValues
-instances for parameters, states, and observables. It exposes helper methods
-for converting between user-facing labels/indices and internal representations.
-
-Classes
--------
-SystemInterface
-    Convenience accessor for system values with label/index conversion methods.
+This module provides :class:`SystemInterface`, which wraps
+:class:`cubie.odesystems.SystemValues` instances for parameters, states, and
+observables. It exposes helper methods for converting between user-facing
+labels or indices and internal representations.
 
 Notes
 -----
-The SystemInterface allows updating default state or parameter values without
-navigating the full system hierarchy, providing a simplified interface for
+The interface allows updating default state or parameter values without
+navigating the full system hierarchy, providing a simplified entry point for
 common operations.
 """
 
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import numpy as np
 
@@ -27,18 +23,21 @@ from cubie.odesystems.SystemValues import SystemValues
 class SystemInterface:
     """Convenience accessor for system values.
 
-    This class wraps SystemValues instances for parameters, states, and
-    observables and provides methods for converting between user-facing
-    labels/indices and internal representations.
-
     Parameters
     ----------
-    parameters : SystemValues
+    parameters
         System parameter values object.
-    states : SystemValues
+    states
         System state values object.
-    observables : SystemValues
+    observables
         System observable values object.
+
+    Notes
+    -----
+    Instances mirror the structure of
+    :class:`~cubie.odesystems.baseODE.BaseODE` components so that
+    higher-level utilities can access names, indices, and default values from a
+    single object.
     """
 
     def __init__(
@@ -57,13 +56,13 @@ class SystemInterface:
 
         Parameters
         ----------
-        system : BaseODE
+        system
             The system model to create an interface for.
 
         Returns
         -------
         SystemInterface
-            A new SystemInterface instance wrapping the system's values.
+            A new instance wrapping the system's values.
         """
         return cls(
             system.parameters, system.initial_values, system.observables
@@ -71,26 +70,27 @@ class SystemInterface:
 
     def update(
         self,
-        updates: Dict[str, float] | None = None,
+        updates: Optional[Dict[str, Any]] = None,
         silent: bool = False,
         **kwargs,
-    ) -> Optional[set]:
+    ) -> Optional[Set[str]]:
         """Update default parameter or state values.
 
         Parameters
         ----------
-        updates : dict of str to float, optional
-            Mapping of label to new value. If None, only keyword arguments
+        updates
+            Mapping of label to new value. If ``None``, only keyword arguments
             are used for updates.
-        silent : bool, default False
-            If True, suppresses KeyError for unrecognized update keys.
+        silent
+            If ``True``, suppresses ``KeyError`` for unrecognized update keys.
         **kwargs
-            Additional keyword arguments merged with ``updates``. Each key-value
-            pair represents a label-value mapping for updating system values.
+            Additional keyword arguments merged with ``updates``. Each
+            key-value pair represents a label-value mapping for updating system
+            values.
 
         Returns
         -------
-        set or None
+        set of str or None
             Set of recognized update keys that were successfully applied.
             Returns None if no updates were provided.
 
@@ -99,11 +99,10 @@ class SystemInterface:
         KeyError
             If ``silent`` is False and unrecognized update keys are provided.
 
-
         Notes
         -----
         The method attempts to update both parameters and states. Updates are
-        applied to whichever SystemValues object recognizes each key.
+        applied to whichever :class:`SystemValues` object recognizes each key.
         """
         if updates is None:
             updates = {}
@@ -121,7 +120,8 @@ class SystemInterface:
             if not silent:
                 unrecognized_list = sorted(all_unrecognized)
                 raise KeyError(
-                    "The following updates were not recognized by the system. Was this a typo?: "
+                    "The following updates were not recognized by the system. "
+                    "Was this a typo?: "
                     f"{unrecognized_list}"
                 )
 
@@ -139,19 +139,16 @@ class SystemInterface:
 
         Parameters
         ----------
-        keys_or_indices : list of {str, int} or str or int or None, default
-        None.
-            State names, indices, or a mix of both. Can be a single
-            name/index or a list containing strings (state names) and/or
-            integers (indices). None returns all state indices.
-        silent : bool, default False
-            If True, suppresses warnings for unrecognized keys or indices.
+        keys_or_indices
+            State names, indices, or a mix of both. ``None`` returns all state
+            indices.
+        silent
+            If ``True``, suppresses warnings for unrecognized keys or indices.
 
         Returns
         -------
         np.ndarray
-            Array of integer indices corresponding to the provided state
-            names or indices. Always returns a 1D array, even for single inputs.
+            Array of integer indices corresponding to the provided identifiers.
         """
         if keys_or_indices is None:
             keys_or_indices = self.states.names
@@ -166,18 +163,15 @@ class SystemInterface:
 
         Parameters
         ----------
-        keys_or_indices : list of {str, int} or str or int or None, default
-        None.
-            Observable names, indices, or a mix of both. Can be a single
-            name/index or a list containing strings (observable names)
-            and/or integers (indices). None returns all observable indices.
-        silent : bool, default False
-            If True, suppresses warnings for unrecognized keys or indices.
+        keys_or_indices
+            Observable names, indices, or a mix of both. ``None`` returns all
+            observable indices.
+        silent
+            If ``True``, suppresses warnings for unrecognized keys or indices.
         Returns
         -------
         np.ndarray
-            Array of integer indices corresponding to the provided observable
-            names or indices. Always returns a 1D array, even for single inputs.
+            Array of integer indices corresponding to the provided identifiers.
 
         """
         if keys_or_indices is None:
@@ -193,17 +187,15 @@ class SystemInterface:
 
         Parameters
         ----------
-        keys_or_indices : list of {str, int} or str or int
-            Parameter names, indices, or a mix of both. Can be a single name/index
-            or a list containing strings (parameter names) and/or integers (indices).
-        silent : bool, default False
-            If True, suppresses warnings for unrecognized keys or indices.
+        keys_or_indices
+            Parameter names, indices, or a mix of both.
+        silent
+            If ``True``, suppresses warnings for unrecognized keys or indices.
 
         Returns
         -------
         np.ndarray
-            Array of integer indices corresponding to the provided parameter
-            names or indices. Always returns a 1D array, even for single inputs.
+            Array of integer indices corresponding to the provided identifiers.
         """
         return self.parameters.get_indices(keys_or_indices, silent=silent)
 
@@ -214,9 +206,9 @@ class SystemInterface:
 
         Parameters
         ----------
-        values_object : SystemValues
+        values_object
             The SystemValues object to retrieve labels from.
-        indices : np.ndarray
+        indices
             A 1D array of integer indices.
 
         Returns
@@ -227,18 +219,18 @@ class SystemInterface:
         return values_object.get_labels(indices)
 
     def state_labels(self, indices: Optional[np.ndarray] = None) -> List[str]:
-        """Get the labels of the states corresponding to the provided indices.
+        """Return state labels corresponding to the provided indices.
 
         Parameters
         ----------
-        indices : np.ndarray, optional
-            A 1D array of state indices. If None, return all state labels.
+        indices
+            A 1D array of state indices.
+            If ``None``, return all state labels.
 
         Returns
         -------
         list of str
             List of state labels corresponding to the provided indices.
-            If indices is None, returns all state labels.
         """
         if indices is None:
             return self.states.names
@@ -247,19 +239,18 @@ class SystemInterface:
     def observable_labels(
         self, indices: Optional[np.ndarray] = None
     ) -> List[str]:
-        """Get the labels of observables corresponding to the provided indices.
+        """Return observable labels corresponding to the provided indices.
 
         Parameters
         ----------
-        indices : np.ndarray, optional
-            A 1D array of observable indices. If None, return all observable
-            labels.
+        indices
+            A 1D array of observable indices.
+            If ``None``, return all observable labels.
 
         Returns
         -------
         list of str
             List of observable labels corresponding to the provided indices.
-            If indices is None, returns all observable labels.
         """
         if indices is None:
             return self.observables.names
@@ -268,19 +259,18 @@ class SystemInterface:
     def parameter_labels(
         self, indices: Optional[np.ndarray] = None
     ) -> List[str]:
-        """Get the labels of parameters corresponding to the provided indices.
+        """Return parameter labels corresponding to the provided indices.
 
         Parameters
         ----------
-        indices : np.ndarray, optional
-            A 1D array of parameter indices. If None, return all parameter
-            labels.
+        indices
+            A 1D array of parameter indices.
+            If ``None``, return all parameter labels.
 
         Returns
         -------
         list of str
             List of parameter labels corresponding to the provided indices.
-            If indices is None, returns all parameter labels.
         """
         if indices is None:
             return self.parameters.names
@@ -288,34 +278,10 @@ class SystemInterface:
 
     @property
     def all_input_labels(self) -> List[str]:
-        """Get all input labels, the union of state and parameter labels.
-
-        Returns
-        -------
-        list of str
-            List containing all state labels followed by all parameter labels.
-
-        Notes
-        -----
-        This property provides a convenient way to access all system inputs
-        (states and parameters) in a single list.
-        """
+        """List all input labels (states followed by parameters)."""
         return self.state_labels() + self.parameter_labels()
 
     @property
     def all_output_labels(self) -> List[str]:
-        """Get all output labels, the union of state and observable labels.
-
-        Returns
-        -------
-        list of str
-            List containing all state labels followed by all observable labels.
-
-        Notes
-        -----
-        This property provides a convenient way to access all system outputs
-        (states and observables) in a single list.
-        """
+        """List all output labels (states followed by observables)."""
         return self.state_labels() + self.observable_labels()
-
-
