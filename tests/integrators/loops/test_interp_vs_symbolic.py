@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from cubie import merge_component_settings
+from cubie import merge_kwargs_into_settings
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.algorithms.base_algorithm_step import (
     ALL_ALGORITHM_STEP_PARAMETERS,
@@ -115,10 +115,8 @@ def _build_loop(
     driver_function = (
         driver_array.evaluation_function if driver_array is not None else None
     )
-    algorithm_settings, _ = merge_component_settings(
-        kwargs=solver_settings,
-        valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
-    )
+    algorithm_settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
+                                                       valid_keys=ALL_ALGORITHM_STEP_PARAMETERS)
     algorithm_settings["algorithm"] = solver_settings["algorithm"]
     algorithm_settings["dt"] = float(solver_settings["dt_min"])
     algorithm_settings["n"] = system.sizes.states
@@ -135,10 +133,8 @@ def _build_loop(
         settings=algorithm_settings,
     )
 
-    controller_settings, _ = merge_component_settings(
-        kwargs=solver_settings,
-        valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
-    )
+    controller_settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
+                                                        valid_keys=ALL_STEP_CONTROLLER_PARAMETERS)
     controller_settings["step_controller"] = solver_settings[
         "step_controller"
     ]

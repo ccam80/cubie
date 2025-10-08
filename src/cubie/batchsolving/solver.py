@@ -5,7 +5,7 @@ wrapper :func:`solve_ivp` for solving batches of initial value problems on the
 GPU.
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 
 import numpy as np
 
@@ -24,7 +24,7 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 from cubie.integrators.step_control.base_step_controller import (
     ALL_STEP_CONTROLLER_PARAMETERS,
 )
-from cubie._utils import merge_component_settings
+from cubie._utils import merge_kwargs_into_settings
 from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
@@ -189,29 +189,21 @@ class Solver:
 
         recognized_kwargs: set[str] = set()
 
-        output_settings, output_recognized = merge_component_settings(
-            kwargs=kwargs,
-            user_settings=output_settings,
-            valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
-        )
+        output_settings, output_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs, valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
+            user_settings=output_settings)
         self.convert_output_labels(output_settings)
 
-        memory_settings, memory_recognized = merge_component_settings(
-            kwargs=kwargs,
-            user_settings=memory_settings,
-            valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
-        )
+        memory_settings, memory_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs, valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
+            user_settings=memory_settings)
 
-        step_settings, step_recognized = merge_component_settings(
-            kwargs=kwargs,
-            user_settings=step_control_settings,
-            valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
-        )
-        algorithm_settings, algorithm_recognized = merge_component_settings(
-            kwargs=kwargs,
-            user_settings=algorithm_settings,
-            valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
-        )
+        step_settings, step_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs, valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
+            user_settings=step_control_settings)
+        algorithm_settings, algorithm_recognized = merge_kwargs_into_settings(
+            kwargs=kwargs, valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
+            user_settings=algorithm_settings)
         algorithm_settings = dict(algorithm_settings)
         algorithm_settings["algorithm"] = algorithm
         recognized_kwargs = (step_recognized | algorithm_recognized
@@ -697,10 +689,11 @@ class Solver:
         return self.kernel.output_types
 
     @property
-    def output_stride_order(self) -> List[str]:
-        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel.output_stride_order
+    def state_stride_order(self) -> Tuple[str, ...]:
+        """Exposes :attr:`~cubie.batchsolving.BatchSolverKernel
+        .state_stride_order
         ` from the child BatchSolverKernel object."""
-        return self.kernel.output_stride_order
+        return self.kernel.state_stride_order
 
     @property
     def input_variables(self) -> List[str]:

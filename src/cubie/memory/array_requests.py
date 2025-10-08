@@ -25,7 +25,7 @@ class ArrayRequest:
         Tuple describing the requested array shape. Defaults to ``(1, 1, 1)``.
     dtype
         NumPy precision constructor used to produce the allocation. Defaults to
-        :func:`numpy.float64`.
+        :func:`numpy.float64`. Integer status buffers use :func:`numpy.int32`.
     memory
         Memory placement option. Must be one of ``"device"``, ``"mapped"``,
         ``"pinned"``, or ``"managed"``.
@@ -66,7 +66,8 @@ class ArrayRequest:
     # the np.float64 object being passed around is a "getset_descriptor",
     # not a dtype, and a type hint here just adds confusion or shows warnings.
     dtype = attrs.field(
-        default=np.float64, validator=val.in_([np.float64, np.float32])
+        default=np.float64,
+        validator=val.in_([np.float64, np.float32, np.int32]),
     )
     memory: str = attrs.field(
         default="device",

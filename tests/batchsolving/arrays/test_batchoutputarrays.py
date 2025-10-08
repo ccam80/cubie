@@ -1,7 +1,7 @@
-from os import environ
 
 import numpy as np
 import pytest
+from numpy.testing import assert_array_equal
 
 from cubie.batchsolving.arrays.BatchOutputArrays import (
     ActiveOutputs,
@@ -11,10 +11,6 @@ from cubie.batchsolving.arrays.BatchOutputArrays import (
 from cubie.memory.mem_manager import MemoryManager
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 
-if environ.get("NUMBA_ENABLE_CUDASIM", "0") == "1":
-    pass
-else:
-    pass
 
 
 @pytest.fixture(scope="function")
@@ -28,7 +24,7 @@ def output_test_overrides(request):
 def output_test_settings(output_test_overrides):
     settings = {
         "num_runs": 5,
-        "dtype": "float32",
+        "dtype": np.float32,
         "memory": "mapped",
         "stream_group": "default",
         "memory_proportion": None,
@@ -44,12 +40,13 @@ def test_memory_manager():
 
 
 @pytest.fixture(scope="function")
-def output_arrays_manager(solver, output_test_settings, test_memory_manager):
+def output_arrays_manager(precision, solver, output_test_settings,
+                          test_memory_manager):
     """Create a OutputArrays instance using real solver"""
     batch_output_sizes = BatchOutputSizes.from_solver(solver)
     return OutputArrays(
         sizes=batch_output_sizes,
-        precision=solver.precision,
+        precision=precision,
         stream_group=output_test_settings["stream_group"],
         memory_proportion=output_test_settings["memory_proportion"],
         memory_manager=test_memory_manager,
@@ -81,6 +78,7 @@ def sample_output_arrays(solver, output_test_settings, precision):
         "observable_summaries": np.random.rand(
             max(0, time_points - 2), num_runs, observables_count
         ).astype(dtype),
+        "status_codes": np.random.randint(0, 5, size=num_runs, dtype=np.int32),
     }
 
 
@@ -95,38 +93,36 @@ class TestOutputArrayContainer:
             "observables",
             "state_summaries",
             "observable_summaries",
+            "status_codes",
         }
-        actual_arrays = {
-            key for key in container.__dict__.keys() if not key.startswith("_")
-        }
+        assert set(container.array_names()) == expected_arrays
+        for _, managed in container.iter_managed_arrays():
+            assert_array_equal(
+                    managed.array,
+                    np.zeros(managed.shape, dtype=managed.dtype)
+            )
 
-        assert actual_arrays == expected_arrays
-
-        # Check that all arrays are None initially
-        assert container.state is None
-        assert container.observables is None
-        assert container.state_summaries is None
-        assert container.observable_summaries is None
 
     def test_container_stride_order(self):
         """Test that stride order is set correctly"""
         container = OutputArrayContainer()
-        assert container.stride_order['state'] == ("time", "run", "variable")
+        stride_order = container.state.stride_order
+        assert stride_order == ("time", "run", "variable")
 
     def test_container_memory_type_default(self):
         """Test default memory type"""
         container = OutputArrayContainer()
-        assert container._memory_type == "device"
+        assert container.state.memory_type == "device"
 
     def test_host_factory(self):
         """Test host factory method"""
         container = OutputArrayContainer.host_factory()
-        assert container._memory_type == "host"
+        assert container.state.memory_type == "host"
 
     def test_device_factory(self):
         """Test device factory method"""
         container = OutputArrayContainer.device_factory()
-        assert container._memory_type == "mapped"
+        assert container.state.memory_type == "mapped"
 
 
 class TestActiveOutputs:
@@ -139,21 +135,25 @@ class TestActiveOutputs:
         assert active.observables is False
         assert active.state_summaries is False
         assert active.observable_summaries is False
+        assert active.status_codes is False
 
     def test_update_from_outputarrays_all_active(
         self, output_arrays_manager, sample_output_arrays
     ):
         """Test update_from_outputarrays with all arrays active"""
         # Set up arrays in the manager
-        output_arrays_manager.host.state = sample_output_arrays["state"]
-        output_arrays_manager.host.observables = sample_output_arrays[
+        output_arrays_manager.host.state.array = sample_output_arrays["state"]
+        output_arrays_manager.host.observables.array = sample_output_arrays[
             "observables"
         ]
-        output_arrays_manager.host.state_summaries = sample_output_arrays[
+        output_arrays_manager.host.state_summaries.array = sample_output_arrays[
             "state_summaries"
         ]
-        output_arrays_manager.host.observable_summaries = sample_output_arrays[
+        output_arrays_manager.host.observable_summaries.array = sample_output_arrays[
             "observable_summaries"
+        ]
+        output_arrays_manager.host.status_codes.array = sample_output_arrays[
+            "status_codes"
         ]
 
         active = ActiveOutputs()
@@ -163,16 +163,18 @@ class TestActiveOutputs:
         assert active.observables is True
         assert active.state_summaries is True
         assert active.observable_summaries is True
+        assert active.status_codes is True
 
     def test_update_from_outputarrays_size_one_arrays(
         self, output_arrays_manager
     ):
         """Test update_from_outputarrays with size-1 arrays (treated as inactive)"""
         # Set up size-1 arrays (treated as artifacts)
-        output_arrays_manager.host.state = np.array([1])
-        output_arrays_manager.host.observables = np.array([1])
-        output_arrays_manager.host.state_summaries = None
-        output_arrays_manager.host.observable_summaries = None
+        output_arrays_manager.host.state.array = np.array([[[1]]])
+        output_arrays_manager.host.observables.array = np.array([[[1]]])
+        output_arrays_manager.host.state_summaries.array = np.array([[[1]]])
+        output_arrays_manager.host.observable_summaries.array = np.array([[[1]]])
+        output_arrays_manager.host.status_codes.array = np.array([[[1]]])
 
         active = ActiveOutputs()
         active.update_from_outputarrays(output_arrays_manager)
@@ -181,6 +183,7 @@ class TestActiveOutputs:
         assert active.observables is False  # Size 1 treated as inactive
         assert active.state_summaries is False  # None
         assert active.observable_summaries is False  # None
+        assert active.status_codes is False
 
 
 class TestOutputArrays:
@@ -194,24 +197,16 @@ class TestOutputArrays:
             "observables",
             "state_summaries",
             "observable_summaries",
+            "status_codes",
         }
-        host_arrays = {
-            key
-            for key in output_arrays_manager.host.__dict__.keys()
-            if not key.startswith("_")
-        }
-        device_arrays = {
-            key
-            for key in output_arrays_manager.device.__dict__.keys()
-            if not key.startswith("_")
-        }
-
-        assert host_arrays == expected_arrays
-        assert device_arrays == expected_arrays
+        assert set(output_arrays_manager.host.array_names()) == expected_arrays
+        assert set(output_arrays_manager.device.array_names()) == expected_arrays
 
         # Check memory types are set correctly in post_init
-        assert output_arrays_manager.host._memory_type == "host"
-        assert output_arrays_manager.device._memory_type == "mapped"
+        for _, managed in output_arrays_manager.host.iter_managed_arrays():
+            assert managed.memory_type == "host"
+        for _, managed in output_arrays_manager.device.iter_managed_arrays():
+            assert managed.memory_type == "mapped"
 
     def test_from_solver_factory(self, solver):
         """Test creating OutputArrays from solver"""
@@ -233,12 +228,14 @@ class TestOutputArrays:
         assert output_arrays_manager.observables is not None
         assert output_arrays_manager.state_summaries is not None
         assert output_arrays_manager.observable_summaries is not None
+        assert output_arrays_manager.status_codes is not None
 
         # Check device getters
         assert output_arrays_manager.device_state is not None
         assert output_arrays_manager.device_observables is not None
         assert output_arrays_manager.device_state_summaries is not None
         assert output_arrays_manager.device_observable_summaries is not None
+        assert output_arrays_manager.device_status_codes is not None
 
     def test_getters_return_none_before_allocation(
         self, output_arrays_manager
@@ -259,12 +256,14 @@ class TestOutputArrays:
         assert output_arrays_manager.observables is not None
         assert output_arrays_manager.state_summaries is not None
         assert output_arrays_manager.observable_summaries is not None
+        assert output_arrays_manager.status_codes is not None
 
         # Check device arrays
         assert output_arrays_manager.device_state is not None
         assert output_arrays_manager.device_observables is not None
         assert output_arrays_manager.device_state_summaries is not None
         assert output_arrays_manager.device_observable_summaries is not None
+        assert output_arrays_manager.device_status_codes is not None
 
     def test_reallocation_on_size_change(self, output_arrays_manager, solver):
         """Test that arrays are reallocated when sizes change"""
@@ -305,12 +304,14 @@ class TestOutputArrays:
 
     def test_active_outputs_property(self, output_arrays_manager, solver):
         """Test _active_outputs property"""
+        solver.kernel.num_runs = 5
         output_arrays_manager.update(solver)
 
         active = output_arrays_manager.active_outputs
         assert isinstance(active, ActiveOutputs)
         # Active status depends on whether arrays have size > 1
         # After allocation from solver, arrays should be active
+        assert active.status_codes is True
 
     def test_update_from_solver(self, output_arrays_manager, solver):
         """Test update_from_solver method"""
@@ -351,12 +352,16 @@ class TestOutputArrays:
         original_device_observables = np.array(
             output_arrays_manager.device_observables
         )
+        original_status_codes = np.arange(
+            output_arrays_manager.device_status_codes.size, dtype=np.int32
+        )
 
         # Modify device arrays to simulate kernel output
         output_arrays_manager.device_state[:] = original_device_state * 2
         output_arrays_manager.device_observables[:] = (
             original_device_observables * 3
         )
+        output_arrays_manager.device_status_codes[:] = original_status_codes
 
         # Set up chunking
         output_arrays_manager._chunks = 1
@@ -368,12 +373,16 @@ class TestOutputArrays:
 
         # Verify that host arrays now contain the modified device data
         np.testing.assert_array_equal(
-            output_arrays_manager.host.state,
+            output_arrays_manager.state,
             output_arrays_manager.device_state,
         )
         np.testing.assert_array_equal(
-            output_arrays_manager.host.observables,
+            output_arrays_manager.observables,
             output_arrays_manager.device_observables,
+        )
+        np.testing.assert_array_equal(
+            output_arrays_manager.status_codes,
+            output_arrays_manager.device_status_codes,
         )
 
 
@@ -389,14 +398,24 @@ def test_dtype(output_arrays_manager, solver, precision):
     assert output_arrays_manager.state.dtype == expected_dtype
     assert output_arrays_manager.observables.dtype == expected_dtype
     assert output_arrays_manager.state_summaries.dtype == expected_dtype
-    assert output_arrays_manager.observable_summaries.dtype == expected_dtype
+    assert (
+        output_arrays_manager.observable_summaries.dtype == expected_dtype
+    )
+    assert output_arrays_manager.status_codes.dtype == np.int32
+    assert output_arrays_manager.device_status_codes.dtype == np.int32
     assert output_arrays_manager.device_state.dtype == expected_dtype
-    assert output_arrays_manager.device_observables.dtype == expected_dtype
-    assert output_arrays_manager.device_state_summaries.dtype == expected_dtype
+    assert (
+        output_arrays_manager.device_observables.dtype == expected_dtype
+    )
+    assert (
+        output_arrays_manager.device_state_summaries.dtype
+        == expected_dtype
+    )
     assert (
         output_arrays_manager.device_observable_summaries.dtype
         == expected_dtype
     )
+
 
 
 @pytest.mark.parametrize(
@@ -413,6 +432,7 @@ def test_output_arrays_with_different_configs(
 ):
     """Test OutputArrays with different configurations"""
     # Test that the manager works with different configurations
+    solver.kernel.num_runs = output_test_settings["num_runs"]
     output_arrays_manager.update(solver)
 
     # Check shapes match expected configuration based on solver
@@ -421,13 +441,18 @@ def test_output_arrays_with_different_configs(
     assert output_arrays_manager.observables is not None
     assert output_arrays_manager.state_summaries is not None
     assert output_arrays_manager.observable_summaries is not None
+    assert output_arrays_manager.status_codes.shape == (expected_num_runs,)
 
     # Check data types
-    expected_dtype = getattr(np, output_test_settings["dtype"])
+    expected_dtype = output_test_settings["dtype"]
     assert output_arrays_manager.state.dtype == expected_dtype
     assert output_arrays_manager.observables.dtype == expected_dtype
     assert output_arrays_manager.state_summaries.dtype == expected_dtype
     assert output_arrays_manager.observable_summaries.dtype == expected_dtype
+    assert output_arrays_manager.status_codes.dtype == np.int32
+    assert output_arrays_manager.device_status_codes.shape == (
+        expected_num_runs,
+    )
 
 
 @pytest.mark.parametrize(

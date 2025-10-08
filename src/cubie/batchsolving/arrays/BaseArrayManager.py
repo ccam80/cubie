@@ -8,7 +8,7 @@ allocations for batch solver workflows.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional, Union
 from warnings import warn
 
 import attrs
@@ -17,156 +17,133 @@ import numpy as np
 from numpy import float32
 from numpy.typing import NDArray
 
+from cubie.cuda_simsafe import DeviceNDArrayBase
 from cubie.memory import default_memmgr
-from cubie.memory.mem_manager import MemoryManager
-from cubie.memory.mem_manager import ArrayRequest, ArrayResponse
+from cubie.memory.mem_manager import ArrayRequest, ArrayResponse, MemoryManager
 from cubie.outputhandling.output_sizes import ArraySizingClass
 
 
 @attrs.define(slots=False)
-class ArrayContainer(ABC):
-    """Store stride metadata and array references for a CUDA manager.
+class ManagedArray:
+    """Metadata wrapper for a single managed array."""
 
-    Parameters
-    ----------
-    _stride_order
-        Mapping of array labels to stride orders such as
-        {"state": ("time", "run", "variable")}.
-    _memory_type
-        Memory allocation type. Must be one of "device", "mapped",
-        "pinned", "managed", or "host".
-    _unchunkable
-        Names of arrays that cannot be chunked during memory management.
-
-    Notes
-    -----
-    Underscored attributes are filtered when scanning ``__dict__`` so that
-    helper methods can focus on user-facing arrays.
-    """
-
-    _stride_order: dict[str, tuple[str, ...]] = attrs.field(
-        factory=dict,
-        validator=val.deep_mapping(
-            val.instance_of(str),
-            val.deep_iterable(
-                member_validator=val.instance_of(str),
-                iterable_validator=val.instance_of(tuple),
-            ),
+    dtype: type = attrs.field(default=float32, validator=val.instance_of(type))
+    stride_order: tuple[str, ...] = attrs.field(
+        factory=tuple,
+        validator=val.deep_iterable(
+            member_validator=val.instance_of(str),
+            iterable_validator=val.instance_of(tuple),
         ),
     )
-    _memory_type: str = attrs.field(
+    shape: tuple[Optional[int], ...] = attrs.field(
+        factory=tuple,
+        validator=val.deep_iterable(
+            member_validator=val.optional(val.instance_of(int)),
+            iterable_validator=val.instance_of(tuple),
+        ),
+    )
+    memory_type: str = attrs.field(
         default="device",
         validator=val.in_(["device", "mapped", "pinned", "managed", "host"]),
     )
-    _unchunkable: tuple[str] = attrs.field(
-        factory=tuple, validator=val.instance_of(tuple)
+    is_chunked: bool = attrs.field(default=True, validator=val.instance_of(bool))
+    _array: Optional[Union[NDArray, DeviceNDArrayBase]] = attrs.field(
+        default=None,
+        repr=False,
     )
 
-    @property
-    def stride_order(self) -> dict[str, tuple[str, ...]]:
-        """Stride order mapping for managed arrays."""
-        return self._stride_order
-
-    @stride_order.setter
-    def stride_order(self, value: dict[str, tuple[str, ...]]) -> None:
-        """
-        Set the stride order.
-
-        Parameters
-        ----------
-        value
-            Mapping of array labels to stride orders.
-        """
-        self._stride_order = value
+    def __attrs_post_init__(self):
+        defaultshape = (1,) * len(self.stride_order)
+        self._array = np.zeros(defaultshape, dtype=self.dtype)
 
     @property
-    def memory_type(self) -> str:
-        """Memory allocation type for attached arrays."""
-        return self._memory_type
+    def array(self) -> Optional[Union[NDArray, DeviceNDArrayBase]]:
+        """Return the attached array reference."""
 
-    @memory_type.setter
-    def memory_type(self, value: str) -> None:
-        """
-        Set the memory type.
+        return self._array
 
-        Parameters
-        ----------
-        value
-            The type of memory allocation.
-        """
-        self._memory_type = value
+    @array.setter
+    def array(
+        self, value: Optional[Union[NDArray, DeviceNDArrayBase]]
+    ) -> None:
+        """Attach an array and update stored shape metadata."""
+
+        self._array = value
+        if value is not None:
+            self.shape = tuple(value.shape)
+
+
+@attrs.define(slots=False)
+class ArrayContainer(ABC):
+    """Store per-array metadata and references for CUDA managers."""
+
+    def _iter_field_items(self) -> Iterator[tuple[str, ManagedArray]]:
+        for name, value in self.__dict__.items():
+            if isinstance(value, ManagedArray):
+                yield name, value
+
+    def iter_managed_arrays(self) -> Iterator[tuple[str, ManagedArray]]:
+        """Yield ``(label, managed)`` pairs for each array."""
+
+        return self._iter_field_items()
+
+    def array_names(self) -> List[str]:
+        """Return array labels managed by this container."""
+
+        return [label for label, _ in self.iter_managed_arrays()]
+
+    def get_managed_array(self, label: str) -> ManagedArray:
+        """Retrieve the metadata wrapper for ``label``."""
+
+        for managed_label, managed in self.iter_managed_arrays():
+            if managed_label == label:
+                return managed
+        raise AttributeError(f"Managed array with label '{label}' does not exist.")
+
+    def get_array(
+        self, label: str
+    ) -> Optional[Union[NDArray, DeviceNDArrayBase]]:
+        """Return the stored array for ``label``."""
+
+        return self.get_managed_array(label).array
+
+    def set_array(
+        self, label: str, array: Optional[Union[NDArray, DeviceNDArrayBase]]
+    ) -> None:
+        """Attach an array reference to ``label``."""
+
+        self.get_managed_array(label).array = array
+
+    def set_memory_type(self, memory_type: str) -> None:
+        """Apply ``memory_type`` to all managed arrays."""
+
+        for _, managed in self.iter_managed_arrays():
+            managed.memory_type = memory_type
+
 
     def delete_all(self) -> None:
-        """
-        Delete all array references.
+        """Delete all array references."""
 
-        Notes
-        -----
-        This method removes all non-private, non-callable attributes,
-        effectively clearing all stored arrays.
-
-        Returns
-        -------
-        None
-            Nothing is returned.
-        """
-        for attr_name in list(self.__dict__.keys()):
-            if not attr_name.startswith("_") and not callable(
-                getattr(self, attr_name)
-            ):
-                setattr(self, attr_name, None)
+        for _, managed in self.iter_managed_arrays():
+            managed.array = None
 
     def attach(self, label: str, array: NDArray) -> None:
-        """
-        Attach an array to this container.
+        """Attach an array to this container."""
 
-        Parameters
-        ----------
-        label
-            The name or label for the array.
-        array
-            The array to attach.
-
-        Warns
-        -----
-        UserWarning
-            If the specified label does not exist as an attribute.
-
-        Returns
-        -------
-        None
-            Nothing is returned.
-        """
-        if hasattr(self, label):
-            setattr(self, label, array)
-        else:
+        try:
+            self.set_array(label, array)
+        except AttributeError:
             warn(
                 f"Device array with label '{label}' does not exist. ignoring",
                 UserWarning,
             )
 
     def delete(self, label: str) -> None:
-        """
-        Delete reference to an array.
+        """Delete reference to an array."""
 
-        Parameters
-        ----------
-        label
-            The name or label of the array to delete.
-
-        Warns
-        -----
-        UserWarning
-            If the specified label does not exist as an attribute.
-
-        Returns
-        -------
-        None
-            Nothing is returned.
-        """
-        if hasattr(self, label):
-            setattr(self, label, None)
-        else:
+        try:
+            self.set_array(label, None)
+        except AttributeError:
             warn(
                 f"Host array with label '{label}' does not exist.", UserWarning
             )
@@ -241,8 +218,8 @@ class BaseArrayManager(ABC):
 
         Notes
         -----
-        This method registers with the memory manager, initializes default
-        host arrays, and sets up invalidation hooks.
+        This method registers with the memory manager and sets up
+        invalidation hooks.
 
         Returns
         -------
@@ -250,11 +227,6 @@ class BaseArrayManager(ABC):
             Nothing is returned.
         """
         self.register_with_memory_manager()
-        stride_orders = self.device.stride_order
-        for name, arr in self.host.__dict__.items():
-            if not name.startswith("_") and arr is None:
-                shape = (1,) * len(stride_orders[name])
-                setattr(self.host, name, np.zeros(shape, dtype=self._precision))
         self._invalidate_hook()
 
     @abstractmethod
@@ -412,16 +384,13 @@ class BaseArrayManager(ABC):
         self._needs_reallocation.clear()
         self._needs_overwrite.clear()
         self.device.delete_all()
-        self._needs_reallocation.extend(
-            [
-                array
-                for array in self.device.__dict__.keys()
-                if not array.startswith("_")
-            ]
-        )
+        self._needs_reallocation.extend(self.device.array_names())
 
     def _arrays_equal(
-        self, arr1: Optional[NDArray], arr2: Optional[NDArray]
+        self,
+            arr1: Optional[NDArray],
+            arr2: Optional[NDArray],
+            check_type: bool=True,
     ) -> bool:
         """
         Check if two arrays are equal in shape and content.
@@ -440,6 +409,9 @@ class BaseArrayManager(ABC):
         """
         if arr1 is None or arr2 is None:
             return arr1 is arr2
+        if check_type:
+            if arr1.dtype is not arr2.dtype:
+                return False
         return np.array_equal(arr1, arr2)
 
     def update_sizes(self, sizes: ArraySizingClass) -> None:
@@ -471,7 +443,7 @@ class BaseArrayManager(ABC):
 
     def check_type(self, arrays: Dict[str, NDArray]) -> Dict[str, bool]:
         """
-        Check if the precision of arrays matches the system precision.
+        Check if the dtype of arrays matches their stored dtype.
 
         Parameters
         ----------
@@ -486,7 +458,8 @@ class BaseArrayManager(ABC):
         """
         matches = {}
         for array_name, array in arrays.items():
-            if array is not None and array.dtype != self._precision:
+            host_dtype = self.host.get_managed_array(array_name).dtype
+            if array is not None and array.dtype != host_dtype:
                 matches[array_name] = False
             else:
                 matches[array_name] = True
@@ -524,12 +497,13 @@ class BaseArrayManager(ABC):
             )
         expected_sizes = self._sizes
         source_stride_order = getattr(expected_sizes, "_stride_order", None)
-        target_stride_orders = container._stride_order
         chunk_axis_name = self._chunk_axis
         matches = {}
 
         for array_name, array in new_arrays.items():
-            if array_name not in container.__dict__.keys():
+            managed = container.get_managed_array(array_name)
+
+            if array_name not in container.array_names():
                 matches[array_name] = False
                 continue
             else:
@@ -539,7 +513,7 @@ class BaseArrayManager(ABC):
                     continue  # No size information for this array
                 expected_shape = list(expected_size_tuple)
 
-                target_stride_order = target_stride_orders[array_name]
+                target_stride_order = managed.stride_order
 
                 # Reorder expected_shape to match the container's stride order
                 if (
@@ -559,11 +533,11 @@ class BaseArrayManager(ABC):
                         if axis in size_map
                     ]
 
-                # Chunk if needed and arrays are device arrays, unless unchunkable
+                # Chunk device arrays when permitted by metadata
                 if (
                     location == "device"
                     and self._chunks > 0
-                    and array_name not in container._unchunkable
+                    and managed.is_chunked
                 ):
                     if chunk_axis_name in target_stride_order:
                         chunk_axis_index = target_stride_order.index(
@@ -712,7 +686,11 @@ class BaseArrayManager(ABC):
         """
         if new_array is None:
             raise ValueError("New array is None")
-        elif current_array is None:
+        managed = self.host.get_managed_array(label)
+        if current_array is not None and self._arrays_equal(
+                new_array, current_array):
+            return None
+        if current_array is None:
             self._needs_reallocation.append(label)
             self._needs_overwrite.append(label)
             self.host.attach(label, new_array)
@@ -723,7 +701,8 @@ class BaseArrayManager(ABC):
                 if label not in self._needs_overwrite:
                     self._needs_overwrite.append(label)
                 if 0 in new_array.shape:
-                    new_array = np.zeros((1, 1, 1), dtype=self._precision)
+                    newshape = (1,) * len(current_array.shape)
+                    new_array = np.zeros(newshape, dtype=managed.dtype)
             else:
                 self._needs_overwrite.append(label)
             self.host.attach(label, new_array)
@@ -743,15 +722,14 @@ class BaseArrayManager(ABC):
         None
             Nothing is returned.
         """
+        host_names = set(self.host.array_names())
         badnames = [
-            array_name
-            for array_name in new_arrays
-            if array_name not in self.host.__dict__.keys()
+            array_name for array_name in new_arrays if array_name not in host_names
         ]
         new_arrays = {
             k: v
             for k, v in new_arrays.items()
-            if k in self.host.__dict__.keys()
+            if k in host_names
         }
         if any(badnames):
             warn(
@@ -765,7 +743,7 @@ class BaseArrayManager(ABC):
                 UserWarning,
             )
         for array_name in new_arrays:
-            current_array = getattr(self.host, array_name)
+            current_array = self.host.get_array(array_name)
             self._update_host_array(
                 new_arrays[array_name], current_array, array_name
             )
@@ -786,17 +764,17 @@ class BaseArrayManager(ABC):
         """
         requests = {}
         for array_label in list(set(self._needs_reallocation)):
-            host_array = getattr(self.host, array_label, None)
+            host_array_object = self.host.get_managed_array(array_label)
+            host_array = host_array_object.array
             if host_array is None:
                 continue
+            device_array_object = self.device.get_managed_array(array_label)
             request = ArrayRequest(
                 shape=host_array.shape,
-                dtype=self._precision,
-                memory=self.device.memory_type,
-                stride_order=self.device.stride_order[array_label],
-                unchunkable=(
-                    array_label in getattr(self.host, "_unchunkable", tuple())
-                ),
+                dtype=device_array_object.dtype,
+                memory=device_array_object.memory_type,
+                stride_order=device_array_object.stride_order,
+                unchunkable=not host_array_object.is_chunked,
             )
             requests[array_label] = request
         if requests:
@@ -811,12 +789,16 @@ class BaseArrayManager(ABC):
         None
             Nothing is returned.
         """
-        for name, array in self.device.__dict__.items():
-            if not name.startswith("_") and array is not None:
+        for _, slot in self.device.iter_managed_arrays():
+            array = slot.array
+            if array is not None:
+                zero = np.dtype(slot.dtype).type(0)
                 if len(array.shape) >= 3:
-                    array[:, :, :] = self._precision(0.0)
+                    array[:, :, :] = slot.dtype(0.0)
                 elif len(array.shape) >= 2:
-                    array[:, :] = self._precision(0.0)
+                    array[:, :] = slot.dtype(0.0)
+                elif len(array.shape) >= 1:
+                    array[:] = slot.dtype(0.0)
 
     def reset(self) -> None:
         """
@@ -832,16 +814,17 @@ class BaseArrayManager(ABC):
         self._needs_reallocation.clear()
         self._needs_overwrite.clear()
 
-    def to_device(self, from_arrays: List[str], to_arrays: List[str]) -> None:
+    def to_device(self, from_arrays: List[object], to_arrays: List[object]
+    ) -> None:
         """
         Copy host arrays to the device using the memory manager.
 
         Parameters
         ----------
         from_arrays
-            Names of host arrays to copy.
+            Host arrays to copy.
         to_arrays
-            Names of destination device arrays.
+            Destination device arrays.
 
         Returns
         -------
@@ -851,19 +834,17 @@ class BaseArrayManager(ABC):
         self._memory_manager.to_device(self, from_arrays, to_arrays)
 
     def from_device(
-        self, instance: object, from_arrays: List[str], to_arrays: List[str]
+        self, from_arrays: List[object], to_arrays: List[object]
     ) -> None:
         """
         Copy device arrays back to the host using the memory manager.
 
         Parameters
         ----------
-        instance
-            Object requesting the transfer.
         from_arrays
-            Names of device arrays to copy.
+            Device arrays to copy.
         to_arrays
-            Names of destination host arrays.
+            Destination host arrays.
 
         Returns
         -------

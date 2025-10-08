@@ -4,8 +4,7 @@ The :class:`SolveSpec` class stores the configuration of a solver run while
 the :class:`SolveResult` class aggregates output arrays and related metadata.
 """
 
-from typing import Optional, TYPE_CHECKING, Union, List, Any
-
+from typing import Optional, TYPE_CHECKING, Union, List, Any, Tuple
 
 if TYPE_CHECKING:
     from cubie.batchsolving.solver import Solver
@@ -174,7 +173,7 @@ class SolveResult:
         time, state_less_time = cls.cleave_time(
             solver.state,
             time_saved=solver.save_time,
-            stride_order=solver.output_stride_order['state'],
+            stride_order=solver.state_stride_order,
         )
 
         time_domain_array = cls.combine_time_domain_arrays(
@@ -204,7 +203,7 @@ class SolveResult:
             summaries_legend=summaries_legend,
             active_outputs=active_outputs,
             solve_settings=solve_settings,
-            stride_order=solver.output_stride_order,
+            stride_order=solver.state_stride_order,
             singlevar_summary_legend=singlevar_summary_legend,
         )
 
@@ -245,8 +244,8 @@ class SolveResult:
                 "use this feature."
             )
 
-        run_index = self._stride_order['state'].index("run")
-        ndim = len(self._stride_order['state'])
+        run_index = self._stride_order.index("run")
+        ndim = len(self._stride_order)
         time_dfs = []
         summaries_dfs = []
         any_summaries = (
@@ -360,7 +359,7 @@ class SolveResult:
         ):
             return {}
 
-        variable_index = self._stride_order['state'].index("variable")
+        variable_index = self._stride_order.index("variable")
 
         # Split summaries_array by type
         variable_legend = self.time_domain_legend
@@ -371,7 +370,7 @@ class SolveResult:
         for offset, label in singlevar_legend.items():
             summ_slice = slice(offset, None, indices_per_var)
             summ_slice = slice_variable_dimension(
-                summ_slice, variable_index, len(self._stride_order['state'])
+                summ_slice, variable_index, len(self._stride_order)
             )
             per_summary_arrays[label] = self.summaries_array[summ_slice].copy()
         per_summary_arrays["summary_legend"] = variable_legend
@@ -394,7 +393,7 @@ class SolveResult:
     def cleave_time(
         state: ArrayTypes,
         time_saved: bool = False,
-        stride_order: Optional[list[str]] = None,
+        stride_order: Optional[Tuple[str, ...]] = None,
     ) -> tuple[Optional[NDArray], NDArray]:
         """
         Remove time from the state array if saved.

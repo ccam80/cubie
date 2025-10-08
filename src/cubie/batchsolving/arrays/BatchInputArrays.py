@@ -2,6 +2,7 @@
 
 import attrs
 import attrs.validators as val
+import numpy as np
 
 from numpy.typing import NDArray
 from typing import Optional, TYPE_CHECKING, Union
@@ -11,54 +12,39 @@ if TYPE_CHECKING:
 
 from cubie.outputhandling.output_sizes import BatchInputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (
-    BaseArrayManager,
     ArrayContainer,
+    BaseArrayManager,
+    ManagedArray,
 )
 from cubie.batchsolving import ArrayTypes
 
 
 @attrs.define(slots=False)
 class InputArrayContainer(ArrayContainer):
-    """Container for batch input arrays used by solver kernels.
+    """Container for batch input arrays used by solver kernels."""
 
-    Parameters
-    ----------
-    initial_values
-        Initial state values for the integration.
-    parameters
-        Parameter values for the integration.
-    driver_coefficients
-        Interpolant coefficients describing external drivers.
-    stride_order
-        Mapping of array labels to their stride orders.
-    _memory_type
-        Type of memory allocation.
-    _unchunkable
-        Array names that cannot be chunked.
-
-    Notes
-    -----
-    This container keeps attrs-managed metadata describing which arrays are
-    chunkable and how dimensions map to batching axes so the array manager can
-    transfer slices correctly.
-    """
-
-    initial_values: ArrayTypes = attrs.field(default=None)
-    parameters: ArrayTypes = attrs.field(default=None)
-    driver_coefficients: ArrayTypes = attrs.field(default=None)
-    stride_order: dict[str, tuple[str, ...]] = attrs.field(
-        factory=lambda: {
-            "initial_values": ("run", "variable"),
-            "parameters": ("run", "variable"),
-            "driver_coefficients": ("time", "run", "variable"),
-        },
-        init=False,
+    initial_values: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("run", "variable"),
+            shape=(1, 1),
+        )
     )
-    _memory_type: str = attrs.field(
-        default="device",
-        validator=val.in_(["device", "mapped", "pinned", "managed", "host"]),
+    parameters: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("run", "variable"),
+            shape=(1, 1),
+        )
     )
-    _unchunkable = attrs.field(default=("driver_coefficients",), init=False)
+    driver_coefficients: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+            is_chunked=False,
+        )
+    )
 
     @classmethod
     def host_factory(cls) -> "InputArrayContainer":
@@ -69,7 +55,9 @@ class InputArrayContainer(ArrayContainer):
         InputArrayContainer
             Host-side container instance.
         """
-        return cls(memory_type="host")
+        container = cls()
+        container.set_memory_type("host")
+        return container
 
     @classmethod
     def device_factory(cls) -> "InputArrayContainer":
@@ -80,7 +68,45 @@ class InputArrayContainer(ArrayContainer):
         InputArrayContainer
             Device-side container instance.
         """
-        return cls(memory_type="device")
+        container = cls()
+        container.set_memory_type("device")
+        return container
+
+    # @property
+    # def initial_values(self) -> ArrayTypes:
+    #     """Return the stored initial value array."""
+    #
+    #     return self.get_array("initial_values")
+    #
+    # @initial_values.setter
+    # def initial_values(self, value: ArrayTypes) -> None:
+    #     """Set the initial value array."""
+    #
+    #     self.set_array("initial_values", value)
+    #
+    # @property
+    # def parameters(self) -> ArrayTypes:
+    #     """Return the stored parameter array."""
+    #
+    #     return self.get_array("parameters")
+    #
+    # @parameters.setter
+    # def parameters(self, value: ArrayTypes) -> None:
+    #     """Set the parameter array."""
+    #
+    #     self.set_array("parameters", value)
+    #
+    # @property
+    # def driver_coefficients(self) -> ArrayTypes:
+    #     """Return the stored driver coefficients."""
+    #
+    #     return self.get_array("driver_coefficients")
+    #
+    # @driver_coefficients.setter
+    # def driver_coefficients(self, value: ArrayTypes) -> None:
+    #     """Set the driver coefficient array."""
+    #
+    #     self.set_array("driver_coefficients", value)
 
 
 @attrs.define
@@ -128,8 +154,8 @@ class InputArrays(BaseArrayManager):
             This method mutates container configuration in place.
         """
         super().__attrs_post_init__()
-        self.host._memory_type = "host"
-        self.device._memory_type = "device"
+        self.host.set_memory_type("host")
+        self.device.set_memory_type("device")
 
     def update(
         self,
@@ -169,34 +195,34 @@ class InputArrays(BaseArrayManager):
     @property
     def initial_values(self) -> ArrayTypes:
         """Host initial values array."""
-        return self.host.initial_values
+        return self.host.initial_values.array
 
     @property
     def parameters(self) -> ArrayTypes:
         """Host parameters array."""
-        return self.host.parameters
+        return self.host.parameters.array
 
     @property
     def driver_coefficients(self) -> ArrayTypes:
         """Host driver coefficients array."""
 
-        return self.host.driver_coefficients
+        return self.host.driver_coefficients.array
 
     @property
     def device_initial_values(self) -> ArrayTypes:
         """Device initial values array."""
-        return self.device.initial_values
+        return self.device.initial_values.array
 
     @property
     def device_parameters(self) -> ArrayTypes:
         """Device parameters array."""
-        return self.device.parameters
+        return self.device.parameters.array
 
     @property
     def device_driver_coefficients(self) -> ArrayTypes:
         """Device driver coefficients array."""
 
-        return self.device.driver_coefficients
+        return self.device.driver_coefficients.array
 
     @classmethod
     def from_solver(
@@ -243,6 +269,14 @@ class InputArrays(BaseArrayManager):
         self._sizes = BatchInputSizes.from_solver(solver_instance).nonzero
         self._precision = solver_instance.precision
         self._chunk_axis = solver_instance.chunk_axis
+        for name, arr_obj in self.host.iter_managed_arrays():
+            arr_obj.shape = getattr(self._sizes, name)
+            if np.issubdtype(np.dtype(arr_obj.dtype), np.floating):
+                arr_obj.dtype = self._precision
+        for name, arr_obj in self.device.iter_managed_arrays():
+            arr_obj.shape = getattr(self._sizes, name)
+            if np.issubdtype(np.dtype(arr_obj.dtype), np.floating):
+                arr_obj.dtype = self._precision
 
     def finalise(self, host_indices: Union[slice, NDArray]) -> None:
         """Copy final state slices back to host arrays when requested.
@@ -262,17 +296,17 @@ class InputArrays(BaseArrayManager):
         This method copies data from device back to host for the specified
         chunk indices.
         """
-        stride_order = self.host.stride_order["initial_values"]
+        stride_order = self.host.get_managed_array("initial_values").stride_order
         slice_tuple = [slice(None)] * len(stride_order)
         if self._chunk_axis in stride_order:
             chunk_index = stride_order.index(self._chunk_axis)
             slice_tuple[chunk_index] = host_indices
             slice_tuple = tuple(slice_tuple)
 
-        to_ = [self.host.initial_values[slice_tuple]]
-        from_ = [self.device.initial_values]
+        to_ = [self.host.initial_values.array[slice_tuple]]
+        from_ = [self.device.initial_values.array]
 
-        self.from_device(self, from_, to_)
+        self.from_device(from_, to_)
 
     def initialise(self, host_indices: Union[slice, NDArray]) -> None:
         """Copy a batch chunk of host data to device buffers.
@@ -299,23 +333,19 @@ class InputArrays(BaseArrayManager):
             arrays_to_copy = [array for array in self._needs_overwrite]
             self._needs_overwrite = []
         else:
-            arrays_to_copy = [
-                array
-                for array in self.device.__dict__
-                if not array.startswith("_")
-            ]
+            arrays_to_copy = list(self.device.array_names())
 
         for array_name in arrays_to_copy:
-            if not array_name.startswith("_"):
-                to_.append(getattr(self.device, array_name))
-                host_array = getattr(self.host, array_name)
-                if self._chunks <= 1 or array_name in self.host._unchunkable:
-                    from_.append(host_array)
-                else:
-                    stride_order = self.host.stride_order[array_name]
-                    chunk_index = stride_order.index(self._chunk_axis)
-                    slice_tuple = [slice(None)] * len(stride_order)
-                    slice_tuple[chunk_index] = host_indices
-                    from_.append(host_array[tuple(slice_tuple)])
+            device_obj = self.device.get_managed_array(array_name)
+            to_.append(device_obj.array)
+            host_obj = self.host.get_managed_array(array_name)
+            if self._chunks <= 1 or not device_obj.is_chunked:
+                from_.append(host_obj.array)
+            else:
+                stride_order = host_obj.stride_order
+                chunk_index = stride_order.index(self._chunk_axis)
+                slice_tuple = [slice(None)] * len(stride_order)
+                slice_tuple[chunk_index] = host_indices
+                from_.append(host_obj.array[tuple(slice_tuple)])
 
         self.to_device(from_, to_)

@@ -8,6 +8,7 @@ from numba import cuda
 from cubie.batchsolving.arrays.BaseArrayManager import (
     BaseArrayManager,
     ArrayContainer,
+    ManagedArray,
 )
 from cubie.memory.array_requests import ArrayResponse, ArrayRequest
 from cubie.memory.mem_manager import MemoryManager
@@ -28,11 +29,11 @@ else:
 class ConcreteArrayManager(BaseArrayManager):
     """Concrete implementation of BaseArrayManager"""
 
-    def finalise(self, indices, axis):
-        return indices, axis
+    def finalise(self, indices):
+        return indices
 
-    def initialise(self, indices, axis):
-        return indices, axis
+    def initialise(self, indices):
+        return indices
 
     def update(self):
         return
@@ -40,21 +41,60 @@ class ConcreteArrayManager(BaseArrayManager):
 
 @attrs.define(slots=False)
 class TestArrays(ArrayContainer):
-    state = attrs.field(default=None)
-    observables = attrs.field(default=None)
-    state_summaries = attrs.field(default=None)
-    observable_summaries = attrs.field(default=None)
+    state: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+            memory_type="host",
+        )
+    )
+    observables: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+            memory_type="host",
+        )
+    )
+    state_summaries: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+            memory_type="host",
+        )
+    )
+    observable_summaries: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+            memory_type="host",
+        )
+    )
+
 
 
 @attrs.define(slots=False)
 class TestArraysSimple(ArrayContainer):
-    arr1 = attrs.field(default=None)
-    arr2 = attrs.field(default=None)
-    stride_order = {
-        'arr1': ("time", "run", "variable"),
-        'arr2': ("time", "run", "variable"),
-    }
-    location = "host"
+    arr1: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+            memory_type="host",
+        )
+    )
+    arr2: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+            memory_type="host",
+        )
+    )
+
 
 
 @pytest.fixture(scope="function")
@@ -78,7 +118,7 @@ def arraytest_settings(arraytest_overrides):
         "devshape4": (2, 3, 4),
         "chunks": 2,
         "chunk_axis": "run",
-        "dtype": "float32",
+        "dtype": np.float32,
         "memory": "device",
         "stride_tuple": stride_template,
         "_stride_order": {
@@ -125,18 +165,25 @@ def hostarrays(arraytest_settings):
         empty = mapped_array
     else:
         empty = np.zeros
+    host_memory = "mapped" if arraytest_settings["memory"] == "mapped" else "host"
     host = TestArraysSimple(
-        arr1=empty(
-            arraytest_settings["hostshape1"], dtype=arraytest_settings["dtype"]
+        arr1=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["arr1"],
+            memory_type=host_memory,
         ),
-        arr2=empty(
-            arraytest_settings["hostshape2"], dtype=arraytest_settings["dtype"]
+        arr2=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["arr2"],
+            memory_type=host_memory,
         ),
     )
-    host.stride_order = {
-        "arr1": arraytest_settings["_stride_order"]["arr1"],
-        "arr2": arraytest_settings["_stride_order"]["arr2"],
-    }
+    host.arr1.array = empty(
+        arraytest_settings["hostshape1"], dtype=arraytest_settings["dtype"]
+    )
+    host.arr2.array = empty(
+        arraytest_settings["hostshape2"], dtype=arraytest_settings["dtype"]
+    )
     return host
 
 
@@ -152,7 +199,22 @@ def devarrays(arraytest_settings, hostarrays):
         devarr2 = device_array(
             arraytest_settings["devshape2"], arraytest_settings["dtype"]
         )
-    return TestArraysSimple(arr1=devarr1, arr2=devarr2)
+    device_memory = arraytest_settings["memory"]
+    device = TestArraysSimple(
+        arr1=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["arr1"],
+            memory_type=device_memory,
+        ),
+        arr2=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["arr2"],
+            memory_type=device_memory,
+        ),
+    )
+    device.arr1.array = devarr1
+    device.arr2.array = devarr2
+    return device
 
 
 @pytest.fixture(scope="function")
@@ -244,20 +306,40 @@ def second_arrmgr(
     """Create a second array manager for testing grouping behavior"""
     # Create simple arrays for the second manager
     host_arrays = TestArraysSimple(
-        arr1=np.zeros(
-            arraytest_settings["hostshape1"], dtype=arraytest_settings["dtype"]
+        arr1=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["arr1"],
+            memory_type="host",
         ),
-        arr2=np.zeros(
-            arraytest_settings["hostshape2"], dtype=arraytest_settings["dtype"]
+        arr2=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["arr2"],
+            memory_type="host",
         ),
     )
+    host_arrays.arr1.array = np.zeros(
+        arraytest_settings["hostshape1"], dtype=arraytest_settings["dtype"]
+    )
+    host_arrays.arr2.array = np.zeros(
+        arraytest_settings["hostshape2"], dtype=arraytest_settings["dtype"]
+    )
     dev_arrays = TestArraysSimple(
-        arr1=device_array(
-            arraytest_settings["devshape1"], arraytest_settings["dtype"]
+        arr1=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["arr1"],
+            memory_type=arraytest_settings["memory"],
         ),
-        arr2=device_array(
-            arraytest_settings["devshape2"], arraytest_settings["dtype"]
+        arr2=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["arr2"],
+            memory_type=arraytest_settings["memory"],
         ),
+    )
+    dev_arrays.arr1.array = device_array(
+        arraytest_settings["devshape1"], arraytest_settings["dtype"]
+    )
+    dev_arrays.arr2.array = device_array(
+        arraytest_settings["devshape2"], arraytest_settings["dtype"]
     )
 
     return ConcreteArrayManager(
@@ -276,15 +358,15 @@ class TestArrayContainer:
 
     def test_attach_existing_label(self):
         """Test attaching an array to an existing label"""
-        container = TestArraysSimple(arr1=None, arr2=None)
+        container = TestArraysSimple()
         test_array = np.array([1, 2, 3])
 
         container.attach("arr1", test_array)
-        assert container.arr1 is test_array
+        assert container.arr1.array is test_array
 
     def test_attach_nonexistent_label(self):
         """Test attaching an array to a non-existent label raises warning"""
-        container = TestArraysSimple(arr1=None, arr2=None)
+        container = TestArraysSimple()
         test_array = np.array([1, 2, 3])
 
         with pytest.warns(
@@ -296,14 +378,15 @@ class TestArrayContainer:
     def test_delete_existing_label(self):
         """Test deleting an existing array label"""
         test_array = np.array([1, 2, 3])
-        container = TestArraysSimple(arr1=test_array, arr2=None)
+        container = TestArraysSimple()
+        container.arr1.array = test_array
 
         container.delete("arr1")
-        assert container.arr1 is None
+        assert container.arr1.array is None
 
     def test_delete_nonexistent_label(self):
         """Test deleting a non-existent label raises warning"""
-        container = TestArraysSimple(arr1=None, arr2=None)
+        container = TestArraysSimple()
 
         with pytest.warns(
             UserWarning,
@@ -315,11 +398,13 @@ class TestArrayContainer:
         """Test deleting all arrays"""
         test_array1 = np.array([1, 2, 3])
         test_array2 = np.array([4, 5, 6])
-        container = TestArraysSimple(arr1=test_array1, arr2=test_array2)
+        container = TestArraysSimple()
+        container.arr1.array = test_array1
+        container.arr2.array = test_array2
 
         container.delete_all()
-        assert container.arr1 is None
-        assert container.arr2 is None
+        assert container.arr1.array is None
+        assert container.arr2.array is None
 
 
 class TestBaseArrayManager:
@@ -374,8 +459,8 @@ class TestBaseArrayManager:
         test_arrmgr._on_allocation_complete(allocation_response)
 
         # Check that arrays were attached (should be different from originals)
-        assert test_arrmgr.device.arr1 is allocation_response.arr["arr1"]
-        assert test_arrmgr.device.arr2 is allocation_response.arr["arr2"]
+        assert test_arrmgr.device.arr1.array is allocation_response.arr["arr1"]
+        assert test_arrmgr.device.arr2.array is allocation_response.arr["arr2"]
 
         # Check that lists were cleared
         assert test_arrmgr._needs_reallocation == []
@@ -389,8 +474,8 @@ class TestBaseArrayManager:
 
         # Verify that arrays were allocated and attached to the device container
         # The memory manager should have called the allocation_ready_hook
-        assert test_arrmgr.device.arr1 is not None
-        assert test_arrmgr.device.arr2 is not None
+        assert test_arrmgr.device.arr1.array is not None
+        assert test_arrmgr.device.arr2.array is not None
 
     def test_request_allocation_group_force(self, test_arrmgr, array_requests):
         """Test allocation request forced to group mode"""
@@ -402,8 +487,8 @@ class TestBaseArrayManager:
         test_arrmgr._memory_manager.allocate_queue(test_arrmgr)
 
         # Verify that arrays were allocated
-        assert test_arrmgr.device.arr1 is not None
-        assert test_arrmgr.device.arr2 is not None
+        assert test_arrmgr.device.arr1.array is not None
+        assert test_arrmgr.device.arr2.array is not None
 
     def test_request_allocation_auto_single(self, test_arrmgr, array_requests):
         """Test automatic allocation request when not grouped"""
@@ -411,8 +496,8 @@ class TestBaseArrayManager:
         test_arrmgr.request_allocation(array_requests)
 
         # Should behave like single request
-        assert test_arrmgr.device.arr1 is not None
-        assert test_arrmgr.device.arr2 is not None
+        assert test_arrmgr.device.arr1.array is not None
+        assert test_arrmgr.device.arr2.array is not None
 
     def test_request_allocation_auto_group(
         self, test_arrmgr, second_arrmgr, array_requests
@@ -436,16 +521,16 @@ class TestBaseArrayManager:
         test_arrmgr._memory_manager.allocate_queue(test_arrmgr)
 
         # Verify allocation occurred
-        assert test_arrmgr.device.arr1 is not None
-        assert test_arrmgr.device.arr2 is not None
+        assert test_arrmgr.device.arr1.array is not None
+        assert test_arrmgr.device.arr2.array is not None
 
     def test_invalidate_hook_functionality(self, test_arrmgr):
         """Test cache invalidation hook functionality"""
 
         test_arrmgr._needs_reallocation = ["old_item"]
         test_arrmgr._needs_overwrite = ["old_overwrite"]
-        test_arrmgr.device.arr1 = np.array([1, 2, 3])
-        test_arrmgr.device.arr2 = np.array([4, 5, 6])
+        test_arrmgr.device.arr1.array = np.array([1, 2, 3])
+        test_arrmgr.device.arr2.array = np.array([4, 5, 6])
 
         # Call the invalidate hook
         test_arrmgr._invalidate_hook()
@@ -454,8 +539,8 @@ class TestBaseArrayManager:
         assert test_arrmgr._needs_reallocation == ["arr1", "arr2"]
         assert test_arrmgr._needs_overwrite == []
         # Arrays should be None after delete_all
-        assert test_arrmgr.device.arr1 is None
-        assert test_arrmgr.device.arr2 is None
+        assert test_arrmgr.device.arr1.array is None
+        assert test_arrmgr.device.arr2.array is None
 
     def test_arrays_equal_both_none(self, test_arrmgr):
         """Test arrays_equal with both arrays None"""
@@ -498,12 +583,12 @@ class TestBaseArrayManager:
         assert "arr1" in test_arrmgr._needs_reallocation
         assert "arr1" in test_arrmgr._needs_overwrite
         # Check that the array was attached to the host container
-        assert test_arrmgr.host.arr1 is new
+        assert test_arrmgr.host.arr1.array is new
 
     def test_update_host_array_zero_shape(self, test_arrmgr):
         """Test update_host_array when new array has zero in shape"""
-        current = np.array([[1, 2], [3, 4]])
-        new = np.zeros((0, 5))
+        current = np.array([[[1, 2], [3, 4]],[[1, 2], [3, 4]]])
+        new = np.zeros((3, 5, 0))
 
         test_arrmgr._update_host_array(new, current, "arr1")
 
@@ -522,13 +607,13 @@ class TestBaseArrayManager:
         assert "arr1" not in test_arrmgr._needs_reallocation
         assert "arr1" in test_arrmgr._needs_overwrite
         # Check that the array was attached to the host container
-        assert test_arrmgr.host.arr1 is new
+        assert test_arrmgr.host.arr1.array is new
 
     def test_chunk_placeholders(self, test_arrmgr):
         """Test next_chunk method (placeholder implementation)"""
         # This is a placeholder method, so just ensure it exists and is callable
-        assert test_arrmgr.initialise("test1", "test2") == ("test1", "test2")
-        assert test_arrmgr.finalise("test1", "test2") == ("test1", "test2")
+        assert test_arrmgr.initialise("test1") == ("test1")
+        assert test_arrmgr.finalise("test1") == ("test1")
 
     def test_initialize_device_zeros(
         self,
@@ -553,19 +638,19 @@ class TestBaseArrayManager:
                 ),
             }
         )
-        cuda.to_device(test_arrmgr.host.state, to=test_arrmgr.device.state)
+        cuda.to_device(test_arrmgr.host.state.array, to=test_arrmgr.device.state.array)
         cuda.to_device(
-            test_arrmgr.host.observables, to=test_arrmgr.device.observables
+            test_arrmgr.host.observables.array, to=test_arrmgr.device.observables.array
         )
 
-        test1 = test_arrmgr.device.state.copy_to_host()
-        test2 = test_arrmgr.device.observables.copy_to_host()
+        test1 = test_arrmgr.device.state.array.copy_to_host()
+        test2 = test_arrmgr.device.observables.array.copy_to_host()
         assert not np.any(test1 == 0)
         assert not np.any(test2 == 0)
 
         test_arrmgr.initialize_device_zeros()
-        test1 = test_arrmgr.device.state.copy_to_host()
-        test2 = test_arrmgr.device.observables.copy_to_host()
+        test1 = test_arrmgr.device.state.array.copy_to_host()
+        test2 = test_arrmgr.device.observables.array.copy_to_host()
         assert np.all(test1 == 0)
         assert np.all(test2 == 0)
 
@@ -586,34 +671,74 @@ def batch_output_sizes(arraytest_settings):
 def test_arrays_with_stride_order(arraytest_settings):
     """Create test arrays with proper stride order set using arraytest_settings shapes"""
     host_arrays = TestArrays(
-        state=np.zeros(arraytest_settings["hostshape1"], dtype=np.float32),
-        observables=np.zeros(
-            arraytest_settings["hostshape2"], dtype=np.float32
+        state=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["state"],
+            memory_type="host",
         ),
-        state_summaries=np.zeros(
-            arraytest_settings["hostshape3"], dtype=np.float32
+        observables=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["observables"],
+            memory_type="host",
         ),
-        observable_summaries=np.zeros(
-            arraytest_settings["hostshape4"], dtype=np.float32
+        state_summaries=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["state_summaries"],
+            memory_type="host",
+        ),
+        observable_summaries=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["observable_summaries"],
+            memory_type="host",
         ),
     )
-    host_arrays.stride_order = arraytest_settings["_stride_order"]
-
+    host_arrays.state.array = np.zeros(
+        arraytest_settings["hostshape1"], dtype=arraytest_settings["dtype"]
+    )
+    host_arrays.observables.array = np.zeros(
+        arraytest_settings["hostshape2"], dtype=arraytest_settings["dtype"]
+    )
+    host_arrays.state_summaries.array = np.zeros(
+        arraytest_settings["hostshape3"], dtype=arraytest_settings["dtype"]
+    )
+    host_arrays.observable_summaries.array = np.zeros(
+        arraytest_settings["hostshape4"], dtype=arraytest_settings["dtype"]
+    )
 
     device_arrays = TestArrays(
-        state=device_array(arraytest_settings["devshape1"], dtype=np.float32),
-        observables=device_array(
-            arraytest_settings["devshape2"], dtype=np.float32
+        state=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["state"],
+            memory_type=arraytest_settings["memory"],
         ),
-        state_summaries=device_array(
-            arraytest_settings["devshape3"], dtype=np.float32
+        observables=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["observables"],
+            memory_type=arraytest_settings["memory"],
         ),
-        observable_summaries=device_array(
-            arraytest_settings["devshape4"], dtype=np.float32
+        state_summaries=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["state_summaries"],
+            memory_type=arraytest_settings["memory"],
         ),
-        memory_type="device",
+        observable_summaries=ManagedArray(
+            dtype=arraytest_settings["dtype"],
+            stride_order=arraytest_settings["_stride_order"]["observable_summaries"],
+            memory_type=arraytest_settings["memory"],
+        ),
     )
-    device_arrays.stride_order = arraytest_settings["_stride_order"]
+    device_arrays.state.array = device_array(
+        arraytest_settings["devshape1"], dtype=arraytest_settings["dtype"]
+    )
+    device_arrays.observables.array = device_array(
+        arraytest_settings["devshape2"], dtype=arraytest_settings["dtype"]
+    )
+    device_arrays.state_summaries.array = device_array(
+        arraytest_settings["devshape3"], dtype=arraytest_settings["dtype"]
+    )
+    device_arrays.observable_summaries.array = device_array(
+        arraytest_settings["devshape4"], dtype=arraytest_settings["dtype"]
+    )
 
     return host_arrays, device_arrays
 
@@ -745,12 +870,12 @@ class TestCheckSizesAndTypes:
         self, test_manager_with_sizing, arraytest_settings
     ):
         """Test check_sizes with device location and chunking"""
-        stride_order = test_manager_with_sizing.device.stride_order
+        stride_order = test_manager_with_sizing.device.state.stride_order
         chunk_axis = arraytest_settings["chunk_axis"]
         chunks = arraytest_settings["chunks"]
         test_manager_with_sizing._chunks = arraytest_settings["chunks"]
         test_manager_with_sizing._chunk_axis = chunk_axis
-        chunk_index = stride_order["state"].index(chunk_axis)
+        chunk_index = stride_order.index(chunk_axis)
         expected_shape1 = tuple(
             int(np.ceil(val / chunks)) if i == chunk_index else val
             for i, val in enumerate(arraytest_settings["hostshape1"])
@@ -875,9 +1000,9 @@ class TestAttachExternalArrays:
         )
 
         assert result is True
-        assert test_manager_with_sizing.host.state is arrays["state"]
+        assert test_manager_with_sizing.host.state.array is arrays["state"]
         assert (
-            test_manager_with_sizing.host.observables is arrays["observables"]
+            test_manager_with_sizing.host.observables.array is arrays["observables"]
         )
 
     def test_attach_external_arrays_with_failures(
@@ -906,7 +1031,8 @@ class TestAttachExternalArrays:
         assert result is True
         # Only the valid array should be attached
         assert (
-            test_manager_with_sizing.host.observables is arrays["observables"]
+            test_manager_with_sizing.host.observables.array is arrays[
+            "observables"]
         )
 
 
@@ -918,10 +1044,10 @@ class TestUpdateHostArrays:
     ):
         """Test update_host_arrays with valid arrays"""
         # Set up initial arrays in the host container
-        test_manager_with_sizing.host.state = np.zeros(
+        test_manager_with_sizing.host.state.array = np.zeros(
             arraytest_settings["hostshape1"], dtype=np.float32
         )
-        test_manager_with_sizing.host.observables = np.zeros(
+        test_manager_with_sizing.host.observables.array = np.zeros(
             arraytest_settings["hostshape2"], dtype=np.float32
         )
 
@@ -937,9 +1063,9 @@ class TestUpdateHostArrays:
         test_manager_with_sizing.update_host_arrays(new_arrays)
 
         # Arrays should be updated and marked for overwrite
-        assert test_manager_with_sizing.host.state is new_arrays["state"]
+        assert test_manager_with_sizing.host.state.array is new_arrays["state"]
         assert (
-            test_manager_with_sizing.host.observables
+            test_manager_with_sizing.host.observables.array
             is new_arrays["observables"]
         )
         assert "state" in test_manager_with_sizing._needs_overwrite
@@ -950,7 +1076,7 @@ class TestUpdateHostArrays:
     ):
         """Test update_host_arrays when array shapes change"""
         # Set up initial arrays in the host container
-        test_manager_with_sizing.host.state = np.zeros(
+        test_manager_with_sizing.host.state.array = np.zeros(
             arraytest_settings["hostshape1"], dtype=np.float32
         )
 
@@ -965,7 +1091,7 @@ class TestUpdateHostArrays:
         test_manager_with_sizing.update_host_arrays(new_arrays)
 
         # Array should be updated and marked for reallocation
-        assert test_manager_with_sizing.host.state is new_arrays["state"]
+        assert test_manager_with_sizing.host.state.array is new_arrays["state"]
         assert "state" in test_manager_with_sizing._needs_reallocation
 
     def test_update_host_arrays_size_mismatch(
@@ -1009,7 +1135,7 @@ class TestUpdateHostArrays:
         initial_array = np.ones(
             arraytest_settings["hostshape1"], dtype=np.float32
         )
-        test_manager_with_sizing.host.state = initial_array
+        test_manager_with_sizing.host.state.array = initial_array
 
         new_arrays = {
             "state": np.ones(
@@ -1176,10 +1302,10 @@ class TestMemoryManagerIntegration:
         assert test_arrmgr.device.arr1.shape == arraytest_settings["devshape1"]
         assert test_arrmgr.device.arr2.shape == arraytest_settings["devshape2"]
         assert (
-            str(test_arrmgr.device.arr1.dtype) == arraytest_settings["dtype"]
+            test_arrmgr.device.arr1.dtype == arraytest_settings["dtype"]
         )
         assert (
-            str(test_arrmgr.device.arr2.dtype) == arraytest_settings["dtype"]
+            test_arrmgr.device.arr2.dtype == arraytest_settings["dtype"]
         )
 
 
@@ -1190,7 +1316,7 @@ class TestMemoryManagerIntegration:
         {"memory": "device", "stream_group": "test_group"},
         {"memory": "device", "memory_proportion": 0.5},
         {"hostshape1": (5, 5, 2), "devshape1": (5, 5, 2)},
-        {"dtype": "float64"},
+        {"dtype": np.float64},
     ],
     indirect=True,
 )
@@ -1209,7 +1335,7 @@ def test_array_manager_with_different_configs(
     if "hostshape1" in arraytest_overrides:
         assert test_arrmgr.host.arr1.shape == arraytest_settings["hostshape1"]
     if "dtype" in arraytest_overrides:
-        assert str(test_arrmgr.host.arr1.dtype) == arraytest_settings["dtype"]
+        assert test_arrmgr.host.arr1.dtype == arraytest_settings["dtype"]
 
     # Should still be properly initialized
     assert isinstance(test_arrmgr.device, ArrayContainer)

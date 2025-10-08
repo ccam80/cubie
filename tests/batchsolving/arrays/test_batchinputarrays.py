@@ -29,7 +29,7 @@ def input_test_overrides(request):
 def input_test_settings(input_test_overrides):
     settings = {
         "num_runs": 5,
-        "dtype": "float32",
+        "dtype": np.float32,
         "memory": "device",
         "stream_group": "default",
         "memory_proportion": None,
@@ -39,12 +39,12 @@ def input_test_settings(input_test_overrides):
 
 
 @pytest.fixture(scope="function")
-def input_arrays_manager(solver, input_test_settings):
+def input_arrays_manager(precision, solver, input_test_settings):
     """Create a InputArrays instance using real solver"""
     batch_input_sizes = BatchInputSizes.from_solver(solver)
     return InputArrays(
         sizes=batch_input_sizes,
-        precision=solver.precision,
+        precision=precision,
         stream_group=input_test_settings["stream_group"],
         memory_proportion=input_test_settings["memory_proportion"],
         memory_manager=default_memmgr,
@@ -78,33 +78,32 @@ class TestInputArrayContainer:
     def test_container_arrays_after_init(self):
         """Test that container has correct arrays after initialization"""
         container = InputArrayContainer()
-        expected_arrays = {"driver_coefficients", "parameters", 
+        expected_arrays = {"driver_coefficients", "parameters",
                            "initial_values"}
-        actual_arrays = {
-            key for key in container.__dict__.keys() if not key.startswith("_")
-        }
+        assert set(container.array_names()) == expected_arrays
 
-        assert actual_arrays == expected_arrays
-
-        # Check that all arrays are None initially
-        assert container.initial_values is None
-        assert container.parameters is None
-        assert container.driver_coefficients is None
+        # Check that all arrays are size-1 zeros initially
+        for _, managed in container.iter_managed_arrays():
+            assert_array_equal(
+                    managed.array,
+                    np.zeros(managed.shape, dtype=managed.dtype)
+            )
 
     def test_container_stride_order(self):
         """Test that stride order is set correctly"""
         container = InputArrayContainer()
-        assert container.stride_order['parameters'] == ("run", "variable")
+        stride_order = container.parameters.stride_order
+        assert stride_order == ("run", "variable")
 
     def test_host_factory(self):
         """Test host factory method"""
         container = InputArrayContainer.host_factory()
-        assert container._memory_type == "host"
+        assert container.get_managed_array("initial_values").memory_type == "host"
 
     def test_device_factory(self):
         """Test device factory method"""
         container = InputArrayContainer.device_factory()
-        assert container._memory_type == "device"
+        assert container.get_managed_array("initial_values").memory_type == "device"
 
 
 class TestInputArrays:
@@ -114,23 +113,14 @@ class TestInputArrays:
         """Test that containers have correct array types after initialization"""
         # Check host container arrays
         expected_arrays = {"initial_values", "parameters", "driver_coefficients"}
-        host_arrays = {
-            key
-            for key in input_arrays_manager.host.__dict__.keys()
-            if not key.startswith("_")
-        }
-        device_arrays = {
-            key
-            for key in input_arrays_manager.device.__dict__.keys()
-            if not key.startswith("_")
-        }
-
-        assert host_arrays == expected_arrays
-        assert device_arrays == expected_arrays
+        assert set(input_arrays_manager.host.array_names()) == expected_arrays
+        assert set(input_arrays_manager.device.array_names()) == expected_arrays
 
         # Check memory types are set correctly in post_init
-        assert input_arrays_manager.host._memory_type == "host"
-        assert input_arrays_manager.device._memory_type == "device"
+        for _, managed in input_arrays_manager.host.iter_managed_arrays():
+            assert managed.memory_type == "host"
+        for _, managed in input_arrays_manager.device.iter_managed_arrays():
+            assert managed.memory_type == "device"
 
     def test_from_solver_factory(self, solver):
         """Test creating InputArrays from solver"""
@@ -191,7 +181,7 @@ class TestInputArrays:
         self, input_arrays_manager, solver, input_test_settings
     ):
         """Test that update method triggers reallocation when size changes"""
-        dtype = getattr(np, input_test_settings["dtype"])
+        dtype = input_test_settings["dtype"]
         num_runs = input_test_settings["num_runs"]
 
         variables_count = solver.system_sizes.states
@@ -273,9 +263,9 @@ class TestInputArrays:
         )
 
         # Clear device arrays to test initialise
-        input_arrays_manager.device.initial_values[:, :] = 0.0
-        input_arrays_manager.device.parameters[:, :] = 0.0
-        input_arrays_manager.device.driver_coefficients[:, :] = 0.0
+        input_arrays_manager.device.initial_values.array[:, :] = 0.0
+        input_arrays_manager.device.parameters.array[:, :] = 0.0
+        input_arrays_manager.device.driver_coefficients.array[:, :] = 0.0
 
         # Set up chunking
         input_arrays_manager._chunks = 1
@@ -287,15 +277,15 @@ class TestInputArrays:
 
         # Check that device arrays now match host arrays
         np.testing.assert_array_equal(
-            np.array(input_arrays_manager.device.initial_values),
+            np.array(input_arrays_manager.device.initial_values.array),
             sample_input_arrays["initial_values"],
         )
         np.testing.assert_array_equal(
-            np.array(input_arrays_manager.device.parameters),
+            np.array(input_arrays_manager.device.parameters.array),
             sample_input_arrays["parameters"],
         )
         np.testing.assert_array_equal(
-            np.array(input_arrays_manager.device.driver_coefficients),
+            np.array(input_arrays_manager.device.driver_coefficients.array),
             sample_input_arrays["driver_coefficients"],
         )
 
@@ -312,11 +302,11 @@ class TestInputArrays:
         solver.memory_manager.allocate_queue(input_arrays_manager)
         # Modify device initial_values (simulate computation results)
         modified_values = (
-            np.array(input_arrays_manager.device.initial_values.copy_to_host())
+            np.array(input_arrays_manager.device.initial_values.array.copy_to_host())
             * 2
         )
         cuda.to_device(
-            modified_values, to=input_arrays_manager.device.initial_values
+            modified_values, to=input_arrays_manager.device.initial_values.array
         )
 
         # Set up chunking
@@ -324,7 +314,7 @@ class TestInputArrays:
         input_arrays_manager._chunk_axis = "run"
 
         # Store original host values
-        original_host_values = input_arrays_manager.host.initial_values.copy()
+        original_host_values = input_arrays_manager.host.initial_values.array.copy()
 
         # Call finalise with host indices (all data)
         host_indices = slice(None)
@@ -332,12 +322,12 @@ class TestInputArrays:
 
         # Check that host initial_values were updated with device values
         np.testing.assert_array_equal(
-            input_arrays_manager.host.initial_values, modified_values
+            input_arrays_manager.host.initial_values.array, modified_values
         )
 
         # Verify it actually changed from original
         assert not np.array_equal(
-            input_arrays_manager.host.initial_values, original_host_values
+            input_arrays_manager.host.initial_values.array, original_host_values
         )
 
     @pytest.mark.parametrize(
@@ -356,15 +346,20 @@ class TestInputArrays:
         )
 
         expected_dtype = precision
-        assert input_arrays_manager.initial_values.dtype == expected_dtype
-        assert input_arrays_manager.parameters.dtype == expected_dtype
-        assert input_arrays_manager.driver_coefficients.dtype == expected_dtype
+        assert input_arrays_manager.initial_values.dtype.type == expected_dtype
+        assert input_arrays_manager.parameters.dtype.type == expected_dtype
         assert (
-            input_arrays_manager.device_initial_values.dtype == expected_dtype
+            input_arrays_manager.driver_coefficients.dtype.type == expected_dtype
         )
-        assert input_arrays_manager.device_parameters.dtype == expected_dtype
         assert (
-            input_arrays_manager.device_driver_coefficients.dtype == expected_dtype
+            input_arrays_manager.device_initial_values.dtype.type == expected_dtype
+        )
+        assert (
+            input_arrays_manager.device_parameters.dtype.type == expected_dtype
+        )
+        assert (
+            input_arrays_manager.device_driver_coefficients.dtype.type
+            == expected_dtype
         )
 
 
@@ -397,10 +392,12 @@ def test_input_arrays_with_different_configs(
     assert input_arrays_manager.driver_coefficients.shape[1] == expected_num_runs
 
     # Check data types
-    expected_dtype = getattr(np, input_test_settings["dtype"])
-    assert input_arrays_manager.initial_values.dtype == expected_dtype
-    assert input_arrays_manager.parameters.dtype == expected_dtype
-    assert input_arrays_manager.driver_coefficients.dtype == expected_dtype
+    expected_dtype = input_test_settings["dtype"]
+    assert input_arrays_manager.initial_values.dtype.type == expected_dtype
+    assert input_arrays_manager.parameters.dtype.type == expected_dtype
+    assert (
+        input_arrays_manager.driver_coefficients.dtype.type == expected_dtype
+    )
 
 
 @pytest.mark.parametrize(

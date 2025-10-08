@@ -181,7 +181,7 @@ class TestSolveResultInstantiation:
         assert len(result.summaries_legend) > 0
         assert (
             result._stride_order
-            == solver_with_arrays.kernel.output_arrays.host._stride_order
+            == solver_with_arrays.kernel.output_arrays.host.state.stride_order
         )
 
     @pytest.mark.parametrize(
@@ -317,11 +317,11 @@ class TestSolveResultFromSolver:
 
         assert (
             result._stride_order
-            == solver_with_arrays.kernel.output_arrays.host._stride_order
+            == solver_with_arrays.kernel.output_arrays.host.state.stride_order
         )
 
         # Test that run dimension is found correctly
-        run_dim = result._stride_order['state'].index("run")
+        run_dim = result._stride_order.index("run")
         assert isinstance(run_dim, int)
         assert 0 <= run_dim < len(result._stride_order)
 
@@ -405,7 +405,7 @@ class TestSolveResultProperties:
             # Check run naming
             run_levels = time_df.columns.get_level_values(0).unique()
             expected_runs = result.time_domain_array.shape[
-                result._stride_order['state'].index("run")
+                result._stride_order.index("run")
             ]
             assert len(run_levels) == expected_runs
             for i, run_name in enumerate(run_levels):

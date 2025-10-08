@@ -14,8 +14,9 @@ ChunkIndices = Union[slice, NDArray[np.integer]]
 
 from cubie.outputhandling.output_sizes import BatchOutputSizes
 from cubie.batchsolving.arrays.BaseArrayManager import (
-    BaseArrayManager,
     ArrayContainer,
+    BaseArrayManager,
+    ManagedArray,
 )
 from cubie.batchsolving import ArrayTypes
 from cubie._utils import slice_variable_dimension
@@ -23,49 +24,43 @@ from cubie._utils import slice_variable_dimension
 
 @attrs.define(slots=False)
 class OutputArrayContainer(ArrayContainer):
-    """
-    Container for batch output arrays.
+    """Container for batch output arrays."""
 
-    This container holds the output arrays generated during batch integration,
-    including state trajectories, observables, and their summaries.
-
-    Parameters
-    ----------
-    state
-        Optional state variable trajectories over time.
-    observables
-        Optional observable variable trajectories over time.
-    state_summaries
-        Optional summary statistics for state variables.
-    observable_summaries
-        Optional summary statistics for observable variables.
-    stride_order
-        Mapping of array labels to their stride orders.
-    _memory_type
-        Type of memory allocation.
-
-    Notes
-    -----
-    This class uses attrs for automatic initialization and validation.
-    The stride_order specifies how the 3D arrays are organized in memory.
-    """
-
-    state: ArrayTypes = attrs.field(default=None)
-    observables: ArrayTypes = attrs.field(default=None)
-    state_summaries: ArrayTypes = attrs.field(default=None)
-    observable_summaries: ArrayTypes = attrs.field(default=None)
-    stride_order: dict[str, tuple[str, ...]] = attrs.field(
-        factory=lambda: {
-            "state": ("time", "run", "variable"),
-            "observables": ("time", "run", "variable"),
-            "state_summaries": ("time", "run", "variable"),
-            "observable_summaries": ("time", "run", "variable"),
-        },
-        init=False,
+    state: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+        )
     )
-    _memory_type: str = attrs.field(
-        default="device",
-        validator=val.in_(["device", "mapped", "pinned", "managed", "host"]),
+    observables: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+        )
+    )
+    state_summaries: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+        )
+    )
+    observable_summaries: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.float32,
+            stride_order=("time", "run", "variable"),
+            shape=(1, 1, 1),
+        )
+    )
+    status_codes: ManagedArray = attrs.field(
+        factory=lambda: ManagedArray(
+            dtype=np.int32,
+            stride_order=("run",),
+            shape=(1,),
+            is_chunked=False,
+        )
     )
 
     @classmethod
@@ -78,7 +73,9 @@ class OutputArrayContainer(ArrayContainer):
         OutputArrayContainer
             A new container configured for host memory.
         """
-        return cls(memory_type="host")
+        container = cls()
+        container.set_memory_type("host")
+        return container
 
     @classmethod
     def device_factory(cls) -> "OutputArrayContainer":
@@ -90,7 +87,9 @@ class OutputArrayContainer(ArrayContainer):
         OutputArrayContainer
             A new container configured for mapped memory.
         """
-        return cls(memory_type="mapped")
+        container = cls()
+        container.set_memory_type("mapped")
+        return container
 
 
 @attrs.define
@@ -111,6 +110,8 @@ class ActiveOutputs:
         Whether state summaries output is active.
     observable_summaries
         Whether observable summaries output is active.
+    status_codes
+        Whether status code output is active.
     """
 
     state: bool = attrs.field(default=False, validator=val.instance_of(bool))
@@ -121,6 +122,9 @@ class ActiveOutputs:
         default=False, validator=val.instance_of(bool)
     )
     observable_summaries: bool = attrs.field(
+        default=False, validator=val.instance_of(bool)
+    )
+    status_codes: bool = attrs.field(
         default=False, validator=val.instance_of(bool)
     )
 
@@ -144,20 +148,24 @@ class ActiveOutputs:
         and has more than one element (size > 1).
         """
         self.state = (
-            output_arrays.host.state is not None
-            and output_arrays.host.state.size > 1
+            output_arrays.host.state.array is not None
+            and output_arrays.host.state.array.size > 1
         )
         self.observables = (
-            output_arrays.host.observables is not None
-            and output_arrays.host.observables.size > 1
+            output_arrays.host.observables.array is not None
+            and output_arrays.host.observables.array.size > 1
         )
         self.state_summaries = (
-            output_arrays.host.state_summaries is not None
-            and output_arrays.host.state_summaries.size > 1
+            output_arrays.host.state_summaries.array is not None
+            and output_arrays.host.state_summaries.array.size > 1
         )
         self.observable_summaries = (
-            output_arrays.host.observable_summaries is not None
-            and output_arrays.host.observable_summaries.size > 1
+            output_arrays.host.observable_summaries.array is not None
+            and output_arrays.host.observable_summaries.array.size > 1
+        )
+        self.status_codes = (
+            output_arrays.host.status_codes.array is not None
+            and output_arrays.host.status_codes.array.size > 1
         )
 
 
@@ -168,7 +176,7 @@ class OutputArrays(BaseArrayManager):
 
     This class manages the allocation, transfer, and synchronization of output
     arrays generated during batch integration operations. It handles state
-    trajectories, observables, and summary statistics.
+    trajectories, observables, summary statistics, and per-run status codes.
 
     Parameters
     ----------
@@ -219,8 +227,8 @@ class OutputArrays(BaseArrayManager):
             This method updates the host and device container metadata.
         """
         super().__attrs_post_init__()
-        self.host._memory_type = "host"
-        self.device._memory_type = "mapped"
+        self.host.set_memory_type("host")
+        self.device.set_memory_type("mapped")
 
     def update(self, solver_instance: "BatchSolverKernel") -> None:
         """
@@ -249,42 +257,52 @@ class OutputArrays(BaseArrayManager):
     @property
     def state(self) -> ArrayTypes:
         """Host state output array."""
-        return self.host.state
+        return self.host.state.array
 
     @property
     def observables(self) -> ArrayTypes:
         """Host observables output array."""
-        return self.host.observables
+        return self.host.observables.array
 
     @property
     def state_summaries(self) -> ArrayTypes:
         """Host state summary output array."""
-        return self.host.state_summaries
+        return self.host.state_summaries.array
 
     @property
     def observable_summaries(self) -> ArrayTypes:
         """Host observable summary output array."""
-        return self.host.observable_summaries
+        return self.host.observable_summaries.array
 
     @property
     def device_state(self) -> ArrayTypes:
         """Device state output array."""
-        return self.device.state
+        return self.device.state.array
 
     @property
     def device_observables(self) -> ArrayTypes:
         """Device observables output array."""
-        return self.device.observables
+        return self.device.observables.array
 
     @property
     def device_state_summaries(self) -> ArrayTypes:
         """Device state summary output array."""
-        return self.device.state_summaries
+        return self.device.state_summaries.array
 
     @property
     def device_observable_summaries(self) -> ArrayTypes:
         """Device observable summary output array."""
-        return self.device.observable_summaries
+        return self.device.observable_summaries.array
+
+    @property
+    def status_codes(self) -> ArrayTypes:
+        """Host status code output array."""
+        return self.host.status_codes.array
+
+    @property
+    def device_status_codes(self) -> ArrayTypes:
+        """Device status code output array."""
+        return self.device.status_codes.array
 
     @classmethod
     def from_solver(
@@ -330,12 +348,21 @@ class OutputArrays(BaseArrayManager):
             Host arrays with updated shapes for ``update_host_arrays``.
         """
         self._sizes = BatchOutputSizes.from_solver(solver_instance).nonzero
-        new_arrays = {}
-        for name in self.host.__dict__:
-            if not name.startswith("_"):
-                newshape = getattr(self._sizes, name)
-                new_arrays[name] = np.zeros(newshape, self._precision)
         self._precision = solver_instance.precision
+        new_arrays = {}
+        for name, slot in self.host.iter_managed_arrays():
+            newshape = getattr(self._sizes, name)
+            slot.shape = newshape
+            dtype = slot.dtype
+            if np.issubdtype(dtype, np.floating):
+                slot.dtype = self._precision
+                dtype = slot.dtype
+            new_arrays[name] = np.zeros(newshape, dtype=dtype)
+        for name, slot in self.device.iter_managed_arrays():
+            slot.shape = getattr(self._sizes, name)
+            dtype = slot.dtype
+            if np.issubdtype(dtype, np.floating):
+                slot.dtype = self._precision
         return new_arrays
 
     def finalise(self, host_indices: ChunkIndices) -> None:
@@ -358,20 +385,23 @@ class OutputArrays(BaseArrayManager):
         of host arrays. The copy operation may trigger CUDA runtime
         synchronization.
         """
-        for array_name, array in self.host.__dict__.items():
-            if not array_name.startswith("_"):
-                if getattr(self.active_outputs, array_name):
-                    stride_order = self.host.stride_order[array_name]
+        for array_name, slot in self.host.iter_managed_arrays():
+            array = slot.array
+            device_array = self.device.get_array(array_name)
+            if getattr(self.active_outputs, array_name):
+                stride_order = slot.stride_order
+                if self._chunk_axis in stride_order:
                     chunk_index = stride_order.index(self._chunk_axis)
                     slice_tuple = slice_variable_dimension(
-                        host_indices, chunk_index, len(stride_order)
+                            host_indices, chunk_index, len(stride_order)
                     )
-                    array[slice_tuple] = getattr(
-                        self.device, array_name
-                    ).copy()
-                    # I'm not sure that we can stream a Mapped transfer,
-                    # as transfer is managed by the CUDA runtime. If we just
-                    # overwrite, that might jog the cuda runtime to synchronize.
+                    target_slice = slice_tuple
+                else:
+                    target_slice = Ellipsis
+                array[target_slice] = device_array.copy()
+                # I'm not sure that we can stream a Mapped transfer,
+                # as transfer is managed by the CUDA runtime. If we just
+                # overwrite, that might jog the cuda runtime to synchronize.
 
     def initialise(self, host_indices: ChunkIndices) -> None:
         """

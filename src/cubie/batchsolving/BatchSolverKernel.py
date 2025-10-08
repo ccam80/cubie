@@ -11,7 +11,7 @@ Created on Tue May 27 17:45:03 2025
 @author: cca79
 """
 
-from typing import Optional, Callable, Dict, Any, TYPE_CHECKING
+from typing import Optional, Callable, Dict, Any, TYPE_CHECKING, Tuple
 from warnings import warn
 
 import numpy as np
@@ -306,6 +306,7 @@ class BatchSolverKernel(CUDAFactory):
                 self.output_arrays.device_observables,
                 self.output_arrays.device_state_summaries,
                 self.output_arrays.device_observable_summaries,
+                self.output_arrays.device_status_codes,
                 chunk_duration,
                 chunk_warmup,
                 chunk_t0,
@@ -473,6 +474,7 @@ class BatchSolverKernel(CUDAFactory):
                 precision[:, :, :],
                 precision[:, :, :],
                 precision[:, :, :],
+                int32[:],
                 precision,
                 precision,
                 precision,
@@ -487,6 +489,7 @@ class BatchSolverKernel(CUDAFactory):
             observables_output,
             state_summaries_output,
             observables_summaries_output,
+            status_codes_output,
             duration,
             warmup=precision(0.0),
             t0=precision(0.0),
@@ -532,7 +535,7 @@ class BatchSolverKernel(CUDAFactory):
                 :, run_index * save_observable_summaries, :
             ]
 
-            loopfunction(
+            status = loopfunction(
                 rx_inits,
                 rx_params,
                 c_coefficients,
@@ -546,6 +549,9 @@ class BatchSolverKernel(CUDAFactory):
                 warmup,
                 t0,
             )
+
+            if tx == 0:
+                status_codes_output[run_index] = status
 
             return None
 
@@ -1262,6 +1268,12 @@ class BatchSolverKernel(CUDAFactory):
         return self.output_arrays.device_observable_summaries
 
     @property
+    def d_statuscodes(self):
+        """Get the device status code array."""
+
+        return self.output_arrays.device_status_codes
+
+    @property
     def state(self):
         """
         Get state array.
@@ -1296,6 +1308,12 @@ class BatchSolverKernel(CUDAFactory):
             The state summaries array.
         """
         return self.output_arrays.state_summaries
+
+    @property
+    def status_codes(self):
+        """Get the host status code array."""
+
+        return self.output_arrays.status_codes
 
     @property
     def observable_summaries(self):
@@ -1346,16 +1364,11 @@ class BatchSolverKernel(CUDAFactory):
         return self.input_arrays.device_driver_coefficients
 
     @property
-    def output_stride_order(self):
+    def state_stride_order(self) -> Tuple[str, ...]:
         """
         Get output stride order.
-
-        Returns
-        -------
-        str
-            The axis order of the output arrays.
         """
-        return self.output_arrays.host.stride_order
+        return self.output_arrays.host.state.stride_order
 
     @property
     def save_time(self):

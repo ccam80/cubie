@@ -8,7 +8,7 @@ import pytest
 from pytest import MonkeyPatch
 
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
-from cubie._utils import merge_component_settings
+from cubie._utils import merge_kwargs_into_settings
 from cubie.integrators.step_control import get_controller
 from cubie.batchsolving.BatchSolverKernel import BatchSolverKernel
 from cubie.batchsolving.solver import Solver
@@ -334,10 +334,8 @@ def cpu_driver_evaluator(
 
 @pytest.fixture(scope="function")
 def algorithm_settings(system, solver_settings, driver_array):
-    settings, _ = merge_component_settings(
-            kwargs=solver_settings,
-            valid_keys=ALL_ALGORITHM_STEP_PARAMETERS
-    )
+    settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
+                                             valid_keys=ALL_ALGORITHM_STEP_PARAMETERS)
     driver_function = (driver_array.evaluation_function
                        if driver_array is not None
                        else None)
@@ -357,9 +355,8 @@ def step_controller_settings(
     solver_settings, system, step_object
 ):
     """Base configuration used to instantiate loop step controllers."""
-    settings, _ = merge_component_settings(
-        kwargs=solver_settings, valid_keys=ALL_STEP_CONTROLLER_PARAMETERS
-    )
+    settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
+                                             valid_keys=ALL_STEP_CONTROLLER_PARAMETERS)
     settings.update(algorithm_order=step_object.order)
     return settings
 
@@ -393,19 +390,15 @@ def codegen_dir():
 
 @pytest.fixture(scope="function")
 def output_settings(solver_settings):
-    settings, _ = merge_component_settings(
-        kwargs=solver_settings,
-        valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
-    )
+    settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
+                                             valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS)
     return settings
 
 
 @pytest.fixture(scope="function")
 def memory_settings(solver_settings):
-    settings, _ = merge_component_settings(
-        kwargs=solver_settings,
-        valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
-    )
+    settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
+                                             valid_keys=ALL_MEMORY_MANAGER_PARAMETERS)
     return settings
 
 

@@ -507,6 +507,8 @@ class BatchOutputSizes(ArraySizingClass):
     observable_summaries : tuple[int, int, int], default (1, 1, 1)
         Shape of observable summary array as (summary_samples, n_runs,
         n_summaries).
+    status_codes : tuple[int], default (1,)
+        Shape of the status code output array indexed by run.
     stride_order : tuple[str, ...], default ("time", "run", "variable")
         Order of dimensions in the output arrays.
     """
@@ -522,6 +524,9 @@ class BatchOutputSizes(ArraySizingClass):
     )
     observable_summaries: Tuple[int, int, int] = attrs.field(
         default=(1, 1, 1), validator=attrs.validators.instance_of(Tuple)
+    )
+    status_codes: Tuple[int] = attrs.field(
+        default=(1,), validator=attrs.validators.instance_of(Tuple)
     )
     stride_order: Tuple[str, ...] = attrs.field(
         default=("time", "run", "variable"),
@@ -574,10 +579,12 @@ class BatchOutputSizes(ArraySizingClass):
             num_runs,
             single_run_sizes.observable_summaries[1],
         )
+        status_codes = (num_runs,)
         obj = cls(
             state,
             observables,
             state_summaries,
             observable_summaries,
+            status_codes,
         )
         return obj

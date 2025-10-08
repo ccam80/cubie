@@ -197,7 +197,7 @@ def split_applicable_settings(
     return filtered, missing, unused
 
 
-def merge_component_settings(
+def merge_kwargs_into_settings(
     kwargs: dict[str, object],
     valid_keys: Iterable[str],
     user_settings: Optional[dict[str, object]] = None,
