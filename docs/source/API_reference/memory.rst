@@ -23,15 +23,15 @@ Memory
 The memory package coordinates GPU allocations across cubie. It exposes the
 package-level :class:`~cubie.memory.mem_manager.MemoryManager` through
 ``default_memmgr`` so integrators can request array buffers, register CUDA
-streams, and plug in alternative allocators without reimplementing the control
-logic. Supporting modules describe allocation requests, track chunked response
+streams, and plug in alternative allocators without rewriting the coordination
+code. Supporting modules describe allocation requests, track chunked response
 metadata, manage stream groups, and expose CuPy-backed External Memory Manager
 plugins for Numba contexts.
 
 Entry point
 -----------
 
-``default_memmgr`` instantiates :class:`cubie.memory.mem_manager.MemoryManager`
+``default_memmgr`` creates :class:`cubie.memory.mem_manager.MemoryManager`
 with stream grouping and CuPy integration ready to configure. Typical callers
 obtain this singleton, register their instance identifier, and submit
 :class:`cubie.memory.array_requests.ArrayRequest` objects that describe the
@@ -42,7 +42,8 @@ Core manager
 
 * :doc:`default_memmgr <memory/default_memmgr>` – default :class:`MemoryManager` instance shared across
   the package.
-* :doc:`MemoryManager <memory/memory_manager>` – orchestrates allocation requests, stream registration, and External Memory Managers.
+* :doc:`MemoryManager <memory/memory_manager>` – handles allocation requests, stream registration,
+  and External Memory Managers.
 
 Array specifications
 --------------------

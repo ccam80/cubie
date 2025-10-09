@@ -20,11 +20,11 @@ ODE systems
    ode_cache
 
 The :func:`create_ODE_system` helper is the main entry point. It consumes
-symbolic :mod:`sympy` equations and materialises :class:`SymbolicODE` instances
-that inherit CUDA compilation behaviour from :class:`cubie.CUDAFactory`.
-:class:`BaseODE` is the abstract contract, and ``SymbolicODE`` is currently its
-concrete implementation. Base classes and data containers expose the
-precision-aware metadata required by integrator factories.
+symbolic :mod:`sympy` equations and creates :class:`SymbolicODE` instances that
+inherit CUDA compilation behaviour from :class:`cubie.CUDAFactory`.
+:class:`BaseODE` sets the abstract requirements, and ``SymbolicODE`` is
+currently its concrete implementation. Base classes and data containers expose
+the precision-aware metadata required by integrator factories.
 
 .. toctree::
    :maxdepth: 2

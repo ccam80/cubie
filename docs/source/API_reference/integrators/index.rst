@@ -13,26 +13,10 @@ Integrators
 
    single_integrator_run
    integrator_return_codes
-   algorithms/get_algorithm_step
-   algorithms/explicit_step_config
-   algorithms/implicit_step_config
-   algorithms/explicit_euler_step
-   algorithms/backwards_euler_step
-   algorithms/backwards_euler_pc_step
-   algorithms/crank_nicolson_step
-   loops/ivp_loop
-   matrix_free_solvers/linear_solver_factory
-   matrix_free_solvers/newton_krylov_solver_factory
-   step_control/adaptive_i_controller
-   step_control/adaptive_pi_controller
-   step_control/adaptive_pid_controller
-   step_control/fixed_step_controller
-   step_control/gustafsson_controller
-   step_control/get_controller
 
-The :class:`SingleIntegratorRun` façade is the primary entry point. It creates a
-loop callable by wiring controller, algorithm, and loop submodules according to
-the supplied :class:`IntegratorRunSettings`.
+The :class:`SingleIntegratorRun` interface is the primary entry point. It creates
+a loop callable by combining controller, algorithm, and loop submodules as
+directed by the supplied :class:`IntegratorRunSettings`.
 
 The :mod:`cubie.integrators` package coordinates CUDA-based initial value
 problem integrations. It bundles algorithm factories, controller builders,
@@ -52,28 +36,9 @@ functions from ODE systems with adaptive or fixed step control.
 Core API
 --------
 
-* :doc:`SingleIntegratorRun <single_integrator_run>` – high-level integration façade.
+* :doc:`SingleIntegratorRun <single_integrator_run>` – high-level integration driver.
 * :doc:`IntegratorReturnCodes <integrator_return_codes>` – enumerates loop exit statuses.
 
-Factories and helpers
----------------------
-
-* :doc:`get_algorithm_step <algorithms/get_algorithm_step>` – retrieves CUDA step factories by name.
-* :doc:`ExplicitStepConfig <algorithms/explicit_step_config>` – attrs configuration for explicit schemes.
-* :doc:`ImplicitStepConfig <algorithms/implicit_step_config>` – attrs configuration for implicit schemes.
-* :doc:`ExplicitEulerStep <algorithms/explicit_euler_step>` – explicit Euler CUDA step implementation.
-* :doc:`BackwardsEulerStep <algorithms/backwards_euler_step>` – backward Euler CUDA step implementation.
-* :doc:`BackwardsEulerPCStep <algorithms/backwards_euler_pc_step>` – predictor-corrector backward Euler variant.
-* :doc:`CrankNicolsonStep <algorithms/crank_nicolson_step>` – Crank–Nicolson implicit step implementation.
-* :doc:`IVPLoop <loops/ivp_loop>` – builds compiled CUDA loops for IVP execution.
-* :doc:`linear_solver_factory <matrix_free_solvers/linear_solver_factory>` – matrix-free linear solver factory.
-* :doc:`newton_krylov_solver_factory <matrix_free_solvers/newton_krylov_solver_factory>` – Newton–Krylov solver factory.
-* :doc:`AdaptiveIController <step_control/adaptive_i_controller>` – integral adaptive step controller.
-* :doc:`AdaptivePIController <step_control/adaptive_pi_controller>` – proportional–integral controller.
-* :doc:`AdaptivePIDController <step_control/adaptive_pid_controller>` – proportional–integral–derivative controller.
-* :doc:`FixedStepController <step_control/fixed_step_controller>` – no-op step controller for fixed steps.
-* :doc:`GustafssonController <step_control/gustafsson_controller>` – Gustafsson adaptive controller variant.
-* :doc:`get_controller <step_control/get_controller>` – factory that resolves controller instances.
 
 Dependencies
 ------------

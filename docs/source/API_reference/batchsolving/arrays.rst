@@ -22,7 +22,7 @@ Arrays
 
 The ``batchsolving.arrays`` package coordinates host and device array
 management for batch solver runs. ``InputArrays`` and ``OutputArrays`` are the
-main entry points: they collect stride metadata, request GPU allocations via
+key classes: they collect stride metadata, request GPU allocations via
 :mod:`cubie.memory`, and expose helpers for copying data between the CPU and
 CUDA kernels. ``OutputArrays`` mirrors requested state, observable, and summary
 buffers on the host and GPU for every solver launch.
@@ -36,8 +36,8 @@ Base utilities
 Input arrays
 ^^^^^^^^^^^^
 
-* :doc:`InputArrayContainer <input_array_container>` – validated attrs container describing solver inputs.
-* :doc:`InputArrays <input_arrays>` – orchestrates allocation, host buffers, and CUDA copies for input data.
+* :doc:`InputArrayContainer <input_array_container>` – checked attrs container describing solver inputs.
+* :doc:`InputArrays <input_arrays>` – handles allocation, host buffers, and CUDA copies for input data.
 
 Output arrays
 ^^^^^^^^^^^^^

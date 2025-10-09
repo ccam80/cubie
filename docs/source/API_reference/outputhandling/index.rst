@@ -24,11 +24,11 @@ Output handling
    summary_metrics
    register_metric
 
-The output handling package coordinates CUDA device callbacks that persist state
-trajectories and summary reductions from integration loops. It translates loop
-settings into validated configuration, compiles device functions through the
-CUDA factory infrastructure, and exposes sizing helpers so callers can allocate
-host and device buffers without duplicating dimension logic.
+The output handling package manages CUDA device callbacks that save state
+trajectories and summary calculations from integration loops. It turns loop
+settings into checked configuration, builds the device functions through the
+CUDA factory tools, and provides sizing helpers so callers can allocate host and
+device buffers without repeating dimension logic.
 
 .. toctree::
    :maxdepth: 2
@@ -40,11 +40,11 @@ host and device buffers without duplicating dimension logic.
 Entry point
 -----------
 
-:doc:`OutputFunctions <output_functions>` is the main interface. Instantiate it with loop
+:doc:`OutputFunctions <output_functions>` is the main interface. Create it with loop
 dimensions and requested outputs to compile CUDA functions that save solver
 state, refresh summary metrics, and write reductions back to host arrays. The
-factory retains an :class:`OutputConfig` instance and regenerates compiled
-callbacks when configuration changes.
+factory keeps an :class:`OutputConfig` instance and rebuilds compiled callbacks
+when configuration changes.
 
 Configuration
 -------------
