@@ -40,8 +40,9 @@ matrix-free solver helpers, and loop orchestrators that combine CUDA device
 functions from ODE systems with adaptive or fixed step control.
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: Subpackages
+   :titlesonly:
 
    algorithms
    loops

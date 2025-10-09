@@ -31,8 +31,9 @@ CUDA factory infrastructure, and exposes sizing helpers so callers can allocate
 host and device buffers without duplicating dimension logic.
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: Subpackages
+   :titlesonly:
 
    summarymetrics
 

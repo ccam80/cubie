@@ -41,8 +41,9 @@ common workflows. Supporting modules configure compiled kernels, describe
 solver outputs, and expose validators used by attrs-based containers.
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
    :caption: Subpackages
+   :titlesonly:
 
    arrays
 
