@@ -6,3 +6,4 @@ ArrayResponse
 .. autoclass:: ArrayResponse
     :members:
     :show-inheritance:
+    :noindex:

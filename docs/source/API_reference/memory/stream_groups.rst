@@ -6,3 +6,4 @@ StreamGroups
 .. autoclass:: StreamGroups
     :members:
     :show-inheritance:
+    :noindex:

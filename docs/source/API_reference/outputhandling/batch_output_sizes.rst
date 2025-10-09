@@ -6,3 +6,4 @@ BatchOutputSizes
 .. autoclass:: BatchOutputSizes
     :members:
     :show-inheritance:
+    :noindex:

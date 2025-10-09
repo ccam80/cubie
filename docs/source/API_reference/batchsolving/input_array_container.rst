@@ -1,5 +1,5 @@
 InputArrayContainer
-==================
+===================
 
 .. currentmodule:: cubie.batchsolving.arrays.BatchInputArrays
 

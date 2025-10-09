@@ -6,3 +6,4 @@ BatchSolverConfig
 .. autoclass:: BatchSolverConfig
     :members:
     :show-inheritance:
+    :noindex:

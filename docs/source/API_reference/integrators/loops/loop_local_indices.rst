@@ -6,3 +6,4 @@ LoopLocalIndices
 .. autoclass:: LoopLocalIndices
     :members:
     :show-inheritance:
+    :noindex:

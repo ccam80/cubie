@@ -1,5 +1,5 @@
 OutputArrayContainer
-===================
+====================
 
 .. currentmodule:: cubie.batchsolving.arrays.BatchOutputArrays
 

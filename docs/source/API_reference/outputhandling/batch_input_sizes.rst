@@ -6,3 +6,4 @@ BatchInputSizes
 .. autoclass:: BatchInputSizes
     :members:
     :show-inheritance:
+    :noindex:

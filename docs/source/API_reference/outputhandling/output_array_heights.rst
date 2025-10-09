@@ -6,3 +6,4 @@ OutputArrayHeights
 .. autoclass:: OutputArrayHeights
     :members:
     :show-inheritance:
+    :noindex:

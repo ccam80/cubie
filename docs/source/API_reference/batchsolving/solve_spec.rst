@@ -6,3 +6,4 @@ SolveSpec
 .. autoclass:: SolveSpec
     :members:
     :show-inheritance:
+    :noindex:

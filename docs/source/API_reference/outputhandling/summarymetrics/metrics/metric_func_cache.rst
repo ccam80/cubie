@@ -6,3 +6,4 @@ MetricFuncCache
 .. autoclass:: MetricFuncCache
     :members:
     :show-inheritance:
+    :noindex:

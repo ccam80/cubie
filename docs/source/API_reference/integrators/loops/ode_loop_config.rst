@@ -6,3 +6,4 @@ ODELoopConfig
 .. autoclass:: ODELoopConfig
     :members:
     :show-inheritance:
+    :noindex:

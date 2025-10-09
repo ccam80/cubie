@@ -11,8 +11,8 @@ Matrix-free solvers
    :maxdepth: 1
    :titlesonly:
 
-   matrix_free_solves/linear_solver_factory
-   matrix_free_solves/newton_krylov_solver_factory
+   matrix_free_solvers/linear_solver_factory
+   matrix_free_solvers/newton_krylov_solver_factory
    matrix_free_solvers/solver_ret_codes
 
 The ``matrix_free_solvers`` package gathers factories that build CUDA device

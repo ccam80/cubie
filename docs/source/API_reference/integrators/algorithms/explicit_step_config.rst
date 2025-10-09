@@ -1,5 +1,5 @@
 ExplicitStepConfig
-=================
+==================
 
 .. currentmodule:: cubie.integrators
 

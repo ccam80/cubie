@@ -6,3 +6,4 @@ ArrayRequest
 .. autoclass:: ArrayRequest
     :members:
     :show-inheritance:
+    :noindex:

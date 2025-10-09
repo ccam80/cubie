@@ -6,3 +6,4 @@ OutputCompileFlags
 .. autoclass:: OutputCompileFlags
     :members:
     :show-inheritance:
+    :noindex:

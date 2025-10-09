@@ -6,3 +6,4 @@ LoopSharedIndices
 .. autoclass:: LoopSharedIndices
     :members:
     :show-inheritance:
+    :noindex:

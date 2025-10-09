@@ -6,3 +6,4 @@ SummaryMetric
 .. autoclass:: SummaryMetric
     :members:
     :show-inheritance:
+    :noindex:

@@ -1,5 +1,5 @@
 newton_krylov_solver_factory
-===========================
+============================
 
 .. currentmodule:: cubie.integrators
 

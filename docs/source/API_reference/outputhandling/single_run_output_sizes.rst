@@ -6,3 +6,4 @@ SingleRunOutputSizes
 .. autoclass:: SingleRunOutputSizes
     :members:
     :show-inheritance:
+    :noindex:

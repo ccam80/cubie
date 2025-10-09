@@ -6,3 +6,4 @@ LoopBufferSizes
 .. autoclass:: LoopBufferSizes
     :members:
     :show-inheritance:
+    :noindex:

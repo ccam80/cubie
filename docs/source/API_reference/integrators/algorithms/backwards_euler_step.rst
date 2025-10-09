@@ -1,5 +1,5 @@
 BackwardsEulerStep
-=================
+==================
 
 .. currentmodule:: cubie.integrators
 

@@ -6,3 +6,4 @@ OutputFunctionCache
 .. autoclass:: OutputFunctionCache
     :members:
     :show-inheritance:
+    :noindex:

@@ -6,3 +6,4 @@ SummariesBufferSizes
 .. autoclass:: SummariesBufferSizes
     :members:
     :show-inheritance:
+    :noindex:

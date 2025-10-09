@@ -1,6 +1,6 @@
 default_memmgr
 ==============
 
-.. currentmodule:: cubie.memory.mem_manager
+.. currentmodule:: cubie.memory
 
 .. autodata:: default_memmgr

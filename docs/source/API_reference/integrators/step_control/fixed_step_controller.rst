@@ -1,5 +1,5 @@
 FixedStepController
-==================
+===================
 
 .. currentmodule:: cubie.integrators
 

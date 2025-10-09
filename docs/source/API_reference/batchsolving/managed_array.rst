@@ -1,5 +1,5 @@
 ManagedArray
-===========
+============
 
 .. currentmodule:: cubie.batchsolving.arrays.BaseArrayManager
 

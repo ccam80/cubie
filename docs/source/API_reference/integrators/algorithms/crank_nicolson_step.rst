@@ -1,5 +1,5 @@
 CrankNicolsonStep
-================
+=================
 
 .. currentmodule:: cubie.integrators
 

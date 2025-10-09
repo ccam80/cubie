@@ -1,5 +1,5 @@
 ExplicitEulerStep
-================
+=================
 
 .. currentmodule:: cubie.integrators
 
