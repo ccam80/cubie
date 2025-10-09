@@ -11,9 +11,9 @@ Matrix-free solvers
    :maxdepth: 1
    :titlesonly:
 
-   ../linear_solver_factory
-   ../newton_krylov_solver_factory
-   solver_ret_codes
+   matrix_free_solves/linear_solver_factory
+   matrix_free_solves/newton_krylov_solver_factory
+   matrix_free_solvers/solver_ret_codes
 
 The ``matrix_free_solvers`` package gathers factories that build CUDA device
 functions for matrix-free linear and nonlinear solves. These factories are used
@@ -24,11 +24,11 @@ warp-synchronisation via lightweight vote helpers.
 Public API
 ----------
 
-* :doc:`linear_solver_factory <../linear_solver_factory>` – emits steepest-descent/minimal-residual CUDA
+* :doc:`linear_solver_factory <matrix_free_solvers/linear_solver_factory>` – emits steepest-descent/minimal-residual CUDA
   solvers that operate on matrix-free operators.
-* :doc:`newton_krylov_solver_factory <../newton_krylov_solver_factory>` – wraps the linear solver to construct
+* :doc:`newton_krylov_solver_factory <matrix_free_solvers/newton_krylov_solver_factory>` – wraps the linear solver to construct
   damped Newton–Krylov iterations for implicit steps.
-* :doc:`SolverRetCodes <solver_ret_codes>` – enumerates solver completion status codes.
+* :doc:`SolverRetCodes <matrix_free_solvers/solver_ret_codes>` – enumerates solver completion status codes.
 
 Modules
 -------

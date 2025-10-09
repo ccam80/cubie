@@ -4,6 +4,6 @@
     margin-left: 1.5em;
 }
 
-.sig-param:not(:last-child)::after {
-    content: ",";
-}
+/*.sig-param:not(:last-child)::after {*/
+/*    content: ",";*/
+/*}*/
