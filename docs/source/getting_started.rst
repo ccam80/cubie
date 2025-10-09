@@ -65,6 +65,8 @@ Optional Dependencies
 * Cupy-cu12x: For pool-based memory management (if you're doing a lot of
   consecutive batches of different sizes)
 * Pandas: For DataFrame output support
+* Matplotlib: For plotting support. Only used to plot an interpolated driver function for sanity-checks (see
+:ref: `Drivers <user_guide/drivers>`_)
 
 GPU Requirements
 ~~~~~~~~~~~~~~~~

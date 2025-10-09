@@ -1,5 +1,5 @@
-Drivers (Forcing Functions)
-===========================
+Drivers (Time-dependent functions)
+==================================
 
 In some models, rates of change can be functions of time. This makes the ODE system "non-autonomous" - an "autonomous"
 system is one where time isn't explicitly included in the equations. The trick that mathematicians use to handle this is

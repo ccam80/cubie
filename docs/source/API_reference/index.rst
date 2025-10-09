@@ -1,5 +1,5 @@
-API Reference
-=============
+Reference Manual
+================
 
 The :mod:`cubie` API is organized into subpackages. The main entry point is
 :class:`cubie.batchsolving.Solver` for launching batch runs. The following
