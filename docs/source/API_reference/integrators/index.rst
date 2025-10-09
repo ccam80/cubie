@@ -8,27 +8,27 @@ Integrators
 
 .. toctree::
    :hidden:
-   :maxdepth: 1
+   :maxdepth: 2
    :titlesonly:
 
    single_integrator_run
    integrator_return_codes
-   get_algorithm_step
-   explicit_step_config
-   implicit_step_config
-   explicit_euler_step
-   backwards_euler_step
-   backwards_euler_pc_step
-   crank_nicolson_step
-   ivp_loop
-   linear_solver_factory
-   newton_krylov_solver_factory
-   adaptive_i_controller
-   adaptive_pi_controller
-   adaptive_pid_controller
-   fixed_step_controller
-   gustafsson_controller
-   get_controller
+   algorithms/get_algorithm_step
+   algorithms/explicit_step_config
+   algorithms/implicit_step_config
+   algorithms/explicit_euler_step
+   algorithms/backwards_euler_step
+   algorithms/backwards_euler_pc_step
+   algorithms/crank_nicolson_step
+   loops/ivp_loop
+   matrix_free_solvers/linear_solver_factory
+   matrix_free_solvers/newton_krylov_solver_factory
+   step_control/adaptive_i_controller
+   step_control/adaptive_pi_controller
+   step_control/adaptive_pid_controller
+   step_control/fixed_step_controller
+   step_control/gustafsson_controller
+   step_control/get_controller
 
 The :class:`SingleIntegratorRun` façade is the primary entry point. It creates a
 loop callable by wiring controller, algorithm, and loop submodules according to
@@ -58,22 +58,22 @@ Core API
 Factories and helpers
 ---------------------
 
-* :doc:`get_algorithm_step <get_algorithm_step>` – retrieves CUDA step factories by name.
-* :doc:`ExplicitStepConfig <explicit_step_config>` – attrs configuration for explicit schemes.
-* :doc:`ImplicitStepConfig <implicit_step_config>` – attrs configuration for implicit schemes.
-* :doc:`ExplicitEulerStep <explicit_euler_step>` – explicit Euler CUDA step implementation.
-* :doc:`BackwardsEulerStep <backwards_euler_step>` – backward Euler CUDA step implementation.
-* :doc:`BackwardsEulerPCStep <backwards_euler_pc_step>` – predictor-corrector backward Euler variant.
-* :doc:`CrankNicolsonStep <crank_nicolson_step>` – Crank–Nicolson implicit step implementation.
-* :doc:`IVPLoop <ivp_loop>` – builds compiled CUDA loops for IVP execution.
-* :doc:`linear_solver_factory <linear_solver_factory>` – matrix-free linear solver factory.
-* :doc:`newton_krylov_solver_factory <newton_krylov_solver_factory>` – Newton–Krylov solver factory.
-* :doc:`AdaptiveIController <adaptive_i_controller>` – integral adaptive step controller.
-* :doc:`AdaptivePIController <adaptive_pi_controller>` – proportional-integral controller.
-* :doc:`AdaptivePIDController <adaptive_pid_controller>` – proportional-integral-derivative controller.
-* :doc:`FixedStepController <fixed_step_controller>` – no-op step controller for fixed steps.
-* :doc:`GustafssonController <gustafsson_controller>` – Gustafsson adaptive controller variant.
-* :doc:`get_controller <get_controller>` – factory that resolves controller instances.
+* :doc:`get_algorithm_step <algorithms/get_algorithm_step>` – retrieves CUDA step factories by name.
+* :doc:`ExplicitStepConfig <algorithms/explicit_step_config>` – attrs configuration for explicit schemes.
+* :doc:`ImplicitStepConfig <algorithms/implicit_step_config>` – attrs configuration for implicit schemes.
+* :doc:`ExplicitEulerStep <algorithms/explicit_euler_step>` – explicit Euler CUDA step implementation.
+* :doc:`BackwardsEulerStep <algorithms/backwards_euler_step>` – backward Euler CUDA step implementation.
+* :doc:`BackwardsEulerPCStep <algorithms/backwards_euler_pc_step>` – predictor-corrector backward Euler variant.
+* :doc:`CrankNicolsonStep <algorithms/crank_nicolson_step>` – Crank–Nicolson implicit step implementation.
+* :doc:`IVPLoop <loops/ivp_loop>` – builds compiled CUDA loops for IVP execution.
+* :doc:`linear_solver_factory <matrix_free_solvers/linear_solver_factory>` – matrix-free linear solver factory.
+* :doc:`newton_krylov_solver_factory <matrix_free_solvers/newton_krylov_solver_factory>` – Newton–Krylov solver factory.
+* :doc:`AdaptiveIController <step_control/adaptive_i_controller>` – integral adaptive step controller.
+* :doc:`AdaptivePIController <step_control/adaptive_pi_controller>` – proportional–integral controller.
+* :doc:`AdaptivePIDController <step_control/adaptive_pid_controller>` – proportional–integral–derivative controller.
+* :doc:`FixedStepController <step_control/fixed_step_controller>` – no-op step controller for fixed steps.
+* :doc:`GustafssonController <step_control/gustafsson_controller>` – Gustafsson adaptive controller variant.
+* :doc:`get_controller <step_control/get_controller>` – factory that resolves controller instances.
 
 Dependencies
 ------------

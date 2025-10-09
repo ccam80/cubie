@@ -1,8 +1,8 @@
 Step control
-===========
+============
 
 ``cubie.integrators.step_control``
----------------------------------
+----------------------------------
 
 .. currentmodule:: cubie.integrators.step_control
 
@@ -11,20 +11,20 @@ Step control
    :maxdepth: 1
    :titlesonly:
 
-   base_step_controller
-   base_adaptive_step_controller
-   ../fixed_step_controller
-   ../adaptive_i_controller
-   ../adaptive_pi_controller
-   ../adaptive_pid_controller
-   ../gustafsson_controller
-   ../get_controller
-   base_step_controller_config
-   adaptive_step_control_config
-   fixed_step_control_config
-   pi_step_control_config
-   pid_step_control_config
-   gustafsson_step_control_config
+   step_control/get_controller
+   step_control/base_step_controller
+   step_control/base_adaptive_step_controller
+   step_control/fixed_step_controller
+   step_control/adaptive_i_controller
+   step_control/adaptive_pi_controller
+   step_control/adaptive_pid_controller
+   step_control/gustafsson_controller
+   step_control/base_step_controller_config
+   step_control/adaptive_step_control_config
+   step_control/fixed_step_control_config
+   step_control/pi_step_control_config
+   step_control/pid_step_control_config
+   step_control/gustafsson_step_control_config
 
 The step control package encapsulates the configuration and compilation
 machinery used to build CUDA device functions that manage integrator time-step
@@ -36,26 +36,26 @@ pipeline.
 Controller interfaces
 ---------------------
 
-* :doc:`BaseStepController <base_step_controller>` – abstract base for all controllers.
-* :doc:`BaseAdaptiveStepController <base_adaptive_step_controller>` – adds adaptive gain handling.
-* :doc:`FixedStepController <fixed_step_controller>` – returns constant time steps.
-* :doc:`AdaptiveIController <../adaptive_i_controller>` – integral-only adaptive controller.
-* :doc:`AdaptivePIController <../adaptive_pi_controller>` – proportional–integral controller.
-* :doc:`AdaptivePIDController <../adaptive_pid_controller>` – proportional–integral–derivative controller.
-* :doc:`GustafssonController <../gustafsson_controller>` – Gustafsson PI controller variant.
-* :doc:`get_controller <../get_controller>` – resolves controller implementations from settings.
+* :doc:`BaseStepController <step_control/base_step_controller>` – abstract base for all controllers.
+* :doc:`BaseAdaptiveStepController <step_control/base_adaptive_step_controller>` – adds adaptive gain handling.
+* :doc:`FixedStepController <step_control/fixed_step_controller>` – returns constant time steps.
+* :doc:`AdaptiveIController <step_control/adaptive_i_controller>` – integral-only adaptive controller.
+* :doc:`AdaptivePIController <step_control/adaptive_pi_controller>` – proportional–integral controller.
+* :doc:`AdaptivePIDController <step_control/adaptive_pid_controller>` – proportional–integral–derivative controller.
+* :doc:`GustafssonController <step_control/gustafsson_controller>` – Gustafsson PI controller variant.
+* :doc:`get_controller <step_control/get_controller>` – resolves controller implementations from settings.
 
 Configuration objects
 ---------------------
 
-* :doc:`BaseStepControllerConfig <base_step_controller_config>` – base attrs configuration shared by all
+* :doc:`BaseStepControllerConfig <step_control/base_step_controller_config>` – base attrs configuration shared by all
   controllers.
-* :doc:`AdaptiveStepControlConfig <adaptive_step_control_config>` – configuration used by adaptive
+* :doc:`AdaptiveStepControlConfig <step_control/adaptive_step_control_config>` – configuration used by adaptive
   controllers.
-* :doc:`FixedStepControlConfig <fixed_step_control_config>` – fixed-step configuration container.
-* :doc:`PIStepControlConfig <pi_step_control_config>` – proportional–integral gain configuration.
-* :doc:`PIDStepControlConfig <pid_step_control_config>` – proportional–integral–derivative configuration.
-* :doc:`GustafssonStepControlConfig <gustafsson_step_control_config>` – Gustafsson controller configuration.
+* :doc:`FixedStepControlConfig <step_control/fixed_step_control_config>` – fixed-step configuration container.
+* :doc:`PIStepControlConfig <step_control/pi_step_control_config>` – proportional–integral gain configuration.
+* :doc:`PIDStepControlConfig <step_control/pid_step_control_config>` – proportional–integral–derivative configuration.
+* :doc:`GustafssonStepControlConfig <step_control/gustafsson_step_control_config>` – Gustafsson controller configuration.
 
 Dependencies
 ------------

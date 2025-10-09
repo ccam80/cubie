@@ -16,22 +16,22 @@ shared and persistent local memory layouts expected during kernel launches.
    :maxdepth: 1
    :titlesonly:
 
-   ../ivp_loop
-   ode_loop_config
-   loop_shared_indices
-   loop_local_indices
+   loops/ivp_loop
+   loops/ode_loop_config
+   loops/loop_shared_indices
+   loops/loop_local_indices
 
 Loop factory
 ------------
 
-* :doc:`IVPLoop <../ivp_loop>` – builds compiled CUDA loops that step through IVP integrations.
+* :doc:`IVPLoop <loops/ivp_loop>` – builds compiled CUDA loops that step through IVP integrations.
 
 Configuration helpers
 ---------------------
 
-* :doc:`ODELoopConfig <ode_loop_config>` – captures metadata describing loop memory layout and dimensions.
-* :doc:`LoopSharedIndices <loop_shared_indices>` – describes offsets for shared-memory buffers.
-* :doc:`LoopLocalIndices <loop_local_indices>` – indexes persistent local buffers and device scratch space.
+* :doc:`ODELoopConfig <loops/ode_loop_config>` – captures metadata describing loop memory layout and dimensions.
+* :doc:`LoopSharedIndices <loops/loop_shared_indices>` – describes offsets for shared-memory buffers.
+* :doc:`LoopLocalIndices <loops/loop_local_indices>` – indexes persistent local buffers and device scratch space.
 
 Dependencies
 ------------

@@ -1,6 +1,10 @@
 API Reference
 =============
 
+The :mod:`cubie` API is organized into subpackages. The main entry point is
+:class:`cubie.batchsolving.Solver` for launching batch runs. The following
+pages describe each top-level module inside :mod:`cubie`.
+
 .. toctree::
    :maxdepth: 2
    :caption: Modules
