@@ -6,6 +6,20 @@ Arrays
 
 .. currentmodule:: cubie.batchsolving.arrays
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :titlesonly:
+
+   ../array_container
+   ../base_array_manager
+   ../managed_array
+   ../input_array_container
+   ../input_arrays
+   ../output_array_container
+   ../active_outputs
+   ../output_arrays
+
 The ``batchsolving.arrays`` package coordinates host and device array
 management for batch solver runs. ``InputArrays`` and ``OutputArrays`` are the
 main entry points: they collect stride metadata, request GPU allocations via
@@ -16,28 +30,21 @@ buffers on the host and GPU for every solver launch.
 Base utilities
 ^^^^^^^^^^^^^^
 
-* :class:`ArrayContainer <cubie.batchsolving.arrays.BaseArrayManager.ArrayContainer>` –
-  attrs container shared by input and output managers.
-* :class:`BaseArrayManager <cubie.batchsolving.arrays.BaseArrayManager.BaseArrayManager>` –
-  helper that manages host/device array bindings and synchronisation.
+* :doc:`ArrayContainer <../array_container>` – attrs container shared by input and output managers.
+* :doc:`BaseArrayManager <../base_array_manager>` – helper that manages host/device array bindings and synchronisation.
 
 Input arrays
 ^^^^^^^^^^^^
 
-* :class:`InputArrayContainer <cubie.batchsolving.arrays.BatchInputArrays.InputArrayContainer>` –
-  validated attrs container describing solver inputs.
-* :class:`InputArrays <cubie.batchsolving.arrays.BatchInputArrays.InputArrays>` –
-  orchestrates allocation, host buffers, and CUDA copies for input data.
+* :doc:`InputArrayContainer <../input_array_container>` – validated attrs container describing solver inputs.
+* :doc:`InputArrays <../input_arrays>` – orchestrates allocation, host buffers, and CUDA copies for input data.
 
 Output arrays
 ^^^^^^^^^^^^^
 
-* :class:`OutputArrayContainer <cubie.batchsolving.arrays.BatchOutputArrays.OutputArrayContainer>` –
-  attrs container for state, observables, and summary outputs.
-* :class:`ActiveOutputs <cubie.batchsolving.arrays.BatchOutputArrays.ActiveOutputs>` –
-  boolean flags describing which outputs and summaries are requested.
-* :class:`OutputArrays <cubie.batchsolving.arrays.BatchOutputArrays.OutputArrays>` –
-  prepares host/device arrays, handles CUDA transfers, and exposes host views.
+* :doc:`OutputArrayContainer <../output_array_container>` – attrs container for state, observables, and summary outputs.
+* :doc:`ActiveOutputs <../active_outputs>` – boolean flags describing which outputs and summaries are requested.
+* :doc:`OutputArrays <../output_arrays>` – prepares host/device arrays, handles CUDA transfers, and exposes host views.
 
 Dependencies
 ------------

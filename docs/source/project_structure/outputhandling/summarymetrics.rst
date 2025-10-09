@@ -6,6 +6,21 @@ Summary metrics
 
 .. currentmodule:: cubie.outputhandling.summarymetrics
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :titlesonly:
+
+   ../summary_metrics
+   ../register_metric
+   metrics/summary_metric
+   metrics/summary_metrics
+   metrics/metric_func_cache
+   metrics/mean
+   metrics/max
+   metrics/rms
+   metrics/peaks
+
 The ``summarymetrics`` package houses the summary metric registry used by output
 handling to accumulate reductions during integration. Importing the package
 instantiates :data:`summary_metrics` and eagerly imports the built-in metrics so
@@ -15,24 +30,15 @@ extend the system by decorating new metric classes with :func:`register_metric`.
 Public interface
 ----------------
 
-* :data:`summary_metrics` – registry storing metric factories and compiled
-  device callables.
-* :func:`register_metric` – decorator used by metric modules to register
-  implementations.
-* :class:`SummaryMetric <cubie.outputhandling.summarymetrics.metrics.SummaryMetric>` –
-  base class describing summary metric interfaces.
-* :class:`SummaryMetrics <cubie.outputhandling.summarymetrics.metrics.SummaryMetrics>` –
-  registry container that stores metrics and compiled functions.
-* :class:`MetricFuncCache <cubie.outputhandling.summarymetrics.metrics.MetricFuncCache>` –
-  caches compiled CUDA functions per metric.
-* :class:`Mean <cubie.outputhandling.summarymetrics.mean.Mean>` – built-in
-  average metric.
-* :class:`Max <cubie.outputhandling.summarymetrics.max.Max>` – built-in maximum
-  metric.
-* :class:`RMS <cubie.outputhandling.summarymetrics.rms.RMS>` – built-in root-mean-square
-  metric.
-* :class:`Peaks <cubie.outputhandling.summarymetrics.peaks.Peaks>` – built-in
-  peak-detection metric.
+* :doc:`summary_metrics <../summary_metrics>` – registry storing metric factories and compiled device callables.
+* :doc:`register_metric <../register_metric>` – decorator used by metric modules to register implementations.
+* :doc:`SummaryMetric <metrics/summary_metric>` – base class describing summary metric interfaces.
+* :doc:`SummaryMetrics <metrics/summary_metrics>` – registry container that stores metrics and compiled functions.
+* :doc:`MetricFuncCache <metrics/metric_func_cache>` – caches compiled CUDA functions per metric.
+* :doc:`Mean <metrics/mean>` – built-in average metric.
+* :doc:`Max <metrics/max>` – built-in maximum metric.
+* :doc:`RMS <metrics/rms>` – built-in root-mean-square metric.
+* :doc:`Peaks <metrics/peaks>` – built-in peak-detection metric.
 
 Dependencies
 ------------

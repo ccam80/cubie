@@ -6,6 +6,22 @@ Algorithms
 
 .. currentmodule:: cubie.integrators.algorithms
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :titlesonly:
+
+   base_step_config
+   base_algorithm_step
+   step_cache
+   ../explicit_step_config
+   ../explicit_euler_step
+   ../implicit_step_config
+   ../backwards_euler_step
+   ../backwards_euler_pc_step
+   ../crank_nicolson_step
+   ../get_algorithm_step
+
 Factories in :mod:`cubie.integrators.algorithms` assemble explicit and implicit
 step implementations that plug into the CUDA-based integrator loop. Explicit
 steps wrap direct right-hand-side evaluations, while implicit steps couple
@@ -17,31 +33,28 @@ shared linear and nonlinear solver stack.
 Base infrastructure
 -------------------
 
-* :class:`BaseStepConfig <cubie.integrators.algorithms.base_algorithm_step.BaseStepConfig>` –
-  attrs configuration shared by explicit and implicit steps.
-* :class:`BaseAlgorithmStep <cubie.integrators.algorithms.base_algorithm_step.BaseAlgorithmStep>` –
-  base class that wires precision and CUDA compilation helpers.
-* :class:`StepCache <cubie.integrators.algorithms.base_algorithm_step.StepCache>` –
-  container storing compiled kernels and loop scratch buffers.
+* :doc:`BaseStepConfig <base_step_config>` – attrs configuration shared by explicit and implicit steps.
+* :doc:`BaseAlgorithmStep <base_algorithm_step>` – base class that wires precision and CUDA compilation helpers.
+* :doc:`StepCache <step_cache>` – container storing compiled kernels and loop scratch buffers.
 
 Explicit steps
 --------------
 
-* :class:`ExplicitStepConfig` – configuration for explicit step factories.
-* :class:`ExplicitEulerStep` – Euler step that invokes the RHS device function.
+* :doc:`ExplicitStepConfig <../explicit_step_config>` – configuration for explicit step factories.
+* :doc:`ExplicitEulerStep <../explicit_euler_step>` – Euler step that invokes the RHS device function.
 
 Implicit steps
 --------------
 
-* :class:`ImplicitStepConfig` – configuration for implicit step factories.
-* :class:`BackwardsEulerStep` – backward Euler implicit algorithm.
-* :class:`BackwardsEulerPCStep` – predictor-corrector backward Euler variant.
-* :class:`CrankNicolsonStep` – Crank–Nicolson implicit algorithm.
+* :doc:`ImplicitStepConfig <../implicit_step_config>` – configuration for implicit step factories.
+* :doc:`BackwardsEulerStep <../backwards_euler_step>` – backward Euler implicit algorithm.
+* :doc:`BackwardsEulerPCStep <../backwards_euler_pc_step>` – predictor-corrector backward Euler variant.
+* :doc:`CrankNicolsonStep <../crank_nicolson_step>` – Crank–Nicolson implicit algorithm.
 
 Factory helpers
 ---------------
 
-* :func:`get_algorithm_step` – resolves step factories by enum or name.
+* :doc:`get_algorithm_step <../get_algorithm_step>` – resolves step factories by enum or name.
 
 Dependencies
 ------------

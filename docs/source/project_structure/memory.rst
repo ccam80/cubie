@@ -6,6 +6,20 @@ Memory
 
 .. currentmodule:: cubie.memory
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :titlesonly:
+
+   memory/default_memmgr
+   memory/memory_manager
+   memory/array_request
+   memory/array_response
+   memory/stream_groups
+   memory/current_cupy_stream
+   memory/cupy_async_numba_manager
+   memory/cupy_sync_numba_manager
+
 The memory package coordinates GPU allocations across cubie. It exposes the
 package-level :class:`~cubie.memory.mem_manager.MemoryManager` through
 ``default_memmgr`` so integrators can request array buffers, register CUDA
@@ -26,34 +40,27 @@ arrays they need.
 Core manager
 ------------
 
-* :data:`default_memmgr` – default :class:`MemoryManager` instance shared across
+* :doc:`default_memmgr <memory/default_memmgr>` – default :class:`MemoryManager` instance shared across
   the package.
-* :class:`MemoryManager <cubie.memory.mem_manager.MemoryManager>` – orchestrates
-  allocation requests, stream registration, and External Memory Managers.
+* :doc:`MemoryManager <memory/memory_manager>` – orchestrates allocation requests, stream registration, and External Memory Managers.
 
 Array specifications
 --------------------
 
-* :class:`ArrayRequest <cubie.memory.array_requests.ArrayRequest>` – describes
-  requested buffers, precision factories, and chunking.
-* :class:`ArrayResponse <cubie.memory.array_requests.ArrayResponse>` – returns
-  allocated buffers and metadata for callers.
+* :doc:`ArrayRequest <memory/array_request>` – describes requested buffers, precision factories, and chunking.
+* :doc:`ArrayResponse <memory/array_response>` – returns allocated buffers and metadata for callers.
 
 Stream coordination
 -------------------
 
-* :class:`StreamGroups <cubie.memory.stream_groups.StreamGroups>` – assigns host
-  instances to CUDA streams and manages synchronisation policies.
+* :doc:`StreamGroups <memory/stream_groups>` – assigns host instances to CUDA streams and manages synchronisation policies.
 
 CuPy External Memory Managers
 -----------------------------
 
-* :func:`current_cupy_stream <cubie.memory.cupy_emm.current_cupy_stream>` –
-  context manager that binds a Numba stream to a CuPy stream.
-* :class:`CuPyAsyncNumbaManager <cubie.memory.cupy_emm.CuPyAsyncNumbaManager>` –
-  asynchronous CuPy External Memory Manager integration.
-* :class:`CuPySyncNumbaManager <cubie.memory.cupy_emm.CuPySyncNumbaManager>` –
-  synchronous CuPy External Memory Manager integration.
+* :doc:`current_cupy_stream <memory/current_cupy_stream>` – context manager that binds a Numba stream to a CuPy stream.
+* :doc:`CuPyAsyncNumbaManager <memory/cupy_async_numba_manager>` – asynchronous CuPy External Memory Manager integration.
+* :doc:`CuPySyncNumbaManager <memory/cupy_sync_numba_manager>` – synchronous CuPy External Memory Manager integration.
 
 Dependencies
 ------------

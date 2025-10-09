@@ -6,6 +6,15 @@ Matrix-free solvers
 
 .. module:: cubie.integrators.matrix_free_solvers
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :titlesonly:
+
+   ../linear_solver_factory
+   ../newton_krylov_solver_factory
+   solver_ret_codes
+
 The ``matrix_free_solvers`` package gathers factories that build CUDA device
 functions for matrix-free linear and nonlinear solves. These factories are used
 by the integrator loops to update implicit states without materialising Jacobian
@@ -15,11 +24,11 @@ warp-synchronisation via lightweight vote helpers.
 Public API
 ----------
 
-* :func:`linear_solver_factory` – emits steepest-descent/minimal-residual CUDA
+* :doc:`linear_solver_factory <../linear_solver_factory>` – emits steepest-descent/minimal-residual CUDA
   solvers that operate on matrix-free operators.
-* :func:`newton_krylov_solver_factory` – wraps the linear solver to construct
+* :doc:`newton_krylov_solver_factory <../newton_krylov_solver_factory>` – wraps the linear solver to construct
   damped Newton–Krylov iterations for implicit steps.
-* :class:`SolverRetCodes` – enumerates solver completion status codes.
+* :doc:`SolverRetCodes <solver_ret_codes>` – enumerates solver completion status codes.
 
 Modules
 -------

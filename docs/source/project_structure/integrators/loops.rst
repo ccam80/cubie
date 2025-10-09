@@ -11,21 +11,27 @@ and coordinates summary collection through the provided callbacks. Supporting
 configuration classes in :mod:`cubie.integrators.loops.ode_loop_config` describe
 shared and persistent local memory layouts expected during kernel launches.
 
+.. toctree::
+   :hidden:
+   :maxdepth: 1
+   :titlesonly:
+
+   ../ivp_loop
+   ode_loop_config
+   loop_shared_indices
+   loop_local_indices
+
 Loop factory
 ------------
 
-* :class:`IVPLoop <cubie.integrators.loops.IVPLoop>` – builds compiled CUDA
-  loops that step through IVP integrations.
+* :doc:`IVPLoop <../ivp_loop>` – builds compiled CUDA loops that step through IVP integrations.
 
 Configuration helpers
 ---------------------
 
-* :class:`ODELoopConfig <cubie.integrators.loops.ode_loop_config.ODELoopConfig>` –
-  captures metadata describing loop memory layout and dimensions.
-* :class:`LoopSharedIndices <cubie.integrators.loops.ode_loop_config.LoopSharedIndices>` –
-  describes offsets for shared-memory buffers.
-* :class:`LoopLocalIndices <cubie.integrators.loops.ode_loop_config.LoopLocalIndices>` –
-  indexes persistent local buffers and device scratch space.
+* :doc:`ODELoopConfig <ode_loop_config>` – captures metadata describing loop memory layout and dimensions.
+* :doc:`LoopSharedIndices <loop_shared_indices>` – describes offsets for shared-memory buffers.
+* :doc:`LoopLocalIndices <loop_local_indices>` – indexes persistent local buffers and device scratch space.
 
 Dependencies
 ------------
