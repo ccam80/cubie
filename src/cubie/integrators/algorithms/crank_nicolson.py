@@ -156,9 +156,10 @@ class CrankNicolsonStep(ODEImplicitStep):
         has_driver_function = driver_function is not None
         driver_function = driver_function
 
+        solver_shared_elements = self.solver_shared_elements
+
         @cuda.jit(
             (
-                numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
@@ -179,7 +180,6 @@ class CrankNicolsonStep(ODEImplicitStep):
         def step(
             state,
             proposed_state,
-            work_buffer,
             parameters,
             driver_coefficients,
             drivers_buffer,
@@ -200,8 +200,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 Device array storing the current state.
             proposed_state
                 Device array receiving the updated state.
-            work_buffer
-                Device array used as temporary storage.
             parameters
                 Device array of static model parameters.
             driver_coefficients
@@ -221,7 +219,7 @@ class CrankNicolsonStep(ODEImplicitStep):
             time_scalar
                 Scalar containing the current simulation time.
             shared
-                Device array used for shared memory (unused here).
+                Device array providing shared scratch buffers.
             persistent_local
                 Device array for persistent local storage (unused here).
 
@@ -234,10 +232,11 @@ class CrankNicolsonStep(ODEImplicitStep):
             for i in range(n):
                 proposed_state[i] = state[i]
 
-            # Work arrays (reused for both CN and BE computations)
-            resid = cuda.local.array(n, numba_precision)
-            z = cuda.local.array(n, numba_precision)
-            temp = cuda.local.array(n, numba_precision)
+            solver_scratch = shared[:solver_shared_elements]
+            # Reuse solver scratch for the dx/dt evaluation buffer.
+            dxdt = solver_scratch[:n]
+            # error buffer tracks the base-adjusted state during setup.
+            base_adjusted = error
 
             # Evaluate f(state)
             dxdt_fn(
@@ -245,16 +244,16 @@ class CrankNicolsonStep(ODEImplicitStep):
                 parameters,
                 drivers_buffer,
                 observables,
-                resid,
+                dxdt,
                 time_scalar,
             )
 
             half_dt = dt_scalar * numba_precision(0.5)
             end_time = time_scalar + dt_scalar
 
-            #Reuse error array to store base-adjusted state
+            # Form base-adjusted state for the Crank-Nicolson solve
             for i in range(n):
-                error[i] = state[i] + half_dt * resid[i]
+                base_adjusted[i] = state[i] + half_dt * dxdt[i]
 
 
             # Solve Crank-Nicolson step (main solution)
@@ -271,28 +270,24 @@ class CrankNicolsonStep(ODEImplicitStep):
                 proposed_drivers,
                 half_dt,
                 a_ij,
-                error,
-                work_buffer,
-                resid,
-                z,
-                temp,
+                base_adjusted,
+                solver_scratch,
             )
 
-            # Use error vec again for the BE solution's state
+            # Reuse the base-adjusted buffer for the backward Euler solution
+            # error buffer now holds the backward Euler state.
+            be_state = base_adjusted
             for i in range(n):
-                error[i] = proposed_state[i]
+                be_state[i] = proposed_state[i]
 
             status |= solver_fn(
-                error,
+                be_state,
                 parameters,
                 proposed_drivers,
                 dt_scalar,
                 a_ij,
                 state,
-                work_buffer,
-                resid,
-                z,
-                temp,
+                solver_scratch,
             ) & int32(0xFFFF)  # don't record Newton iterations for error check
 
             # Compute error as difference between Crank-Nicolson and Backward Euler
@@ -321,17 +316,23 @@ class CrankNicolsonStep(ODEImplicitStep):
     def shared_memory_required(self) -> int:
         """Shared memory usage expressed in precision-sized entries."""
 
-        return 0
+        return super().shared_memory_required
 
     @property
     def local_scratch_required(self) -> int:
         """Local scratch usage expressed in precision-sized entries."""
 
-        return 3 * self.compile_settings.n
+        return 0
 
     @property
-    def persistent_local_required(self) -> int:
-        """Persistent local storage expressed in precision-sized entries."""
+    def algorithm_shared_elements(self) -> int:
+        """Crank–Nicolson does not reserve extra shared scratch."""
+
+        return 0
+
+    @property
+    def algorithm_local_elements(self) -> int:
+        """Crank–Nicolson does not require persistent local storage."""
 
         return 0
 

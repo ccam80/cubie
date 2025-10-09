@@ -156,11 +156,13 @@ def _build_loop(
         observable_summaries_buffer_height=(
             loop_buffer_sizes.observable_summaries
         ),
+        n_error=(
+            loop_buffer_sizes.state if step_object.is_adaptive else 0
+        ),
     )
     local_indices = LoopLocalIndices.from_sizes(
-        loop_buffer_sizes.state,
-        step_controller.local_memory_elements,
-        step_object.persistent_local_required,
+        controller_len=step_controller.local_memory_elements,
+        algorithm_len=step_object.persistent_local_required,
     )
     loop = IVPLoop(
         precision=precision,
@@ -235,7 +237,7 @@ def test_time_driver_array_matches_function(
             precision, copy=True
         ),
         localmem_required=single_integrator_run.local_memory_elements,
-
+        sharedmem_required=single_integrator_run.shared_memory_bytes,
         output_functions=output_functions_function,
         solver_config=solver_settings,
     )
@@ -246,6 +248,7 @@ def test_time_driver_array_matches_function(
             precision, copy=True
         ),
         localmem_required=single_integrator_run.local_memory_elements,
+        sharedmem_required=single_integrator_run.shared_memory_bytes,
         output_functions=output_functions_driver,
         solver_config=solver_settings,
         driver_array=driver_array,

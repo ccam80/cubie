@@ -154,6 +154,14 @@ class SingleIntegratorRunCore(CUDAFactory):
                 driver_function=driver_function,
         )
 
+    @property
+    def n_error(self) -> int:
+        """Return the length of the shared error buffer."""
+
+        if self._algo_step.is_adaptive:
+            return int(self._system.sizes.states)
+        return 0
+
     def check_compatibility(self) -> None:
         """Validate that algorithm and controller step modes are aligned.
 
@@ -223,18 +231,17 @@ class SingleIntegratorRunCore(CUDAFactory):
             Configured loop instance ready for CUDA compilation.
         """
         shared_indices = LoopSharedIndices.from_sizes(
-                n_states=n_states,
-                n_observables=n_observables,
-                n_parameters=n_parameters,
-                n_drivers=n_drivers,
-                state_summaries_buffer_height=state_summaries_buffer_height,
-                observable_summaries_buffer_height
-                =observable_summaries_buffer_height
+            n_states=n_states,
+            n_observables=n_observables,
+            n_parameters=n_parameters,
+            n_drivers=n_drivers,
+            state_summaries_buffer_height=state_summaries_buffer_height,
+            observable_summaries_buffer_height=observable_summaries_buffer_height,
+            n_error=self.n_error,
         )
         local_indices = LoopLocalIndices.from_sizes(
-                n_states=n_states,
-                controller_len=controller_local_elements,
-                algorithm_len=algorithm_local_elements
+            controller_len=controller_local_elements,
+            algorithm_len=algorithm_local_elements,
         )
 
         loop_kwargs = dict(loop_settings)
@@ -340,11 +347,11 @@ class SingleIntegratorRunCore(CUDAFactory):
             .state_summaries_buffer_height,
             observable_summaries_buffer_height=self._output_functions
             .observable_summaries_buffer_height,
+            n_error=self.n_error,
         )
         local_indices = LoopLocalIndices.from_sizes(
-                n_states=system_sizes.states,
-                controller_len=self._step_controller.local_memory_elements,
-                algorithm_len=self._algo_step.persistent_local_required,
+            controller_len=self._step_controller.local_memory_elements,
+            algorithm_len=self._algo_step.persistent_local_required,
         )
         updates_dict.update({'shared_buffer_indices': shared_indices,
                              'local_indices': local_indices})

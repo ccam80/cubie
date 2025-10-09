@@ -83,10 +83,7 @@ def newton_krylov_solver_factory(
         h,
         a_ij,
         base_state,
-        delta,
-        residual,
-        preconditioned_vec,
-        work_vec,
+        shared_scratch,
     ):
         """Solve a nonlinear system with a damped Newton--Krylov iteration.
 
@@ -104,14 +101,10 @@ def newton_krylov_solver_factory(
             Stage weight used by multi-stage integrators.
         base_state
             Reference state used when evaluating the residual.
-        delta
-            Working vector storing the Newton direction.
-        residual
-            Working vector storing residual evaluations.
-        preconditioned_vec
-            Working vector passed to the linear solver.
-        work_vec
-            Additional working vector passed to the linear solver.
+        shared_scratch
+            Shared scratch buffer providing Newton direction and residual
+            storage. The first ``n`` entries store the Newton direction and the
+            next ``n`` entries store the residual.
 
         Returns
         -------
@@ -120,14 +113,16 @@ def newton_krylov_solver_factory(
 
         Notes
         -----
-        Scratch space requirements total four vectors of length ``n`` and the
-        state, delta, residual, preconditioned, and work arrays are all updated
-        in place during the iteration. ``delta`` is reset to zero before the
-        first linear solve so it can be reused as the Newton direction buffer.
-        The linear solver is invoked on the Jacobian system ``J * delta = rhs``
-        with ``rhs`` stored in ``residual``. The tentative state updates are
-        reverted if no acceptable backtracking step is found.
+        Scratch space requirements total two vectors of length ``n`` drawn from
+        ``shared_scratch``. ``delta`` is reset to zero before the first linear
+        solve so it can be reused as the Newton direction buffer. The linear
+        solver is invoked on the Jacobian system ``J * delta = rhs`` with
+        ``rhs`` stored in ``residual``. The tentative state updates are reverted
+        if no acceptable backtracking step is found.
         """
+
+        delta = shared_scratch[:n]
+        residual = shared_scratch[n: 2 * n]
 
         residual_function(
             state,
@@ -164,8 +159,6 @@ def newton_krylov_solver_factory(
                     h,
                     residual,
                     delta,
-                    preconditioned_vec,
-                    work_vec,
                 )
                 if lin_return != int32(0):
                     status = int32(lin_return)

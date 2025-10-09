@@ -57,8 +57,8 @@ def linear_solver_factory(
     The operator typically has the form ``F = β M - γ h J`` where ``M`` is the
     mass matrix (often the identity), ``J`` is the Jacobian, ``h`` is the step
     size, and ``β`` and ``γ`` are scalar parameters captured in the closure.
-    The solver maintains only vector workspaces and reuses the ``temp``
-    buffer as the scratch space expected by the optional preconditioner.
+    The solver instantiates its own local scratch buffers so callers only need
+    to provide the residual and correction vectors.
     """
 
     sd_flag = 1 if correction_type == "steepest_descent" else 0
@@ -83,8 +83,6 @@ def linear_solver_factory(
         h,
         rhs,
         x,
-        z,
-        temp,
     ):
         """Run one preconditioned steepest-descent or minimal-residual solve.
 
@@ -104,11 +102,6 @@ def linear_solver_factory(
         x
             Iterand provided as the initial guess and overwritten with the
             final solution.
-        z
-            Working vector storing the preconditioned direction.
-        temp
-            Working vector storing the operator action.
-            Reused as scratch space for the preconditioner.
 
         Returns
         -------
@@ -125,6 +118,9 @@ def linear_solver_factory(
         ``drivers`` are treated as read-only context values.
         """
 
+        preconditioned_vec = cuda.local.array(n, precision_scalar)
+        temp = cuda.local.array(n, precision_scalar)
+
         operator_apply(state, parameters, drivers, h, x, temp)
         acc = typed_zero
         for i in range(n):
@@ -136,17 +132,25 @@ def linear_solver_factory(
 
         for _ in range(max_iters):
             if preconditioned:
-                preconditioner(state, parameters, drivers, h, rhs, z, temp)
+                preconditioner(
+                    state,
+                    parameters,
+                    drivers,
+                    h,
+                    rhs,
+                    preconditioned_vec,
+                    temp,
+                )
             else:
                 for i in range(n):
-                    z[i] = rhs[i]
+                    preconditioned_vec[i] = rhs[i]
 
-            operator_apply(state, parameters, drivers, h, z, temp)
+            operator_apply(state, parameters, drivers, h, preconditioned_vec, temp)
             numerator = typed_zero
             denominator = typed_zero
             if sd_flag:
                 for i in range(n):
-                    zi = z[i]
+                    zi = preconditioned_vec[i]
                     numerator += rhs[i] * zi
                     denominator += temp[i] * zi
             elif mr_flag:
@@ -164,7 +168,7 @@ def linear_solver_factory(
 
             acc = typed_zero
             for i in range(n):
-                x[i] += alpha_effective * z[i]
+                x[i] += alpha_effective * preconditioned_vec[i]
                 rhs[i] -= alpha_effective * temp[i]
                 residual_value = rhs[i]
                 acc += residual_value * residual_value

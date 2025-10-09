@@ -200,21 +200,18 @@ def solver_kernel(precision):
     Returns
     -------
     callable
-        Factory producing kernels executing
-        ``(state_init, rhs, x, residual, z_vec, temp)``.
+        Factory producing kernels executing ``(state_init, rhs, x)``.
     """
 
     def factory(solver, n, h):
         @cuda.jit
-        def kernel(state_init, rhs, x, residual, z_vec, temp, flag):
+        def kernel(state_init, rhs, x, flag):
             state = cuda.local.array(n, precision)
             for i in range(n):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            flag[0] = solver(
-                state, parameters, drivers, h, rhs, x, z_vec, temp
-            )
+            flag[0] = solver(state, parameters, drivers, h, rhs, x)
 
         return kernel
 

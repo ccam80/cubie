@@ -34,8 +34,6 @@ class LoopLocalIndices:
         Slice pointing to the timestep storage element.
     accept
         Slice pointing to the acceptance flag storage element.
-    error
-        Slice covering the local error estimate buffer.
     controller
         Slice covering scratch space reserved for the controller state.
     algorithm
@@ -50,7 +48,6 @@ class LoopLocalIndices:
 
     dt: Optional[slice] = field(default=None, validator=valid_opt_slice)
     accept: Optional[slice] = field(default=None, validator=valid_opt_slice)
-    error: Optional[slice] = field(default=None, validator=valid_opt_slice)
     controller: Optional[slice] = field(
         default=None, validator=valid_opt_slice
     )
@@ -77,7 +74,6 @@ class LoopLocalIndices:
         return cls(
             dt=zero,
             accept=zero,
-            error=zero,
             controller=zero,
             algorithm=zero,
             loop_end=0,
@@ -87,14 +83,12 @@ class LoopLocalIndices:
 
     @classmethod
     def from_sizes(
-        cls, n_states: int, controller_len: int, algorithm_len: int
+        cls, controller_len: int, algorithm_len: int
     ) -> "LoopLocalIndices":
         """Build index slices from component memory requirements.
 
         Parameters
         ----------
-        n_states
-            Number of state entries requiring error storage.
         controller_len
             Number of persistent elements reserved for the controller.
         algorithm_len
@@ -106,17 +100,12 @@ class LoopLocalIndices:
             Layout sized to cover the requested buffer lengths.
         """
 
-        n_states = max(int(n_states), 0)
         controller_len = max(int(controller_len), 0)
         algorithm_len = max(int(algorithm_len), 0)
 
         dt_slice = slice(0, 1)
         accept_slice = slice(1, 2)
-        error_start = 2
-        error_stop = error_start + n_states
-        error_slice = slice(error_start, error_stop)
-
-        controller_start = error_stop
+        controller_start = accept_slice.stop
         controller_stop = controller_start + controller_len
         controller_slice = slice(controller_start, controller_stop)
 
@@ -127,10 +116,9 @@ class LoopLocalIndices:
         return cls(
             dt=dt_slice,
             accept=accept_slice,
-            error=error_slice,
             controller=controller_slice,
             algorithm=algorithm_slice,
-            loop_end=error_slice.stop,
+            loop_end=accept_slice.stop,
             total_end=algorithm_slice.stop,
             all=slice(None),
         )
@@ -146,8 +134,6 @@ class LoopSharedIndices:
 
     Attributes
     ----------
-    dxdt
-        Slice covering derivative work buffers.
     state
         Slice covering the primary state buffer.
     proposed_state
@@ -166,6 +152,8 @@ class LoopSharedIndices:
         Slice covering aggregated state summaries.
     observable_summaries
         Slice covering aggregated observable summaries.
+    error
+        Slice covering the shared error buffer reused by adaptive algorithms.
     local_end
         Offset of the end of loop-managed shared memory.
     scratch
@@ -174,10 +162,6 @@ class LoopSharedIndices:
         Slice that spans the full shared-memory buffer.
     """
 
-    dxdt: Optional[slice] = field(
-            default=None,
-            validator=valid_opt_slice
-    )
     state:  Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
@@ -211,6 +195,10 @@ class LoopSharedIndices:
             validator=valid_opt_slice
     )
     observable_summaries: Optional[slice] = field(
+            default=None,
+            validator=valid_opt_slice
+    )
+    error: Optional[slice] = field(
             default=None,
             validator=valid_opt_slice
     )
@@ -255,6 +243,7 @@ class LoopSharedIndices:
                    n_drivers: int,
                    state_summaries_buffer_height: int,
                    observable_summaries_buffer_height: int,
+                   n_error: int = 0,
                    ) -> "LoopSharedIndices":
         """Build index slices from component sizes.
 
@@ -281,8 +270,7 @@ class LoopSharedIndices:
 
         state_start_idx = 0
         state_proposal_start_idx = state_start_idx + n_states
-        dxdt_start_index = state_proposal_start_idx + n_states
-        observables_start_index = dxdt_start_index + n_states
+        observables_start_index = state_proposal_start_idx + n_states
         observables_proposal_start_idx = (
             observables_start_index + n_observables
         )
@@ -292,14 +280,17 @@ class LoopSharedIndices:
         drivers_start_index = parameters_start_index + n_parameters
         drivers_proposal_start_idx = drivers_start_index + n_drivers
         state_summ_start_index = drivers_proposal_start_idx + n_drivers
-        obs_summ_start_index = (state_summ_start_index +
-                                state_summaries_buffer_height)
-        end_index = obs_summ_start_index + observable_summaries_buffer_height
+        obs_summ_start_index = (
+            state_summ_start_index + state_summaries_buffer_height
+        )
+        error_start_index = (
+            obs_summ_start_index + observable_summaries_buffer_height
+        )
+        error_stop_index = error_start_index + n_error
 
         return cls(
             state=slice(state_start_idx, state_proposal_start_idx),
-            proposed_state=slice(state_proposal_start_idx, dxdt_start_index),
-            dxdt=slice(dxdt_start_index, observables_start_index),
+            proposed_state=slice(state_proposal_start_idx, observables_start_index),
             observables=slice(
                 observables_start_index, observables_proposal_start_idx
             ),
@@ -312,9 +303,10 @@ class LoopSharedIndices:
                 drivers_proposal_start_idx, state_summ_start_index
             ),
             state_summaries=slice(state_summ_start_index, obs_summ_start_index),
-            observable_summaries=slice(obs_summ_start_index, end_index),
-            local_end=end_index,
-            scratch=slice(end_index, None),
+            observable_summaries=slice(obs_summ_start_index, error_start_index),
+            error=slice(error_start_index, error_stop_index),
+            local_end=error_stop_index,
+            scratch=slice(error_stop_index, None),
             all=slice(None),
         )
 

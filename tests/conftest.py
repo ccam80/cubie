@@ -97,11 +97,13 @@ def _build_loop_instance(
         state_summaries_buffer_height=loop_buffer_sizes.state_summaries,
         observable_summaries_buffer_height=
         loop_buffer_sizes.observable_summaries,
+        n_error=(
+            loop_buffer_sizes.state if step_object.is_adaptive else 0
+        ),
     )
     local_indices = LoopLocalIndices.from_sizes(
-        loop_buffer_sizes.state,
-        step_controller.local_memory_elements,
-        step_object.persistent_local_required,
+        controller_len=step_controller.local_memory_elements,
+        algorithm_len=step_object.persistent_local_required,
     )
     driver_function = _get_driver_function(driver_array)
     return IVPLoop(
@@ -936,5 +938,6 @@ def device_loop_outputs(
         output_functions=output_functions,
         solver_config=solver_settings,
         localmem_required=single_integrator_run.local_memory_elements,
+        sharedmem_required=single_integrator_run.shared_memory_elements,
         driver_array=driver_array,
     )

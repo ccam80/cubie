@@ -107,3 +107,15 @@ class ODEExplicitStep(BaseAlgorithmStep):
         """Return the configured explicit step size."""
         return self.compile_settings.dt
 
+    @property
+    def algorithm_shared_elements(self) -> int:
+        """Explicit base class does not reserve shared scratch."""
+
+        return 0
+
+    @property
+    def algorithm_local_elements(self) -> int:
+        """Explicit base class does not reserve persistent locals."""
+
+        return 0
+

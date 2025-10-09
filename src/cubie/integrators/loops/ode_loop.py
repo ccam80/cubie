@@ -170,7 +170,6 @@ class IVPLoop(CUDAFactory):
         local_indices = config.local_indices
         
         state_shared_ind = shared_indices.state
-        dxdt_shared_ind = shared_indices.dxdt
         obs_shared_ind = shared_indices.observables
         obs_prop_shared_ind = shared_indices.proposed_observables
         state_prop_shared_ind = shared_indices.proposed_state
@@ -179,11 +178,11 @@ class IVPLoop(CUDAFactory):
         obs_summ_shared_ind = shared_indices.observable_summaries
         drivers_shared_ind = shared_indices.drivers
         drivers_prop_shared_ind = shared_indices.proposed_drivers
+        error_shared_ind = shared_indices.error
         remaining_scratch_ind = shared_indices.scratch
 
         dt_slice = local_indices.dt
         accept_slice = local_indices.accept
-        error_slice = local_indices.error
         controller_slice = local_indices.controller
         algorithm_slice = local_indices.algorithm
 
@@ -270,7 +269,6 @@ class IVPLoop(CUDAFactory):
 
             state_buffer = shared_scratch[state_shared_ind]
             state_proposal_buffer = shared_scratch[state_prop_shared_ind]
-            work_buffer = shared_scratch[dxdt_shared_ind]
             observables_buffer = shared_scratch[obs_shared_ind]
             observables_proposal_buffer = shared_scratch[obs_prop_shared_ind]
             parameters_buffer = shared_scratch[params_shared_ind]
@@ -282,7 +280,8 @@ class IVPLoop(CUDAFactory):
 
             dt = persistent_local[dt_slice]
             accept_step = persistent_local[accept_slice].view(simsafe_int32)
-            error = persistent_local[error_slice]
+            # Non-adaptive algorithms map the error slice to length zero.
+            error = shared_scratch[error_shared_ind]
             controller_temp = persistent_local[controller_slice]
             algo_local = persistent_local[algorithm_slice]
 
@@ -377,7 +376,6 @@ class IVPLoop(CUDAFactory):
                     step_status = step_function(
                         state_buffer,
                         state_proposal_buffer,
-                        work_buffer,
                         parameters_buffer,
                         driver_coefficients,
                         drivers_buffer,

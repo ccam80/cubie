@@ -48,8 +48,8 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_implicit": True,
             "is_adaptive": False,
             "order": 1,
-            "shared_memory_required": 0,
-            "local_scratch_required": 4 * n_states,
+            "shared_memory_required": 2 * n_states,
+            "local_scratch_required": 0,
         },
         "backwards_euler_pc": {
             "threads_per_step": 1,
@@ -58,8 +58,8 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_implicit": True,
             "is_adaptive": False,
             "order": 1,
-            "shared_memory_required": 0,
-            "local_scratch_required": 4 * n_states,
+            "shared_memory_required": 2 * n_states,
+            "local_scratch_required": 0,
         },
         "crank_nicolson": {
             "threads_per_step": 1,
@@ -68,8 +68,8 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_implicit": True,
             "is_adaptive": True,
             "order": 2,
-            "shared_memory_required": 0,
-            "local_scratch_required": 3 * n_states,
+            "shared_memory_required": 2 * n_states,
+            "local_scratch_required": 0,
         },
     }
 
@@ -119,7 +119,6 @@ def device_step_results(
     driver_coefficients = step_inputs["driver_coefficients"]
     observables = np.zeros(system.sizes.observables, dtype=precision)
     proposed_state = np.zeros_like(state)
-    work_buffer = np.zeros(n_states, dtype=precision)
     error = np.zeros(n_states, dtype=precision)
     status = np.full(1, 0, dtype=np.int32)
 
@@ -131,7 +130,6 @@ def device_step_results(
 
     d_state = cuda.to_device(state)
     d_proposed = cuda.to_device(proposed_state)
-    d_work = cuda.to_device(work_buffer)
     d_params = cuda.to_device(params)
     d_drivers = cuda.to_device(drivers)
     d_driver_coeffs = cuda.to_device(driver_coefficients)
@@ -147,7 +145,6 @@ def device_step_results(
     def kernel(
         state_vec,
         proposed_vec,
-        work_vec,
         params_vec,
         driver_coeffs_vec,
         drivers_vec,
@@ -167,7 +164,6 @@ def device_step_results(
         result = step_function(
             state_vec,
             proposed_vec,
-            work_vec,
             params_vec,
             driver_coeffs_vec,
             drivers_vec,
@@ -185,7 +181,6 @@ def device_step_results(
     kernel[1, 1, 0, shared_bytes](
         d_state,
         d_proposed,
-        d_work,
         d_params,
         d_driver_coeffs,
         d_drivers,

@@ -109,7 +109,6 @@ class ExplicitEulerStep(ODEExplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
-                numba_precision[:],
                 numba_precision[:, :, :],
                 numba_precision[:],
                 numba_precision[:],
@@ -127,14 +126,13 @@ class ExplicitEulerStep(ODEExplicitStep):
         def step(
             state,
             proposed_state,
-            work_buffer,
             parameters,
             driver_coefficients,
             drivers_buffer,
             proposed_drivers,
             observables,
             proposed_observables,
-            error,
+            error,  # Non-adaptive algorithms receive a zero-length slice.
             dt_scalar,
             time_scalar,
             shared,
@@ -148,8 +146,6 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Device array storing the current state.
             proposed_state
                 Device array receiving the updated state.
-            work_buffer
-                Device array used as temporary storage for derivatives.
             parameters
                 Device array of static model parameters.
             driver_coefficients
@@ -163,13 +159,15 @@ class ExplicitEulerStep(ODEExplicitStep):
             proposed_observables
                 Device array receiving proposed observable outputs.
             error
-                Device array reserved for error estimates (unused here).
+                Device array reserved for error estimates. Non-adaptive
+                algorithms receive a zero-length slice that can be reused as
+                scratch.
             dt_scalar
                 Scalar containing the proposed step size.
             time_scalar
                 Scalar containing the current simulation time.
             shared
-                Device array used for shared memory (unused here).
+                Device array providing shared scratch buffers.
             persistent_local
                 Device array for persistent local storage (unused here).
 
@@ -179,16 +177,18 @@ class ExplicitEulerStep(ODEExplicitStep):
                 Status code indicating successful completion.
             """
 
+            # error buffer unused; stage dx/dt in proposed_state instead.
+            dxdt_buffer = proposed_state
             dxdt_function(
                 state,
                 parameters,
                 drivers_buffer,
                 observables,
-                work_buffer,
+                dxdt_buffer,
                 time_scalar,
             )
             for i in range(n):
-                proposed_state[i] = state[i] + step_size * work_buffer[i]
+                proposed_state[i] = state[i] + step_size * dxdt_buffer[i]
 
             next_time = time_scalar + step_size
             if has_driver_function:
@@ -213,7 +213,7 @@ class ExplicitEulerStep(ODEExplicitStep):
     def shared_memory_required(self) -> int:
         """Shared memory usage expressed in precision-sized entries."""
 
-        return 0
+        return super().shared_memory_required
 
     @property
     def local_scratch_required(self) -> int:
@@ -222,8 +222,14 @@ class ExplicitEulerStep(ODEExplicitStep):
         return 0
 
     @property
-    def persistent_local_required(self) -> int:
-        """Persistent local storage expressed in precision-sized entries."""
+    def algorithm_shared_elements(self) -> int:
+        """Explicit Euler does not reserve shared scratch."""
+
+        return 0
+
+    @property
+    def algorithm_local_elements(self) -> int:
+        """Explicit Euler does not reserve persistent local storage."""
 
         return 0
 

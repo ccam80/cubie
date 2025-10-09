@@ -145,9 +145,9 @@ class BackwardsEulerStep(ODEImplicitStep):
         a_ij = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
+        solver_shared_elements = self.solver_shared_elements
         @cuda.jit(
             (
-                numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
@@ -168,14 +168,13 @@ class BackwardsEulerStep(ODEImplicitStep):
         def step(
             state,
             proposed_state,
-            work_buffer,
             parameters,
             driver_coefficients,
             drivers_buffer,
             proposed_drivers,
             observables,
             proposed_observables,  # unused here
-            error,
+            error,  # Non-adaptive algorithms receive a zero-length slice.
             dt_scalar,
             time_scalar,
             shared,
@@ -189,8 +188,6 @@ class BackwardsEulerStep(ODEImplicitStep):
                 Device array storing the current state.
             proposed_state
                 Device array receiving the updated state.
-            work_buffer
-                Device array used as temporary storage.
             parameters
                 Device array of static model parameters.
             driver_coefficients
@@ -204,13 +201,15 @@ class BackwardsEulerStep(ODEImplicitStep):
             proposed_observables
                 Device array receiving proposed observable outputs.
             error
-                Device array capturing solver diagnostics.
+                Device array capturing solver diagnostics. Fixed-step
+                algorithms receive a zero-length slice that can be repurposed
+                as scratch when available.
             dt_scalar
                 Scalar containing the proposed step size.
             time_scalar
                 Scalar containing the current simulation time.
             shared
-                Device array used for shared memory (unused here).
+                Device array providing shared scratch buffers.
             persistent_local
                 Device array for persistent local storage (unused here).
 
@@ -231,8 +230,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                     proposed_drivers,
                 )
 
-            resid = cuda.local.array(n, numba_precision)
-            z = cuda.local.array(n, numba_precision)
+            solver_scratch = shared[: solver_shared_elements]
 
             status = solver_fn(
                 proposed_state,
@@ -241,10 +239,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 dt,
                 a_ij,
                 state,
-                work_buffer,
-                resid,
-                z,
-                error,
+                solver_scratch,
             )
 
             # calculate and save observables (wastes some compute)
@@ -269,17 +264,23 @@ class BackwardsEulerStep(ODEImplicitStep):
     def shared_memory_required(self) -> int:
         """Shared memory usage expressed in precision-sized entries."""
 
-        return 0
+        return super().shared_memory_required
 
     @property
     def local_scratch_required(self) -> int:
         """Local scratch usage expressed in precision-sized entries."""
 
-        return 4 * self.compile_settings.n
+        return 0
 
     @property
-    def persistent_local_required(self) -> int:
-        """Persistent local storage expressed in precision-sized entries."""
+    def algorithm_shared_elements(self) -> int:
+        """Backward Euler has no additional shared-memory requirements."""
+
+        return 0
+
+    @property
+    def algorithm_local_elements(self) -> int:
+        """Backward Euler does not reserve persistent local storage."""
 
         return 0
 

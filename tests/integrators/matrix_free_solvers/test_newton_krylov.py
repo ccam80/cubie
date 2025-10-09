@@ -45,18 +45,15 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         max_iters=16,
     )
 
+    scratch_len = 2 * n
+
     @cuda.jit
     def kernel(state, base, flag, h):
-        res = cuda.local.array(1, precision)
-        delta = cuda.local.array(1, precision)
-        z_vec = cuda.local.array(1, precision)
-        v_vec = cuda.local.array(1, precision)
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
         a_ij = precision(1.0)
-        flag[0] = solver(
-            state, params, drivers, h, a_ij, base, delta, res, z_vec, v_vec
-        )
+        shared = cuda.shared.array(scratch_len, precision)
+        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
 
     h = precision(0.01)
     expected = np.array([base_state.copy_to_host()[0] / (1.0 - h)], dtype=precision)
@@ -116,18 +113,15 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         max_iters=1000,
     )
 
+    scratch_len = 2 * n
+
     @cuda.jit
     def kernel(state, base, flag, h):
-        res = cuda.local.array(n, precision)
-        delta = cuda.local.array(n, precision)
-        z_vec = cuda.local.array(n, precision)
-        v_vec = cuda.local.array(n, precision)
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
         a_ij = precision(1.0)
-        flag[0] = solver(
-            state, params, drivers, h, a_ij, base, delta, res, z_vec, v_vec
-        )
+        shared = cuda.shared.array(scratch_len, precision)
+        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
 
     x = system_setup["state_init"]
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
@@ -169,20 +163,17 @@ def test_newton_krylov_failure(precision):
         max_iters=2,
     )
 
+    scratch_len = 2 * n
+
     @cuda.jit
     def kernel(flag, h):
         state = cuda.local.array(1, precision)
-        res = cuda.local.array(1, precision)
-        delta = cuda.local.array(1, precision)
-        z_vec = cuda.local.array(1, precision)
-        v_vec = cuda.local.array(1, precision)
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
-        flag[0] = solver(
-            state, params, drivers, h, a_ij, base, delta, res, z_vec, v_vec
-        )
+        shared = cuda.shared.array(scratch_len, precision)
+        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
 
     out_flag = cuda.to_device(np.array([1], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
@@ -206,18 +197,15 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
         max_iters=0,  # force no Newton iterations
     )
 
+    scratch_len = 2 * n
+
     @cuda.jit
     def kernel(state, base, flag, h):
-        res = cuda.local.array(1, precision)
-        delta = cuda.local.array(1, precision)
-        z_vec = cuda.local.array(1, precision)
-        v_vec = cuda.local.array(1, precision)
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
         a_ij = precision(1.0)
-        flag[0] = solver(
-            state, params, drivers, h, a_ij, base, delta, res, z_vec, v_vec
-        )
+        shared = cuda.shared.array(scratch_len, precision)
+        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
 
     h = precision(0.01)
     x = cuda.to_device(np.array([0.0], dtype=precision))  # ensures residual>tol
@@ -257,20 +245,17 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         max_iters=4,
     )
 
+    scratch_len = 2 * n
+
     @cuda.jit
     def kernel(flag, h):
         state = cuda.local.array(1, precision)
-        res = cuda.local.array(1, precision)
-        delta = cuda.local.array(1, precision)
-        z_vec = cuda.local.array(1, precision)
-        v_vec = cuda.local.array(1, precision)
         params = cuda.local.array(1, precision)
         drivers = cuda.local.array(1, precision)
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
-        flag[0] = solver(
-            state, params, drivers, h, a_ij, base, delta, res, z_vec, v_vec
-        )
+        shared = cuda.shared.array(scratch_len, precision)
+        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
 
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))

@@ -301,6 +301,30 @@ class ODEImplicitStep(BaseAlgorithmStep):
         return nonlinear_solver
 
     @property
+    def solver_shared_elements(self) -> int:
+        """Return shared scratch dedicated to the Newton--Krylov solver."""
+
+        return self.compile_settings.n * 2
+
+    @property
+    def solver_local_elements(self) -> int:
+        """Implicit solvers return zero persistent local elements."""
+
+        return 0
+
+    @property
+    def algorithm_shared_elements(self) -> int:
+        """Implicit base class does not reserve extra shared scratch."""
+
+        return 0
+
+    @property
+    def algorithm_local_elements(self) -> int:
+        """Implicit base class does not reserve persistent locals."""
+
+        return 0
+
+    @property
     def is_implicit(self) -> bool:
         """Return ``True`` to indicate the algorithm is implicit."""
         return True

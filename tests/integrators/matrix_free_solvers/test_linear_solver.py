@@ -94,11 +94,8 @@ def test_linear_solver_placeholder(
     state = cuda.to_device(base_state + h * np.array([0.1, -0.2, 0.3], dtype=precision))
     rhs_dev = cuda.to_device(rhs)
     x_dev = cuda.to_device(np.zeros(3, dtype=precision))
-    residual = cuda.device_array(3, precision)
-    z_vec = cuda.device_array(3, precision)
-    temp = cuda.device_array(3, precision)
     flag = cuda.to_device(np.array([0], dtype=np.int32))
-    kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp, flag)
+    kernel[1, 1](state, rhs_dev, x_dev, flag)
     assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
     assert np.allclose(
         x_dev.copy_to_host(),
@@ -142,11 +139,8 @@ def test_linear_solver_symbolic(
     state = system_setup["state_init"]
     rhs_dev = cuda.to_device(rhs_vec)
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
-    residual = cuda.device_array(n, precision)
-    z_vec = cuda.device_array(n, precision)
-    temp = cuda.device_array(n, precision)
     flag = cuda.to_device(np.array([0], dtype=np.int32))
-    kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp, flag)
+    kernel[1, 1](state, rhs_dev, x_dev, flag)
     assert flag.copy_to_host()[0] == SolverRetCodes.SUCCESS
     assert np.allclose(
         x_dev.copy_to_host(),
@@ -179,9 +173,6 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     state = cuda.to_device(np.zeros(n, dtype=precision))
     rhs_dev = cuda.to_device(np.ones(n, dtype=precision))
     x_dev = cuda.to_device(np.zeros(n, dtype=precision))
-    residual = cuda.device_array(n, precision)
-    z_vec = cuda.device_array(n, precision)
-    temp = cuda.device_array(n, precision)
     flag = cuda.to_device(np.array([0], dtype=np.int32))
-    kernel[1, 1](state, rhs_dev, x_dev, residual, z_vec, temp, flag)
+    kernel[1, 1](state, rhs_dev, x_dev, flag)
     assert flag.copy_to_host()[0] == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED

@@ -31,7 +31,7 @@ def test_getters(
         "dt_summarise getter"
     assert (
         loop.local_memory_elements
-        == loop_buffer_sizes.state + 2
+        == 2
     ), "local_memory getter"
     assert (
         loop.shared_memory_elements

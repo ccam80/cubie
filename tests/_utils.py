@@ -8,7 +8,7 @@ import numpy as np
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
-from cubie import OutputFunctions
+from cubie.outputhandling import OutputFunctions
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.integrators.loops.ode_loop import IVPLoop
 from cubie.odesystems.baseODE import BaseODE
@@ -346,7 +346,9 @@ def run_device_loop(
     output_functions: OutputFunctions,
     solver_config: Mapping[str, float],
     localmem_required: int = 0,
+    sharedmem_required: int = 0,
     driver_array: Optional[ArrayInterpolator] = None,
+
 ) -> LoopRunResult:
     """Execute ``loop`` on the CUDA simulator and return host-side outputs."""
 
@@ -405,7 +407,7 @@ def run_device_loop(
     d_obs_sum = cuda.to_device(observable_summary_output)
     d_status = cuda.to_device(status)
 
-    shared_elements = loop.shared_memory_elements
+    shared_elements = sharedmem_required
     shared_bytes = np.dtype(precision).itemsize * shared_elements
 
     loop_fn = loop.device_function
