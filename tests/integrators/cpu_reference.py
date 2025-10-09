@@ -21,7 +21,9 @@ import numpy as np
 import sympy as sp
 from numpy.typing import NDArray
 
-from cubie import SymbolicODE, IntegratorReturnCodes
+from cubie.integrators import IntegratorReturnCodes
+from cubie import SymbolicODE
+from cubie._utils import PrecisionDType
 from cubie.odesystems.symbolic.jacobian import generate_jacobian
 from cubie.odesystems.symbolic.sym_utils import topological_sort
 
@@ -717,7 +719,7 @@ class CPUAdaptiveController:
         atol: float,
         rtol: float,
         order: int,
-        precision: type,
+        precision: PrecisionDType,
         kp: float = 1/18,
         ki: float = 1/9,
         kd: float = 1/18,

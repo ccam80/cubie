@@ -319,14 +319,14 @@ class TestSingleIntegratorRun:
 
 @pytest.mark.parametrize("system_override", ["linear"], indirect=True)
 def test_update_routes_to_children(
-    single_integrator_run,
+    single_integrator_run_mutable,
     solver_settings,
     system,
     tolerance,
 ):
     """All components receive updates and report the new configuration."""
 
-    run = single_integrator_run
+    run = single_integrator_run_mutable
     new_dt = solver_settings["dt_min"] * 0.5
     new_saved_states = [0]
     new_saved_observables = [0]

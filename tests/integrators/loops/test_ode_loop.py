@@ -13,8 +13,13 @@ from tests._utils import assert_integration_outputs
 Array = NDArray[np.floating]
 
 # Build, update, getter tests combined
-def test_getters(loop,
-               loop_buffer_sizes, precision, solver_settings):
+def test_getters(
+    loop_mutable,
+    loop_buffer_sizes,
+    precision,
+    solver_settings,
+):
+    loop = loop_mutable
     assert isinstance(loop.device_function, Callable), "Loop builds"
 
     #Test getters get

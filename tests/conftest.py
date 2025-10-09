@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 import pytest
 from pytest import MonkeyPatch
 
+from cubie import SymbolicODE
 from cubie.integrators.SingleIntegratorRun import SingleIntegratorRun
 from cubie._utils import merge_kwargs_into_settings
 from cubie.integrators.step_control import get_controller
@@ -19,8 +21,9 @@ from cubie.integrators.loops.ode_loop import IVPLoop, ALL_LOOP_SETTINGS
 from cubie.integrators.loops.ode_loop_config import LoopSharedIndices, \
     LoopLocalIndices
 
-from cubie.integrators.step_control.base_step_controller import \
-    ALL_STEP_CONTROLLER_PARAMETERS
+from cubie.integrators.step_control.base_step_controller import (
+    ALL_STEP_CONTROLLER_PARAMETERS,
+)
 from cubie.integrators.array_interpolator import ArrayInterpolator
 from cubie.memory import default_memmgr
 from cubie.memory.mem_manager import ALL_MEMORY_MANAGER_PARAMETERS
@@ -29,10 +32,13 @@ from cubie.outputhandling.output_functions import (
     ALL_OUTPUT_FUNCTION_PARAMETERS,
 )
 from cubie.outputhandling.output_sizes import LoopBufferSizes
-from tests.integrators.cpu_reference import (CPUODESystem,
-                                              run_reference_loop, \
-    CPUAdaptiveController, DriverEvaluator)
-from tests._utils import run_device_loop, _driver_sequence
+from tests.integrators.cpu_reference import (
+    CPUAdaptiveController,
+    CPUODESystem,
+    DriverEvaluator,
+    run_reference_loop,
+)
+from tests._utils import _driver_sequence, run_device_loop
 from tests.integrators.loops.test_ode_loop import Array
 from tests.system_fixtures import (
     build_large_nonlinear_system,
@@ -44,17 +50,123 @@ from tests.system_fixtures import (
 
 
 # ========================================
+# HELPER BUILDERS
+# ========================================
+
+
+def _get_driver_function(
+    driver_array: Optional[ArrayInterpolator],
+) -> Optional[Callable[..., Any]]:
+    """Return the evaluation callable for ``driver_array`` if it exists."""
+
+    if driver_array is None:
+        return None
+    return driver_array.evaluation_function
+
+
+def _build_solver_instance(
+    system: SymbolicODE,
+    solver_settings: Dict[str, Any],
+    driver_array: Optional[ArrayInterpolator],
+) -> Solver:
+    """Instantiate :class:`Solver` configured with ``solver_settings``."""
+
+    solver = Solver(system, **solver_settings)
+    driver_function = _get_driver_function(driver_array)
+    solver.update({"driver_function": driver_function})
+    return solver
+
+
+def _build_loop_instance(
+    precision: np.dtype,
+    system: SymbolicODE,
+    step_object: Any,
+    loop_buffer_sizes: LoopBufferSizes,
+    output_functions: OutputFunctions,
+    step_controller: Any,
+    solver_settings: Dict[str, Any],
+    driver_array: Optional[ArrayInterpolator],
+) -> IVPLoop:
+    """Construct an :class:`IVPLoop` instance for device loop tests."""
+
+    shared_indices = LoopSharedIndices.from_sizes(
+        n_states=loop_buffer_sizes.state,
+        n_observables=loop_buffer_sizes.observables,
+        n_parameters=loop_buffer_sizes.parameters,
+        n_drivers=loop_buffer_sizes.drivers,
+        state_summaries_buffer_height=loop_buffer_sizes.state_summaries,
+        observable_summaries_buffer_height=
+        loop_buffer_sizes.observable_summaries,
+    )
+    local_indices = LoopLocalIndices.from_sizes(
+        loop_buffer_sizes.state,
+        step_controller.local_memory_elements,
+        step_object.persistent_local_required,
+    )
+    driver_function = _get_driver_function(driver_array)
+    return IVPLoop(
+        precision=precision,
+        shared_indices=shared_indices,
+        local_indices=local_indices,
+        compile_flags=output_functions.compile_flags,
+        save_state_func=output_functions.save_state_func,
+        update_summaries_func=output_functions.update_summaries_func,
+        save_summaries_func=output_functions.save_summary_metrics_func,
+        step_controller_fn=step_controller.device_function,
+        step_function=step_object.step_function,
+        driver_function=driver_function,
+        observables_fn=system.observables_function,
+        dt_save=solver_settings["dt_save"],
+        dt_summarise=solver_settings["dt_summarise"],
+        dt0=step_controller.dt0,
+        dt_min=step_controller.dt_min,
+        dt_max=step_controller.dt_max,
+        is_adaptive=step_controller.is_adaptive,
+    )
+def _build_cpu_step_controller(
+    precision: np.dtype,
+    step_controller_settings: Dict[str, Any],
+) -> CPUAdaptiveController:
+    """Return a CPU adaptive controller initialised from the settings."""
+
+    kind = step_controller_settings["step_controller"].lower()
+    controller = CPUAdaptiveController(
+        kind=kind,
+        dt=step_controller_settings["dt"],
+        dt_min=step_controller_settings["dt_min"],
+        dt_max=step_controller_settings["dt_max"],
+        atol=step_controller_settings["atol"],
+        rtol=step_controller_settings["rtol"],
+        order=step_controller_settings["algorithm_order"],
+        min_gain=step_controller_settings["min_gain"],
+        max_gain=step_controller_settings["max_gain"],
+        precision=precision,
+        deadband_min=step_controller_settings["deadband_min"],
+        deadband_max=step_controller_settings["deadband_max"],
+        max_newton_iters=step_controller_settings["max_newton_iters"],
+    )
+    if kind == "pi":
+        controller.kp = step_controller_settings["kp"]
+        controller.ki = step_controller_settings["ki"]
+    elif kind == "pid":
+        controller.kp = step_controller_settings["kp"]
+        controller.ki = step_controller_settings["ki"]
+        controller.kd = step_controller_settings["kd"]
+    return controller
+
+
+# ========================================
 # SETTINGS DICTS (override -> fixture -> override -> fixture)
 # ========================================
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def precision_override(request):
     if hasattr(request, "param"):
         if request.param is np.float64:
             return np.float64
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def precision(precision_override, system_override):
     """
     Run tests with float32 by default, upgrade to float64 for stiff problems.
@@ -69,14 +181,14 @@ def precision(precision_override, system_override):
     return np.float32
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def tolerance_override(request):
     if hasattr(request, "param"):
         return request.param
     return None
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def tolerance(tolerance_override, precision):
     if tolerance_override is not None:
         return tolerance_override
@@ -100,7 +212,7 @@ def tolerance(tolerance_override, precision):
     raise ValueError("Unsupported precision for tolerance fixture")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def system_override(request):
     """Override for system model type, if provided."""
     if hasattr(request, "param"):
@@ -109,13 +221,18 @@ def system_override(request):
     return "nonlinear"
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def system(request, system_override, precision):
     """
     Return the appropriate symbolic system, defaulting to ``linear``.
 
-    Usage:
-    @pytest.mark.parametrize("system_override", ["three_chamber"], indirect=True)
+    Usage
+    -----
+    @pytest.mark.parametrize(
+        "system_override",
+        ["three_chamber"],
+        indirect=True,
+    )
     def test_something(system):
         # system will be the cardiovascular symbolic model here
     """
@@ -137,18 +254,18 @@ def system(request, system_override, precision):
     raise ValueError(f"Unknown model type: {model_type}")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solver_settings_override(request):
     """Override for solver settings, if provided."""
     return request.param if hasattr(request, "param") else {}
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solver_settings_override2(request):
     """Override for solver settings, if provided. A second one, so that we
     can do a class-level and function-level override without conflicts."""
     return request.param if hasattr(request, "param") else {}
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def solver_settings(solver_settings_override, solver_settings_override2,
     system, precision):
     """Create LoopStepConfig with default solver configuration."""
@@ -227,14 +344,14 @@ def solver_settings(solver_settings_override, solver_settings_override2,
     return defaults
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def driver_settings_override(request):
     """Optional override for driver array configuration."""
 
     return request.param if hasattr(request, "param") else None
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def driver_settings(
     driver_settings_override,
     solver_settings,
@@ -279,7 +396,7 @@ def driver_settings(
     return drivers_dict
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def driver_array(
     driver_settings,
     solver_settings,
@@ -296,7 +413,7 @@ def driver_array(
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cpu_driver_evaluator(
     driver_settings,
     driver_array,
@@ -314,7 +431,11 @@ def cpu_driver_evaluator(
         t0_value = 0.0
         wrap_value = bool(solver_settings["driverspline_wrap"])
     else:
-        coeffs = np.array(driver_array.coefficients, dtype=precision, copy=True)
+        coeffs = np.array(
+            driver_array.coefficients,
+            dtype=precision,
+            copy=True,
+        )
         dt_value = precision(driver_array.dt)
         t0_value = precision(driver_array.t0)
         wrap_value = bool(driver_array.wrap)
@@ -332,13 +453,15 @@ def cpu_driver_evaluator(
 
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def algorithm_settings(system, solver_settings, driver_array):
-    settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
-                                             valid_keys=ALL_ALGORITHM_STEP_PARAMETERS)
-    driver_function = (driver_array.evaluation_function
-                       if driver_array is not None
-                       else None)
+    settings, _ = merge_kwargs_into_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_ALGORITHM_STEP_PARAMETERS,
+    )
+    driver_function = (
+        driver_array.evaluation_function if driver_array is not None else None
+    )
     settings.update(
         {
             "driver_function": driver_function,
@@ -350,7 +473,7 @@ def algorithm_settings(system, solver_settings, driver_array):
     return settings
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def loop_settings(solver_settings):
     settings, _ = merge_kwargs_into_settings(
         kwargs=solver_settings,
@@ -359,13 +482,15 @@ def loop_settings(solver_settings):
     return settings
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def step_controller_settings(
     solver_settings, system, step_object
 ):
     """Base configuration used to instantiate loop step controllers."""
-    settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
-                                             valid_keys=ALL_STEP_CONTROLLER_PARAMETERS)
+    settings, _ = merge_kwargs_into_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_STEP_CONTROLLER_PARAMETERS,
+    )
     settings.update(algorithm_order=step_object.order)
     return settings
 
@@ -374,7 +499,7 @@ def step_controller_settings(
 # OBJECT FIXTURES
 # ========================================
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def codegen_dir():
     """Redirect code generation to a temporary directory for the whole session.
 
@@ -397,21 +522,25 @@ def codegen_dir():
         shutil.rmtree(gen_dir, ignore_errors=True)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_settings(solver_settings):
-    settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
-                                             valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS)
+    settings, _ = merge_kwargs_into_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_OUTPUT_FUNCTION_PARAMETERS,
+    )
     return settings
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def memory_settings(solver_settings):
-    settings, _ = merge_kwargs_into_settings(kwargs=solver_settings,
-                                             valid_keys=ALL_MEMORY_MANAGER_PARAMETERS)
+    settings, _ = merge_kwargs_into_settings(
+        kwargs=solver_settings,
+        valid_keys=ALL_MEMORY_MANAGER_PARAMETERS,
+    )
     return settings
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def output_functions(output_settings, system):
     outputfunctions = OutputFunctions(
         system.sizes.states,
@@ -422,6 +551,17 @@ def output_functions(output_settings, system):
 
 
 @pytest.fixture(scope="function")
+def output_functions_mutable(output_settings, system):
+    """Return a fresh ``OutputFunctions`` for mutation-prone tests."""
+
+    return OutputFunctions(
+        system.sizes.states,
+        system.sizes.parameters,
+        **output_settings,
+    )
+
+
+@pytest.fixture(scope="session")
 def solverkernel(
     solver_settings,
     system,
@@ -432,7 +572,7 @@ def solverkernel(
     memory_settings,
     loop_settings,
 ):
-    driver_function = driver_array.evaluation_function if driver_array is not None else None
+    driver_function = _get_driver_function(driver_array)
     return BatchSolverKernel(
         system,
         driver_function=driver_function,
@@ -446,26 +586,56 @@ def solverkernel(
 
 
 @pytest.fixture(scope="function")
-def solver(
-    system,
+def solverkernel_mutable(
     solver_settings,
+    system,
     driver_array,
     step_controller_settings,
+    algorithm_settings,
     output_settings,
     memory_settings,
     loop_settings,
 ):
-    solver = Solver(
+    driver_function = _get_driver_function(driver_array)
+    return BatchSolverKernel(
         system,
-        loop_settings=loop_settings,
-        **solver_settings,
+        driver_function=driver_function,
+        profileCUDA=solver_settings["profileCUDA"],
+        step_control_settings=step_controller_settings,
+        algorithm_settings=algorithm_settings,
+        output_settings=output_settings,
+        memory_settings=memory_settings,
+        loop_settings=loop_settings
     )
-    driver_function = driver_array.evaluation_function if driver_array is not None else None
-    solver.update({'driver_function':driver_function})
-    return solver
+
+
+@pytest.fixture(scope="session")
+def solver(
+    system,
+    solver_settings,
+    driver_array,
+):
+    return _build_solver_instance(
+        system=system,
+        solver_settings=solver_settings,
+        driver_array=driver_array,
+    )
 
 
 @pytest.fixture(scope="function")
+def solver_mutable(
+    system,
+    solver_settings,
+    driver_array,
+):
+    return _build_solver_instance(
+        system=system,
+        solver_settings=solver_settings,
+        driver_array=driver_array,
+    )
+
+
+@pytest.fixture(scope="session")
 def step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
     controller = get_controller(precision, step_controller_settings)
@@ -473,6 +643,13 @@ def step_controller(precision, step_controller_settings):
 
 
 @pytest.fixture(scope="function")
+def step_controller_mutable(precision, step_controller_settings):
+    """Return a fresh step controller for mutation-focused tests."""
+
+    return get_controller(precision, step_controller_settings)
+
+
+@pytest.fixture(scope="session")
 def loop(
     precision,
     system,
@@ -484,50 +661,64 @@ def loop(
     driver_array,
     loop_settings,
 ):
-    """Construct the :class:`IVPLoop` instance used in loop tests."""
-    shared_indices = LoopSharedIndices.from_sizes(
-            n_states=loop_buffer_sizes.state,
-            n_observables=loop_buffer_sizes.observables,
-            n_parameters=loop_buffer_sizes.parameters,
-            n_drivers=loop_buffer_sizes.drivers,
-            state_summaries_buffer_height=loop_buffer_sizes.state_summaries,
-            observable_summaries_buffer_height=loop_buffer_sizes.observable_summaries
-    )
-    local_indices = LoopLocalIndices.from_sizes(
-            loop_buffer_sizes.state,
-            step_controller.local_memory_elements,
-            step_object.persistent_local_required,
-    )
-
-    driver_function = driver_array.evaluation_function if driver_array is not None else None
-
-    dt_save = loop_settings.get("dt_save", solver_settings["dt_save"])
-    dt_summarise = loop_settings.get(
-        "dt_summarise", solver_settings["dt_summarise"]
-    )
-
-    return IVPLoop(
+    return _build_loop_instance(
         precision=precision,
-        shared_indices=shared_indices,
-        local_indices=local_indices,
-        compile_flags=output_functions.compile_flags,
-        save_state_func=output_functions.save_state_func,
-        update_summaries_func=output_functions.update_summaries_func,
-        save_summaries_func=output_functions.save_summary_metrics_func,
-        step_controller_fn=step_controller.device_function,
-        step_function=step_object.step_function,
-        driver_function=driver_function,
-        observables_fn=system.observables_function,
-        dt_save=dt_save,
-        dt_summarise=dt_summarise,
-        dt0=step_controller.dt0,
-        dt_min=step_controller.dt_min,
-        dt_max=step_controller.dt_max,
-        is_adaptive=step_controller.is_adaptive,
+        system=system,
+        step_object=step_object,
+        loop_buffer_sizes=loop_buffer_sizes,
+        output_functions=output_functions,
+        step_controller=step_controller,
+        solver_settings=solver_settings,
+        driver_array=driver_array,
     )
+
 
 @pytest.fixture(scope="function")
+def loop_mutable(
+    precision,
+    system,
+    step_object_mutable,
+    loop_buffer_sizes_mutable,
+    output_functions_mutable,
+    step_controller_mutable,
+    solver_settings,
+    driver_array,
+    loop_settings,
+):
+    return _build_loop_instance(
+        precision=precision,
+        system=system,
+        step_object=step_object_mutable,
+        loop_buffer_sizes=loop_buffer_sizes_mutable,
+        output_functions=output_functions_mutable,
+        step_controller=step_controller_mutable,
+        solver_settings=solver_settings,
+        driver_array=driver_array,
+    )
+
+@pytest.fixture(scope="session")
 def single_integrator_run(
+    system,
+    solver_settings,
+    driver_array,
+    step_controller_settings,
+    algorithm_settings,
+    output_settings,
+    loop_settings
+):
+    driver_function = _get_driver_function(driver_array)
+    return SingleIntegratorRun(
+        system=system,
+        driver_function=driver_function,
+        step_control_settings=step_controller_settings,
+        algorithm_settings=algorithm_settings,
+        output_settings=output_settings,
+        loop_settings=loop_settings
+    )
+
+
+@pytest.fixture(scope="function")
+def single_integrator_run_mutable(
     system,
     solver_settings,
     driver_array,
@@ -536,10 +727,8 @@ def single_integrator_run(
     output_settings,
     loop_settings,
 ):
-    """Instantiate :class:`SingleIntegratorRun` with test fixtures."""
-    driver_function = driver_array.evaluation_function if driver_array is not None else None
-
-    run = SingleIntegratorRun(
+    driver_function = _get_driver_function(driver_array)
+    return SingleIntegratorRun(
         system=system,
         loop_settings=loop_settings,
         driver_function=driver_function,
@@ -547,15 +736,14 @@ def single_integrator_run(
         algorithm_settings=algorithm_settings,
         output_settings=output_settings,
     )
-    return run
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope="session")
 def cpu_system(system):
     """Return a CPU-based system."""
     return CPUODESystem(system)
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def step_object(
     system,
     algorithm_settings,
@@ -566,70 +754,76 @@ def step_object(
 
 
 @pytest.fixture(scope="function")
+def step_object_mutable(
+    system,
+    algorithm_settings,
+    precision,
+):
+    return get_algorithm_step(precision, algorithm_settings)
+
+
+@pytest.fixture(scope="function")
 def cpu_step_controller(precision, step_controller_settings):
     """Instantiate the requested step controller for loop execution."""
-    kind = step_controller_settings["step_controller"].lower()
 
-    controller = CPUAdaptiveController(
-        kind=step_controller_settings["step_controller"].lower(),
-        dt=step_controller_settings["dt"],
-        dt_min=step_controller_settings["dt_min"],
-        dt_max=step_controller_settings["dt_max"],
-        atol=step_controller_settings["atol"],
-        rtol=step_controller_settings["rtol"],
-        order=step_controller_settings["algorithm_order"],
-        min_gain=step_controller_settings["min_gain"],
-        max_gain=step_controller_settings["max_gain"],
+    return _build_cpu_step_controller(
         precision=precision,
-        deadband_min=step_controller_settings["deadband_min"],
-        deadband_max=step_controller_settings["deadband_max"],
-        max_newton_iters=step_controller_settings["max_newton_iters"],
+        step_controller_settings=step_controller_settings,
     )
-    if kind == 'pi':
-        controller.kp = step_controller_settings["kp"]
-        controller.ki = step_controller_settings["ki"]
-    elif kind == 'pid':
-        controller.kp = step_controller_settings["kp"]
-        controller.ki = step_controller_settings["ki"]
-        controller.kd = step_controller_settings["kd"]
-
-    return controller
 
 
 # ========================================
 # INPUT FIXTURES
 # ========================================
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def initial_state(system, precision, request):
     """Return a copy of the system's initial state vector."""
     if hasattr(request, "param"):
         try:
-            request_inits = np.asarray(request.param, dtype=precision)
-            if request_inits.ndim != 1 or request_inits.shape[0] != system.sizes.states:
-                raise ValueError("initial state override has incorrect shape")
-        except TypeError:
-            raise TypeError("initial state override could not be coerced into numpy array")
+            request_inits = np.asarray(
+                request.param,
+                dtype=precision,
+            )
+            if (
+                request_inits.ndim != 1
+                or request_inits.shape[0] != system.sizes.states
+            ):
+                raise ValueError(
+                    "initial state override has incorrect shape",
+                )
+        except TypeError as error:
+            raise TypeError(
+                "initial state override could not be coerced into numpy array",
+            ) from error
         return request_inits
     return system.initial_values.values_array.astype(precision, copy=True)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def loop_buffer_sizes(system, output_functions):
     """Loop buffer sizes derived from the system and output configuration."""
 
     return LoopBufferSizes.from_system_and_output_fns(system, output_functions)
 
 
+@pytest.fixture(scope="function")
+def loop_buffer_sizes_mutable(system, output_functions_mutable):
+    """Function-scoped buffer sizes derived from the mutable outputs."""
+
+    return LoopBufferSizes.from_system_and_output_fns(
+        system, output_functions_mutable
+    )
+
+
 # ========================================
 # COMPUTED OUTPUT FIXTURES
 # ========================================
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cpu_loop_runner(
     system,
     cpu_system,
     precision,
-    cpu_step_controller,
     solver_settings,
     step_controller_settings,
     output_functions,
@@ -646,12 +840,20 @@ def cpu_loop_runner(
         initial_vec = (
             np.array(initial_values, dtype=precision, copy=True)
             if initial_values is not None
-            else system.initial_values.values_array.astype(precision, copy=True)
+            else np.array(
+                system.initial_values.values_array,
+                dtype=precision,
+                copy=True,
+            )
         )
         parameter_vec = (
             np.array(parameters, dtype=precision, copy=True)
             if parameters is not None
-            else system.parameters.values_array.astype(precision, copy=True)
+            else np.array(
+                system.parameters.values_array,
+                dtype=precision,
+                copy=True,
+            )
         )
 
         inputs = {
@@ -663,21 +865,26 @@ def cpu_loop_runner(
                 driver_coefficients, dtype=precision, copy=True
             )
 
-        return run_reference_loop(evaluator=cpu_system,
-                                  inputs=inputs,
-                                  driver_evaluator=cpu_driver_evaluator,
-                                  solver_settings=solver_settings,
-                                  output_functions=output_functions,
-                                  controller=cpu_step_controller)
+        controller = _build_cpu_step_controller(
+            precision=precision,
+            step_controller_settings=step_controller_settings,
+        )
+        return run_reference_loop(
+            evaluator=cpu_system,
+            inputs=inputs,
+            driver_evaluator=cpu_driver_evaluator,
+            solver_settings=solver_settings,
+            output_functions=output_functions,
+            controller=controller,
+        )
 
     return _run_loop
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cpu_loop_outputs(
     system,
     cpu_system,
     precision,
-    cpu_step_controller,
     initial_state,
     solver_settings,
     step_controller_settings,
@@ -690,17 +897,26 @@ def cpu_loop_outputs(
         'initial_values': initial_state.copy(),
         'parameters': system.parameters.values_array.copy(),
     }
-    coefficients = driver_array.coefficients if driver_array is not None else None
+    coefficients = (
+        driver_array.coefficients if driver_array is not None else None
+    )
     inputs['driver_coefficients'] = coefficients
 
-    return run_reference_loop(evaluator=cpu_system, inputs=inputs,
-                              driver_evaluator=cpu_driver_evaluator,
-                              solver_settings=solver_settings,
-                              output_functions=output_functions,
-                              controller=cpu_step_controller)
+    controller = _build_cpu_step_controller(
+        precision=precision,
+        step_controller_settings=step_controller_settings,
+    )
+    return run_reference_loop(
+        evaluator=cpu_system,
+        inputs=inputs,
+        driver_evaluator=cpu_driver_evaluator,
+        solver_settings=solver_settings,
+        output_functions=output_functions,
+        controller=controller,
+    )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def device_loop_outputs(
     loop,
     system,

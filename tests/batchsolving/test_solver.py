@@ -339,8 +339,9 @@ def test_solve_with_different_result_types(
         assert result is not None
 
 
-def test_update_basic(solver, tolerance, precision):
+def test_update_basic(solver_mutable, tolerance, precision):
     """Test basic update functionality updating the fixed step size."""
+    solver = solver_mutable
     original_dt = solver.dt
     # Choose a new dt distinct from the original
     new_dt = precision(original_dt * 0.5 if original_dt not in (0,
@@ -352,8 +353,10 @@ def test_update_basic(solver, tolerance, precision):
     assert solver.dt == pytest.approx(
         new_dt, rel=tolerance.rel_tight, abs=tolerance.abs_tight)
 
-def test_update_with_kwargs(solver, tolerance):
+
+def test_update_with_kwargs(solver_mutable, tolerance):
     """Test update with keyword arguments."""
+    solver = solver_mutable
     original_dt = solver.kernel.single_integrator.dt0
 
     updated_keys = solver.update({}, dt=1e-8)
@@ -373,14 +376,16 @@ def test_update_with_kwargs(solver, tolerance):
         )
     )
 
-def test_update_unrecognized_keys(solver):
+def test_update_unrecognized_keys(solver_mutable):
     """Test that update raises KeyError for unrecognized keys."""
+    solver = solver_mutable
     with pytest.raises(KeyError):
         solver.update({"nonexistent_parameter": 42})
 
 
-def test_update_silent_mode(precision,solver):
+def test_update_silent_mode(precision, solver_mutable):
     """Test update in silent mode ignores unrecognized keys."""
+    solver = solver_mutable
     original_dt = solver.dt
     # Choose a new dt distinct from the original
     new_dt = precision(original_dt * 0.5 if original_dt not in (0, None) else \
@@ -388,14 +393,16 @@ def test_update_silent_mode(precision,solver):
     updated_keys = solver.update({"dt": new_dt, "nonexistent_parameter":
         42}, silent=True)
 
+
     assert "dt" in updated_keys
 
     assert "nonexistent_parameter" not in updated_keys
     assert solver.kernel.dt == new_dt
 
 
-def test_update_saved_variables(solver, system):
+def test_update_saved_variables(solver_mutable, system):
     """Test updating saved variables with labels."""
+    solver = solver_mutable
     state_names = list(system.initial_values.names)
     observable_names = (
         list(system.observables.names)
@@ -424,8 +431,9 @@ def test_profiling_methods(solver):
     solver.disable_profiling()
 
 
-def test_memory_settings_update(solver):
+def test_memory_settings_update(solver_mutable):
     """Test updating memory-related settings."""
+    solver = solver_mutable
     # Test memory proportion update
     updated_keys = solver.update_memory_settings(
         {"mem_proportion": 0.1}

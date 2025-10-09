@@ -90,7 +90,8 @@ def test_run(
                                rtol=tolerance.rel_loose)
 
 
-def test_algorithm_change(solverkernel):
+def test_algorithm_change(solverkernel_mutable):
+    solverkernel = solverkernel_mutable
     solverkernel.update({"algorithm": "crank_nicolson",
                          "step_controller": "pid"})
     assert (
@@ -168,10 +169,11 @@ def test_getters_get(solverkernel):
     # device arrays SHOULD be None.
 
 
-def test_all_lower_plumbing(system, solverkernel, step_controller_settings,
+def test_all_lower_plumbing(system, solverkernel_mutable, step_controller_settings,
                             algorithm_settings):
     """Big plumbing integration check - check that config classes match exactly between an updated solver and one
     instantiated with the update settings."""
+    solverkernel = solverkernel_mutable
     new_settings = {
         # "duration": 1.0,
         "dt_min": 0.0001,
@@ -246,7 +248,8 @@ def test_all_lower_plumbing(system, solverkernel, step_controller_settings,
     )
 
 
-def test_bogus_update_fails(solverkernel):
+def test_bogus_update_fails(solverkernel_mutable):
+    solverkernel = solverkernel_mutable
     solverkernel.update(dt_min=0.0001)
     with pytest.raises(KeyError):
         solverkernel.update(obviously_bogus_key="this should not work")

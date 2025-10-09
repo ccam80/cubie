@@ -13,21 +13,21 @@ from cubie.batchsolving.BatchGridBuilder import BatchGridBuilder
 Array = np.ndarray
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def batchconfig_instance(system) -> BatchGridBuilder:
     """Return a batch grid builder for the configured system."""
 
     return BatchGridBuilder.from_system(system)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def batch_settings_override(request) -> dict:
     """Override values for batch grid settings when parametrised."""
 
     return request.param if hasattr(request, "param") else {}
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def batch_settings(batch_settings_override) -> dict:
     """Return default batch grid settings merged with overrides."""
 
@@ -42,7 +42,7 @@ def batch_settings(batch_settings_override) -> dict:
     return defaults
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def batch_request(system, batch_settings, precision) -> dict[str, Array]:
     """Build a request dictionary describing the batch sweep."""
 
@@ -69,7 +69,7 @@ def batch_request(system, batch_settings, precision) -> dict[str, Array]:
     }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def batch_input_arrays(
     batch_request,
     batch_settings,
@@ -93,7 +93,7 @@ class BatchResult:
     status: int
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cpu_batch_results(
     batch_input_arrays,
     cpu_loop_runner,

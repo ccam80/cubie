@@ -262,7 +262,7 @@ def cpu_step_results(
     indirect=True,
 )
 def test_algorithm(
-       step_object,
+       step_object_mutable,
        solver_settings,
        system,
        precision,
@@ -273,6 +273,7 @@ def test_algorithm(
        tolerance,
        ) -> None:
     """Ensure the step function is compiled and callable."""
+    step_object = step_object_mutable
     # Test that it builds
     assert callable(step_object.step_function), "step_function_builds"
 
