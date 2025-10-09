@@ -9,6 +9,8 @@ Never call build() directly on a CUDAFactory subclass. These objects automatiall
 Don't import from __future__ import annotations, assume Python 3.7+.
 The repository is in development, do not enforce backwards compatibility; breaking changes are expected.
 Type hints are compulsory, in PEP484 format in function definitions, rather than in docstrings.
+Never add comments or docstrings that form part of the conversation with the user, e.g. "this part now does this". Comments only serve
+to explain what a complex piece of code is doing. They are always addressed to future developers.
 
 ## Tests
 To run tests, use "pytest" from the command line. The dev environment is in Windows, so format terminal commands for powershell.
@@ -23,7 +25,7 @@ Install from workspace/cubie with pip install -e .[dev]
 To run tests from an environment without CUDA drivers, set the environment variable NUMBA_ENABLE_CUDASIM="1".
 If running tests without CUDA drivers, then omit pytests marked nocudasim and cupy.
 - Never modify environment variables, as a monkeypatch or otherwise. Set CUDASIM in the environment external to the python source, never in python source.
-
+- There are no lower level AGENTS.md files, this is the only one.
 ## Attrs usage
 For any floating-point attributes in an attrs class, save the attributes with a leading underscore, then add a property
 which returns self.precision(self._attribute). Never add an alias to these underscored variables. Never include the underscore

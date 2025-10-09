@@ -1,9 +1,5 @@
-/* Force autodoc signatures to list parameters vertically for readability. */
-.sig-param {
-    display: block;
-    margin-left: 1.5em;
+.sig-param::before {
+    display: inline;
+    content: "\A     "; /* newline before next param */
+    white-space: pre;
 }
-
-/*.sig-param:not(:last-child)::after {*/
-/*    content: ",";*/
-/*}*/
