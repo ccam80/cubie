@@ -11,7 +11,8 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
 )
-from .ode_implicitstep import ImplicitStepConfig, ODEImplicitStep
+from cubie.integrators.algorithms.ode_implicitstep import (ImplicitStepConfig,
+                                                 ODEImplicitStep)
 from cubie.integrators.matrix_free_solvers import linear_solver_factory
 
 
@@ -31,6 +32,44 @@ class RosenbrockTableau:
         """Return the number of stages described by the tableau."""
 
         return len(self.b)
+
+    def typed_rows(
+        self,
+        rows: Sequence[Sequence[float]],
+        numba_precision: type,
+    ) -> Tuple[Tuple[float, ...], ...]:
+        """Pad and convert tableau rows to the requested precision."""
+
+        typed_rows = []
+        for row in rows:
+            padded = list(row)
+            if len(padded) < self.stage_count:
+                padded.extend([0.0] * (self.stage_count - len(padded)))
+            typed_rows.append(
+                tuple(numba_precision(value) for value in padded)
+            )
+        return tuple(typed_rows)
+
+    def build_combined_successors(
+        self,
+        stage_rows: Tuple[Tuple[float, ...], ...],
+        jacobian_rows: Tuple[Tuple[float, ...], ...],
+    ) -> Tuple[Tuple[Tuple[int, float, float], ...], ...]:
+        """Return successor contributions for state and Jacobian accumulators."""
+
+        successors = []
+        for stage_index in range(self.stage_count):
+            stage_successors = []
+            for successor_index in range(stage_index + 1, self.stage_count):
+                stage_coeff = stage_rows[successor_index][stage_index]
+                jacobian_coeff = jacobian_rows[successor_index][stage_index]
+                if stage_coeff != 0.0 or jacobian_coeff != 0.0:
+                    stage_successors.append(
+                        (successor_index, stage_coeff, jacobian_coeff)
+                    )
+            successors.append(tuple(stage_successors))
+        return tuple(successors)
+
 
 
 ROSENBROCK_W6S4OS_TABLEAU = RosenbrockTableau(
@@ -169,8 +208,6 @@ class RosenbrockStepConfig(ImplicitStepConfig):
     """Configuration describing the Rosenbrock-W integrator."""
 
     tableau: RosenbrockTableau = attrs.field(default=ROSENBROCK_W6S4OS_TABLEAU)
-    max_linear_iters: int = attrs.field(default=200)
-    linear_correction_type: str = attrs.field(default="minimal_residual")
 
     @property
     def settings_dict(self) -> dict:
@@ -180,8 +217,6 @@ class RosenbrockStepConfig(ImplicitStepConfig):
         settings.update(
             {
                 "tableau": self.tableau,
-                "max_linear_iters": self.max_linear_iters,
-                "linear_correction_type": self.linear_correction_type,
             }
         )
         return settings
@@ -227,6 +262,63 @@ class RosenbrockStep(ODEImplicitStep):
         )
         super().__init__(config, ROSENBROCK_DEFAULTS)
 
+    def build_implicit_helpers(self) -> Tuple[Callable, Callable]:
+        """Construct the nonlinear solver chain used by implicit methods.
+
+        Returns
+        -------
+        tuple of Callables
+            Linear solver function and jvp compiled for the Rosenbrock-W step.
+        """
+        precision = self.precision
+        config = self.compile_settings
+        beta = config.beta
+        gamma = config.tableau.gamma
+        mass = config.M
+        preconditioner_order = config.preconditioner_order
+        n = config.n
+
+        get_fn = config.get_solver_helper_fn
+
+        preconditioner = get_fn(
+            "neumann_preconditioner",
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+
+        linear_operator = get_fn(
+            "linear_operator",
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+
+        jacobian_operator = get_fn(
+            "linear_operator",
+            beta=precision(0.0),
+            gamma=precision(1.0),
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+
+        krylov_tolerance = config.krylov_tolerance
+        max_linear_iters = config.max_linear_iters
+        correction_type = config.linear_correction_type
+
+        linear_solver = linear_solver_factory(
+            linear_operator,
+            n=n,
+            preconditioner=preconditioner,
+            correction_type=correction_type,
+            tolerance=krylov_tolerance,
+            max_iters=max_linear_iters,
+        )
+
+        return linear_solver, jacobian_operator
+
     def build_step(
         self,
         solver_fn: Callable,
@@ -241,39 +333,16 @@ class RosenbrockStep(ODEImplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
-        get_helper = config.get_solver_helper_fn
-
-        operator_apply = get_helper(
-            "linear_operator",
-            beta=1.0,
-            gamma=tableau.gamma,
-            mass=config.M,
-        )
-        jacobian_apply = get_helper(
-            "linear_operator",
-            beta=0.0,
-            gamma=1.0,
-            mass=config.M,
-        )
-
-        linear_solver = linear_solver_factory(
-            operator_apply,
-            n=n,
-            preconditioner=None,
-            correction_type=config.linear_correction_type,
-            tolerance=config.krylov_tolerance,
-            max_iters=config.max_linear_iters,
-            precision=config.precision,
-        )
+        linear_solver, jacobian_apply = self.build_implicit_helpers()
 
         stage_count = tableau.stage_count
         has_driver_function = driver_function is not None
 
-        stage_rhs_coefficients = _typed_rows(
-            tableau.a, numba_precision, stage_count
+        stage_rhs_coefficients = self.tableau.typed_rows(
+            tableau.a, numba_precision
         )
-        jacobian_update_coefficients = _typed_rows(
-            tableau.C, numba_precision, stage_count
+        jacobian_update_coefficients = self.tableau.typed_rows(
+            tableau.C, numba_precision
         )
         solution_weights = tuple(
             numba_precision(value) for value in tableau.b
@@ -284,13 +353,12 @@ class RosenbrockStep(ODEImplicitStep):
         )
         stage_offsets = tuple(index * n for index in range(stage_count))
 
-        successor_updates = _build_combined_successors(
-            stage_rhs_coefficients, jacobian_update_coefficients
-        )
+        # Keep coefficients in separate structures and iterate successors by index
+        # to avoid unpacking mixed tuples inside device code.
+        typed_zero = numba_precision(0.0)
 
         @cuda.jit(
             (
-                numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
@@ -311,7 +379,6 @@ class RosenbrockStep(ODEImplicitStep):
         def step(
             state,
             proposed_state,
-            work_buffer,
             parameters,
             driver_coefficients,
             drivers_buffer,
@@ -324,7 +391,11 @@ class RosenbrockStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            typed_zero = numba_precision(0.0)
+            stage_rhs = proposed_state # reuse state proposal buffer for rhs
+            stage_state = cuda.local.array(n, numba_precision)
+            stage_increment = cuda.local.array(n, numba_precision)
+            jacobian_stage_product = cuda.local.array(n, numba_precision)
+
             dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
@@ -339,63 +410,47 @@ class RosenbrockStep(ODEImplicitStep):
                 jacobian_product_accumulator[idx] = typed_zero
 
             for idx in range(n):
-                proposed_state[idx] = state[idx]
                 error[idx] = typed_zero
-
-            stage_rhs = cuda.local.array(n, numba_precision)
-            stage_state = cuda.local.array(n, numba_precision)
-            stage_increment = cuda.local.array(n, numba_precision)
-            jacobian_stage_product = cuda.local.array(n, numba_precision)
-
-            for idx in range(n):
                 stage_state[idx] = state[idx]
 
             for idx in range(proposed_observables.size):
                 proposed_observables[idx] = observables[idx]
 
-            if not has_driver_function:
-                for idx in range(drivers_buffer.size):
-                    proposed_drivers[idx] = drivers_buffer[idx]
+            for idx in range(drivers_buffer.size):
+                proposed_drivers[idx] = drivers_buffer[idx]
 
             status_code = int32(0)
 
             for stage_index in range(stage_count):
-                if status_code != int32(0):
-                    break
 
                 stage_offset = stage_offsets[stage_index]
                 stage_time = (
-                    current_time
-                    + dt_value * stage_time_fractions[stage_index]
+                    current_time + dt_value * stage_time_fractions[stage_index]
                 )
 
                 if stage_index > 0:
-                    if has_driver_function:
-                        driver_function(
-                            stage_time,
-                            driver_coefficients,
-                            proposed_drivers,
-                        )
                     for idx in range(n):
                         stage_state[idx] = (
-                            state[idx]
-                            + stage_accumulator[stage_offset + idx]
+                            state[idx] + stage_accumulator[stage_offset + idx]
                         )
-                elif has_driver_function:
-                    driver_function(
-                        stage_time,
-                        driver_coefficients,
-                        proposed_drivers,
-                    )
-
-                active_drivers = (
-                    proposed_drivers if has_driver_function else drivers_buffer
-                )
+                        if has_driver_function:
+                            driver_function(
+                                    stage_time,
+                                    driver_coefficients,
+                                    proposed_drivers,
+                            )
+                        proposed_observables = observables_function(
+                                stage_state,
+                                parameters,
+                                proposed_drivers,
+                                proposed_observables,
+                                stage_time,
+                        )
 
                 dxdt_fn(
                     stage_state,
                     parameters,
-                    active_drivers,
+                    proposed_drivers,
                     proposed_observables,
                     stage_rhs,
                     stage_time,
@@ -409,7 +464,7 @@ class RosenbrockStep(ODEImplicitStep):
                     stage_increment[idx] = typed_zero
                     stage_rhs[idx] = dt_value * (rhs_value - jacobian_term)
 
-                status_code = linear_solver(
+                status_code |= linear_solver(
                     state,
                     parameters,
                     drivers_buffer,
@@ -418,9 +473,6 @@ class RosenbrockStep(ODEImplicitStep):
                     stage_increment,
                 )
 
-                if status_code != int32(0):
-                    break
-
                 solution_weight = solution_weights[stage_index]
                 error_weight = error_weights[stage_index]
                 for idx in range(n):
@@ -428,8 +480,16 @@ class RosenbrockStep(ODEImplicitStep):
                     proposed_state[idx] += solution_weight * increment
                     error[idx] += error_weight * increment
 
-                successors = successor_updates[stage_index]
-                if successors:
+                # Determine if there are any non-zero successor coefficients for this stage
+                has_successor = False
+                for successor_index in range(stage_index + 1, stage_count):
+                    if (
+                        stage_rhs_coefficients[successor_index][stage_index] != 0.0
+                        or jacobian_update_coefficients[successor_index][stage_index] != 0.0
+                    ):
+                        has_successor = True
+
+                if has_successor:
                     # Cache the Jacobian action for this stage increment once
                     # and stream weighted contributions to future stages.
                     jacobian_apply(
@@ -441,7 +501,11 @@ class RosenbrockStep(ODEImplicitStep):
                         jacobian_stage_product,
                     )
 
-                    for successor_index, state_coeff, jac_coeff in successors:
+                    for successor_index in range(stage_index + 1, stage_count):
+                        state_coeff = stage_rhs_coefficients[successor_index][stage_index]
+                        jac_coeff = jacobian_update_coefficients[successor_index][stage_index]
+                        if state_coeff == 0.0 and jac_coeff == 0.0:
+                            continue
                         base = stage_offsets[successor_index]
                         for idx in range(n):
                             stage_contribution = (
@@ -471,12 +535,11 @@ class RosenbrockStep(ODEImplicitStep):
                 proposed_observables,
                 final_time,
             )
-
+            for idx in range(n):
+                proposed_state[idx] = state[idx] + proposed_state[idx]
             return status_code
 
-        # The cached linear operator can persist between steps if the caller
-        # extends the signature to surface an across-step scratch allocation.
-        return StepCache(step=step, nonlinear_solver=linear_solver)
+        return StepCache(step=step)
 
     @property
     def is_multistage(self) -> bool:
@@ -527,39 +590,9 @@ class RosenbrockStep(ODEImplicitStep):
 
         return 1
 
+    @property
+    def tableau(self) -> RosenbrockTableau:
+        """Return the tableau used by the integrator."""
 
-def _typed_rows(
-    rows: Sequence[Sequence[float]],
-    numba_precision: type,
-    stage_count: int,
-) -> Tuple[Tuple[float, ...], ...]:
-    """Pad and convert tableau rows to the requested precision."""
+        return self.compile_settings.tableau
 
-    typed_rows = []
-    for row in rows:
-        padded = list(row)
-        if len(padded) < stage_count:
-            padded.extend([0.0] * (stage_count - len(padded)))
-        typed_rows.append(tuple(numba_precision(value) for value in padded))
-    return tuple(typed_rows)
-
-
-def _build_combined_successors(
-    stage_rows: Tuple[Tuple[float, ...], ...],
-    jacobian_rows: Tuple[Tuple[float, ...], ...],
-) -> Tuple[Tuple[Tuple[int, float, float], ...], ...]:
-    """Return successor contributions for state and Jacobian accumulators."""
-
-    stage_count = len(stage_rows)
-    successors = []
-    for stage_index in range(stage_count):
-        stage_successors = []
-        for successor_index in range(stage_index + 1, stage_count):
-            stage_coeff = stage_rows[successor_index][stage_index]
-            jacobian_coeff = jacobian_rows[successor_index][stage_index]
-            if stage_coeff != 0.0 or jacobian_coeff != 0.0:
-                stage_successors.append(
-                    (successor_index, stage_coeff, jacobian_coeff)
-                )
-        successors.append(tuple(stage_successors))
-    return tuple(successors)

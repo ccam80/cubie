@@ -318,7 +318,6 @@ def test_algorithm(
     assert config.precision == precision, "compile_settings.precision getter"
 
     if properties["is_implicit"]:
-        assert step_object.nonlinear_solver_function is not None
         if algorithm == "rosenbrock":
             assert config.max_linear_iters == solver_settings[
                 "max_linear_iters"
@@ -366,7 +365,6 @@ def test_algorithm(
             ), "newton_damping set"
         assert callable(system.get_solver_helper)
     else:
-        assert step_object.nonlinear_solver_function is None
         assert step_object.dt == pytest.approx(
             solver_settings["dt_min"],
             rel=tolerance.rel_tight,

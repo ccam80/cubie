@@ -333,7 +333,7 @@ class SymbolicODE(BaseODE):
         func_type: str,
         beta: float = 1.0,
         gamma: float = 1.0,
-        preconditioner_order: int = 1,
+        preconditioner_order: int = 2,
         mass: Optional[Union[np.ndarray, sp.Matrix]] = None,
     ) -> Callable:
         """Return a generated solver helper device function.
