@@ -574,6 +574,238 @@ def crank_nicolson_step(
     status = _encode_solver_status(converged, niters)
     return StepResult(next_state, observables, error, status, niters)
 
+
+def rosenbrock_step(
+    evaluator: CPUODESystem,
+    driver_evaluator: DriverEvaluator,
+    *,
+    state: Optional[Array] = None,
+    params: Optional[Array] = None,
+    dt: Optional[float] = None,
+    tol: Optional[float] = None,
+    max_iters: Optional[int] = None,
+    time: float = 0.0,
+) -> StepResult:
+    """Six-stage Rosenbrock-W method with an embedded error estimate."""
+
+    precision = evaluator.precision
+    dt_value = precision(dt)
+    current_time = precision(time)
+    end_time = current_time + dt_value
+
+    a_matrix = np.array(
+        [
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [
+                0.5812383407115008,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            [
+                0.9039624413714670,
+                1.8615191555345010,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            [
+                2.0765797196750000,
+                0.1884255381414796,
+                1.8701589674910320,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            [
+                4.4355506384843120,
+                5.4571817986101890,
+                4.6163507880689300,
+                3.1181119524023610,
+                0.0,
+                0.0,
+            ],
+            [
+                10.791701698483260,
+                -10.056915225841310,
+                14.995644854284190,
+                5.2743399543909430,
+                1.4297308712611900,
+                0.0,
+            ],
+        ],
+        dtype=precision,
+    )
+    C_matrix = np.array(
+        [
+            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [
+                -2.661294105131369,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            [
+                -3.128450202373838,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            [
+                -6.920335474535658,
+                -1.202675288266817,
+                -9.733561811413620,
+                0.0,
+                0.0,
+                0.0,
+            ],
+            [
+                -28.095306291026950,
+                20.371262954793770,
+                -41.043752753028690,
+                -19.663731756208950,
+                0.0,
+                0.0,
+            ],
+            [
+                9.7998186780974000,
+                11.935792886603180,
+                3.6738749290132010,
+                14.807828541095500,
+                0.8318583998690680,
+                0.0,
+            ],
+        ],
+        dtype=precision,
+    )
+    b_weights = np.array(
+        [
+            6.4562170746532350,
+            -4.8531413177680530,
+            9.7653183340692600,
+            2.0810841772787230,
+            0.6603936866352417,
+            0.6000000000000000,
+        ],
+        dtype=precision,
+    )
+    error_weights = np.array(
+        [
+            0.2500000000000000,
+            0.0836691184292894,
+            0.0544718623516351,
+            -0.3402289722355864,
+            0.0337651588339529,
+            -0.0903074267618540,
+        ],
+        dtype=precision,
+    )
+    c_nodes = np.array(
+        [
+            0.0,
+            0.1453095851778752,
+            0.3817422770256738,
+            0.6367813704374599,
+            0.7560744496323561,
+            0.9271047239875670,
+        ],
+        dtype=precision,
+    )
+    gamma = precision(0.25)
+    zero = precision(0.0)
+
+    drivers_now = driver_evaluator(float(current_time))
+    observables_now = evaluator.observables(
+        state,
+        params,
+        drivers_now,
+        current_time,
+    )
+    f_now, _ = evaluator.rhs(
+        state,
+        params,
+        drivers_now,
+        observables_now,
+        current_time,
+    )
+    jac = evaluator.jacobian(
+        state,
+        params,
+        drivers_now,
+        observables_now,
+        current_time,
+    )
+
+    identity = np.eye(len(state), dtype=precision)
+    lhs = identity - dt_value * gamma * jac
+
+    stage_count = b_weights.size
+    state_accum = np.zeros_like(state, dtype=precision)
+    error_accum = np.zeros_like(state, dtype=precision)
+    state_shifts = np.zeros((stage_count, len(state)), dtype=precision)
+    jacobian_shifts = np.zeros_like(state_shifts)
+
+    drivers_stage = drivers_now
+    rhs = np.zeros_like(state, dtype=precision)
+
+    for stage_index in range(stage_count):
+        stage_time = current_time + c_nodes[stage_index] * dt_value
+        if stage_index == 0:
+            stage_state = state
+            f_stage = f_now
+        else:
+            drivers_stage = driver_evaluator(float(stage_time))
+            stage_state = state + state_shifts[stage_index]
+            observables_stage = evaluator.observables(
+                stage_state,
+                params,
+                drivers_stage,
+                stage_time,
+            )
+            f_stage, _ = evaluator.rhs(
+                stage_state,
+                params,
+                drivers_stage,
+                observables_stage,
+                stage_time,
+            )
+
+        rhs[:] = dt_value * f_stage
+        if stage_index > 0 and np.any(C_matrix[stage_index, :stage_index]):
+            jac_term = jac @ jacobian_shifts[stage_index]
+            rhs[:] -= dt_value * jac_term
+
+        stage_increment = np.linalg.solve(lhs, rhs).astype(precision)
+        state_accum += b_weights[stage_index] * stage_increment
+        error_accum += error_weights[stage_index] * stage_increment
+
+        for successor in range(stage_index + 1, stage_count):
+            a_coeff = a_matrix[successor, stage_index]
+            if a_coeff != zero:
+                state_shifts[successor] += a_coeff * stage_increment
+            C_coeff = C_matrix[successor, stage_index]
+            if C_coeff != zero:
+                jacobian_shifts[successor] += C_coeff * stage_increment
+
+    new_state = state + state_accum
+    drivers_end = driver_evaluator(float(end_time))
+    observables = evaluator.observables(
+        new_state,
+        params,
+        drivers_end,
+        end_time,
+    )
+    status = _encode_solver_status(True, 0)
+    return StepResult(new_state, observables, error_accum, status, 0)
+
+
 def backward_euler_predict_correct_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
@@ -904,6 +1136,8 @@ def get_ref_step_function(
         return backward_euler_predict_correct_step
     elif algorithm.lower() == "crank_nicolson":
         return crank_nicolson_step
+    elif algorithm.lower() == "rosenbrock":
+        return rosenbrock_step
     else:
         raise ValueError(f"Unknown stepper algorithm: {algorithm}")
 

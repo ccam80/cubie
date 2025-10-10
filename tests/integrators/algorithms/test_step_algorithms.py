@@ -71,6 +71,16 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "shared_memory_required": 2 * n_states,
             "local_scratch_required": 0,
         },
+        "rosenbrock": {
+            "threads_per_step": 1,
+            "persistent_local_required": 0,
+            "is_multistage": True,
+            "is_implicit": True,
+            "is_adaptive": True,
+            "order": 4,
+            "shared_memory_required": 12 * n_states,
+            "local_scratch_required": 4 * n_states,
+        },
     }
 
 @pytest.fixture(scope="function")
@@ -252,8 +262,15 @@ def cpu_step_results(
         {"algorithm": "backwards_euler_pc", "dt_min": 0.0025},
         {"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
             1e-6, 'rtol': 1e-6, 'dt_min': 1e-6},
+        {"algorithm": "rosenbrock", 'step_controller': 'pi'},
     ],
-    ids=["euler", "backwards_euler", "backwards_euler_pc", "crank_nicolson"],
+    ids=[
+        "euler",
+        "backwards_euler",
+        "backwards_euler_pc",
+        "crank_nicolson",
+        "rosenbrock",
+    ],
     indirect=True,
 )
 def test_algorithm(
@@ -273,7 +290,8 @@ def test_algorithm(
     assert callable(step_object.step_function), "step_function_builds"
 
     # test getters
-    properties = expected_step_properties[solver_settings["algorithm"]]
+    algorithm = solver_settings["algorithm"]
+    properties = expected_step_properties[algorithm]
     assert step_object.is_implicit is properties["is_implicit"], \
         "is_implicit getter"
     assert step_object.is_adaptive is properties["is_adaptive"], \
@@ -301,34 +319,51 @@ def test_algorithm(
 
     if properties["is_implicit"]:
         assert step_object.nonlinear_solver_function is not None
-        # assert config.get_solver_helper_fn is system.get_solver_helper
-        matrix = config.M
-        assert matrix.shape == (system.sizes.states, system.sizes.states)
-        assert config.preconditioner_order == solver_settings[
-                "preconditioner_order"], "preconditioner order set"
-        assert config.max_linear_iters == solver_settings[
-    "max_linear_iters"], "max_linear_iters set"
-        assert config.linear_correction_type == solver_settings[
-                "correction_type"], "linear_correction_type set"
-        assert config.max_newton_iters == solver_settings[
-            "max_newton_iters"], "max_newton_iters set"
-        assert config.newton_max_backtracks == solver_settings[
-                "newton_max_backtracks"], "newton_max_backtracks set"
-        assert config.krylov_tolerance == pytest.approx(
-            solver_settings["krylov_tolerance"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        ), "krylov_tolerance set"
-        assert config.newton_tolerance == pytest.approx(
-            solver_settings["newton_tolerance"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        ), "newton_tolerance set"
-        assert config.newton_damping == pytest.approx(
-            solver_settings["newton_damping"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        ), "newton_damping set"
+        if algorithm == "rosenbrock":
+            assert config.max_linear_iters == solver_settings[
+                "max_linear_iters"
+            ], "max_linear_iters set"
+            assert config.linear_correction_type == solver_settings[
+                "correction_type"
+            ], "linear_correction_type set"
+            assert config.krylov_tolerance == pytest.approx(
+                solver_settings["krylov_tolerance"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "krylov_tolerance set"
+        else:
+            matrix = config.M
+            assert matrix.shape == (system.sizes.states, system.sizes.states)
+            assert config.preconditioner_order == solver_settings[
+                "preconditioner_order"
+            ], "preconditioner order set"
+            assert config.max_linear_iters == solver_settings[
+                "max_linear_iters"
+            ], "max_linear_iters set"
+            assert config.linear_correction_type == solver_settings[
+                "correction_type"
+            ], "linear_correction_type set"
+            assert config.max_newton_iters == solver_settings[
+                "max_newton_iters"
+            ], "max_newton_iters set"
+            assert config.newton_max_backtracks == solver_settings[
+                "newton_max_backtracks"
+            ], "newton_max_backtracks set"
+            assert config.krylov_tolerance == pytest.approx(
+                solver_settings["krylov_tolerance"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "krylov_tolerance set"
+            assert config.newton_tolerance == pytest.approx(
+                solver_settings["newton_tolerance"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "newton_tolerance set"
+            assert config.newton_damping == pytest.approx(
+                solver_settings["newton_damping"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "newton_damping set"
         assert callable(system.get_solver_helper)
     else:
         assert step_object.nonlinear_solver_function is None
@@ -339,42 +374,62 @@ def test_algorithm(
         )
 
     if step_object.is_implicit:
-        updates = {
-            "max_newton_iters": int(
-                max(1, solver_settings["max_newton_iters"] // 2)
-            ),
-            "krylov_tolerance":
-            solver_settings["krylov_tolerance"] * 0.5,
-            "newton_tolerance":
-            solver_settings["newton_tolerance"] * 0.5,
-            "newton_damping":
-            solver_settings["newton_damping"] * 0.9,
-            "preconditioner_order":
-            solver_settings["preconditioner_order"] + 1,
-        }
-        recognised = step_object.update(updates)
-        assert set(updates).issubset(recognised), "updates recognised"
-        config = step_object.compile_settings
-        assert config.max_newton_iters == updates["max_newton_iters"], \
-            "max_newton_iters update"
-        assert config.preconditioner_order == updates[
-            "preconditioner_order"
-        ], "preconditioner_order update"
-        assert config.krylov_tolerance == pytest.approx(
-            updates["krylov_tolerance"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        ), "krylov_tolerance update"
-        assert config.newton_tolerance == pytest.approx(
-            updates["newton_tolerance"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        ), "newton_tolerance update"
-        assert config.newton_damping == pytest.approx(
-            updates["newton_damping"],
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        ), "newton_damping update"
+        if algorithm == "rosenbrock":
+            updates = {
+                "max_linear_iters": max(1, solver_settings["max_linear_iters"] // 2),
+                "krylov_tolerance": solver_settings["krylov_tolerance"] * 0.5,
+                "linear_correction_type": "steepest_descent",
+            }
+            recognised = step_object.update(updates)
+            assert set(updates).issubset(recognised), "updates recognised"
+            config = step_object.compile_settings
+            assert config.max_linear_iters == updates["max_linear_iters"], \
+                "max_linear_iters update"
+            assert config.linear_correction_type == updates[
+                "linear_correction_type"
+            ], "linear_correction_type update"
+            assert config.krylov_tolerance == pytest.approx(
+                updates["krylov_tolerance"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "krylov_tolerance update"
+        else:
+            updates = {
+                "max_newton_iters": int(
+                    max(1, solver_settings["max_newton_iters"] // 2)
+                ),
+                "krylov_tolerance":
+                solver_settings["krylov_tolerance"] * 0.5,
+                "newton_tolerance":
+                solver_settings["newton_tolerance"] * 0.5,
+                "newton_damping":
+                solver_settings["newton_damping"] * 0.9,
+                "preconditioner_order":
+                solver_settings["preconditioner_order"] + 1,
+            }
+            recognised = step_object.update(updates)
+            assert set(updates).issubset(recognised), "updates recognised"
+            config = step_object.compile_settings
+            assert config.max_newton_iters == updates["max_newton_iters"], \
+                "max_newton_iters update"
+            assert config.preconditioner_order == updates[
+                "preconditioner_order"
+            ], "preconditioner_order update"
+            assert config.krylov_tolerance == pytest.approx(
+                updates["krylov_tolerance"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "krylov_tolerance update"
+            assert config.newton_tolerance == pytest.approx(
+                updates["newton_tolerance"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "newton_tolerance update"
+            assert config.newton_damping == pytest.approx(
+                updates["newton_damping"],
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            ), "newton_damping update"
     else:
         new_dt = float(solver_settings["dt_min"]) * 0.5
         recognised = step_object.update({"dt": new_dt})
