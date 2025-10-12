@@ -353,8 +353,6 @@ class RosenbrockStep(ODEImplicitStep):
         )
         stage_offsets = tuple(index * n for index in range(stage_count))
 
-        # Keep coefficients in separate structures and iterate successors by index
-        # to avoid unpacking mixed tuples inside device code.
         typed_zero = numba_precision(0.0)
 
         @cuda.jit(
@@ -391,7 +389,7 @@ class RosenbrockStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            stage_rhs = proposed_state # reuse state proposal buffer for rhs
+            stage_rhs = cuda.local.array(n, numba_precision)
             stage_state = cuda.local.array(n, numba_precision)
             stage_increment = cuda.local.array(n, numba_precision)
             jacobian_stage_product = cuda.local.array(n, numba_precision)
@@ -412,7 +410,11 @@ class RosenbrockStep(ODEImplicitStep):
             for idx in range(n):
                 error[idx] = typed_zero
                 stage_state[idx] = state[idx]
+                proposed_state[idx] = typed_zero
 
+            #Proposed observables and drivers will differ from state and
+            # drivers after a failed step - eat the cost of an overwrite
+            # instead of branching to use obs, drivers for stage 0.
             for idx in range(proposed_observables.size):
                 proposed_observables[idx] = observables[idx]
 
@@ -528,6 +530,10 @@ class RosenbrockStep(ODEImplicitStep):
                     proposed_drivers,
                 )
 
+            # Form the final state first, then evaluate observables at end time
+            for idx in range(n):
+                proposed_state[idx] = state[idx] + proposed_state[idx]
+
             observables_function(
                 proposed_state,
                 parameters,
@@ -535,8 +541,6 @@ class RosenbrockStep(ODEImplicitStep):
                 proposed_observables,
                 final_time,
             )
-            for idx in range(n):
-                proposed_state[idx] = state[idx] + proposed_state[idx]
             return status_code
 
         return StepCache(step=step)
