@@ -21,7 +21,13 @@ class ODECache:
 
     dxdt: Optional[Callable] = attrs.field()
     linear_operator: Optional[Union[Callable, int]] = attrs.field(default=-1)
+    linear_operator_cached: Optional[Union[Callable, int]] = attrs.field(
+        default=-1
+    )
     neumann_preconditioner: Optional[Union[Callable, int]] = attrs.field(
+        default=-1
+    )
+    neumann_preconditioner_cached: Optional[Union[Callable, int]] = attrs.field(
         default=-1
     )
     end_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)

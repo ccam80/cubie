@@ -13,6 +13,34 @@ from cubie.odesystems.symbolic.parser import IndexedBases
 from cubie.odesystems.symbolic.numba_cuda_printer import print_cuda_multiple
 from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
 
+CACHED_OPERATOR_APPLY_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED CACHED LINEAR OPERATOR FACTORY\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    '    """Auto-generated cached linear operator.\n'
+    "    Computes out = beta * (M @ v) - gamma * h * (J @ v)\n"
+    "    using cached auxiliary intermediates.\n"
+    "    Returns device function:\n"
+    "      operator_apply(state, parameters, drivers, cached_aux, h, v, out)\n"
+    "    argument 'order' is ignored, included for compatibility with \n"
+    "    preconditioner API. \n"
+    '    """\n'
+    "{const_lines}"
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision,\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def operator_apply(state, parameters, drivers, cached_aux, h, v, out):\n"
+    "{body}\n"
+    "    return operator_apply\n"
+)
+
+
 OPERATOR_APPLY_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED LINEAR OPERATOR FACTORY\n"
@@ -178,6 +206,36 @@ def _build_operator_body(
     return "\n".join("        " + ln for ln in lines)
 
 
+def _build_cached_neumann_body(
+    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+) -> str:
+    """Build the cached Neumann-series Jacobian-vector body."""
+
+    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    if aux:
+        cached = sp.IndexedBase(
+            "cached_aux", shape=(sp.Integer(len(aux)),)
+        )
+    else:
+        cached = sp.IndexedBase("cached_aux")
+    aux_assignments = [
+        (lhs, cached[idx]) for idx, (lhs, _) in enumerate(aux)
+    ]
+
+    n_out = len(index_map.dxdt.ref_map)
+    exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(aux_assignments)
+    for i in range(n_out):
+        rhs = jvp_terms.get(i, sp.S.Zero)
+        exprs.append((sp.Symbol(f"jvp[{i}]"), rhs))
+
+    lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
+    if not lines:
+        return "            pass"
+    replaced = [ln.replace("v[", "out[") for ln in lines]
+    return "\n".join("            " + ln for ln in replaced)
+
+
 def _build_cached_jvp_body(
     aux: List[Tuple[sp.Symbol, sp.Expr]],
     jvp_terms: Dict[int, sp.Expr],
@@ -277,6 +335,28 @@ def generate_operator_apply_code_from_jvp(
     )
 
 
+def generate_cached_operator_apply_code_from_jvp(
+    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    M: sp.Matrix,
+    func_name: str = "linear_operator_cached",
+) -> str:
+    """Emit the cached linear operator factory from JVP expressions."""
+
+    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    body = _build_operator_body(aux, jvp_terms, index_map, M, cached_aux=True)
+    const_lines = [
+        f"    {name} = precision(constants['{name}'])"
+        for name in index_map.constants.symbol_map
+    ]
+    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    return CACHED_OPERATOR_APPLY_TEMPLATE.format(
+        func_name=func_name,
+        body=body,
+        const_lines=const_block,
+    )
+
+
 def generate_prepare_jac_code_from_jvp(
     jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
     index_map: IndexedBases,
@@ -364,6 +444,36 @@ def generate_operator_apply_code(
         func_name=func_name,
         cse=cse,
     )
+
+
+def generate_cached_operator_apply_code(
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    func_name: str = "linear_operator_cached",
+    cse: bool = True,
+) -> str:
+    """Generate the cached linear operator factory."""
+
+    if M is None:
+        n = len(index_map.states.index_map)
+        M_mat = sp.eye(n)
+    else:
+        M_mat = sp.Matrix(M)
+    jvp_exprs = generate_analytical_jvp(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
+        cse=cse,
+    )
+    return generate_cached_operator_apply_code_from_jvp(
+        jvp_exprs=jvp_exprs,
+        index_map=index_map,
+        M=M_mat,
+        func_name=func_name,
+    )
+
 
 def generate_prepare_jac_code(
     equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
@@ -454,6 +564,46 @@ NEUMANN_TEMPLATE = (
 )
 
 
+NEUMANN_CACHED_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED CACHED NEUMANN PRECONDITIONER FACTORY\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
+    '    """Cached Neumann preconditioner using stored auxiliaries.\n'
+    "    Approximates (beta*I - gamma*h*J)^[-1] via a truncated\n"
+    "    Neumann series with cached auxiliaries. Returns device function:\n"
+    "      preconditioner(\n"
+    "          state, parameters, drivers, cached_aux, h, v, out, jvp\n"
+    "      )\n"
+    '    """\n'
+    "    n = {n_out}\n"
+    "    beta_inv = 1.0 / beta\n"
+    "    h_eff_factor = gamma * beta_inv\n"
+    "{const_lines}"
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision,\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def preconditioner(\n"
+    "        state, parameters, drivers, cached_aux, h, v, out, jvp):\n"
+    "        for i in range(n):\n"
+    "            out[i] = v[i]\n"
+    "        h_eff = h * h_eff_factor\n"
+    "        for _ in range(order):\n"
+    "{jv_body}\n"
+    "            for i in range(n):\n"
+    "                out[i] = v[i] + h_eff * jvp[i]\n"
+    "        for i in range(n):\n"
+    "            out[i] = beta_inv * out[i]\n"
+    "    return preconditioner\n"
+)
+
+
 def generate_neumann_preconditioner_code(
     equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
     index_map: IndexedBases,
@@ -505,6 +655,36 @@ def generate_neumann_preconditioner_code(
     return NEUMANN_TEMPLATE.format(
             func_name=func_name, n_out=n_out, jv_body=jv_body,
             const_lines=const_block
+    )
+
+
+def generate_neumann_preconditioner_cached_code(
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    func_name: str = "neumann_preconditioner_cached",
+    cse: bool = True,
+) -> str:
+    """Generate the cached Neumann preconditioner factory."""
+
+    n_out = len(index_map.dxdt.ref_map)
+    const_lines = [
+        f"    {name} = precision(constants['{name}'])"
+        for name in index_map.constants.symbol_map
+    ]
+    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    jvp_exprs = generate_analytical_jvp(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
+        cse=cse,
+    )
+    jv_body = _build_cached_neumann_body(jvp_exprs, index_map)
+    return NEUMANN_CACHED_TEMPLATE.format(
+        func_name=func_name,
+        n_out=n_out,
+        jv_body=jv_body,
+        const_lines=const_block,
     )
 
 

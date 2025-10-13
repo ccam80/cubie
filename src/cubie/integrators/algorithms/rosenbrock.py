@@ -13,7 +13,7 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 )
 from cubie.integrators.algorithms.ode_implicitstep import (ImplicitStepConfig,
                                                  ODEImplicitStep)
-from cubie.integrators.matrix_free_solvers import linear_solver_factory
+from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
 
 
 @attrs.define(frozen=True)
@@ -263,7 +263,7 @@ class RosenbrockStep(ODEImplicitStep):
         get_fn = config.get_solver_helper_fn
 
         preconditioner = get_fn(
-            "neumann_preconditioner",
+            "neumann_preconditioner_cached",
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -271,7 +271,7 @@ class RosenbrockStep(ODEImplicitStep):
         )
 
         linear_operator = get_fn(
-            "linear_operator",
+            "linear_operator_cached",
             beta=beta,
             gamma=gamma,
             mass=mass,
@@ -297,7 +297,7 @@ class RosenbrockStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        linear_solver = linear_solver_factory(
+        linear_solver = linear_solver_cached_factory(
             linear_operator,
             n=n,
             preconditioner=preconditioner,
@@ -439,6 +439,7 @@ class RosenbrockStep(ODEImplicitStep):
                 state,
                 parameters,
                 drivers_buffer,
+                cached_auxiliaries,
                 dt_value,
                 stage_rhs,
                 stage_increment,
@@ -534,6 +535,7 @@ class RosenbrockStep(ODEImplicitStep):
                     state,
                     parameters,
                     drivers_buffer,
+                    cached_auxiliaries,
                     dt_value,
                     stage_rhs,
                     stage_increment,

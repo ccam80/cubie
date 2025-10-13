@@ -300,10 +300,7 @@ def test_algorithm(
         "is_multistage getter"
     assert step_object.order == properties["order"],\
         "order getter"
-    assert (
-        step_object.shared_memory_required
-        == (properties["shared_memory_required"] + system._jacobian_aux_count)
-    ), "shared_memory_required getter"
+
     assert step_object.local_scratch_required \
         == properties["local_scratch_required"],\
         "local_scratch_required getter"
@@ -437,6 +434,15 @@ def test_algorithm(
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
         ), "dt update"
+
+    if system._jacobian_aux_count is not None:
+        extra_shared = system._jacobian_aux_count
+    else:
+        extra_shared = 0
+    assert (
+        step_object.shared_memory_required
+        == (properties["shared_memory_required"] + extra_shared)
+    ), "shared_memory_required getter"
 
     # Test equality for a single step
     tolerances = {

@@ -48,6 +48,31 @@ from tests.system_fixtures import (
     build_three_state_very_stiff_system,
 )
 
+# --------------------------------------------------------------------------- #
+#                            Codegen Redirect                                 #
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture(scope="session", autouse=True)
+def codegen_dir():
+    """Redirect code generation to a temporary directory for the whole session.
+
+    Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
+    removed automatically between parameterized test cases. Remove the
+    directory at session teardown.
+    """
+    import tempfile
+    import shutil
+    from cubie.odesystems.symbolic import odefile
+
+    gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
+    mp = MonkeyPatch()
+    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
+    try:
+        yield gen_dir
+    finally:
+        # restore original attribute and remove temporary dir
+        mp.undo()
+        shutil.rmtree(gen_dir, ignore_errors=True)
 
 # ========================================
 # HELPER BUILDERS
@@ -500,29 +525,6 @@ def step_controller_settings(
 # ========================================
 # OBJECT FIXTURES
 # ========================================
-
-@pytest.fixture(scope="session", autouse=True)
-def codegen_dir():
-    """Redirect code generation to a temporary directory for the whole session.
-
-    Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
-    removed automatically between parameterized test cases. Remove the
-    directory at session teardown.
-    """
-    import tempfile
-    import shutil
-    from cubie.odesystems.symbolic import odefile
-
-    gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
-    mp = MonkeyPatch()
-    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
-    try:
-        yield gen_dir
-    finally:
-        # restore original attribute and remove temporary dir
-        mp.undo()
-        shutil.rmtree(gen_dir, ignore_errors=True)
-
 
 @pytest.fixture(scope="session")
 def output_settings(solver_settings):

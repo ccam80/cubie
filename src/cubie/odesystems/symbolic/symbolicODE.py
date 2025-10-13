@@ -11,6 +11,8 @@ from cubie.odesystems.symbolic.dxdt import (
 )
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.solver_helpers import (
+    generate_cached_operator_apply_code,
+    generate_neumann_preconditioner_cached_code,
     generate_neumann_preconditioner_code,
     generate_prepare_jac_code,
     generate_cached_jvp_code,
@@ -359,7 +361,8 @@ class SymbolicODE(BaseODE):
         ----------
         func_type
             Helper identifier. Supported values are ``"linear_operator"``,
-            ``"neumann_preconditioner"``, ``"end_residual"``,
+            ``"linear_operator_cached"``, ``"neumann_preconditioner"``,
+            ``"neumann_preconditioner_cached"``, ``"end_residual"`,
             ``"stage_residual"``, ``"prepare_jac"``, ``"cached_aux_count"`` and
             ``"calculate_cached_jvp"``.
         beta
@@ -407,6 +410,18 @@ class SymbolicODE(BaseODE):
                 gamma=gamma,
                 order=preconditioner_order,
             )
+        elif func_type == "linear_operator_cached":
+            code = generate_cached_operator_apply_code(
+                self.equations,
+                self.indices,
+                M=mass,
+                func_name=func_type,
+            )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
         elif func_type == "prepare_jac":
             code, aux_count = generate_prepare_jac_code(
                 self.equations,
@@ -428,6 +443,17 @@ class SymbolicODE(BaseODE):
             )
         elif func_type == "neumann_preconditioner":
             code = generate_neumann_preconditioner_code(
+                self.equations,
+                self.indices,
+                func_type,
+            )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
+        elif func_type == "neumann_preconditioner_cached":
+            code = generate_neumann_preconditioner_cached_code(
                 self.equations,
                 self.indices,
                 func_type,
