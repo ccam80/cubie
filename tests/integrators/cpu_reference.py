@@ -74,7 +74,7 @@ class CPUODESystem():
         ordered_equations = topological_sort(system.equations)
         self._equations = ordered_equations
         self._jacobian_expr = generate_jacobian(
-            ordered_equations,
+            system.equations,
             self._state_index,
             self._dx_index,
         )

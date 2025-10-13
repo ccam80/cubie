@@ -153,6 +153,9 @@ def hash_system_definition(
         if isinstance(dxdt[0], (list, tuple)):
             dxdt = [str(symbol) + str(expr) for symbol, expr in dxdt]
         dxdt_str = "".join(dxdt)
+    elif hasattr(dxdt, "__iter__") and not isinstance(dxdt, str):
+        dxdt_pairs = [f"{str(symbol)}{str(expr)}" for symbol, expr in dxdt]
+        dxdt_str = "".join(dxdt_pairs)
     else:
         dxdt_str = dxdt
 
@@ -169,3 +172,16 @@ def hash_system_definition(
 
     # Generate hash
     return str(hash(combined))
+
+
+def render_constant_assignments(
+    constant_names: Iterable[str], indent: int = 4
+) -> str:
+    """Return assignment statements that load constants into locals."""
+
+    prefix = " " * indent
+    lines = [
+        f"{prefix}{name} = precision(constants['{name}'])"
+        for name in constant_names
+    ]
+    return "\n".join(lines) + ("\n" if lines else "")

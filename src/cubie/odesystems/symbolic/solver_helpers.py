@@ -6,12 +6,17 @@ device routine to avoid extra passes or buffers.
 """
 
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
+
 import sympy as sp
 
-from cubie.odesystems.symbolic import cse_and_stack, topological_sort
-from cubie.odesystems.symbolic.parser import IndexedBases
 from cubie.odesystems.symbolic.numba_cuda_printer import print_cuda_multiple
 from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
+from cubie.odesystems.symbolic.parser import IndexedBases, ParsedEquations
+from cubie.odesystems.symbolic.sym_utils import (
+    cse_and_stack,
+    render_constant_assignments,
+    topological_sort,
+)
 
 CACHED_OPERATOR_APPLY_TEMPLATE = (
     "\n"
@@ -379,11 +384,7 @@ def generate_operator_apply_code_from_jvp(
         M=M,
         use_cached_aux=False,
     )
-    const_lines = [
-        f"    {name} = precision(constants['{name}'])"
-        for name in index_map.constants.symbol_map
-    ]
-    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
     return OPERATOR_APPLY_TEMPLATE.format(
         func_name=func_name, body=body, const_lines=const_block
     )
@@ -404,11 +405,7 @@ def generate_cached_operator_apply_code_from_jvp(
                                 index_map=index_map,
                                 M=M,
                                 use_cached_aux=True)
-    const_lines = [
-        f"    {name} = precision(constants['{name}'])"
-        for name in index_map.constants.symbol_map
-    ]
-    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
     return CACHED_OPERATOR_APPLY_TEMPLATE.format(
         func_name=func_name,
         body=body,
@@ -425,11 +422,7 @@ def generate_prepare_jac_code_from_jvp(
 
     cached_aux, _, _ = _split_jvp_expressions(jvp_exprs)
     body = _build_prepare_body(cached_aux, index_map)
-    const_lines = [
-        f"    {name} = precision(constants['{name}'])"
-        for name in index_map.constants.symbol_map
-    ]
-    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
     code = PREPARE_JAC_TEMPLATE.format(
         func_name=func_name, body=body, const_lines=const_block
     )
@@ -450,11 +443,7 @@ def generate_cached_jvp_code_from_jvp(
         jvp_terms=jvp_terms,
         index_map=index_map,
     )
-    const_lines = [
-        f"    {name} = precision(constants['{name}'])"
-        for name in index_map.constants.symbol_map
-    ]
-    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
     code = CACHED_JVP_TEMPLATE.format(
         func_name=func_name, body=body, const_lines=const_block
     )
@@ -462,18 +451,19 @@ def generate_cached_jvp_code_from_jvp(
 
 
 def generate_operator_apply_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "operator_apply_factory",
     cse: bool = True,
+    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
 ) -> str:
     """Generate the linear operator factory from system equations.
 
     Parameters
     ----------
     equations
-        Differential equation tuples defining ``dx/dt``.
+        Parsed equations defining the system dynamics.
     index_map
         Symbol indexing helpers produced by the parser.
     M
@@ -494,13 +484,14 @@ def generate_operator_apply_code(
         M_mat = sp.eye(n)
     else:
         M_mat = sp.Matrix(M)
-    jvp_exprs = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
+    if jvp_exprs is None:
+        jvp_exprs = generate_analytical_jvp(
+            equations,
+            input_order=index_map.states.index_map,
+            output_order=index_map.dxdt.index_map,
+            observables=index_map.observable_symbols,
+            cse=cse,
+        )
     return generate_operator_apply_code_from_jvp(
         jvp_exprs=jvp_exprs,
         index_map=index_map,
@@ -511,11 +502,12 @@ def generate_operator_apply_code(
 
 
 def generate_cached_operator_apply_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "linear_operator_cached",
     cse: bool = True,
+    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
 ) -> str:
     """Generate the cached linear operator factory."""
 
@@ -524,13 +516,14 @@ def generate_cached_operator_apply_code(
         M_mat = sp.eye(n)
     else:
         M_mat = sp.Matrix(M)
-    jvp_exprs = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
+    if jvp_exprs is None:
+        jvp_exprs = generate_analytical_jvp(
+            equations,
+            input_order=index_map.states.index_map,
+            output_order=index_map.dxdt.index_map,
+            observables=index_map.observable_symbols,
+            cse=cse,
+        )
     return generate_cached_operator_apply_code_from_jvp(
         jvp_exprs=jvp_exprs,
         index_map=index_map,
@@ -540,20 +533,22 @@ def generate_cached_operator_apply_code(
 
 
 def generate_prepare_jac_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     func_name: str = "prepare_jac",
     cse: bool = True,
+    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
 ) -> Tuple[str, int]:
     """Generate the cached auxiliary preparation factory."""
 
-    jvp_exprs = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
+    if jvp_exprs is None:
+        jvp_exprs = generate_analytical_jvp(
+            equations,
+            input_order=index_map.states.index_map,
+            output_order=index_map.dxdt.index_map,
+            observables=index_map.observable_symbols,
+            cse=cse,
+        )
     return generate_prepare_jac_code_from_jvp(
         jvp_exprs=jvp_exprs,
         index_map=index_map,
@@ -562,20 +557,22 @@ def generate_prepare_jac_code(
 
 
 def generate_cached_jvp_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     func_name: str = "calculate_cached_jvp",
     cse: bool = True,
+    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
 ) -> str:
     """Generate the cached Jacobian-vector product factory."""
 
-    jvp_exprs = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
+    if jvp_exprs is None:
+        jvp_exprs = generate_analytical_jvp(
+            equations,
+            input_order=index_map.states.index_map,
+            output_order=index_map.dxdt.index_map,
+            observables=index_map.observable_symbols,
+            cse=cse,
+        )
     return generate_cached_jvp_code_from_jvp(
         jvp_exprs=jvp_exprs,
         index_map=index_map,
@@ -669,17 +666,18 @@ NEUMANN_CACHED_TEMPLATE = (
 
 
 def generate_neumann_preconditioner_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     func_name: str = "neumann_preconditioner_factory",
     cse: bool = True,
+    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
 ) -> str:
     """Generate the Neumann preconditioner factory.
 
     Parameters
     ----------
     equations
-        Differential equations defining the system.
+        Parsed equations defining the system.
     index_map
         Symbol indexing helpers produced by the parser.
     func_name
@@ -693,18 +691,15 @@ def generate_neumann_preconditioner_code(
         Source code for the Neumann preconditioner factory.
     """
     n_out = len(index_map.dxdt.ref_map)
-    const_lines = [
-        f"    {name} = precision(constants['{name}'])"
-        for name in index_map.constants.symbol_map
-    ]
-    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
-    jvp_exprs = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
+    if jvp_exprs is None:
+        jvp_exprs = generate_analytical_jvp(
+            equations,
+            input_order=index_map.states.index_map,
+            output_order=index_map.dxdt.index_map,
+            observables=index_map.observable_symbols,
+            cse=cse,
+        )
     # Emit using canonical names, then rewrite to drive JVP with `out` and
     # write into the caller-provided scratch buffer `jvp`.
     lines = print_cuda_multiple(jvp_exprs, symbol_map=index_map.all_arrayrefs)
@@ -723,26 +718,24 @@ def generate_neumann_preconditioner_code(
 
 
 def generate_neumann_preconditioner_cached_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     func_name: str = "neumann_preconditioner_cached",
     cse: bool = True,
+    jvp_exprs: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
 ) -> str:
     """Generate the cached Neumann preconditioner factory."""
 
     n_out = len(index_map.dxdt.ref_map)
-    const_lines = [
-        f"    {name} = precision(constants['{name}'])"
-        for name in index_map.constants.symbol_map
-    ]
-    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
-    jvp_exprs = generate_analytical_jvp(
-        equations,
-        input_order=index_map.states.index_map,
-        output_order=index_map.dxdt.index_map,
-        observables=index_map.observable_symbols,
-        cse=cse,
-    )
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
+    if jvp_exprs is None:
+        jvp_exprs = generate_analytical_jvp(
+            equations,
+            input_order=index_map.states.index_map,
+            output_order=index_map.dxdt.index_map,
+            observables=index_map.observable_symbols,
+            cse=cse,
+        )
     jv_body = _build_cached_neumann_body(jvp_exprs, index_map)
     return NEUMANN_CACHED_TEMPLATE.format(
         func_name=func_name,
@@ -789,9 +782,7 @@ RESIDUAL_TEMPLATE = (
 
 
 def _build_residual_lines(
-    equations: Union[
-        Iterable[Tuple[sp.Symbol, sp.Expr]], Dict[sp.Symbol, sp.Expr]
-    ],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     M: sp.Matrix,
     is_stage: bool,
@@ -802,7 +793,7 @@ def _build_residual_lines(
     Parameters
     ----------
     equations
-        Differential equation tuples or dictionary defining ``dx/dt``.
+        Parsed equations describing ``dx/dt`` assignments.
     index_map
         Symbol indexing helpers produced by the parser.
     M
@@ -822,10 +813,7 @@ def _build_residual_lines(
     Derivative symbols are rewritten to ``dx_`` indices and observables to
     ``aux_`` indices to mirror Jacobian-vector product emission.
     """
-    if isinstance(equations, dict):
-        eq_list = list(equations.items())
-    else:
-        eq_list = list(equations)
+    eq_list = equations.to_equation_list()
 
     n = len(index_map.states.index_map)
 
@@ -916,7 +904,7 @@ def _build_residual_lines(
     return "\n".join("        " + ln for ln in lines)
 
 def generate_residual_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     is_stage: bool = True,
@@ -928,7 +916,7 @@ def generate_residual_code(
     Parameters
     ----------
     equations
-        Differential equation tuples defining ``dx/dt``.
+        Parsed equations defining the system dynamics.
     index_map
         Symbol indexing helpers produced by the parser.
     M
@@ -960,11 +948,7 @@ def generate_residual_code(
         is_stage=is_stage,
         cse=cse,
     )
-    const_lines = [
-        f"    {name} = precision(constants['{name}'])"
-        for name in index_map.constants.symbol_map
-    ]
-    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    const_block = render_constant_assignments(index_map.constants.symbol_map)
 
     return RESIDUAL_TEMPLATE.format(
             func_name=func_name,
@@ -973,7 +957,7 @@ def generate_residual_code(
     )
 
 def generate_residual_end_state_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "end_residual",
@@ -984,7 +968,7 @@ def generate_residual_end_state_code(
     Parameters
     ----------
     equations
-        Differential equation tuples defining ``dx/dt``.
+        Parsed equations defining the system dynamics.
     index_map
         Symbol indexing helpers produced by the parser.
     M
@@ -1011,7 +995,7 @@ def generate_residual_end_state_code(
 
 
 def generate_stage_residual_code(
-    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    equations: ParsedEquations,
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
     func_name: str = "stage_residual",
@@ -1022,7 +1006,7 @@ def generate_stage_residual_code(
     Parameters
     ----------
     equations
-        Differential equation tuples defining ``dx/dt``.
+        Parsed equations defining ``dx/dt``.
     index_map
         Symbol indexing helpers produced by the parser.
     M

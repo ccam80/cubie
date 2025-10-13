@@ -1,6 +1,6 @@
 """Symbolic ODE system built from :mod:`sympy` expressions."""
 
-from typing import Any, Callable, Iterable, Optional, Set, Union
+from typing import Any, Callable, Iterable, List, Optional, Set, Union
 
 import numpy as np
 import sympy as sp
@@ -9,6 +9,7 @@ from cubie.odesystems.symbolic.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,
 )
+from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.solver_helpers import (
     generate_cached_operator_apply_code,
@@ -20,7 +21,11 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_residual_end_state_code,
     generate_stage_residual_code,
 )
-from cubie.odesystems.symbolic.parser import IndexedBases, parse_input
+from cubie.odesystems.symbolic.parser import (
+    IndexedBases,
+    ParsedEquations,
+    parse_input,
+)
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType
@@ -101,7 +106,7 @@ class SymbolicODE(BaseODE):
     Parameters
     ----------
     equations
-        Ordered symbolic equations describing the system dynamics.
+        Parsed equations describing the system dynamics.
     all_indexed_bases
         Indexed base collections providing access to state, parameter,
         constant, and observable metadata.
@@ -120,7 +125,7 @@ class SymbolicODE(BaseODE):
 
     def __init__(
         self,
-        equations: Iterable[tuple[sp.Symbol, sp.Expr]],
+        equations: ParsedEquations,
         all_indexed_bases: IndexedBases,
         all_symbols: Optional[dict[str, sp.Symbol]] = None,
         precision: PrecisionDType = np.float64,
@@ -133,7 +138,7 @@ class SymbolicODE(BaseODE):
         Parameters
         ----------
         equations
-            Ordered symbolic equations describing the system dynamics.
+            Parsed equations describing the system dynamics.
         all_indexed_bases
             Indexed base collections providing access to state, parameter,
             constant, and observable metadata.
@@ -186,6 +191,7 @@ class SymbolicODE(BaseODE):
             name=name
         )
         self._jacobian_aux_count: Optional[int] = None
+        self._jvp_exprs: Optional[list[tuple[sp.Symbol, sp.Expr]]] = None
 
     @classmethod
     def create(
@@ -269,6 +275,19 @@ class SymbolicODE(BaseODE):
         """Return the number of cached Jacobian auxiliary values."""
 
         return self._jacobian_aux_count
+
+    def _get_jvp_exprs(self) -> list[tuple[sp.Symbol, sp.Expr]]:
+        """Return cached Jacobian-vector assignments."""
+
+        if self._jvp_exprs is None:
+            self._jvp_exprs = generate_analytical_jvp(
+                self.equations,
+                input_order=self.indices.states.index_map,
+                output_order=self.indices.dxdt.index_map,
+                observables=self.indices.observable_symbols,
+                cse=True,
+            )
+        return self._jvp_exprs
 
     def build(self) -> ODECache:
         """Compile the ``dxdt`` factory and refresh the cache.
@@ -404,6 +423,7 @@ class SymbolicODE(BaseODE):
                 self.indices,
                 M=mass,
                 func_name=func_type,
+                jvp_exprs=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,
@@ -416,6 +436,7 @@ class SymbolicODE(BaseODE):
                 self.indices,
                 M=mass,
                 func_name=func_type,
+                jvp_exprs=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,
@@ -427,6 +448,7 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 func_name=func_type,
+                jvp_exprs=self._get_jvp_exprs(),
             )
             self._jacobian_aux_count = aux_count
         elif func_type == "cached_aux_count":
@@ -440,12 +462,14 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 func_name=func_type,
+                jvp_exprs=self._get_jvp_exprs(),
             )
         elif func_type == "neumann_preconditioner":
             code = generate_neumann_preconditioner_code(
                 self.equations,
                 self.indices,
                 func_type,
+                jvp_exprs=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,
@@ -457,6 +481,7 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 func_type,
+                jvp_exprs=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,

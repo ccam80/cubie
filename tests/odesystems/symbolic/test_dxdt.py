@@ -9,6 +9,7 @@ from cubie.odesystems.symbolic.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,
 )
+from cubie.odesystems.symbolic.parser import ParsedEquations
 from cubie.odesystems.symbolic.parser import IndexedBases, parse_input
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
@@ -92,7 +93,7 @@ class TestGenerateDxdtFacCode:
 
     def test_empty_equations(self, indexed_bases):
         """Test code generation with empty equations list."""
-        empty_equations = []
+        empty_equations = ParsedEquations.from_equations([], indexed_bases)
         code = generate_dxdt_fac_code(empty_equations, indexed_bases)
 
         assert isinstance(code, str)
@@ -100,9 +101,10 @@ class TestGenerateDxdtFacCode:
 
     def test_single_equation(self, indexed_bases):
         """Test code generation with single equation."""
-        x = sp.symbols("x")
-        a = sp.symbols("a")
-        single_eq = [(sp.Symbol("dx"), a * x)]
+        x = indexed_bases.states.symbol_map["x"]
+        a = indexed_bases.parameters.symbol_map["a"]
+        dx = indexed_bases.dxdt.symbol_map["dx"]
+        single_eq = ParsedEquations.from_equations([(dx, a * x)], indexed_bases)
 
         code = generate_dxdt_fac_code(single_eq, indexed_bases)
 
@@ -111,11 +113,17 @@ class TestGenerateDxdtFacCode:
 
     def test_equations_with_constants(self, indexed_bases):
         """Test equations that reference constants."""
-        x, y = sp.symbols("x y")
-        equations = [
-            (sp.Symbol("dx"), sp.pi * x + sp.E * y),
-            (sp.Symbol("dy"), sp.sqrt(2) * x - y),
-        ]
+        x = indexed_bases.states.symbol_map["x"]
+        y = indexed_bases.states.symbol_map["y"]
+        dx = indexed_bases.dxdt.symbol_map["dx"]
+        dy = indexed_bases.dxdt.symbol_map["dy"]
+        equations = ParsedEquations.from_equations(
+            [
+                (dx, sp.pi * x + sp.E * y),
+                (dy, sp.sqrt(2) * x - y),
+            ],
+            indexed_bases,
+        )
 
         code = generate_dxdt_fac_code(equations, indexed_bases)
 
@@ -124,12 +132,18 @@ class TestGenerateDxdtFacCode:
 
     def test_equations_with_functions(self, indexed_bases):
         """Test equations with mathematical functions."""
-        x, y = sp.symbols("x y")
-        a = sp.symbols("a")
-        equations = [
-            (sp.Symbol("dx"), sp.sin(a * x) + sp.cos(y)),
-            (sp.Symbol("dy"), sp.exp(-a * x) * y),
-        ]
+        x = indexed_bases.states.symbol_map["x"]
+        y = indexed_bases.states.symbol_map["y"]
+        a = indexed_bases.parameters.symbol_map["a"]
+        dx = indexed_bases.dxdt.symbol_map["dx"]
+        dy = indexed_bases.dxdt.symbol_map["dy"]
+        equations = ParsedEquations.from_equations(
+            [
+                (dx, sp.sin(a * x) + sp.cos(y)),
+                (dy, sp.exp(-a * x) * y),
+            ],
+            indexed_bases,
+        )
 
         code = generate_dxdt_fac_code(equations, indexed_bases)
 
@@ -169,8 +183,10 @@ class TestGenerateDxdtFacCode:
 
     def test_constants_unpacked(self, indexed_bases):
         """Constants should be defined as standalone variables."""
-        x, c = sp.symbols("x c", real=True)
-        equations = [(sp.Symbol("dx", real=True), c * x)]
+        x = indexed_bases.states.symbol_map["x"]
+        c = indexed_bases.constants.symbol_map["c"]
+        dx = indexed_bases.dxdt.symbol_map["dx"]
+        equations = ParsedEquations.from_equations([(dx, c * x)], indexed_bases)
         code = generate_dxdt_fac_code(equations, indexed_bases)
         assert "c = precision(constants['c'])" in code
 
@@ -199,13 +215,18 @@ class TestDxdtIntegration:
         prey, predator = sp.symbols("prey predator")
         alpha, beta, gamma, delta = sp.symbols("alpha beta gamma delta")
 
-        equations = [
-            (sp.Symbol("dprey"), alpha * prey - beta * prey * predator),
-            (
-                sp.Symbol("dpredator"),
-                gamma * prey * predator - delta * predator,
-            ),
-        ]
+        dx_prey = indexed_bases.dxdt.symbol_map["dprey"]
+        dx_predator = indexed_bases.dxdt.symbol_map["dpredator"]
+        equations = ParsedEquations.from_equations(
+            [
+                (dx_prey, alpha * prey - beta * prey * predator),
+                (
+                    dx_predator,
+                    gamma * prey * predator - delta * predator,
+                ),
+            ],
+            indexed_bases,
+        )
 
         code = generate_dxdt_fac_code(equations, indexed_bases)
 
@@ -232,11 +253,17 @@ class TestDxdtIntegration:
         x, y = sp.symbols("x y")
         k1, k2, c1 = sp.symbols("k1 k2 c1")
 
-        equations = [
-            (sp.Symbol("total"), x + y),  # auxiliary variable
-            (sp.Symbol("dx"), k1 * sp.Symbol("total") - k2 * x + c1),
-            (sp.Symbol("dy"), -k1 * sp.Symbol("total") + k2 * x),
-        ]
+        total = indexed_bases.observables.symbol_map["total"]
+        dx = indexed_bases.dxdt.symbol_map["dx"]
+        dy = indexed_bases.dxdt.symbol_map["dy"]
+        equations = ParsedEquations.from_equations(
+            [
+                (total, x + y),
+                (dx, k1 * total - k2 * x + c1),
+                (dy, -k1 * total + k2 * x),
+            ],
+            indexed_bases,
+        )
 
         code = generate_dxdt_fac_code(equations, indexed_bases)
 
@@ -284,10 +311,15 @@ class TestGenerateObservablesFacCode:
 
         x, y = sp.symbols("x y", real=True)
         a = sp.symbols("a", real=True)
-        equations = [
-            (sp.Symbol("obs1", real=True), x + a),
-            (sp.Symbol("dx", real=True), y + x),
-        ]
+        obs = indexed_bases.observables.symbol_map["obs1"]
+        dx = indexed_bases.dxdt.symbol_map["dx"]
+        equations = ParsedEquations.from_equations(
+            [
+                (obs, x + a),
+                (dx, y + x),
+            ],
+            indexed_bases,
+        )
 
         code = generate_observables_fac_code(equations, indexed_bases)
 
@@ -302,16 +334,22 @@ class TestGenerateObservablesFacCode:
     ):
         """CSE expressions shared with dxdt should still be emitted."""
 
-        x, y = sp.symbols("x y", real=True)
+        x = indexed_bases.states.symbol_map["x"]
+        y = indexed_bases.states.symbol_map["y"]
         repeated = (x + y) ** 2
-        equations = [
-            (sp.Symbol("obs1", real=True), repeated),
-            (sp.Symbol("dx", real=True), repeated + x),
-        ]
+        obs = indexed_bases.observables.symbol_map["obs1"]
+        dx = indexed_bases.dxdt.symbol_map["dx"]
+        equations = ParsedEquations.from_equations(
+            [
+                (obs, repeated),
+                (dx, repeated + x),
+            ],
+            indexed_bases,
+        )
 
         code = generate_observables_fac_code(equations, indexed_bases)
 
-        assert "_cse" in code
+        assert "(state[0] + state[1])**2" in code
         assert "out[" not in code
 
 
