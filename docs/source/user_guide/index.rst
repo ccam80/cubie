@@ -9,7 +9,6 @@ value problems. The source code is available on `Github
    :maxdepth: 1
    :caption: Contents
 
-   getting_started
    systems
    drivers
    algorithms
