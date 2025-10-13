@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional
+import os
 
 import numpy as np
 import pytest
@@ -48,6 +49,8 @@ from tests.system_fixtures import (
     build_three_state_very_stiff_system,
 )
 
+enable_tempdir = "1"
+os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 # --------------------------------------------------------------------------- #
 #                            Codegen Redirect                                 #
 # --------------------------------------------------------------------------- #
@@ -59,10 +62,24 @@ def codegen_dir():
     Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
     removed automatically between parameterized test cases. Remove the
     directory at session teardown.
+
+    Toggle: set environment variable `CUBIE_GENERATED_DIR_REDIRECT` to `0` to
+    disable the temporary redirect and keep the original
+    `odefile.GENERATED_DIR`.
     """
     import tempfile
     import shutil
+    import os
     from cubie.odesystems.symbolic import odefile
+
+    original_dir = getattr(odefile, "GENERATED_DIR", None)
+    redirect_enabled = int(os.environ.get("CUBIE_GENERATED_DIR_REDIRECT",
+                                    "1"))
+
+    if not redirect_enabled:
+        # Don't change odefile.GENERATED_DIR; yield the original value (or None).
+        yield Path(original_dir) if original_dir is not None else None
+        return
 
     gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
     mp = MonkeyPatch()
