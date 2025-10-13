@@ -1092,12 +1092,6 @@ def _run_device_step(
                          ids=["euler", "ROS2", "ROS3", "ROS4", "W6S40S"],
                          indirect=True
                          )
-@pytest.mark.parametrize(
-    "system_override",
-    ["nonlinear", "nonlinear", "nonlinear", "nonlinear", "threecm"],
-    ids=["euler", "ROS2", "ROS3", "ROS4", "W6S40S"],
-    indirect=True,
-)
 def test_rosenbrock_intermediate_scratch(
     step_object,
     solver_settings,
