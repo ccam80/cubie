@@ -952,6 +952,7 @@ def device_loop_outputs(
     loop,
     system,
     single_integrator_run,
+    step_object,
     initial_state,
     solver_settings,
     step_controller_settings,
@@ -967,6 +968,7 @@ def device_loop_outputs(
         output_functions=output_functions,
         solver_config=solver_settings,
         localmem_required=single_integrator_run.local_memory_elements,
-        sharedmem_required=single_integrator_run.shared_memory_elements,
+        sharedmem_required=step_object.shared_memory_required +
+                           loop.shared_memory_elements,
         driver_array=driver_array,
     )

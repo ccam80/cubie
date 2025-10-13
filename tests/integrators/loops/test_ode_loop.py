@@ -169,8 +169,21 @@ def test_initial_observable_seed_matches_reference(
             ],
             "saved_state_indices": [0, 1, 2],
         },
+{
+            "algorithm": "rosenbrock",
+            "step_controller": "pi",
+            "atol": 1e-5,
+            "rtol": 1e-5,
+            "dt_min": 1e-6,
+            "dt_save": 0.2,
+            "output_types": [
+                "state",
+            ],
+            "saved_state_indices": [0, 1, 2],
+        },
     ],
-    ids=["euler", "bweuler", "bweulerpc", "cnpid", "cnpi", "cni", "cngust"],
+    ids=["euler", "bweuler", "bweulerpc", "cnpid", "cnpi", "cni", "cngust",
+         'rosenpi'],
     indirect=True,
 )
 def test_loop(

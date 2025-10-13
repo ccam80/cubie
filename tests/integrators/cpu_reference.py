@@ -695,7 +695,7 @@ def rosenbrock_step(
         rhs[:] = dt_value * f_stage
         if stage_index > 0 and np.any(C_matrix[stage_index, :stage_index]):
             jac_term = jac @ jacobian_shifts[stage_index]
-            rhs[:] -= dt_value * jac_term
+            rhs[:] += dt_value * jac_term
 
         stage_increment = np.linalg.solve(lhs, rhs).astype(precision)
         state_accum += b_weights[stage_index] * stage_increment

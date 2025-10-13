@@ -25,6 +25,7 @@ class RosenbrockTableau:
     d: Tuple[float, ...]
     c: Tuple[float, ...]
     gamma: float
+    order: int
 
     @property
     def stage_count(self) -> int:
@@ -161,6 +162,7 @@ ROSENBROCK_W6S4OS_TABLEAU = RosenbrockTableau(
         0.9271047239875670,
     ),
     gamma=0.25,
+    order=4,
 )
 
 
@@ -237,7 +239,7 @@ class RosenbrockStep(ODEImplicitStep):
             gamma=tableau.gamma,
             M=mass,
         )
-        self._cached_auxiliary_count = 0
+        self._cached_auxiliary_count = None
         super().__init__(config, ROSENBROCK_DEFAULTS)
 
     def build_implicit_helpers(
@@ -603,7 +605,8 @@ class RosenbrockStep(ODEImplicitStep):
 
         stage_count = self.compile_settings.tableau.stage_count
         accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
-        return 2 * accumulator_span + self.cached_auxiliary_count
+        cached_auxiliary_count = self.cached_auxiliary_count
+        return 2 * accumulator_span + cached_auxiliary_count
 
     @property
     def local_scratch_required(self) -> int:
@@ -626,8 +629,7 @@ class RosenbrockStep(ODEImplicitStep):
     @property
     def order(self) -> int:
         """Return the classical order of accuracy."""
-
-        return 4
+        return self.tableau.order
 
     @property
     def threads_per_step(self) -> int:

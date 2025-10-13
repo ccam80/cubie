@@ -18,6 +18,7 @@ ros1 = RosenbrockTableau(
     d=(1.0,),
     c=(0.0,),
     gamma=1.0,
+    order=1,
 )
 
 ros2 = RosenbrockTableau(
@@ -29,6 +30,7 @@ ros2 = RosenbrockTableau(
     d=(1.0, 1.0),
     c=(0.0, 1.0),
     gamma=0.5,
+    order=2,
 )
 
 ros3 = RosenbrockTableau(
@@ -42,6 +44,7 @@ ros3 = RosenbrockTableau(
     d=(1.0, 1.0, 1.0),
     c=(0.0, 1.0, 0.5),
     gamma=1.0/3.0,
+    order=3,
 )
 
 ros4 = RosenbrockTableau(
@@ -57,6 +60,7 @@ ros4 = RosenbrockTableau(
     d=(1.0, 1.0, 1.0, 1.0),
     c=(0.0, 0.386, 0.84, 1.0),
     gamma=0.25,
+    order=4,
 )
 
 ROSENBROCK_W6S4OS_TABLEAU = RosenbrockTableau(
@@ -171,6 +175,7 @@ ROSENBROCK_W6S4OS_TABLEAU = RosenbrockTableau(
         0.9271047239875670,
     ),
     gamma=0.25,
+    order=4,
 )
 
 def _build_rosenbrock_debug_kernel(step_object, driver_count, observable_count):
@@ -776,6 +781,13 @@ def _collect_device_rosenbrock_intermediates(
         driver_coefficients, dtype=precision, copy=True
     )
     observables = np.zeros(system.sizes.observables, dtype=precision)
+    system.observables_function(
+        state,
+        params,
+        drivers_buffer,
+        observables,
+        precision(0.0),
+    )
     proposed_state = np.zeros_like(state)
     proposed_drivers = np.zeros_like(drivers_buffer)
     proposed_observables = np.zeros_like(observables)
@@ -985,6 +997,14 @@ def _run_device_step(
     )
     drivers_vec = np.array(drivers_buffer, dtype=precision, copy=True)
     observables = np.zeros(system.sizes.observables, dtype=precision)
+    time_scalar = precision(0.0)
+    system.observables_function(
+        state_vec,
+        params_vec,
+        drivers_vec,
+        observables,
+        time_scalar,
+    )
     proposed_state = np.zeros_like(state_vec)
     proposed_drivers = np.zeros_like(drivers_vec)
     proposed_observables = np.zeros_like(observables)

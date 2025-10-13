@@ -452,9 +452,10 @@ class SymbolicODE(BaseODE):
             )
             self._jacobian_aux_count = aux_count
         elif func_type == "cached_aux_count":
-            """Not a callable per se, but returned here as it is a "solver 
-            helper" and the only hook into symbolicODE that the step 
-            functions have."""
+            # Not a callable but returned here as it is a "solver helper" and
+            # the only hook into symbolicODE that the step functions have.
+            if self._jacobian_aux_count is None:
+                self.get_solver_helper("prepare_jac")
             return self._jacobian_aux_count
 
         elif func_type == "calculate_cached_jvp":

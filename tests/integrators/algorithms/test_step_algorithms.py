@@ -117,6 +117,7 @@ def device_step_results(
     step_inputs,
     cpu_driver_evaluator,
     system,
+    driver_array,
 ) -> StepResult:
     """Execute the CUDA step and collect host-side outputs."""
 
@@ -125,8 +126,8 @@ def device_step_results(
     n_states = system.sizes.states
     params = step_inputs["parameters"]
     state = step_inputs["state"]
-    drivers = cpu_driver_evaluator.evaluate(precision(0.0))
     driver_coefficients = step_inputs["driver_coefficients"]
+    drivers = np.zeros(system.sizes.drivers, dtype=precision)
     observables = np.zeros(system.sizes.observables, dtype=precision)
     proposed_state = np.zeros_like(state)
     error = np.zeros(n_states, dtype=precision)
@@ -151,6 +152,9 @@ def device_step_results(
     d_error = cuda.to_device(error)
     d_status = cuda.to_device(status)
 
+    driver_function = driver_array.evaluation_function
+    observables_function = system.observables_function
+
     @cuda.jit
     def kernel(
         state_vec,
@@ -171,6 +175,9 @@ def device_step_results(
             return
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
+        driver_function(precision(0.0), driver_coefficients, drivers_vec)
+        observables_function(state, params_vec, drivers_vec, observables,
+                             precision(0.0))
         result = step_function(
             state_vec,
             proposed_vec,
