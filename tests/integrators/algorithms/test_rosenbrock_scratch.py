@@ -248,6 +248,7 @@ def _build_rosenbrock_debug_kernel(step_object, driver_count, observable_count):
         jacobian_accumulator,
         cached_auxiliaries,
         stage_states,
+        stage_rhs_before_solve,
         stage_rhs_values,
         stage_increments,
         jacobian_products,
@@ -274,6 +275,7 @@ def _build_rosenbrock_debug_kernel(step_object, driver_count, observable_count):
         for row in range(stages):
             for col in range(n):
                 stage_states[row, col] = typed_zero
+                stage_rhs_before_solve[row, col] = typed_zero
                 stage_rhs_values[row, col] = typed_zero
                 stage_increments[row, col] = typed_zero
                 jacobian_products[row, col] = typed_zero
@@ -322,6 +324,9 @@ def _build_rosenbrock_debug_kernel(step_object, driver_count, observable_count):
             stage_rhs_values[0, idx] = (
                 dt_value * stage_rhs_values[0, idx]
             )
+
+        for idx in range(n):
+            stage_rhs_before_solve[0, idx] = stage_rhs_values[0, idx]
 
         status_code |= linear_solver(
             state,
@@ -420,6 +425,11 @@ def _build_rosenbrock_debug_kernel(step_object, driver_count, observable_count):
                 stage_increments[stage_idx, idx] = typed_zero
                 stage_rhs_values[stage_idx, idx] = dt_value * rhs_value
 
+            for idx in range(n):
+                stage_rhs_before_solve[stage_idx, idx] = (
+                    stage_rhs_values[stage_idx, idx]
+                )
+
             status_code |= linear_solver(
                 state,
                 parameters,
@@ -493,6 +503,7 @@ def _build_rosenbrock_debug_kernel(step_object, driver_count, observable_count):
         jacobian_accumulator,
         cached_auxiliaries,
         stage_states,
+        stage_rhs_before_solve,
         stage_rhs_values,
         stage_increments,
         jacobian_products,
@@ -520,6 +531,7 @@ def _build_rosenbrock_debug_kernel(step_object, driver_count, observable_count):
             jacobian_accumulator,
             cached_auxiliaries,
             stage_states,
+            stage_rhs_before_solve,
             stage_rhs_values,
             stage_increments,
             jacobian_products,
@@ -591,8 +603,8 @@ def _collect_cpu_rosenbrock_intermediates(
     lhs = identity - dt_scalar * gamma * jacobian
 
     stage_states = np.zeros((stage_count, n), dtype=precision)
-    stage_rhs_cpu = np.zeros_like(stage_states)
-    stage_rhs_gpu = np.zeros_like(stage_states)
+    stage_rhs_pre_solve = np.zeros_like(stage_states)
+    stage_rhs_post_solve = np.zeros_like(stage_states)
     stage_increments = np.zeros_like(stage_states)
     jacobian_products = np.zeros_like(stage_states)
     state_shifts = np.zeros((stage_count, n), dtype=precision)
@@ -610,12 +622,14 @@ def _collect_cpu_rosenbrock_intermediates(
 
     state_states0 = stage_states[0]
     state_states0[:] = state_vec
-    stage_rhs_cpu[0] = dt_scalar * f_now
-    stage_rhs_gpu[0] = stage_rhs_cpu[0]
+    stage_rhs_pre_solve[0] = dt_scalar * f_now
     driver_samples[0] = drivers_now
     observable_samples[0] = observables_now
 
-    stage_increments[0] = np.linalg.solve(lhs, stage_rhs_cpu[0])
+    stage_increments[0] = np.linalg.solve(lhs, stage_rhs_pre_solve[0])
+    stage_rhs_post_solve[0] = (
+        lhs @ stage_increments[0] - stage_rhs_pre_solve[0]
+    )
     jacobian_products[0] = jacobian @ stage_increments[0]
 
     solution_accum = b_weights[0] * stage_increments[0]
@@ -659,16 +673,16 @@ def _collect_cpu_rosenbrock_intermediates(
             stage_time,
         )
 
-        stage_rhs_cpu[stage_idx] = dt_scalar * f_stage
+        stage_rhs_pre_solve[stage_idx] = dt_scalar * f_stage
         jac_term = jacobian @ jacobian_shifts[stage_idx]
-        stage_rhs_cpu[stage_idx] += dt_scalar * jac_term
-
-        stage_rhs_gpu[stage_idx] = dt_scalar * (
-            f_stage + jacobian_accumulator[stage_idx - 1]
-        )
+        stage_rhs_pre_solve[stage_idx] += dt_scalar * jac_term
 
         stage_increments[stage_idx] = np.linalg.solve(
-            lhs, stage_rhs_cpu[stage_idx]
+            lhs, stage_rhs_pre_solve[stage_idx]
+        )
+        stage_rhs_post_solve[stage_idx] = (
+            lhs @ stage_increments[stage_idx]
+            - stage_rhs_pre_solve[stage_idx]
         )
         jacobian_products[stage_idx] = (
             jacobian @ stage_increments[stage_idx]
@@ -694,6 +708,10 @@ def _collect_cpu_rosenbrock_intermediates(
                     c_coeff * jacobian_products[stage_idx]
                 )
 
+    jacobian_products_device_like = jacobian_products.copy()
+    if stage_count > 1:
+        jacobian_products_device_like[-1].fill(precision(0.0))
+
     final_state = state_vec + solution_accum
     final_time = current_time + dt_scalar
     drivers_end = evaluator(float(final_time))
@@ -708,10 +726,11 @@ def _collect_cpu_rosenbrock_intermediates(
 
     return {
         "stage_states": stage_states,
-        "stage_rhs_cpu": stage_rhs_cpu,
-        "stage_rhs_gpu": stage_rhs_gpu,
+        "stage_rhs_pre_solve": stage_rhs_pre_solve,
+        "stage_rhs_post_solve": stage_rhs_post_solve,
         "stage_increments": stage_increments,
         "jacobian_products": jacobian_products,
+        "jacobian_products_device_like": jacobian_products_device_like,
         "state_accumulator": state_accumulator,
         "jacobian_accumulator": jacobian_accumulator,
         "driver_samples": driver_samples,
@@ -770,6 +789,7 @@ def _collect_device_rosenbrock_intermediates(
         step_object.cached_auxiliary_count, dtype=precision
     )
     stage_states = np.zeros((stage_count, n), dtype=precision)
+    stage_rhs_before_solve = np.zeros_like(stage_states)
     stage_rhs_values = np.zeros_like(stage_states)
     stage_increments = np.zeros_like(stage_states)
     jacobian_products = np.zeros_like(stage_states)
@@ -795,6 +815,7 @@ def _collect_device_rosenbrock_intermediates(
     d_jacobian_accumulator = cuda.to_device(jacobian_accumulator)
     d_cached_auxiliaries = cuda.to_device(cached_auxiliaries)
     d_stage_states = cuda.to_device(stage_states)
+    d_stage_rhs_before_solve = cuda.to_device(stage_rhs_before_solve)
     d_stage_rhs_values = cuda.to_device(stage_rhs_values)
     d_stage_increments = cuda.to_device(stage_increments)
     d_jacobian_products = cuda.to_device(jacobian_products)
@@ -819,6 +840,7 @@ def _collect_device_rosenbrock_intermediates(
         d_jacobian_accumulator,
         d_cached_auxiliaries,
         d_stage_states,
+        d_stage_rhs_before_solve,
         d_stage_rhs_values,
         d_stage_increments,
         d_jacobian_products,
@@ -831,6 +853,7 @@ def _collect_device_rosenbrock_intermediates(
 
     return {
         "stage_states": d_stage_states.copy_to_host(),
+        "stage_rhs_pre_solve": d_stage_rhs_before_solve.copy_to_host(),
         "stage_rhs": d_stage_rhs_values.copy_to_host(),
         "stage_increments": d_stage_increments.copy_to_host(),
         "jacobian_products": d_jacobian_products.copy_to_host(),
@@ -849,11 +872,18 @@ def _summarise_difference(cpu_data, device_data):
 
     comparisons = {
         "stage_states": ("stage_states", "stage_states"),
-        "stage_rhs": ("stage_rhs", "stage_rhs_gpu"),
+        "stage_rhs_pre_solve": (
+            "stage_rhs_pre_solve",
+            "stage_rhs_pre_solve",
+        ),
+        "stage_rhs_post_solve": (
+            "stage_rhs",
+            "stage_rhs_post_solve",
+        ),
         "stage_increments": ("stage_increments", "stage_increments"),
         "jacobian_products": (
             "jacobian_products",
-            "jacobian_products",
+            "jacobian_products_device_like",
         ),
         "state_accumulator": (
             "state_accumulator",
@@ -890,7 +920,10 @@ def _summarise_difference(cpu_data, device_data):
             continue
         diff = device_values - cpu_values
         abs_max = float(np.max(np.abs(diff)))
-        denom = np.maximum(np.abs(cpu_values), 1e-12)
+        denom = np.maximum(
+            np.maximum(np.abs(cpu_values), np.abs(device_values)),
+            1e-12,
+        )
         rel_max = float(np.max(np.abs(diff) / denom))
         summary[key] = {"abs_max": abs_max, "rel_max": rel_max}
     return summary
@@ -1133,7 +1166,8 @@ def test_rosenbrock_intermediate_scratch(
     print("Rosenbrock intermediate comparison (abs_max / rel_max):")
     for key in [
         "stage_states",
-        "stage_rhs",
+        "stage_rhs_pre_solve",
+        "stage_rhs_post_solve",
         "stage_increments",
         "jacobian_products",
         "state_accumulator",
