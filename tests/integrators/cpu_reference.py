@@ -15,6 +15,7 @@ outputs.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 import math
 from typing import Callable, Dict, Mapping, Sequence, Optional, Set
 import numpy as np
@@ -22,6 +23,10 @@ import sympy as sp
 from numpy.typing import NDArray
 
 from cubie.integrators import IntegratorReturnCodes
+from cubie.integrators.algorithms.rosenbrock import (
+    RosenbrockTableau,
+    ROSENBROCK_W6S4OS_TABLEAU,
+)
 from cubie import SymbolicODE
 from cubie._utils import PrecisionDType
 from cubie.odesystems.symbolic.jacobian import generate_jacobian
@@ -575,6 +580,29 @@ def crank_nicolson_step(
     return StepResult(next_state, observables, error, status, niters)
 
 
+def _tableau_matrix(
+    rows: Sequence[Sequence[float]],
+    stage_count: int,
+    dtype: np.dtype,
+) -> Array:
+    """Return a dense matrix created from ``rows`` padded with zeros."""
+
+    matrix = np.zeros((stage_count, stage_count), dtype=dtype)
+    for row_index, row in enumerate(rows[:stage_count]):
+        if not row:
+            continue
+        padded = np.asarray(row, dtype=dtype)
+        limit = min(stage_count, padded.shape[0])
+        matrix[row_index, :limit] = padded[:limit]
+    return matrix
+
+
+def _tableau_vector(entries: Sequence[float], dtype: np.dtype) -> Array:
+    """Return a one-dimensional array from ``entries`` using ``dtype``."""
+
+    return np.asarray(entries, dtype=dtype)
+
+
 def rosenbrock_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
@@ -585,6 +613,7 @@ def rosenbrock_step(
     tol: Optional[float] = None,
     max_iters: Optional[int] = None,
     time: float = 0.0,
+    tableau: Optional[RosenbrockTableau] = None,
 ) -> StepResult:
     """Six-stage Rosenbrock-W method with an embedded error estimate."""
 
@@ -593,132 +622,18 @@ def rosenbrock_step(
     current_time = precision(time)
     end_time = current_time + dt_value
 
-    a_matrix = np.array(
-        [
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            [
-                0.5812383407115008,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-            ],
-            [
-                0.9039624413714670,
-                1.8615191555345010,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-            ],
-            [
-                2.0765797196750000,
-                0.1884255381414796,
-                1.8701589674910320,
-                0.0,
-                0.0,
-                0.0,
-            ],
-            [
-                4.4355506384843120,
-                5.4571817986101890,
-                4.6163507880689300,
-                3.1181119524023610,
-                0.0,
-                0.0,
-            ],
-            [
-                10.791701698483260,
-                -10.056915225841310,
-                14.995644854284190,
-                5.2743399543909430,
-                1.4297308712611900,
-                0.0,
-            ],
-        ],
-        dtype=precision,
-    )
-    C_matrix = np.array(
-        [
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            [
-                -2.661294105131369,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-            ],
-            [
-                -3.128450202373838,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-            ],
-            [
-                -6.920335474535658,
-                -1.202675288266817,
-                -9.733561811413620,
-                0.0,
-                0.0,
-                0.0,
-            ],
-            [
-                -28.095306291026950,
-                20.371262954793770,
-                -41.043752753028690,
-                -19.663731756208950,
-                0.0,
-                0.0,
-            ],
-            [
-                9.7998186780974000,
-                11.935792886603180,
-                3.6738749290132010,
-                14.807828541095500,
-                0.8318583998690680,
-                0.0,
-            ],
-        ],
-        dtype=precision,
-    )
-    b_weights = np.array(
-        [
-            6.4562170746532350,
-            -4.8531413177680530,
-            9.7653183340692600,
-            2.0810841772787230,
-            0.6603936866352417,
-            0.6000000000000000,
-        ],
-        dtype=precision,
-    )
-    error_weights = np.array(
-        [
-            0.2500000000000000,
-            0.0836691184292894,
-            0.0544718623516351,
-            -0.3402289722355864,
-            0.0337651588339529,
-            -0.0903074267618540,
-        ],
-        dtype=precision,
-    )
-    c_nodes = np.array(
-        [
-            0.0,
-            0.1453095851778752,
-            0.3817422770256738,
-            0.6367813704374599,
-            0.7560744496323561,
-            0.9271047239875670,
-        ],
-        dtype=precision,
-    )
-    gamma = precision(0.25)
+    if tableau is None:
+        tableau_value = ROSENBROCK_W6S4OS_TABLEAU
+    else:
+        tableau_value = tableau
+    stage_count = tableau_value.stage_count
+
+    a_matrix = _tableau_matrix(tableau_value.a, stage_count, precision)
+    C_matrix = _tableau_matrix(tableau_value.C, stage_count, precision)
+    b_weights = _tableau_vector(tableau_value.b, precision)
+    error_weights = _tableau_vector(tableau_value.d, precision)
+    c_nodes = _tableau_vector(tableau_value.c, precision)
+    gamma = precision(tableau_value.gamma)
     zero = precision(0.0)
 
     drivers_now = driver_evaluator(float(current_time))
@@ -1125,21 +1040,24 @@ class CPUAdaptiveController:
 
 
 def get_ref_step_function(
-         algorithm: str,
-    ) -> Callable:
+    algorithm: str,
+    *,
+    tableau: Optional[RosenbrockTableau] = None,
+) -> Callable:
+    """Return the CPU reference implementation for ``algorithm``."""
 
-    if algorithm.lower() == "euler":
+    key = algorithm.lower()
+    if key == "euler":
         return explicit_euler_step
-    elif algorithm.lower() == "backwards_euler":
+    if key == "backwards_euler":
         return backward_euler_step
-    elif algorithm.lower() == "backwards_euler_pc":
+    if key == "backwards_euler_pc":
         return backward_euler_predict_correct_step
-    elif algorithm.lower() == "crank_nicolson":
+    if key == "crank_nicolson":
         return crank_nicolson_step
-    elif algorithm.lower() == "rosenbrock":
-        return rosenbrock_step
-    else:
-        raise ValueError(f"Unknown stepper algorithm: {algorithm}")
+    if key == "rosenbrock":
+        return partial(rosenbrock_step, tableau=tableau)
+    raise ValueError(f"Unknown stepper algorithm: {algorithm}")
 
 
 def _collect_saved_outputs(
@@ -1163,6 +1081,8 @@ def run_reference_loop(
     solver_settings,
     output_functions,
     controller,
+    *,
+    tableau: Optional[RosenbrockTableau] = None,
 ) -> dict[str, Array]:
     """Execute a CPU loop mirroring :class:`IVPLoop` behaviour."""
 
@@ -1178,7 +1098,12 @@ def run_reference_loop(
     status_flags = 0
     zero = precision(0.0)
 
-    step_function = get_ref_step_function(solver_settings["algorithm"])
+    tableau_value = tableau
+    if tableau_value is None:
+        tableau_value = solver_settings.get("tableau")
+    step_function = get_ref_step_function(
+        solver_settings["algorithm"], tableau=tableau_value
+    )
 
     coefficients = inputs.get("driver_coefficients")
     if coefficients is not None:

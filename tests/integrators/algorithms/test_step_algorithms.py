@@ -220,10 +220,16 @@ def cpu_step_results(
     cpu_system: CPUODESystem,
     step_inputs,
     cpu_driver_evaluator,
+    step_object,
 ) -> StepResult:
     """Execute the CPU reference stepper."""
 
-    step_function = get_ref_step_function(solver_settings["algorithm"])
+    tableau = getattr(
+        step_object, "tableau", solver_settings.get("tableau")
+    )
+    step_function = get_ref_step_function(
+        solver_settings["algorithm"], tableau=tableau
+    )
     dt = solver_settings["dt"]
     state = np.asarray(step_inputs["state"], dtype=cpu_system.precision)
     params = np.asarray(step_inputs["parameters"], dtype=cpu_system.precision)
@@ -255,14 +261,15 @@ def cpu_step_results(
 
 #All-in-one step test to share fixture setup at the expense of readability
 @pytest.mark.parametrize(
-    "solver_settings_override",
+    "solver_settings_override, system_override",
     [
-        {"algorithm": "euler", 'step_controller': 'fixed'},
-        {"algorithm": "backwards_euler"},
-        {"algorithm": "backwards_euler_pc", "dt_min": 0.0025},
-        {"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
-            1e-6, 'rtol': 1e-6, 'dt_min': 1e-6},
-        {"algorithm": "rosenbrock", 'step_controller': 'pi'},
+        [{"algorithm": "euler", 'step_controller': 'fixed'}, {}],
+        [{"algorithm": "backwards_euler"}, {}],
+        [{"algorithm": "backwards_euler_pc", "dt_min": 0.0025}, {}],
+        [{"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
+            1e-6, 'rtol': 1e-6, 'dt_min': 1e-6}, {}],
+        [{"algorithm": "rosenbrock", 'step_controller': 'pi',
+         'krylov_tolerance': 1e-7}, "threecm"],
     ],
     ids=[
         "euler",
@@ -273,6 +280,7 @@ def cpu_step_results(
     ],
     indirect=True,
 )
+
 def test_algorithm(
        step_object_mutable,
        solver_settings,

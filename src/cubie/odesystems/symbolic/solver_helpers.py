@@ -5,7 +5,7 @@ array or a SymPy matrix. Its entries are embedded directly into the generated
 device routine to avoid extra passes or buffers.
 """
 
-from typing import Dict, Iterable, List, Optional, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 import sympy as sp
 
 from cubie.odesystems.symbolic import cse_and_stack, topological_sort
@@ -113,8 +113,12 @@ CACHED_JVP_TEMPLATE = (
 
 def _split_jvp_expressions(
     exprs: Iterable[Tuple[sp.Symbol, sp.Expr]]
-) -> Tuple[List[Tuple[sp.Symbol, sp.Expr]], Dict[int, sp.Expr]]:
-    """Split topologically sorted expressions into auxiliaries and JVP terms.
+) -> Tuple[
+    List[Tuple[sp.Symbol, sp.Expr]],
+    List[Tuple[sp.Symbol, sp.Expr]],
+    Dict[int, sp.Expr],
+]:
+    """Split expressions into cached auxiliaries, runtime terms, and outputs.
 
     Parameters
     ----------
@@ -123,40 +127,81 @@ def _split_jvp_expressions(
 
     Returns
     -------
-    tuple of list and dict
-        Auxiliary assignments followed by the indexed JVP expressions.
+    tuple of list, list, and dict
+        Cached auxiliary assignments, runtime-only assignments, and the indexed
+        JVP expressions.
     """
-    aux = []
+    ordered_exprs = list(exprs)
+    assigned_symbols = {lhs for lhs, _ in ordered_exprs}
+
+    dependencies: Dict[sp.Symbol, Set[sp.Symbol]] = {}
+    downstream: Dict[sp.Symbol, Set[sp.Symbol]] = {}
+    for lhs, rhs in ordered_exprs:
+        deps = {
+            sym
+            for sym in rhs.free_symbols
+            if sym in assigned_symbols and not str(sym).startswith("jvp[")
+        }
+        dependencies[lhs] = deps
+        downstream[lhs] = set()
+
+    for lhs, _ in ordered_exprs:
+        lhs_str = str(lhs)
+        if lhs_str.startswith("j_") or lhs_str.startswith("jvp["):
+            downstream[lhs].add(lhs)
+
+    for lhs, _ in reversed(ordered_exprs):
+        targets = downstream[lhs]
+        for dep in dependencies[lhs]:
+            downstream[dep].update(targets)
+
+    cached_aux: List[Tuple[sp.Symbol, sp.Expr]] = []
+    runtime_aux: List[Tuple[sp.Symbol, sp.Expr]] = []
     jvp_terms: Dict[int, sp.Expr] = {}
-    for lhs, rhs in exprs:
+
+    for lhs, rhs in ordered_exprs:
         lhs_str = str(lhs)
         if lhs_str.startswith("jvp["):
             idx = int(lhs_str.split("[")[1].split("]")[0])
             jvp_terms[idx] = rhs
+            continue
+        if lhs_str.startswith("j_"):
+            runtime_aux.append((lhs, rhs))
+            continue
+
+        dependent_jacobians = {
+            sym for sym in downstream[lhs] if str(sym).startswith("j_")
+        }
+        if not dependencies[lhs] and len(dependent_jacobians) > 1:
+            cached_aux.append((lhs, rhs))
         else:
-            aux.append((lhs, rhs))
-    return aux, jvp_terms
+            runtime_aux.append((lhs, rhs))
+
+    return cached_aux, runtime_aux, jvp_terms
 
 def _build_operator_body(
-    aux: List[Tuple[sp.Symbol, sp.Expr]],
+    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],
+    runtime_assigns: List[Tuple[sp.Symbol, sp.Expr]],
     jvp_terms: Dict[int, sp.Expr],
     index_map: IndexedBases,
     M: sp.Matrix,
-    cached_aux: bool = False,
+    use_cached_aux: bool = False,
 ) -> str:
     """Build the CUDA body computing ``β·M·v − γ·h·J·v``.
 
     Parameters
     ----------
-    aux
-        Auxiliary assignments that populate intermediate values.
+    cached_assigns
+        Auxiliary assignments whose values are cached between kernel calls.
+    runtime_assigns
+        Assignments evaluated on demand without caching.
     jvp_terms
         Mapping from output indices to the Jacobian-vector expressions.
     index_map
         Symbol indexing helpers produced by the parser.
     M
         Mass matrix to embed into the generated operator.
-    cached_aux
+    use_cached_aux
         When ``True`` load auxiliary values from ``cached_aux`` instead of
         recomputing them.
 
@@ -186,18 +231,18 @@ def _build_operator_body(
         rhs = beta_sym * mv - gamma_sym * h_sym * jvp_terms[i]
         out_updates.append((sp.Symbol(f"out[{i}]"), rhs))
 
-    if cached_aux:
-        if aux:
+    if use_cached_aux:
+        if cached_assigns:
             cached = sp.IndexedBase(
-                "cached_aux", shape=(sp.Integer(len(aux)),)
+                "cached_aux", shape=(sp.Integer(len(cached_assigns)),)
             )
         else:
             cached = sp.IndexedBase("cached_aux")
         aux_assignments = [
-            (lhs, cached[idx]) for idx, (lhs, _) in enumerate(aux)
-        ]
+            (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_assigns)
+        ] + runtime_assigns
     else:
-        aux_assignments = aux
+        aux_assignments = cached_assigns + runtime_assigns
 
     exprs = mass_assigns + aux_assignments + out_updates
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
@@ -212,16 +257,17 @@ def _build_cached_neumann_body(
 ) -> str:
     """Build the cached Neumann-series Jacobian-vector body."""
 
-    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
-    if aux:
+    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    if cached_aux:
         cached = sp.IndexedBase(
-            "cached_aux", shape=(sp.Integer(len(aux)),)
+            "cached_aux", shape=(sp.Integer(len(cached_aux)),)
         )
     else:
         cached = sp.IndexedBase("cached_aux")
+
     aux_assignments = [
-        (lhs, cached[idx]) for idx, (lhs, _) in enumerate(aux)
-    ]
+          (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_aux)
+    ] + runtime_aux
 
     n_out = len(index_map.dxdt.ref_map)
     exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(aux_assignments)
@@ -237,7 +283,8 @@ def _build_cached_neumann_body(
 
 
 def _build_cached_jvp_body(
-    aux: List[Tuple[sp.Symbol, sp.Expr]],
+    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],
+    runtime_assigns: List[Tuple[sp.Symbol, sp.Expr]],
     jvp_terms: Dict[int, sp.Expr],
     index_map: IndexedBases,
 ) -> str:
@@ -245,16 +292,16 @@ def _build_cached_jvp_body(
 
     n_out = len(index_map.dxdt.ref_map)
 
-    if aux:
+    if cached_assigns:
         cached = sp.IndexedBase(
-            "cached_aux", shape=(sp.Integer(len(aux)),)
+            "cached_aux", shape=(sp.Integer(len(cached_assigns)),)
         )
     else:
         cached = sp.IndexedBase("cached_aux")
 
     aux_assignments = [
-        (lhs, cached[idx]) for idx, (lhs, _) in enumerate(aux)
-    ]
+        (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_assigns)
+    ] + runtime_assigns
 
     out_updates = []
     for i in range(n_out):
@@ -269,18 +316,18 @@ def _build_cached_jvp_body(
 
 
 def _build_prepare_body(
-    aux: List[Tuple[sp.Symbol, sp.Expr]], index_map: IndexedBases
+    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]], index_map: IndexedBases
 ) -> str:
     """Build the CUDA body populating the cached Jacobian auxiliaries."""
 
-    if aux:
+    if cached_assigns:
         cached = sp.IndexedBase(
-            "cached_aux", shape=(sp.Integer(len(aux)),)
+            "cached_aux", shape=(sp.Integer(len(cached_assigns)),)
         )
     else:
         cached = sp.IndexedBase("cached_aux")
     exprs: List[Tuple[sp.Symbol, sp.Expr]] = []
-    for idx, (lhs, rhs) in enumerate(aux):
+    for idx, (lhs, rhs) in enumerate(cached_assigns):
         exprs.append((lhs, rhs))
         exprs.append((cached[idx], lhs))
 
@@ -323,8 +370,15 @@ def generate_operator_apply_code_from_jvp(
     and embeds each constant as a standalone variable in the generated device
     function.
     """
-    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
-    body = _build_operator_body(aux, jvp_terms, index_map, M, cached_aux=False)
+    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    body = _build_operator_body(
+        cached_assigns=cached_aux,
+        runtime_assigns=runtime_aux,
+        jvp_terms=jvp_terms,
+        index_map=index_map,
+        M=M,
+        use_cached_aux=False,
+    )
     const_lines = [
         f"    {name} = precision(constants['{name}'])"
         for name in index_map.constants.symbol_map
@@ -343,8 +397,13 @@ def generate_cached_operator_apply_code_from_jvp(
 ) -> str:
     """Emit the cached linear operator factory from JVP expressions."""
 
-    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
-    body = _build_operator_body(aux, jvp_terms, index_map, M, cached_aux=True)
+    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    body = _build_operator_body(cached_assigns=cached_aux,
+                                runtime_assigns=runtime_aux,
+                                jvp_terms=jvp_terms,
+                                index_map=index_map,
+                                M=M,
+                                use_cached_aux=True)
     const_lines = [
         f"    {name} = precision(constants['{name}'])"
         for name in index_map.constants.symbol_map
@@ -364,8 +423,8 @@ def generate_prepare_jac_code_from_jvp(
 ) -> Tuple[str, int]:
     """Emit the auxiliary preparation factory from JVP expressions."""
 
-    aux, _ = _split_jvp_expressions(jvp_exprs)
-    body = _build_prepare_body(aux, index_map)
+    cached_aux, _, _ = _split_jvp_expressions(jvp_exprs)
+    body = _build_prepare_body(cached_aux, index_map)
     const_lines = [
         f"    {name} = precision(constants['{name}'])"
         for name in index_map.constants.symbol_map
@@ -374,7 +433,7 @@ def generate_prepare_jac_code_from_jvp(
     code = PREPARE_JAC_TEMPLATE.format(
         func_name=func_name, body=body, const_lines=const_block
     )
-    return code, len(aux)
+    return code, len(cached_aux)
 
 
 def generate_cached_jvp_code_from_jvp(
@@ -384,8 +443,13 @@ def generate_cached_jvp_code_from_jvp(
 ) -> str:
     """Emit the cached JVP factory from precomputed JVP expressions."""
 
-    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
-    body = _build_cached_jvp_body(aux, jvp_terms, index_map)
+    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    body = _build_cached_jvp_body(
+        cached_assigns=cached_aux,
+        runtime_assigns=runtime_aux,
+        jvp_terms=jvp_terms,
+        index_map=index_map,
+    )
     const_lines = [
         f"    {name} = precision(constants['{name}'])"
         for name in index_map.constants.symbol_map

@@ -15,7 +15,6 @@ from cubie.integrators.algorithms.ode_implicitstep import (ImplicitStepConfig,
                                                  ODEImplicitStep)
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
 
-
 @attrs.define(frozen=True)
 class RosenbrockTableau:
     """Coefficient tableau describing a Rosenbrock-W method."""

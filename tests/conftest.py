@@ -49,7 +49,7 @@ from tests.system_fixtures import (
     build_three_state_very_stiff_system,
 )
 
-enable_tempdir = "1"
+enable_tempdir = "0"
 os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
 # --------------------------------------------------------------------------- #
 #                            Codegen Redirect                                 #
@@ -849,6 +849,7 @@ def cpu_loop_runner(
     step_controller_settings,
     output_functions,
     cpu_driver_evaluator,
+    step_object,
 ):
     """Return a callable for generating CPU reference loop outputs."""
 
@@ -890,6 +891,9 @@ def cpu_loop_runner(
             precision=precision,
             step_controller_settings=step_controller_settings,
         )
+        tableau = getattr(
+            step_object, "tableau", solver_settings.get("tableau")
+        )
         return run_reference_loop(
             evaluator=cpu_system,
             inputs=inputs,
@@ -897,6 +901,7 @@ def cpu_loop_runner(
             solver_settings=solver_settings,
             output_functions=output_functions,
             controller=controller,
+            tableau=tableau,
         )
 
     return _run_loop
@@ -912,6 +917,7 @@ def cpu_loop_outputs(
     output_functions,
     cpu_driver_evaluator,
     driver_array,
+    step_object,
 ) -> dict[str, Array]:
     """Execute the CPU reference loop with the provided configuration."""
     inputs = {
@@ -927,6 +933,9 @@ def cpu_loop_outputs(
         precision=precision,
         step_controller_settings=step_controller_settings,
     )
+    tableau = getattr(
+        step_object, "tableau", solver_settings.get("tableau")
+    )
     return run_reference_loop(
         evaluator=cpu_system,
         inputs=inputs,
@@ -934,6 +943,7 @@ def cpu_loop_outputs(
         solver_settings=solver_settings,
         output_functions=output_functions,
         controller=controller,
+        tableau=tableau,
     )
 
 
