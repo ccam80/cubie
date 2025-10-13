@@ -4,8 +4,10 @@ from numba import cuda, from_dtype
 
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 from cubie.odesystems.symbolic.solver_helpers import (
+    generate_cached_jvp_code,
     generate_operator_apply_code,
     generate_neumann_preconditioner_code,
+    generate_prepare_jac_code,
     generate_stage_residual_code,
     generate_residual_end_state_code,
 )
@@ -24,24 +26,31 @@ def operator_system():
     return system
 
 
-@pytest.fixture(scope="function")
-def operator_factory(operator_system, precision):
-    """Return a factory producing operator_apply device functions."""
-
+def _build_operator_factory(system, precision):
     def factory(beta, gamma, M):
-        fname = f"operator_apply_factory_{abs(hash(M.tobytes()))}"
+        fname = f"operator_apply_factory_{abs(hash((beta, gamma, M.tobytes())))}"
         code = generate_operator_apply_code(
-            operator_system.equations, operator_system.indices, M=M, func_name=fname
+            system.equations,
+            system.indices,
+            M=M,
+            func_name=fname,
         )
-        op_fac = operator_system.gen_file.import_function(fname, code)
+        op_fac = system.gen_file.import_function(fname, code)
         return op_fac(
-            operator_system.constants.values_dict,
-            from_dtype(operator_system.precision),
+            system.constants.values_dict,
+            from_dtype(system.precision),
             beta=beta,
             gamma=gamma,
         )
 
     return factory
+
+
+@pytest.fixture(scope="function")
+def operator_factory(operator_system, precision):
+    """Return a factory producing operator_apply device functions."""
+
+    return _build_operator_factory(operator_system, precision)
 
 
 @pytest.fixture(scope="function")
@@ -57,6 +66,114 @@ def operator_kernel(precision):
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             op(state, parameters, drivers, h, vec, out)
+
+        return kernel
+
+    return make_kernel
+
+
+@pytest.fixture(scope="function")
+def cached_system():
+    """Build a nonlinear system with state-dependent Jacobian."""
+
+    dxdt = [
+        "dx0 = a*x0*x1 + b*sin(x0)",
+        "dx1 = c*x0*x1 + d*cos(x1)",
+    ]
+    constants = {"a": 0.5, "b": 1.3, "c": -0.7, "d": 0.9}
+    system = create_ODE_system(dxdt, states=["x0", "x1"], constants=constants)
+    return system
+
+
+@pytest.fixture(scope="function")
+def prepare_jac_factory(cached_system, precision):
+    """Return a factory producing prepare_jac device functions."""
+
+    def factory():
+        fname = "prepare_jac_factory"
+        code, aux_count = generate_prepare_jac_code(
+            cached_system.equations,
+            cached_system.indices,
+            func_name=fname,
+        )
+        prep_fac = cached_system.gen_file.import_function(fname, code)
+        prepare = prep_fac(
+            cached_system.constants.values_dict,
+            from_dtype(cached_system.precision),
+        )
+        return prepare, aux_count
+
+    return factory
+
+
+@pytest.fixture(scope="function")
+def cached_operator_factory(cached_system, precision):
+    """Return a factory producing operator_apply for the cached system."""
+
+    return _build_operator_factory(cached_system, precision)
+
+
+@pytest.fixture(scope="function")
+def cached_jvp_factory(cached_system, precision):
+    """Return a factory producing calculate_cached_jvp device functions."""
+
+    def factory(beta, gamma, M):
+        fname = f"cached_jvp_factory_{abs(hash((beta, gamma, M.tobytes())))}"
+        code = generate_cached_jvp_code(
+            cached_system.equations,
+            cached_system.indices,
+            M=M,
+            func_name=fname,
+        )
+        jvp_fac = cached_system.gen_file.import_function(fname, code)
+        return jvp_fac(
+            cached_system.constants.values_dict,
+            from_dtype(cached_system.precision),
+            beta=beta,
+            gamma=gamma,
+        )
+
+    return factory
+
+
+@pytest.fixture(scope="function")
+def cached_jvp_kernel(cached_system, precision):
+    """Kernel comparing cached JVP outputs with direct operator outputs."""
+
+    n_state = len(cached_system.indices.states.index_map)
+    n_params = len(cached_system.indices.parameters.index_map)
+    n_drivers = len(cached_system.indices.drivers.index_map)
+
+    def make_kernel(prepare, cached_jvp, operator, aux_count):
+        aux_len = max(aux_count, 1)
+        param_len = max(n_params, 1)
+        driver_len = max(n_drivers, 1)
+
+        @cuda.jit
+        def kernel(
+            h,
+            state_values,
+            parameter_values,
+            driver_values,
+            vec,
+            out_cached,
+            out_operator,
+        ):
+            state = cuda.local.array(n_state, precision)
+            parameters = cuda.local.array(param_len, precision)
+            drivers = cuda.local.array(driver_len, precision)
+            cached_aux = cuda.local.array(aux_len, precision)
+
+            for idx in range(n_state):
+                state[idx] = state_values[idx]
+            for idx in range(n_params):
+                parameters[idx] = parameter_values[idx]
+            for idx in range(n_drivers):
+                drivers[idx] = driver_values[idx]
+
+            prepare(state, parameters, drivers, cached_aux)
+            cached_jvp(state, parameters, drivers, cached_aux, h, vec, out_cached)
+            operator(state, parameters, drivers, h, vec, out_operator)
 
         return kernel
 
@@ -105,6 +222,60 @@ def test_operator_apply_constant_unpacking(operator_system):
         operator_system.equations, operator_system.indices
     )
     assert "a = precision(constants['a'])" in code
+
+
+@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
+def test_cached_jvp_matches_operator(
+    cached_system,
+    prepare_jac_factory,
+    cached_jvp_factory,
+    cached_operator_factory,
+    cached_jvp_kernel,
+    precision,
+    tolerance,
+):
+    """Ensure cached JVP equals operator apply after preparing auxiliaries."""
+
+    prepare, aux_count = prepare_jac_factory()
+    mass_matrix = np.array([[1.5, 0.2], [0.1, 2.0]], dtype=precision)
+    cached_jvp = cached_jvp_factory(
+        beta=1.25,
+        gamma=0.75,
+        M=mass_matrix,
+    )
+    operator = cached_operator_factory(
+        beta=1.25,
+        gamma=0.75,
+        M=mass_matrix,
+    )
+    kernel = cached_jvp_kernel(prepare, cached_jvp, operator, aux_count)
+
+    state_len = len(cached_system.indices.states.index_map)
+    state_values = np.array([0.4, -0.6], dtype=precision)
+    state_values = state_values[:state_len]
+    parameter_values = np.zeros(max(len(cached_system.indices.parameters.index_map), 1), dtype=precision)
+    driver_values = np.zeros(max(len(cached_system.indices.drivers.index_map), 1), dtype=precision)
+    vec = np.array([0.8, -1.1], dtype=precision)
+    vec = vec[:state_len]
+    out_cached = np.zeros(state_len, dtype=precision)
+    out_operator = np.zeros(state_len, dtype=precision)
+
+    kernel[1, 1](
+        precision(0.3),
+        state_values,
+        parameter_values,
+        driver_values,
+        vec,
+        out_cached,
+        out_operator,
+    )
+
+    assert np.allclose(
+        out_cached,
+        out_operator,
+        atol=tolerance.abs_tight,
+        rtol=tolerance.rel_tight,
+    )
 
 
 # ---------------------------------------------------------------------------

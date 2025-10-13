@@ -39,6 +39,51 @@ OPERATOR_APPLY_TEMPLATE = (
 )
 
 
+PREPARE_JAC_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED JACOBIAN PREPARATION FACTORY\n"
+    "def {func_name}(constants, precision):\n"
+    '    """Auto-generated Jacobian auxiliary preparation.\n'
+    "    Populates cached_aux with intermediate Jacobian values.\n"
+    '    """\n'
+    "{const_lines}"
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def prepare_jac(state, parameters, drivers, cached_aux):\n"
+    "{body}\n"
+    "    return prepare_jac\n"
+)
+
+
+CACHED_JVP_TEMPLATE = (
+    "\n"
+    "# AUTO-GENERATED CACHED JVP FACTORY\n"
+    "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
+    '    """Auto-generated cached Jacobian-vector product.\n'
+    "    Computes out = beta * (M @ v) - gamma * h * (J @ v).\n"
+    '    """\n'
+    "{const_lines}"
+    "    @cuda.jit((precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision[:],\n"
+    "               precision,\n"
+    "               precision[:],\n"
+    "               precision[:]),\n"
+    "              device=True,\n"
+    "              inline=True)\n"
+    "    def calculate_cached_jvp(\n"
+    "        state, parameters, drivers, cached_aux, h, v, out\n"
+    "    ):\n"
+    "{body}\n"
+    "    return calculate_cached_jvp\n"
+)
+
+
 def _split_jvp_expressions(
     exprs: Iterable[Tuple[sp.Symbol, sp.Expr]]
 ) -> Tuple[List[Tuple[sp.Symbol, sp.Expr]], Dict[int, sp.Expr]]:
@@ -65,29 +110,34 @@ def _split_jvp_expressions(
             aux.append((lhs, rhs))
     return aux, jvp_terms
 
-def _build_body_from_jvp(
-    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+def _build_operator_body(
+    aux: List[Tuple[sp.Symbol, sp.Expr]],
+    jvp_terms: Dict[int, sp.Expr],
     index_map: IndexedBases,
     M: sp.Matrix,
+    cached_aux: bool = False,
 ) -> str:
     """Build the CUDA body computing ``β·M·v − γ·h·J·v``.
 
     Parameters
     ----------
-    jvp_exprs
-        Expressions yielding the Jacobian-vector product components.
+    aux
+        Auxiliary assignments that populate intermediate values.
+    jvp_terms
+        Mapping from output indices to the Jacobian-vector expressions.
     index_map
         Symbol indexing helpers produced by the parser.
     M
         Mass matrix to embed into the generated operator.
+    cached_aux
+        When ``True`` load auxiliary values from ``cached_aux`` instead of
+        recomputing them.
 
     Returns
     -------
     str
         Indented CUDA code statements implementing the operator body.
     """
-    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
-
     n_out = len(index_map.dxdt.ref_map)
     n_in = len(index_map.states.index_map)
     v = sp.IndexedBase("v")
@@ -109,7 +159,42 @@ def _build_body_from_jvp(
         rhs = beta_sym * mv - gamma_sym * h_sym * jvp_terms[i]
         out_updates.append((sp.Symbol(f"out[{i}]"), rhs))
 
-    exprs = mass_assigns + aux + out_updates
+    if cached_aux:
+        if aux:
+            cached = sp.IndexedBase(
+                "cached_aux", shape=(sp.Integer(len(aux)),)
+            )
+        else:
+            cached = sp.IndexedBase("cached_aux")
+        aux_assignments = [
+            (lhs, cached[idx]) for idx, (lhs, _) in enumerate(aux)
+        ]
+    else:
+        aux_assignments = aux
+
+    exprs = mass_assigns + aux_assignments + out_updates
+    lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
+    if not lines:
+        return "        pass"
+    return "\n".join("        " + ln for ln in lines)
+
+
+def _build_prepare_body(
+    aux: List[Tuple[sp.Symbol, sp.Expr]], index_map: IndexedBases
+) -> str:
+    """Build the CUDA body populating the cached Jacobian auxiliaries."""
+
+    if aux:
+        cached = sp.IndexedBase(
+            "cached_aux", shape=(sp.Integer(len(aux)),)
+        )
+    else:
+        cached = sp.IndexedBase("cached_aux")
+    exprs: List[Tuple[sp.Symbol, sp.Expr]] = []
+    for idx, (lhs, rhs) in enumerate(aux):
+        exprs.append((lhs, rhs))
+        exprs.append((cached[idx], lhs))
+
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
     if not lines:
         return "        pass"
@@ -149,7 +234,8 @@ def generate_operator_apply_code_from_jvp(
     and embeds each constant as a standalone variable in the generated device
     function.
     """
-    body = _build_body_from_jvp(jvp_exprs, index_map, M)
+    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    body = _build_operator_body(aux, jvp_terms, index_map, M, cached_aux=False)
     const_lines = [
         f"    {name} = precision(constants['{name}'])"
         for name in index_map.constants.symbol_map
@@ -158,6 +244,47 @@ def generate_operator_apply_code_from_jvp(
     return OPERATOR_APPLY_TEMPLATE.format(
         func_name=func_name, body=body, const_lines=const_block
     )
+
+
+def generate_prepare_jac_code_from_jvp(
+    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    func_name: str = "prepare_jac",
+) -> Tuple[str, int]:
+    """Emit the auxiliary preparation factory from JVP expressions."""
+
+    aux, _ = _split_jvp_expressions(jvp_exprs)
+    body = _build_prepare_body(aux, index_map)
+    const_lines = [
+        f"    {name} = precision(constants['{name}'])"
+        for name in index_map.constants.symbol_map
+    ]
+    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    code = PREPARE_JAC_TEMPLATE.format(
+        func_name=func_name, body=body, const_lines=const_block
+    )
+    return code, len(aux)
+
+
+def generate_cached_jvp_code_from_jvp(
+    jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    M: sp.Matrix,
+    func_name: str = "calculate_cached_jvp",
+) -> str:
+    """Emit the cached JVP factory from precomputed JVP expressions."""
+
+    aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    body = _build_operator_body(aux, jvp_terms, index_map, M, cached_aux=True)
+    const_lines = [
+        f"    {name} = precision(constants['{name}'])"
+        for name in index_map.constants.symbol_map
+    ]
+    const_block = "\n".join(const_lines) + ("\n" if const_lines else "")
+    code = CACHED_JVP_TEMPLATE.format(
+        func_name=func_name, body=body, const_lines=const_block
+    )
+    return code
 
 
 def generate_operator_apply_code(
@@ -207,6 +334,57 @@ def generate_operator_apply_code(
         func_name=func_name,
         cse=cse,
     )
+
+def generate_prepare_jac_code(
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    func_name: str = "prepare_jac",
+    cse: bool = True,
+) -> Tuple[str, int]:
+    """Generate the cached auxiliary preparation factory."""
+
+    jvp_exprs = generate_analytical_jvp(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
+        cse=cse,
+    )
+    return generate_prepare_jac_code_from_jvp(
+        jvp_exprs=jvp_exprs,
+        index_map=index_map,
+        func_name=func_name,
+    )
+
+
+def generate_cached_jvp_code(
+    equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
+    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
+    func_name: str = "calculate_cached_jvp",
+    cse: bool = True,
+) -> str:
+    """Generate the cached Jacobian-vector product factory."""
+
+    if M is None:
+        n = len(index_map.states.index_map)
+        M_mat = sp.eye(n)
+    else:
+        M_mat = sp.Matrix(M)
+    jvp_exprs = generate_analytical_jvp(
+        equations,
+        input_order=index_map.states.index_map,
+        output_order=index_map.dxdt.index_map,
+        observables=index_map.observable_symbols,
+        cse=cse,
+    )
+    return generate_cached_jvp_code_from_jvp(
+        jvp_exprs=jvp_exprs,
+        index_map=index_map,
+        M=M_mat,
+        func_name=func_name,
+    )
+
 
 
 # ---------------------------------------------------------------------------

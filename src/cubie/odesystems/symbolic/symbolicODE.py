@@ -12,6 +12,8 @@ from cubie.odesystems.symbolic.dxdt import (
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.solver_helpers import (
     generate_neumann_preconditioner_code,
+    generate_prepare_jac_code,
+    generate_cached_jvp_code,
     generate_operator_apply_code,
     generate_residual_end_state_code,
     generate_stage_residual_code,
@@ -181,6 +183,7 @@ class SymbolicODE(BaseODE):
             num_drivers=ndriv,
             name=name
         )
+        self._jacobian_aux_count: Optional[int] = None
 
     @classmethod
     def create(
@@ -259,6 +262,12 @@ class SymbolicODE(BaseODE):
                    precision=precision)
 
 
+    @property
+    def jacobian_aux_count(self) -> Optional[int]:
+        """Return the number of cached Jacobian auxiliary values."""
+
+        return self._jacobian_aux_count
+
     def build(self) -> ODECache:
         """Compile the ``dxdt`` factory and refresh the cache.
 
@@ -269,6 +278,7 @@ class SymbolicODE(BaseODE):
         """
         numba_precision = self.numba_precision
         constants = self.constants.values_dict
+        self._jacobian_aux_count = None
         new_hash = hash_system_definition(
             self.equations, self.indices.constants.default_values
         )
@@ -349,8 +359,9 @@ class SymbolicODE(BaseODE):
         ----------
         func_type
             Helper identifier. Supported values are ``"linear_operator"``,
-            ``"neumann_preconditioner"``, ``"end_residual"``, and
-            ``"stage_residual"``.
+            ``"neumann_preconditioner"``, ``"end_residual"``,
+            ``"stage_residual"``, ``"prepare_jac"``, and
+            ``"calculate_cached_jvp"``.
         beta
             Shift parameter for the linear operator.
         gamma
@@ -384,9 +395,27 @@ class SymbolicODE(BaseODE):
             "constants": constants,
             "precision": numba_precision,
         }
-
         if func_type == "linear_operator":
             code = generate_operator_apply_code(
+                self.equations,
+                self.indices,
+                M=mass,
+                func_name=func_type,
+            )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
+        elif func_type == "prepare_jac":
+            code, aux_count = generate_prepare_jac_code(
+                self.equations,
+                self.indices,
+                func_name=func_type,
+            )
+            self._jacobian_aux_count = aux_count
+        elif func_type == "calculate_cached_jvp":
+            code = generate_cached_jvp_code(
                 self.equations,
                 self.indices,
                 M=mass,
