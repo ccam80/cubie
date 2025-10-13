@@ -302,7 +302,7 @@ def test_algorithm(
         "order getter"
     assert (
         step_object.shared_memory_required
-        == properties["shared_memory_required"]
+        == (properties["shared_memory_required"] + system._jacobian_aux_count)
     ), "shared_memory_required getter"
     assert step_object.local_scratch_required \
         == properties["local_scratch_required"],\

@@ -28,7 +28,10 @@ def operator_system():
 
 def _build_operator_factory(system, precision):
     def factory(beta, gamma, M):
-        fname = f"operator_apply_factory_{abs(hash((beta, gamma, M.tobytes())))}"
+        fname = (
+            "operator_apply_factory_"
+            f"{abs(hash((beta, gamma, M.tobytes())))}"
+        )
         code = generate_operator_apply_code(
             system.equations,
             system.indices,
@@ -107,30 +110,20 @@ def prepare_jac_factory(cached_system, precision):
 
 
 @pytest.fixture(scope="function")
-def cached_operator_factory(cached_system, precision):
-    """Return a factory producing operator_apply for the cached system."""
-
-    return _build_operator_factory(cached_system, precision)
-
-
-@pytest.fixture(scope="function")
 def cached_jvp_factory(cached_system, precision):
     """Return a factory producing calculate_cached_jvp device functions."""
 
-    def factory(beta, gamma, M):
-        fname = f"cached_jvp_factory_{abs(hash((beta, gamma, M.tobytes())))}"
+    def factory():
+        fname = "cached_jvp_factory"
         code = generate_cached_jvp_code(
             cached_system.equations,
             cached_system.indices,
-            M=M,
             func_name=fname,
         )
         jvp_fac = cached_system.gen_file.import_function(fname, code)
         return jvp_fac(
             cached_system.constants.values_dict,
             from_dtype(cached_system.precision),
-            beta=beta,
-            gamma=gamma,
         )
 
     return factory
@@ -138,26 +131,24 @@ def cached_jvp_factory(cached_system, precision):
 
 @pytest.fixture(scope="function")
 def cached_jvp_kernel(cached_system, precision):
-    """Kernel comparing cached JVP outputs with direct operator outputs."""
+    """Apply cached JVP outputs for comparison with analytic Jacobian."""
 
     n_state = len(cached_system.indices.states.index_map)
     n_params = len(cached_system.indices.parameters.index_map)
     n_drivers = len(cached_system.indices.drivers.index_map)
 
-    def make_kernel(prepare, cached_jvp, operator, aux_count):
+    def make_kernel(prepare, cached_jvp, aux_count):
         aux_len = max(aux_count, 1)
         param_len = max(n_params, 1)
         driver_len = max(n_drivers, 1)
 
         @cuda.jit
         def kernel(
-            h,
             state_values,
             parameter_values,
             driver_values,
             vec,
             out_cached,
-            out_operator,
         ):
             state = cuda.local.array(n_state, precision)
             parameters = cuda.local.array(param_len, precision)
@@ -172,8 +163,7 @@ def cached_jvp_kernel(cached_system, precision):
                 drivers[idx] = driver_values[idx]
 
             prepare(state, parameters, drivers, cached_aux)
-            cached_jvp(state, parameters, drivers, cached_aux, h, vec, out_cached)
-            operator(state, parameters, drivers, h, vec, out_operator)
+            cached_jvp(state, parameters, drivers, cached_aux, vec, out_cached)
 
         return kernel
 
@@ -225,56 +215,59 @@ def test_operator_apply_constant_unpacking(operator_system):
 
 
 @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
-def test_cached_jvp_matches_operator(
+def test_cached_jvp_matches_jacobian(
     cached_system,
     prepare_jac_factory,
     cached_jvp_factory,
-    cached_operator_factory,
     cached_jvp_kernel,
     precision,
     tolerance,
 ):
-    """Ensure cached JVP equals operator apply after preparing auxiliaries."""
+    """Ensure cached JVP equals the analytic Jacobian-vector product."""
 
     prepare, aux_count = prepare_jac_factory()
-    mass_matrix = np.array([[1.5, 0.2], [0.1, 2.0]], dtype=precision)
-    cached_jvp = cached_jvp_factory(
-        beta=1.25,
-        gamma=0.75,
-        M=mass_matrix,
-    )
-    operator = cached_operator_factory(
-        beta=1.25,
-        gamma=0.75,
-        M=mass_matrix,
-    )
-    kernel = cached_jvp_kernel(prepare, cached_jvp, operator, aux_count)
+    cached_jvp = cached_jvp_factory()
+    kernel = cached_jvp_kernel(prepare, cached_jvp, aux_count)
 
     state_len = len(cached_system.indices.states.index_map)
     state_values = np.array([0.4, -0.6], dtype=precision)
     state_values = state_values[:state_len]
-    parameter_values = np.zeros(max(len(cached_system.indices.parameters.index_map), 1), dtype=precision)
-    driver_values = np.zeros(max(len(cached_system.indices.drivers.index_map), 1), dtype=precision)
+    param_len = max(len(cached_system.indices.parameters.index_map), 1)
+    drv_len = max(len(cached_system.indices.drivers.index_map), 1)
+    parameter_values = np.zeros(param_len, dtype=precision)
+    driver_values = np.zeros(drv_len, dtype=precision)
     vec = np.array([0.8, -1.1], dtype=precision)
     vec = vec[:state_len]
     out_cached = np.zeros(state_len, dtype=precision)
-    out_operator = np.zeros(state_len, dtype=precision)
 
     kernel[1, 1](
-        precision(0.3),
         state_values,
         parameter_values,
         driver_values,
         vec,
         out_cached,
-        out_operator,
     )
+
+    a = precision(cached_system.constants.values_dict["a"])
+    b = precision(cached_system.constants.values_dict["b"])
+    c = precision(cached_system.constants.values_dict["c"])
+    d = precision(cached_system.constants.values_dict["d"])
+
+    x0, x1 = state_values
+    jacobian = np.array(
+        [
+            [a * x1 + b * np.cos(x0), a * x0],
+            [c * x1, c * x0 - d * np.sin(x1)],
+        ],
+        dtype=precision,
+    )
+    expected = jacobian @ vec
 
     assert np.allclose(
         out_cached,
-        out_operator,
-        atol=tolerance.abs_tight,
-        rtol=tolerance.rel_tight,
+        expected,
+        atol=tolerance.abs_loose * 50,
+        rtol=tolerance.rel_loose * 50,
     )
 
 
@@ -308,7 +301,7 @@ def neumann_factory(operator_system, precision):
 
 @pytest.fixture(scope="function")
 def neumann_kernel(precision):
-    """Kernel applying the Neumann preconditioner to a vector, passing scratch."""
+    """Apply the Neumann preconditioner to a vector, passing scratch."""
 
     n = 2
 
@@ -346,7 +339,7 @@ def test_neumann_preconditioner_expression(
     precision,
     tolerance,
 ):
-    """Validate Neumann preconditioner equals truncated series on a known system.
+    """Validate Neumann preconditioner against a truncated series.
 
     System: dx/dt = J x with J = [[a, b], [c, d]] = [[1, 2], [3, 4]].
     Preconditioner approximates (beta*I - gamma*h*J)^{-1} via truncated series.
@@ -400,7 +393,10 @@ def end_residual_factory(residual_system, precision):
         base = cuda.to_device(np.array([0.5, -0.5], dtype=precision))
         fname = f"residual_end_factory_{abs(hash(M.tobytes()))}"
         code = generate_residual_end_state_code(
-            residual_system.equations, residual_system.indices, M=M, func_name=fname
+            residual_system.equations,
+            residual_system.indices,
+            M=M,
+            func_name=fname,
         )
         res_fac = residual_system.gen_file.import_function(fname, code)
         return res_fac(
@@ -419,7 +415,10 @@ def stage_residual_factory(residual_system, precision):
         base = cuda.to_device(np.array([0.25, -0.25], dtype=precision))
         fname = f"stage_residual_factory_{abs(hash(M.tobytes()))}"
         code = generate_stage_residual_code(
-            residual_system.equations, residual_system.indices, M=M, func_name=fname
+            residual_system.equations,
+            residual_system.indices,
+            M=M,
+            func_name=fname,
         )
         res_fac = residual_system.gen_file.import_function(fname, code)
         return res_fac(

@@ -238,15 +238,19 @@ class RosenbrockStep(ODEImplicitStep):
             gamma=tableau.gamma,
             M=mass,
         )
+        self._cached_auxiliary_count = 0
         super().__init__(config, ROSENBROCK_DEFAULTS)
 
-    def build_implicit_helpers(self) -> Tuple[Callable, Callable]:
+    def build_implicit_helpers(
+        self,
+    ) -> Tuple[Callable, Callable, Callable]:
         """Construct the nonlinear solver chain used by implicit methods.
 
         Returns
         -------
         tuple of Callables
-            Linear solver function and jvp compiled for the Rosenbrock-W step.
+            Linear solver function and Jacobian helpers for the Rosenbrock-W
+            step.
         """
         precision = self.precision
         config = self.compile_settings
@@ -274,13 +278,20 @@ class RosenbrockStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        jacobian_operator = get_fn(
-            "linear_operator",
+        prepare_jacobian = get_fn(
+            "prepare_jac",
+            preconditioner_order=preconditioner_order,
+        )
+        self._cached_auxiliary_count = get_fn("cached_aux_count")
+
+        cached_jvp = get_fn(
+            "calculate_cached_jvp",
             beta=precision(0.0),
-            gamma=precision(1.0),
+            gamma=precision(-1.0),
             mass=mass,
             preconditioner_order=preconditioner_order,
         )
+
 
         krylov_tolerance = config.krylov_tolerance
         max_linear_iters = config.max_linear_iters
@@ -295,7 +306,7 @@ class RosenbrockStep(ODEImplicitStep):
             max_iters=max_linear_iters,
         )
 
-        return linear_solver, jacobian_operator
+        return linear_solver, prepare_jacobian, cached_jvp
 
     def build_step(
         self,
@@ -311,7 +322,11 @@ class RosenbrockStep(ODEImplicitStep):
 
         config = self.compile_settings
         tableau = config.tableau
-        linear_solver, jacobian_apply = self.build_implicit_helpers()
+        (
+            linear_solver,
+            prepare_jacobian,
+            cached_jvp,
+        ) = solver_fn
 
         stage_count = tableau.stage_count
         has_driver_function = driver_function is not None
@@ -331,6 +346,7 @@ class RosenbrockStep(ODEImplicitStep):
         )
         typed_zero = numba_precision(0.0)
         accumulator_length = max(stage_count - 1, 0) * n
+        cached_auxiliary_count = self.cached_auxiliary_count
 
         @cuda.jit(
             (
@@ -379,10 +395,21 @@ class RosenbrockStep(ODEImplicitStep):
             jacobian_product_accumulator = shared[
                 accumulator_length: 2 * accumulator_length
             ]
+            cached_auxiliaries = shared[
+                2 * accumulator_length:
+                2 * accumulator_length + cached_auxiliary_count
+            ]
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
                 jacobian_product_accumulator[idx] = typed_zero
+
+            prepare_jacobian(
+                state,
+                parameters,
+                drivers_buffer,
+                cached_auxiliaries,
+            )
 
             for idx in range(n):
                 error[idx] = typed_zero
@@ -422,11 +449,11 @@ class RosenbrockStep(ODEImplicitStep):
                 proposed_state[idx] += solution_weights[0] * increment
                 error[idx] += error_weights[0] * increment
 
-            jacobian_apply(
+            cached_jvp(
                 state,
                 parameters,
                 drivers_buffer,
-                numba_precision(1.0),
+                cached_auxiliaries,
                 stage_increment,
                 jacobian_stage_product,
             )
@@ -451,8 +478,7 @@ class RosenbrockStep(ODEImplicitStep):
                         contribution = state_coeff * stage_increment[idx]
                         stage_accumulator[base + idx] += contribution
                         jacobian_contribution = (
-                                jacobian_coeff
-                                * jacobian_stage_product[idx]
+                            jacobian_coeff * jacobian_stage_product[idx]
                         )
                         jacobian_product_accumulator[base + idx] += (
                             jacobian_contribution
@@ -479,7 +505,7 @@ class RosenbrockStep(ODEImplicitStep):
                         stage_drivers,
                     )
 
-                proposed_observables = observables_function(
+                observables_function(
                     stage_state,
                     parameters,
                     stage_drivers,
@@ -502,7 +528,7 @@ class RosenbrockStep(ODEImplicitStep):
                         stage_offset + idx
                     ]
                     stage_increment[idx] = typed_zero
-                    stage_rhs[idx] = dt_value * (rhs_value - jacobian_term)
+                    stage_rhs[idx] = dt_value * (rhs_value + jacobian_term)
 
                 status_code |= linear_solver(
                     state,
@@ -521,11 +547,11 @@ class RosenbrockStep(ODEImplicitStep):
                     error[idx] += error_weight * increment
 
                 if stage_idx < stage_count - 1:
-                    jacobian_apply(
+                    cached_jvp(
                         state,
                         parameters,
                         drivers_buffer,
-                        numba_precision(1.0),
+                        cached_auxiliaries,
                         stage_increment,
                         jacobian_stage_product,
                     )
@@ -565,12 +591,18 @@ class RosenbrockStep(ODEImplicitStep):
         return True
 
     @property
+    def cached_auxiliary_count(self) -> int:
+        """Return the number of cached auxiliary entries for the JVP."""
+
+        return self._cached_auxiliary_count
+
+    @property
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
 
         stage_count = self.compile_settings.tableau.stage_count
         accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
-        return 2 * accumulator_span
+        return 2 * accumulator_span + self.cached_auxiliary_count
 
     @property
     def local_scratch_required(self) -> int:

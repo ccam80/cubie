@@ -345,7 +345,7 @@ class SymbolicODE(BaseODE):
         gamma: float = 1.0,
         preconditioner_order: int = 2,
         mass: Optional[Union[np.ndarray, sp.Matrix]] = None,
-    ) -> Callable:
+    ) -> Union[Callable, int]:
         """Return a generated solver helper device function.
 
         Solvers use a linear operator, preconditioner, and residual function.
@@ -360,7 +360,7 @@ class SymbolicODE(BaseODE):
         func_type
             Helper identifier. Supported values are ``"linear_operator"``,
             ``"neumann_preconditioner"``, ``"end_residual"``,
-            ``"stage_residual"``, ``"prepare_jac"``, and
+            ``"stage_residual"``, ``"prepare_jac"``, ``"cached_aux_count"`` and
             ``"calculate_cached_jvp"``.
         beta
             Shift parameter for the linear operator.
@@ -414,17 +414,17 @@ class SymbolicODE(BaseODE):
                 func_name=func_type,
             )
             self._jacobian_aux_count = aux_count
+        elif func_type == "cached_aux_count":
+            """Not a callable per se, but returned here as it is a "solver 
+            helper" and the only hook into symbolicODE that the step 
+            functions have."""
+            return self._jacobian_aux_count
+
         elif func_type == "calculate_cached_jvp":
             code = generate_cached_jvp_code(
                 self.equations,
                 self.indices,
-                M=mass,
                 func_name=func_type,
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
             )
         elif func_type == "neumann_preconditioner":
             code = generate_neumann_preconditioner_code(
