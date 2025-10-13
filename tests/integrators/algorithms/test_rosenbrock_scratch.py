@@ -1065,7 +1065,8 @@ def _run_device_step(
         "error": d_error.copy_to_host(),
         "status": int(d_status.copy_to_host()[0]),
     }
-
+@pytest.mark.parametrize("system_override", ["three_chamber"], ids=["3cm"],
+                         indirect=True)
 @pytest.mark.parametrize("solver_settings_override",
                          [{"tableau": ros1,
                            "algorithm": "rosenbrock",
@@ -1091,6 +1092,12 @@ def _run_device_step(
                          ids=["euler", "ROS2", "ROS3", "ROS4", "W6S40S"],
                          indirect=True
                          )
+@pytest.mark.parametrize(
+    "system_override",
+    ["nonlinear", "nonlinear", "nonlinear", "nonlinear", "threecm"],
+    ids=["euler", "ROS2", "ROS3", "ROS4", "W6S40S"],
+    indirect=True,
+)
 def test_rosenbrock_intermediate_scratch(
     step_object,
     solver_settings,
@@ -1162,6 +1169,20 @@ def test_rosenbrock_intermediate_scratch(
     )
 
     summary = _summarise_difference(cpu_data, device_data)
+
+    if tableau is ROSENBROCK_W6S4OS_TABLEAU:
+        print("CPU stage states", cpu_data["stage_states"])
+        print("Device stage states", device_data["stage_states"])
+        print("CPU final state", cpu_step.state)
+        print("Device final state", device_step["state"])
+        print("CPU stage rhs", cpu_data["stage_rhs_pre_solve"])
+        print("Device stage rhs", device_data["stage_rhs_pre_solve"])
+        print("CPU stage increments", cpu_data["stage_increments"])
+        print("Device stage increments", device_data["stage_increments"])
+        print("CPU drivers", cpu_data["driver_samples"])
+        print("Device drivers", device_data["driver_samples"])
+        print("CPU jacobian products", cpu_data["jacobian_products"])
+        print("Device jacobian products", device_data["jacobian_products"])
 
     print("Rosenbrock intermediate comparison (abs_max / rel_max):")
     for key in [

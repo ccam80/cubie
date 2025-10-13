@@ -83,12 +83,12 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
         },
     }
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def expected_step_properties(system) -> dict[str, Any]:
     """Generate expected properties for each algorithm given n_states."""
     return generate_step_props(n_states=system.sizes.states)
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def step_inputs(
     system,
     precision,
@@ -109,7 +109,7 @@ def step_inputs(
     }
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def device_step_results(
     step_object,
     solver_settings,
@@ -214,7 +214,7 @@ def device_step_results(
     )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def cpu_step_results(
     solver_settings,
     cpu_system: CPUODESystem,
@@ -269,7 +269,7 @@ def cpu_step_results(
         [{"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
             1e-6, 'rtol': 1e-6, 'dt_min': 1e-6}, {}],
         [{"algorithm": "rosenbrock", 'step_controller': 'pi',
-         'krylov_tolerance': 1e-7}, "threecm"],
+         'krylov_tolerance': 1e-7}, {}],
     ],
     ids=[
         "euler",
