@@ -50,28 +50,6 @@ class RosenbrockTableau:
             )
         return tuple(typed_rows)
 
-    def build_combined_successors(
-        self,
-        stage_rows: Tuple[Tuple[float, ...], ...],
-        jacobian_rows: Tuple[Tuple[float, ...], ...],
-    ) -> Tuple[Tuple[Tuple[int, float, float], ...], ...]:
-        """Return successor contributions for state and Jacobian accumulators."""
-
-        successors = []
-        for stage_index in range(self.stage_count):
-            stage_successors = []
-            for successor_index in range(stage_index + 1, self.stage_count):
-                stage_coeff = stage_rows[successor_index][stage_index]
-                jacobian_coeff = jacobian_rows[successor_index][stage_index]
-                if stage_coeff != 0.0 or jacobian_coeff != 0.0:
-                    stage_successors.append(
-                        (successor_index, stage_coeff, jacobian_coeff)
-                    )
-            successors.append(tuple(stage_successors))
-        return tuple(successors)
-
-
-
 ROSENBROCK_W6S4OS_TABLEAU = RosenbrockTableau(
     a=(
         (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
@@ -338,10 +316,10 @@ class RosenbrockStep(ODEImplicitStep):
         stage_count = tableau.stage_count
         has_driver_function = driver_function is not None
 
-        stage_rhs_coefficients = self.tableau.typed_rows(
+        stage_rhs_coeffs = self.tableau.typed_rows(
             tableau.a, numba_precision
         )
-        jacobian_update_coefficients = self.tableau.typed_rows(
+        jacobian_update_coeffs = self.tableau.typed_rows(
             tableau.C, numba_precision
         )
         solution_weights = tuple(
@@ -351,9 +329,8 @@ class RosenbrockStep(ODEImplicitStep):
         stage_time_fractions = tuple(
             numba_precision(value) for value in tableau.c
         )
-        stage_offsets = tuple(index * n for index in range(stage_count))
-
         typed_zero = numba_precision(0.0)
+        accumulator_length = max(stage_count - 1, 0) * n
 
         @cuda.jit(
             (
@@ -378,7 +355,7 @@ class RosenbrockStep(ODEImplicitStep):
             state,
             proposed_state,
             parameters,
-            driver_coefficients,
+            driver_coeffs,
             drivers_buffer,
             proposed_drivers,
             observables,
@@ -398,12 +375,12 @@ class RosenbrockStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_value
 
-            stage_accumulator = shared[: stage_count * n]
+            stage_accumulator = shared[:accumulator_length]
             jacobian_product_accumulator = shared[
-                stage_count * n : 2 * stage_count * n
+                accumulator_length: 2 * accumulator_length
             ]
 
-            for idx in range(stage_count * n):
+            for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
                 jacobian_product_accumulator[idx] = typed_zero
 
@@ -412,47 +389,108 @@ class RosenbrockStep(ODEImplicitStep):
                 stage_state[idx] = state[idx]
                 proposed_state[idx] = typed_zero
 
-            #Proposed observables and drivers will differ from state and
-            # drivers after a failed step - eat the cost of an overwrite
-            # instead of branching to use obs, drivers for stage 0.
-            for idx in range(proposed_observables.size):
-                proposed_observables[idx] = observables[idx]
-
-            for idx in range(drivers_buffer.size):
-                proposed_drivers[idx] = drivers_buffer[idx]
-
             status_code = int32(0)
 
-            for stage_index in range(stage_count):
+            # --------------------------------------------------------------- #
+            #            Stage 0: operates out of supplied buffers            #
+            # --------------------------------------------------------------- #
 
-                stage_offset = stage_offsets[stage_index]
+            dxdt_fn(
+                state,
+                parameters,
+                drivers_buffer,
+                observables,
+                stage_rhs,
+                current_time,
+            )
+
+            for idx in range(n):
+                stage_increment[idx] = typed_zero
+                stage_rhs[idx] = dt_value * stage_rhs[idx]
+
+            status_code |= linear_solver(
+                state,
+                parameters,
+                drivers_buffer,
+                dt_value,
+                stage_rhs,
+                stage_increment,
+            )
+
+            for idx in range(n):
+                increment = stage_increment[idx]
+                proposed_state[idx] += solution_weights[0] * increment
+                error[idx] += error_weights[0] * increment
+
+            jacobian_apply(
+                state,
+                parameters,
+                drivers_buffer,
+                numba_precision(1.0),
+                stage_increment,
+                jacobian_stage_product,
+            )
+
+            # --------------------------------------------------------------- #
+            #            Stages 1-s: must refresh obs/drivers                 #
+            # --------------------------------------------------------------- #
+
+            for stage_idx in range(1, stage_count):
+
+                # Fill accumulators with previous step's contributions
+                prev_idx = stage_idx - 1
+                successor_range = stage_count - stage_idx
+                for successor_offset in range(successor_range):
+                    successor_idx = stage_idx + successor_offset
+                    state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
+                    jacobian_coeff = jacobian_update_coeffs[successor_idx][
+                        prev_idx
+                    ]
+                    base = (successor_idx - 1) * n
+                    for idx in range(n):
+                        contribution = state_coeff * stage_increment[idx]
+                        stage_accumulator[base + idx] += contribution
+                        jacobian_contribution = (
+                                jacobian_coeff
+                                * jacobian_stage_product[idx]
+                        )
+                        jacobian_product_accumulator[base + idx] += (
+                            jacobian_contribution
+                        )
+
+                # Position in accumulator
+                stage_offset = (stage_idx - 1) * n
+
                 stage_time = (
-                    current_time + dt_value * stage_time_fractions[stage_index]
+                    current_time + dt_value * stage_time_fractions[stage_idx]
                 )
 
-                if stage_index > 0:
-                    for idx in range(n):
-                        stage_state[idx] = (
-                            state[idx] + stage_accumulator[stage_offset + idx]
-                        )
-                        if has_driver_function:
-                            driver_function(
-                                    stage_time,
-                                    driver_coefficients,
-                                    proposed_drivers,
-                            )
-                        proposed_observables = observables_function(
-                                stage_state,
-                                parameters,
-                                proposed_drivers,
-                                proposed_observables,
-                                stage_time,
-                        )
+
+                for idx in range(n):
+                    stage_state[idx] = (
+                        state[idx] + stage_accumulator[stage_offset + idx]
+                    )
+
+                stage_drivers = proposed_drivers
+                if has_driver_function:
+                    driver_function(
+                        stage_time,
+                        driver_coeffs,
+                        stage_drivers,
+                    )
+
+                proposed_observables = observables_function(
+                    stage_state,
+                    parameters,
+                    stage_drivers,
+                    proposed_observables,
+                    stage_time,
+                )
 
                 dxdt_fn(
                     stage_state,
                     parameters,
-                    proposed_drivers,
+                    stage_drivers,
                     proposed_observables,
                     stage_rhs,
                     stage_time,
@@ -475,25 +513,14 @@ class RosenbrockStep(ODEImplicitStep):
                     stage_increment,
                 )
 
-                solution_weight = solution_weights[stage_index]
-                error_weight = error_weights[stage_index]
+                solution_weight = solution_weights[stage_idx]
+                error_weight = error_weights[stage_idx]
                 for idx in range(n):
                     increment = stage_increment[idx]
                     proposed_state[idx] += solution_weight * increment
                     error[idx] += error_weight * increment
 
-                # Determine if there are any non-zero successor coefficients for this stage
-                has_successor = False
-                for successor_index in range(stage_index + 1, stage_count):
-                    if (
-                        stage_rhs_coefficients[successor_index][stage_index] != 0.0
-                        or jacobian_update_coefficients[successor_index][stage_index] != 0.0
-                    ):
-                        has_successor = True
-
-                if has_successor:
-                    # Cache the Jacobian action for this stage increment once
-                    # and stream weighted contributions to future stages.
+                if stage_idx < stage_count - 1:
                     jacobian_apply(
                         state,
                         parameters,
@@ -503,34 +530,14 @@ class RosenbrockStep(ODEImplicitStep):
                         jacobian_stage_product,
                     )
 
-                    for successor_index in range(stage_index + 1, stage_count):
-                        state_coeff = stage_rhs_coefficients[successor_index][stage_index]
-                        jac_coeff = jacobian_update_coefficients[successor_index][stage_index]
-                        if state_coeff == 0.0 and jac_coeff == 0.0:
-                            continue
-                        base = stage_offsets[successor_index]
-                        for idx in range(n):
-                            stage_contribution = (
-                                state_coeff * stage_increment[idx]
-                            )
-                            jacobian_contribution = (
-                                jac_coeff * jacobian_stage_product[idx]
-                            )
-                            stage_accumulator[base + idx] += stage_contribution
-                            jacobian_product_accumulator[
-                                base + idx
-                            ] += jacobian_contribution
-
             final_time = end_time
-
             if has_driver_function:
                 driver_function(
                     final_time,
-                    driver_coefficients,
+                    driver_coeffs,
                     proposed_drivers,
                 )
 
-            # Form the final state first, then evaluate observables at end time
             for idx in range(n):
                 proposed_state[idx] = state[idx] + proposed_state[idx]
 
@@ -562,7 +569,8 @@ class RosenbrockStep(ODEImplicitStep):
         """Return the number of precision entries required in shared memory."""
 
         stage_count = self.compile_settings.tableau.stage_count
-        return 2 * stage_count * self.compile_settings.n
+        accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
+        return 2 * accumulator_span
 
     @property
     def local_scratch_required(self) -> int:

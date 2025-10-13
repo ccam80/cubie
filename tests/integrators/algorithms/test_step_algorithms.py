@@ -78,7 +78,7 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_implicit": True,
             "is_adaptive": True,
             "order": 4,
-            "shared_memory_required": 12 * n_states,
+            "shared_memory_required": 10 * n_states,
             "local_scratch_required": 4 * n_states,
         },
     }
