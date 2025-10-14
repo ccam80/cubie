@@ -176,7 +176,7 @@ def device_step_results(
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
         driver_function(precision(0.0), driver_coefficients, drivers_vec)
-        observables_function(state, params_vec, drivers_vec, observables,
+        observables_function(state, params_vec, drivers_vec, observables_vec,
                              precision(0.0))
         result = step_function(
             state_vec,
