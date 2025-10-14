@@ -1,6 +1,6 @@
 """Rosenbrock-W integration step using a streamed accumulator layout."""
 
-from typing import Callable, Optional, Sequence, Tuple
+from typing import Callable, Optional, Tuple
 
 import attrs
 import numpy as np
@@ -52,9 +52,8 @@ class RosenbrockWTableau(ButcherTableau):
         Returns a given matrix (rows) as precision-typed tuples for each stage.
     """
 
-    C: Tuple[Tuple[float, ...], ...]
-    d: Tuple[float, ...]
-    gamma: float
+    C: Tuple[Tuple[float, ...], ...] = attrs.field(factory=tuple)
+    gamma: float = attrs.field(default=0.25)
 
 
 ROSENBROCK_W6S4OS_TABLEAU = RosenbrockWTableau(
@@ -200,11 +199,7 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
         """Return configuration values as a dictionary."""
 
         settings = super().settings_dict
-        settings.update(
-            {
-                "tableau": self.tableau,
-            }
-        )
+        settings.update({"tableau": self.tableau})
         return settings
 
 
@@ -355,6 +350,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         typed_zero = numba_precision(0.0)
         accumulator_length = max(stage_count - 1, 0) * n
         cached_auxiliary_count = self.cached_auxiliary_count
+        has_error = self.is_adaptive
 
         # no cover: start
         @cuda.jit(
@@ -421,9 +417,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             for idx in range(n):
-                error[idx] = typed_zero
-                stage_state[idx] = state[idx]
-                proposed_state[idx] = typed_zero
+                error[idx*has_error] = typed_zero
+                proposed_state[idx] = state[idx]
 
             status_code = int32(0)
 
@@ -457,7 +452,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             for idx in range(n):
                 increment = stage_increment[idx]
                 proposed_state[idx] += solution_weights[0] * increment
-                error[idx] += error_weights[0] * increment
+                error[idx*has_error] += error_weights[0] * increment
 
             cached_jvp(
                 state,
@@ -500,7 +495,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_time = (
                     current_time + dt_value * stage_time_fractions[stage_idx]
                 )
-
 
                 for idx in range(n):
                     stage_state[idx] = (
@@ -566,7 +560,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         stage_increment,
                         jacobian_stage_product,
                     )
-
+            # ----------------------------------------------------------- #
             final_time = end_time
             if has_driver_function:
                 driver_function(
@@ -574,9 +568,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     driver_coeffs,
                     proposed_drivers,
                 )
-
-            for idx in range(n):
-                proposed_state[idx] = state[idx] + proposed_state[idx]
 
             observables_function(
                 proposed_state,
@@ -592,14 +583,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     @property
     def is_multistage(self) -> bool:
         """Return ``True`` as the method has multiple stages."""
-
-        return True
+        return self.tableau.stage_count > 1
 
     @property
     def is_adaptive(self) -> bool:
-        """Return ``True`` because an embedded error estimate is produced."""
-
-        return True
+        """Return ``True`` if algorithm calculates an error estimate."""
+        return self.tableau.has_error_estimate
 
     @property
     def cached_auxiliary_count(self) -> int:

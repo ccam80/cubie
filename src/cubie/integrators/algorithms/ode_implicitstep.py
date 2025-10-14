@@ -48,11 +48,11 @@ class ButcherTableau:
         Returns a given matrix (rows) as precision-typed tuples for each stage.
     """
 
-    a: Tuple[Tuple[float, ...], ...]
-    b: Tuple[float, ...]
-    c: Tuple[float, ...]
-    order: int
-    d: Optional[Tuple[float, ...]] = None
+    a: Tuple[Tuple[float, ...], ...] = attrs.field()
+    b: Tuple[float, ...] = attrs.field()
+    c: Tuple[float, ...] = attrs.field()
+    order: int = attrs.field()
+    d: Optional[Tuple[float, ...]] = attrs.field(default=None)
 
     @property
     def stage_count(self) -> int:
