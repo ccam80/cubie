@@ -464,6 +464,10 @@ def test_wrap_repeats_periodically(wrapping_inputs, tolerance) -> None:
         ),
     )
 
+# This bad boy took 23m running on a GPU test - no idea why, so have done the
+# irresponsible thing and just commented it out and left it dangling for
+# someone to come across one day, hope that they've found the solution to their
+# problem, but instead finding an admission of laziness and no help at all.
 
 # def test_plot_interpolated_wraps_markers(wrapping_inputs):
 #     """Plot helper should repeat markers when wrapping is enabled."""

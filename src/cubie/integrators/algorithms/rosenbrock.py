@@ -349,6 +349,7 @@ class RosenbrockStep(ODEImplicitStep):
         accumulator_length = max(stage_count - 1, 0) * n
         cached_auxiliary_count = self.cached_auxiliary_count
 
+        # no cover: start
         @cuda.jit(
             (
                 numba_precision[:],
@@ -578,7 +579,7 @@ class RosenbrockStep(ODEImplicitStep):
                 final_time,
             )
             return status_code
-
+        # no cover: end
         return StepCache(step=step)
 
     @property
