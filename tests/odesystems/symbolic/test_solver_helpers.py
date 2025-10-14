@@ -343,6 +343,124 @@ def test_split_jvp_expressions_limits_cache_size():
     assert heavy_symbols[0] in runtime_symbols
 
 
+def test_split_jvp_expressions_groups_cse_dependents():
+    """Cache dependents sharing a CSE prerequisite as a single group."""
+
+    x0, x1 = sp.symbols("x0 x1")
+    cse_sym = sp.Symbol("_cse0")
+    aux_a = sp.Symbol("aux_a")
+    aux_b = sp.Symbol("aux_b")
+    jac = sp.Symbol("j_00")
+
+    exprs = [
+        (
+            cse_sym,
+            sp.sin(x0)
+            + sp.cos(x1)
+            + sp.exp(x0 + x1)
+            + sp.log(x0 + 3),
+        ),
+        (
+            aux_a,
+            cse_sym**2
+            + sp.exp(cse_sym)
+            + sp.sin(cse_sym)
+            + sp.tan(cse_sym)
+            + sp.log(cse_sym + 2),
+        ),
+        (
+            aux_b,
+            cse_sym**3
+            + sp.cos(cse_sym)
+            + sp.sinh(cse_sym)
+            + sp.acos(sp.tanh(x0))
+            + sp.atan(cse_sym + 1),
+        ),
+        (jac, aux_a + aux_b),
+        (
+            sp.Symbol("jvp[0]"),
+            jac * sp.Symbol("v[0]")
+            + aux_a * sp.Symbol("v[1]")
+            + aux_b * sp.Symbol("v[2]"),
+        ),
+    ]
+
+    cached_aux, runtime_aux, jvp_terms, prepare_assigns = _split_jvp_expressions(
+        exprs,
+        min_ops_threshold=5,
+    )
+
+    cached_symbols = [lhs for lhs, _ in cached_aux]
+    runtime_symbols = [lhs for lhs, _ in runtime_aux]
+    prepare_symbols = [lhs for lhs, _ in prepare_assigns]
+
+    assert set(cached_symbols) == {aux_a, aux_b}
+    assert cse_sym in prepare_symbols
+    assert aux_a not in runtime_symbols
+    assert aux_b not in runtime_symbols
+    assert jvp_terms[0] == exprs[-1][1]
+
+
+def test_split_jvp_expressions_limits_cse_depth_for_slots():
+    """Restrict CSE traversal when grouping exceeds the cache budget."""
+
+    x0, x1 = sp.symbols("x0 x1")
+    cse_root = sp.Symbol("_cse0")
+    cse_mid = sp.Symbol("_cse1")
+    aux_a = sp.Symbol("aux_a")
+    aux_b = sp.Symbol("aux_b")
+    aux_c = sp.Symbol("aux_c")
+    jac = sp.Symbol("j_00")
+
+    exprs = [
+        (
+            cse_root,
+            sp.sin(x0)
+            + sp.cos(x1)
+            + sp.exp(x0 + x1),
+        ),
+        (
+            cse_mid,
+            cse_root**2
+            + sp.exp(cse_root)
+            + sp.tan(cse_root),
+        ),
+        (
+            aux_a,
+            cse_mid**2
+            + sp.sin(cse_mid)
+            + sp.log(cse_mid + 2),
+        ),
+        (
+            aux_b,
+            cse_mid**3
+            + sp.exp(cse_mid)
+            + sp.sinh(cse_mid)
+            + sp.atan(cse_mid + 1)
+            + sp.sqrt(cse_mid + 3),
+        ),
+        (aux_c, x0 + x1),
+        (jac, aux_a + aux_b + aux_c),
+        (sp.Symbol("jvp[0]"), jac * sp.Symbol("v[0]")),
+    ]
+
+    cached_aux, runtime_aux, _, prepare_assigns = _split_jvp_expressions(
+        exprs,
+        max_cached_terms=1,
+        min_ops_threshold=1,
+    )
+
+    cached_symbols = [lhs for lhs, _ in cached_aux]
+    runtime_symbols = [lhs for lhs, _ in runtime_aux]
+    prepare_symbols = {lhs for lhs, _ in prepare_assigns}
+
+    assert cached_symbols == [aux_b]
+    assert aux_a in runtime_symbols
+    assert aux_c in runtime_symbols
+    assert cse_mid in prepare_symbols
+    assert cse_root in prepare_symbols
+
+
 def test_build_expression_costs_tracks_jvp_dependencies():
     """Propagate JVP usage counts through dependency closures."""
 

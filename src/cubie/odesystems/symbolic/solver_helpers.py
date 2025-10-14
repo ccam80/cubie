@@ -134,8 +134,10 @@ def simulate_removal(
     active_nodes: Set[sp.Symbol],
     current_ref_counts: Dict[sp.Symbol, int],
     dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
+    dependents: Dict[sp.Symbol, Set[sp.Symbol]],
     ops_cost: Dict[sp.Symbol, int],
-) -> Tuple[int, Set[sp.Symbol]]:
+    cse_depth: Optional[int] = None,
+) -> Tuple[int, Set[sp.Symbol], Set[sp.Symbol]]:
     """Estimate saved operations when removing a symbol from active nodes.
 
     Parameters
@@ -148,42 +150,80 @@ def simulate_removal(
         Reference counts for each symbol across dependents and JVP usage.
     dependencies
         Mapping of symbols to the prerequisite assignments they rely on.
+    dependents
+        Reverse dependency edges describing downstream assignments for each
+        symbol.
     ops_cost
         Operation counts accrued for computing each symbol.
+    cse_depth
+        Maximum number of common-subexpression (``"_cse"`` prefix) dependency
+        layers to traverse when simulating removals. ``None`` permits
+        traversing the full dependency closure.
 
     Returns
     -------
-    tuple of int and set
-        The estimated number of operations saved and the dependency closure
-        removable alongside the symbol.
+    tuple of int and two sets
+        The estimated number of operations saved, the dependency closure
+        removable alongside the symbol, and the non-``"_cse"`` symbols that
+        should be cached together.
 
     Notes
     -----
     Performs a stack-based traversal that simulates removing the symbol, then
     cascades through dependents whose reference counts drop to zero while
     tallying the operations saved by omitting those assignments.
+
     """
 
     if symbol not in active_nodes:
-        return 0, set()
+        return 0, set(), set()
     temp_counts = current_ref_counts.copy()
-    to_remove = set()
-    stack = [symbol]
+    to_remove: Set[sp.Symbol] = set()
+    stack: List[Tuple[sp.Symbol, Optional[int], bool]] = [
+        (symbol, cse_depth, True)
+    ]
+    cache_group: Set[sp.Symbol] = set()
     while stack:
-        node = stack.pop()
-        if node in to_remove:
+        node, depth_left, cache_member = stack.pop()
+        if node in to_remove or node not in active_nodes:
             continue
         to_remove.add(node)
+        if cache_member and not str(node).startswith("_cse"):
+            cache_group.add(node)
+        if str(node).startswith("_cse"):
+            if depth_left is None or depth_left >= 0:
+                for child in dependents.get(node, set()):
+                    if child in active_nodes and child not in to_remove:
+                        stack.append((child, depth_left, True))
         for dep in dependencies.get(node, set()):
             if dep not in temp_counts:
                 continue
             temp_counts[dep] -= 1
             if dep in active_nodes and temp_counts[dep] == 0:
-                stack.append(dep)
+                next_depth: Optional[int]
+                if str(dep).startswith("_cse") and depth_left is not None:
+                    next_depth = depth_left - 1
+                    if next_depth < 0:
+                        continue
+                elif str(dep).startswith("_cse"):
+                    next_depth = None
+                else:
+                    next_depth = depth_left
+                stack.append((dep, next_depth, False))
+            elif str(dep).startswith("_cse"):
+                if depth_left is None:
+                    dep_depth = None
+                else:
+                    dep_depth = depth_left - 1
+                    if dep_depth < 0:
+                        continue
+                for child in dependents.get(dep, set()):
+                    if child in active_nodes and child not in to_remove:
+                        stack.append((child, dep_depth, True))
     saved = sum(
         ops_cost.get(node, 0) for node in to_remove if node in active_nodes
     )
-    return saved, to_remove
+    return saved, to_remove, cache_group
 
 
 def _build_expression_costs(
@@ -270,6 +310,45 @@ def _build_expression_costs(
     )
 
 
+def _max_cse_depth(
+    symbol: sp.Symbol,
+    dependencies: Mapping[sp.Symbol, Set[sp.Symbol]],
+    memo: Optional[Dict[sp.Symbol, int]] = None,
+) -> int:
+    """Return the maximum number of CSE layers reachable from ``symbol``.
+
+    Parameters
+    ----------
+    symbol
+        The assignment symbol whose dependency chain is being inspected.
+    dependencies
+        Mapping from symbols to the prerequisites they require.
+    memo
+        Optional cache reused across recursive invocations.
+
+    Returns
+    -------
+    int
+        The number of ``"_cse"``-prefixed dependencies traversed along the
+        longest upstream path.
+
+    """
+
+    if memo is None:
+        memo = {}
+    if symbol in memo:
+        return memo[symbol]
+    max_depth = 0
+    for dep in dependencies.get(symbol, set()):
+        depth = _max_cse_depth(dep, dependencies, memo)
+        if str(dep).startswith("_cse"):
+            depth += 1
+        if depth > max_depth:
+            max_depth = depth
+    memo[symbol] = max_depth
+    return max_depth
+
+
 def _select_cached_nodes(
     non_jvp_order: Sequence[sp.Symbol],
     dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
@@ -312,10 +391,14 @@ def _select_cached_nodes(
     Notes
     -----
     Iteratively evaluates each candidate with :func:`simulate_removal`, caching
-    the symbol that yields the largest weighted operation reduction, where the
-    weight scales with the number of Jacobian-vector outputs that consume the
-    symbol or its dependencies. The search halts when limits or savings
-    thresholds prevent further improvement.
+    groups of auxiliaries that yield the largest weighted operation reduction,
+    where the weight scales with the number of Jacobian-vector outputs that
+    consume the symbol or its dependencies. When a dependency is a common
+    subexpression (``"_cse"`` prefix), the heuristic considers all active
+    dependents together, measuring savings on a per-cache basis. When grouping
+    these dependents would exceed the remaining cache budget, the traversal
+    depth across ``"_cse"`` dependencies is reduced until the group fits. The
+    search halts when limits or savings thresholds prevent further improvement.
     """
 
     active_nodes = set(non_jvp_order)
@@ -324,38 +407,65 @@ def _select_cached_nodes(
         current_ref_counts[sym] = len(dependents[sym]) + jvp_usage.get(sym, 0)
     cached_nodes = []
     candidate_order = list(non_jvp_order)
+    depth_memo: Dict[sp.Symbol, int] = {}
     while len(cached_nodes) < max_cached_terms:
+        remaining_slots = max_cached_terms - len(cached_nodes)
         best_symbol = None
         best_saved = 0
         best_weighted = 0
+        best_per_cache = 0
         best_removal = set()
+        best_group: Set[sp.Symbol] = set()
         for symbol in candidate_order:
             if symbol not in active_nodes:
                 continue
-            saved, removal = simulate_removal(
-                symbol,
-                active_nodes,
-                current_ref_counts,
-                dependencies,
-                ops_cost,
-            )
-            if saved < min_ops_threshold:
-                continue
-            influence = max(1, jvp_closure_usage.get(symbol, 0)) + len(
-                dependents.get(symbol, set())
-            )
-            symbol_cost = ops_cost.get(symbol, 0)
-            weighted = saved * influence + symbol_cost
-            if weighted > best_weighted or (
-                weighted == best_weighted and saved > best_saved
-            ):
-                best_symbol = symbol
-                best_saved = saved
-                best_weighted = weighted
-                best_removal = removal
+            max_depth = _max_cse_depth(symbol, dependencies, depth_memo)
+            depth_options = list(range(max_depth, -1, -1))
+            if not depth_options:
+                depth_options = [0]
+            for depth in depth_options:
+                saved, removal, group_nodes = simulate_removal(
+                    symbol,
+                    active_nodes,
+                    current_ref_counts,
+                    dependencies,
+                    dependents,
+                    ops_cost,
+                    cse_depth=depth,
+                )
+                cache_nodes = [
+                    node
+                    for node in group_nodes
+                    if node in active_nodes and not str(node).startswith("_cse")
+                ]
+                group_size = len(cache_nodes) or 1
+                if group_size > remaining_slots or saved < min_ops_threshold:
+                    continue
+                influence = max(1, jvp_closure_usage.get(symbol, 0)) + len(
+                    dependents.get(symbol, set())
+                )
+                symbol_cost = ops_cost.get(symbol, 0)
+                per_cache = saved / group_size
+                weighted = per_cache * influence + symbol_cost
+                if weighted > best_weighted or (
+                    weighted == best_weighted
+                    and (per_cache > best_per_cache or saved > best_saved)
+                ):
+                    best_symbol = symbol
+                    best_saved = saved
+                    best_weighted = weighted
+                    best_per_cache = per_cache
+                    best_removal = removal
+                    best_group = set(cache_nodes)
         if best_symbol is None or best_saved <= 0:
             break
-        cached_nodes.append(best_symbol)
+        cached_candidates = [
+            sym
+            for sym in non_jvp_order
+            if sym in best_group
+            and sym not in cached_nodes
+        ]
+        cached_nodes.extend(cached_candidates)
         for node in best_removal:
             if node in active_nodes:
                 active_nodes.remove(node)
@@ -485,6 +595,7 @@ def _build_operator_body(
     index_map: IndexedBases,
     M: sp.Matrix,
     use_cached_aux: bool = False,
+    prepare_assigns: Optional[List[Tuple[sp.Symbol, sp.Expr]]] = None,
 ) -> str:
     """Build the CUDA body computing ``β·M·v − γ·h·J·v``.
 
@@ -503,6 +614,10 @@ def _build_operator_body(
     use_cached_aux
         When ``True`` load auxiliary values from ``cached_aux`` instead of
         recomputing them.
+    prepare_assigns
+        Optional assignments required to populate cached auxiliaries. These are
+        included when building the uncached operator so dependencies remain
+        defined.
 
     Returns
     -------
@@ -547,7 +662,14 @@ def _build_operator_body(
             (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_assigns)
         ] + runtime_assigns
     else:
-        aux_assignments = cached_assigns + runtime_assigns
+        combined = list(prepare_assigns or []) + cached_assigns + runtime_assigns
+        seen: Set[sp.Symbol] = set()
+        aux_assignments = []
+        for lhs, rhs in combined:
+            if lhs in seen:
+                continue
+            seen.add(lhs)
+            aux_assignments.append((lhs, rhs))
 
     exprs = mass_assigns + aux_assignments + out_updates
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
@@ -742,7 +864,9 @@ def generate_operator_apply_code_from_jvp(
     and embeds each constant as a standalone variable in the generated device
     function.
     """
-    cached_aux, runtime_aux, jvp_terms, _ = _split_jvp_expressions(jvp_exprs)
+    cached_aux, runtime_aux, jvp_terms, prepare_assigns = _split_jvp_expressions(
+        jvp_exprs
+    )
     body = _build_operator_body(
         cached_assigns=cached_aux,
         runtime_assigns=runtime_aux,
@@ -750,6 +874,7 @@ def generate_operator_apply_code_from_jvp(
         index_map=index_map,
         M=M,
         use_cached_aux=False,
+        prepare_assigns=prepare_assigns,
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     return OPERATOR_APPLY_TEMPLATE.format(
