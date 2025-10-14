@@ -99,7 +99,6 @@ DORMAND_PRINCE_54_TABLEAU = ERKTableau(
 ERK_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
-        "order": 5,
         "dt_min": 1e-6,
         "dt_max": 1e-1,
         "kp": 0.6,

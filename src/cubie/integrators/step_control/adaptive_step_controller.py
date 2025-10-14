@@ -180,6 +180,7 @@ class AdaptiveStepControlConfig(BaseStepControllerConfig):
                 'dt_max': self.dt_max,
                 'atol': self.atol,
                 'rtol': self.rtol,
+                'algorithm_order': self.algorithm_order,
                 'min_gain': self.min_gain,
                 'max_gain': self.max_gain,
                 'safety': self.safety,

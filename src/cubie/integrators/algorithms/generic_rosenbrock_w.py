@@ -175,7 +175,6 @@ ROSENBROCK_W6S4OS_TABLEAU = RosenbrockWTableau(
 ROSENBROCK_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
-        "order": 4,
         "dt_min": 1e-6,
         "dt_max": 1e-1,
         "kp": 0.6,

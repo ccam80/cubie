@@ -52,7 +52,6 @@ SDIRK_2_2_TABLEAU = DIRKTableau(
 DIRK_DEFAULTS = StepControlDefaults(
     step_controller={
         "step_controller": "pi",
-        "order": 2,
         "dt_min": 1e-6,
         "dt_max": 1e-1,
         "kp": 0.6,
