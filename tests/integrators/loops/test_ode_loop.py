@@ -175,8 +175,8 @@ def test_initial_observable_seed_matches_reference(
             "algorithm": "rosenbrock",
             'tableau': DEFAULT_ROSENBROCK_TABLEAU,
             "step_controller": "pi",
-            "atol": 1e-5,
-            "rtol": 1e-5,
+            "atol": 1e-4,
+            "rtol": 1e-4,
             "dt_min": 1e-6,
             "dt_save": 0.2,
             "output_types": [
