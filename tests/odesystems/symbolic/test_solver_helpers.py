@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import sympy as sp
 from numba import cuda, from_dtype
 
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
@@ -12,6 +13,7 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_prepare_jac_code,
     generate_stage_residual_code,
     generate_residual_end_state_code,
+    _split_jvp_expressions,
 )
 
 
@@ -238,6 +240,106 @@ def cached_operator_kernel(cached_system, precision):
         return kernel
 
     return make_kernel
+
+
+def test_split_jvp_expressions_caches_high_cost_terms():
+    """Cache the expression removing the largest runtime operation count."""
+
+    x0, x1 = sp.symbols("x0 x1")
+    dep0 = sp.Symbol("dep0")
+    heavy = sp.Symbol("aux_heavy")
+    simple = sp.Symbol("simple")
+    j_00 = sp.Symbol("j_00")
+    j_01 = sp.Symbol("j_01")
+
+    exprs = [
+        (
+            dep0,
+            sp.sin(x0)
+            + sp.cos(x1),
+        ),
+        (
+            heavy,
+            dep0**3
+            + sp.exp(dep0)
+            + sp.tan(dep0)
+            + sp.log(dep0 + 2)
+            + dep0 * sp.sinh(dep0),
+        ),
+        (simple, x0 + x1),
+        (j_00, heavy + simple),
+        (j_01, simple),
+        (
+            sp.Symbol("jvp[0]"),
+            j_00 * sp.Symbol("v[0]")
+            + j_01 * sp.Symbol("v[1]")
+        ),
+    ]
+
+    cached_aux, runtime_aux, jvp_terms, prepare_assigns = _split_jvp_expressions(
+        exprs
+    )
+
+    cached_symbols = [lhs for lhs, _ in cached_aux]
+    runtime_symbols = [lhs for lhs, _ in runtime_aux]
+    prepare_symbols = [lhs for lhs, _ in prepare_assigns]
+
+    assert cached_symbols == [heavy]
+    assert dep0 not in runtime_symbols
+    assert dep0 in prepare_symbols
+    assert jvp_terms[0] == exprs[-1][1]
+
+
+def test_split_jvp_expressions_limits_cache_size():
+    """Limit cached expressions to twice the output dimension."""
+
+    x = sp.symbols("x")
+    heavy_symbols = [sp.Symbol(f"aux_heavy{i}") for i in range(3)]
+    heavy_exprs = [
+        (
+            sp.sin(x)
+            + sp.cos(x)
+            + sp.exp(x)
+            + sp.log(x + 2)
+            + sp.tan(x)
+            + sp.sinh(x)
+        ),
+        (
+            sp.sin(2 * x)
+            + sp.cos(2 * x)
+            + sp.exp(2 * x)
+            + sp.log(x + 3)
+            + sp.tan(2 * x)
+            + sp.sinh(2 * x)
+            + x**2
+        ),
+        (
+            sp.sin(3 * x)
+            + sp.cos(3 * x)
+            + sp.exp(3 * x)
+            + sp.log(x + 4)
+            + sp.tan(3 * x)
+            + sp.sinh(3 * x)
+            + x**3
+            + sp.sqrt(x + 1)
+        ),
+    ]
+
+    exprs = list(zip(heavy_symbols, heavy_exprs))
+    j_00 = sp.Symbol("j_00")
+    exprs.append((j_00, sum(heavy_symbols)))
+    exprs.append((sp.Symbol("jvp[0]"), j_00 * sp.Symbol("v[0]")))
+
+    cached_aux, runtime_aux, _, _ = _split_jvp_expressions(exprs)
+
+    cached_symbols = [lhs for lhs, _ in cached_aux]
+    runtime_symbols = [lhs for lhs, _ in runtime_aux]
+
+    assert len(cached_symbols) == 2
+    assert heavy_symbols[1] in cached_symbols
+    assert heavy_symbols[2] in cached_symbols
+    assert heavy_symbols[0] not in cached_symbols
+    assert heavy_symbols[0] in runtime_symbols
 
 
 @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)

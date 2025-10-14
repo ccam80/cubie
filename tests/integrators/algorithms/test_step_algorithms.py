@@ -276,7 +276,7 @@ def cpu_step_results(
         [{"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
             1e-6, 'rtol': 1e-6, 'dt_min': 1e-6}, {}],
         [{"algorithm": "rosenbrock", 'step_controller': 'pi',
-         'krylov_tolerance': 1e-7}, {}],
+         'krylov_tolerance': 1e-7}, "threecm"],
     ],
     ids=[
         "euler",

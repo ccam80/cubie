@@ -5,7 +5,18 @@ array or a SymPy matrix. Its entries are embedded directly into the generated
 device routine to avoid extra passes or buffers.
 """
 
-from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
+from collections import defaultdict
+from typing import (
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+)
 
 import sympy as sp
 
@@ -40,7 +51,8 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def operator_apply(state, parameters, drivers, cached_aux, h, v, out):\n"
+    "    def operator_apply(state, parameters, drivers, cached_aux, h, v, "
+    "out):\n"
     "{body}\n"
     "    return operator_apply\n"
 )
@@ -116,12 +128,214 @@ CACHED_JVP_TEMPLATE = (
 )
 
 
+
+def simulate_removal(
+    symbol: sp.Symbol,
+    active_nodes: Set[sp.Symbol],
+    current_ref_counts: Dict[sp.Symbol, int],
+    dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
+    ops_cost: Dict[sp.Symbol, int],
+) -> Tuple[int, Set[sp.Symbol]]:
+    """Estimate saved operations when removing a symbol from active nodes.
+
+    Parameters
+    ----------
+    symbol
+        Candidate assignment symbol considered for caching.
+    active_nodes
+        Symbols that remain available for runtime execution.
+    current_ref_counts
+        Reference counts for each symbol across dependents and JVP usage.
+    dependencies
+        Mapping of symbols to the prerequisite assignments they rely on.
+    ops_cost
+        Operation counts accrued for computing each symbol.
+
+    Returns
+    -------
+    tuple of int and set
+        The estimated number of operations saved and the dependency closure
+        removable alongside the symbol.
+
+    Notes
+    -----
+    Performs a stack-based traversal that simulates removing the symbol, then
+    cascades through dependents whose reference counts drop to zero while
+    tallying the operations saved by omitting those assignments.
+    """
+
+    if symbol not in active_nodes:
+        return 0, set()
+    temp_counts = current_ref_counts.copy()
+    to_remove = set()
+    stack = [symbol]
+    while stack:
+        node = stack.pop()
+        if node in to_remove:
+            continue
+        to_remove.add(node)
+        for dep in dependencies.get(node, set()):
+            if dep not in temp_counts:
+                continue
+            temp_counts[dep] -= 1
+            if dep in active_nodes and temp_counts[dep] == 0:
+                stack.append(dep)
+    saved = sum(
+        ops_cost.get(node, 0) for node in to_remove if node in active_nodes
+    )
+    return saved, to_remove
+
+
+def _build_expression_costs(
+    non_jvp_order: Sequence[sp.Symbol],
+    non_jvp_exprs: Mapping[sp.Symbol, sp.Expr],
+    assigned_symbols: Set[sp.Symbol],
+    jvp_terms: Mapping[int, sp.Expr],
+) -> Tuple[
+    Dict[sp.Symbol, Set[sp.Symbol]],
+    Dict[sp.Symbol, Set[sp.Symbol]],
+    Dict[sp.Symbol, int],
+    Dict[sp.Symbol, int],
+]:
+    """Build dependency graphs, operation costs, and JVP usage counts.
+
+    Parameters
+    ----------
+    non_jvp_order
+        Evaluation order for auxiliary assignments.
+    non_jvp_exprs
+        Mapping from auxiliary symbols to their SymPy expressions.
+    assigned_symbols
+        Symbols introduced by the expression sequence.
+    jvp_terms
+        Indexed Jacobian-vector expressions.
+
+    Returns
+    -------
+    tuple of dict, dict, dict, and dict
+        Dependency edges, dependent adjacency, operation counts, and JVP usage
+        reference counts for each auxiliary symbol.
+
+    Notes
+    -----
+    Counts operations using ``sympy.count_ops`` while tracking parent-child
+    relationships and recording how many JVP expressions consume each auxiliary
+    symbol.
+    """
+
+    dependencies = {}
+    dependents = {sym: set() for sym in non_jvp_order}
+    ops_cost = {}
+    for lhs in non_jvp_order:
+        rhs = non_jvp_exprs[lhs]
+        ops_cost[lhs] = int(sp.count_ops(rhs, visual=False))
+        deps = {
+            sym
+            for sym in rhs.free_symbols
+            if sym in assigned_symbols and not str(sym).startswith("jvp[")
+        }
+        dependencies[lhs] = deps
+        for dep in deps:
+            if dep in dependents:
+                dependents[dep].add(lhs)
+    jvp_usage = defaultdict(int)
+    for rhs in jvp_terms.values():
+        for sym in rhs.free_symbols:
+            if sym in dependents:
+                jvp_usage[sym] += 1
+    return dependencies, dependents, ops_cost, dict(jvp_usage)
+
+
+def _select_cached_nodes(
+    non_jvp_order: Sequence[sp.Symbol],
+    dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
+    dependents: Dict[sp.Symbol, Set[sp.Symbol]],
+    ops_cost: Dict[sp.Symbol, int],
+    jvp_usage: Dict[sp.Symbol, int],
+    max_cached_terms: int,
+    min_ops_threshold: int,
+) -> Tuple[List[sp.Symbol], Set[sp.Symbol]]:
+    """Select auxiliary nodes to cache based on estimated savings.
+
+    Parameters
+    ----------
+    non_jvp_order
+        Evaluation order for candidate auxiliary assignments.
+    dependencies
+        Mapping from each symbol to the prerequisites required to compute it.
+    dependents
+        Mapping from each symbol to the downstream assignments that use it.
+    ops_cost
+        Operation counts required to compute each symbol.
+    jvp_usage
+        Usage counts contributed by Jacobian-vector expressions.
+    max_cached_terms
+        Maximum number of auxiliary expressions permitted in the cache.
+    min_ops_threshold
+        Minimum operations required for a symbol to qualify for caching.
+
+    Returns
+    -------
+    tuple of list and set
+        Symbols chosen for caching and the remaining symbols evaluated at
+        runtime.
+
+    Notes
+    -----
+    Iteratively evaluates each candidate with :func:`simulate_removal`, caching
+    the symbol that yields the largest operation reduction until limits or
+    savings thresholds halt the process.
+    """
+
+    active_nodes = set(non_jvp_order)
+    current_ref_counts = {}
+    for sym in non_jvp_order:
+        current_ref_counts[sym] = len(dependents[sym]) + jvp_usage.get(sym, 0)
+    cached_nodes = []
+    candidate_order = list(non_jvp_order)
+    while len(cached_nodes) < max_cached_terms:
+        best_symbol = None
+        best_saved = 0
+        best_removal = set()
+        for symbol in candidate_order:
+            if symbol not in active_nodes:
+                continue
+            if ops_cost.get(symbol, 0) < min_ops_threshold:
+                continue
+            saved, removal = simulate_removal(
+                symbol,
+                active_nodes,
+                current_ref_counts,
+                dependencies,
+                ops_cost,
+            )
+            if saved > best_saved:
+                best_symbol = symbol
+                best_saved = saved
+                best_removal = removal
+        if best_symbol is None or best_saved <= 0:
+            break
+        cached_nodes.append(best_symbol)
+        for node in best_removal:
+            if node in active_nodes:
+                active_nodes.remove(node)
+                current_ref_counts.pop(node, None)
+        for node in best_removal:
+            for dep in dependencies.get(node, set()):
+                if dep in current_ref_counts:
+                    current_ref_counts[dep] -= 1
+    return cached_nodes, active_nodes
+
+
 def _split_jvp_expressions(
-    exprs: Iterable[Tuple[sp.Symbol, sp.Expr]]
+    exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
+    max_cached_terms: Optional[int] = None,
+    min_ops_threshold: int = 10,
 ) -> Tuple[
     List[Tuple[sp.Symbol, sp.Expr]],
     List[Tuple[sp.Symbol, sp.Expr]],
     Dict[int, sp.Expr],
+    List[Tuple[sp.Symbol, sp.Expr]],
 ]:
     """Split expressions into cached auxiliaries, runtime terms, and outputs.
 
@@ -129,60 +343,98 @@ def _split_jvp_expressions(
     ----------
     exprs
         Expression pairs ordered for evaluation.
+    max_cached_terms
+        Maximum number of expressions to cache. Defaults to twice the number
+        of JVP outputs.
+    min_ops_threshold
+        Minimum number of operations required for an expression to be
+        considered for caching.
 
     Returns
     -------
-    tuple of list, list, and dict
-        Cached auxiliary assignments, runtime-only assignments, and the indexed
-        JVP expressions.
+    tuple of list, list, dict, and list
+        Cached auxiliary assignments, runtime-only assignments, the indexed
+        JVP expressions, and the assignments that must run when preparing the
+        cache.
+
+    Notes
+    -----
+    Separates Jacobian-vector outputs from auxiliary expressions, scores the
+    auxiliaries with :func:`_build_expression_costs`, selects cache candidates
+    via :func:`_select_cached_nodes`, and computes the closure required to
+    populate cached intermediates.
     """
+
     ordered_exprs = list(exprs)
+    if not ordered_exprs:
+        return [], [], {}, []
+
     assigned_symbols = {lhs for lhs, _ in ordered_exprs}
-
-    dependencies: Dict[sp.Symbol, Set[sp.Symbol]] = {}
-    downstream: Dict[sp.Symbol, Set[sp.Symbol]] = {}
-    for lhs, rhs in ordered_exprs:
-        deps = {
-            sym
-            for sym in rhs.free_symbols
-            if sym in assigned_symbols and not str(sym).startswith("jvp[")
-        }
-        dependencies[lhs] = deps
-        downstream[lhs] = set()
-
-    for lhs, _ in ordered_exprs:
-        lhs_str = str(lhs)
-        if lhs_str.startswith("j_") or lhs_str.startswith("jvp["):
-            downstream[lhs].add(lhs)
-
-    for lhs, _ in reversed(ordered_exprs):
-        targets = downstream[lhs]
-        for dep in dependencies[lhs]:
-            downstream[dep].update(targets)
-
-    cached_aux: List[Tuple[sp.Symbol, sp.Expr]] = []
-    runtime_aux: List[Tuple[sp.Symbol, sp.Expr]] = []
-    jvp_terms: Dict[int, sp.Expr] = {}
-
+    jvp_terms = {}
+    non_jvp_order = []
+    non_jvp_exprs = {}
     for lhs, rhs in ordered_exprs:
         lhs_str = str(lhs)
         if lhs_str.startswith("jvp["):
             idx = int(lhs_str.split("[")[1].split("]")[0])
             jvp_terms[idx] = rhs
-            continue
-        if lhs_str.startswith("j_"):
-            runtime_aux.append((lhs, rhs))
-            continue
-
-        dependent_jacobians = {
-            sym for sym in downstream[lhs] if str(sym).startswith("j_")
-        }
-        if not dependencies[lhs] and len(dependent_jacobians) > 1:
-            cached_aux.append((lhs, rhs))
         else:
+            non_jvp_order.append(lhs)
+            non_jvp_exprs[lhs] = rhs
+
+    n_jvp = len(jvp_terms)
+    if max_cached_terms is None:
+        max_cached_terms = 2 * n_jvp
+
+    (
+        dependencies,
+        dependents,
+        ops_cost,
+        jvp_usage,
+    ) = _build_expression_costs(
+        non_jvp_order, non_jvp_exprs, assigned_symbols, jvp_terms
+    )
+
+    cached_nodes, active_nodes = _select_cached_nodes(
+        non_jvp_order,
+        dependencies,
+        dependents,
+        ops_cost,
+        jvp_usage,
+        max_cached_terms,
+        min_ops_threshold,
+    )
+
+    cached_set = set(cached_nodes)
+    runtime_nodes = set(active_nodes)
+
+    prepare_nodes = set()
+    stack = list(cached_set)
+    while stack:
+        node = stack.pop()
+        if node in prepare_nodes:
+            continue
+        prepare_nodes.add(node)
+        for dep in dependencies.get(node, set()):
+            if dep in non_jvp_exprs:
+                stack.append(dep)
+
+    cached_aux = []
+    runtime_aux = []
+    prepare_assigns = []
+
+    for lhs, rhs in ordered_exprs:
+        lhs_str = str(lhs)
+        if lhs_str.startswith("jvp["):
+            continue
+        if lhs in prepare_nodes:
+            prepare_assigns.append((lhs, rhs))
+        if lhs in cached_set:
+            cached_aux.append((lhs, rhs))
+        elif lhs in runtime_nodes:
             runtime_aux.append((lhs, rhs))
 
-    return cached_aux, runtime_aux, jvp_terms
+    return cached_aux, runtime_aux, jvp_terms, prepare_assigns
 
 def _build_operator_body(
     cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],
@@ -214,6 +466,12 @@ def _build_operator_body(
     -------
     str
         Indented CUDA code statements implementing the operator body.
+
+    Notes
+    -----
+    Constructs SymPy assignments for mass-matrix multiplications and auxiliary
+    loads, renders them through the CUDA printer, and indents the result to fit
+    within the generated device function.
     """
     n_out = len(index_map.dxdt.ref_map)
     n_in = len(index_map.states.index_map)
@@ -260,9 +518,28 @@ def _build_cached_neumann_body(
     jvp_exprs: Iterable[Tuple[sp.Symbol, sp.Expr]],
     index_map: IndexedBases,
 ) -> str:
-    """Build the cached Neumann-series Jacobian-vector body."""
+    """Build the cached Neumann-series Jacobian-vector body.
 
-    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    Parameters
+    ----------
+    jvp_exprs
+        Topologically ordered Jacobian-vector product expressions.
+    index_map
+        Symbol indexing helpers produced by the parser.
+
+    Returns
+    -------
+    str
+        Indented CUDA code statements implementing the cached JVP body.
+
+    Notes
+    -----
+    Splits auxiliaries and outputs with :func:`_split_jvp_expressions`, maps
+    cached values to buffer loads, and reuses the CUDA printer to generate the
+    Neumann-series update statements.
+    """
+
+    cached_aux, runtime_aux, jvp_terms, _ = _split_jvp_expressions(jvp_exprs)
     if cached_aux:
         cached = sp.IndexedBase(
             "cached_aux", shape=(sp.Integer(len(cached_aux)),)
@@ -271,11 +548,11 @@ def _build_cached_neumann_body(
         cached = sp.IndexedBase("cached_aux")
 
     aux_assignments = [
-          (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_aux)
+        (lhs, cached[idx]) for idx, (lhs, _) in enumerate(cached_aux)
     ] + runtime_aux
 
     n_out = len(index_map.dxdt.ref_map)
-    exprs: List[Tuple[sp.Symbol, sp.Expr]] = list(aux_assignments)
+    exprs = list(aux_assignments)
     for i in range(n_out):
         rhs = jvp_terms.get(i, sp.S.Zero)
         exprs.append((sp.Symbol(f"jvp[{i}]"), rhs))
@@ -293,7 +570,29 @@ def _build_cached_jvp_body(
     jvp_terms: Dict[int, sp.Expr],
     index_map: IndexedBases,
 ) -> str:
-    """Build the CUDA body computing ``J·v`` with optional cached auxiliaries."""
+    """Build the CUDA body computing ``J·v`` with optional cached auxiliaries.
+
+    Parameters
+    ----------
+    cached_assigns
+        Auxiliary assignments stored in the cache.
+    runtime_assigns
+        Auxiliary assignments evaluated on demand.
+    jvp_terms
+        Mapping from output indices to Jacobian-vector expressions.
+    index_map
+        Symbol indexing helpers produced by the parser.
+
+    Returns
+    -------
+    str
+        Indented CUDA code statements implementing the cached JVP body.
+
+    Notes
+    -----
+    Materializes cached intermediates from buffer slots, appends runtime
+    assignments, and emits CUDA-formatted statements for each output update.
+    """
 
     n_out = len(index_map.dxdt.ref_map)
 
@@ -321,9 +620,32 @@ def _build_cached_jvp_body(
 
 
 def _build_prepare_body(
-    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]], index_map: IndexedBases
+    cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],
+    prepare_assigns: List[Tuple[sp.Symbol, sp.Expr]],
+    index_map: IndexedBases,
 ) -> str:
-    """Build the CUDA body populating the cached Jacobian auxiliaries."""
+    """Build the CUDA body populating the cached Jacobian auxiliaries.
+
+    Parameters
+    ----------
+    cached_assigns
+        Auxiliary assignments stored in the cache.
+    prepare_assigns
+        Assignments executed during cache population.
+    index_map
+        Symbol indexing helpers produced by the parser.
+
+    Returns
+    -------
+    str
+        Indented CUDA code statements storing computed auxiliaries into the
+        cache buffer.
+
+    Notes
+    -----
+    Walks the preparation order, renders assignments via the CUDA printer, and
+    writes cached values into their corresponding buffer indices.
+    """
 
     if cached_assigns:
         cached = sp.IndexedBase(
@@ -331,10 +653,13 @@ def _build_prepare_body(
         )
     else:
         cached = sp.IndexedBase("cached_aux")
-    exprs: List[Tuple[sp.Symbol, sp.Expr]] = []
-    for idx, (lhs, rhs) in enumerate(cached_assigns):
+    exprs = []
+    cached_slots = {lhs: idx for idx, (lhs, _) in enumerate(cached_assigns)}
+    for lhs, rhs in prepare_assigns:
         exprs.append((lhs, rhs))
-        exprs.append((cached[idx], lhs))
+        idx = cached_slots.get(lhs)
+        if idx is not None:
+            exprs.append((cached[idx], lhs))
 
     lines = print_cuda_multiple(exprs, symbol_map=index_map.all_arrayrefs)
     if not lines:
@@ -375,7 +700,7 @@ def generate_operator_apply_code_from_jvp(
     and embeds each constant as a standalone variable in the generated device
     function.
     """
-    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    cached_aux, runtime_aux, jvp_terms, _ = _split_jvp_expressions(jvp_exprs)
     body = _build_operator_body(
         cached_assigns=cached_aux,
         runtime_assigns=runtime_aux,
@@ -398,7 +723,7 @@ def generate_cached_operator_apply_code_from_jvp(
 ) -> str:
     """Emit the cached linear operator factory from JVP expressions."""
 
-    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    cached_aux, runtime_aux, jvp_terms, _ = _split_jvp_expressions(jvp_exprs)
     body = _build_operator_body(cached_assigns=cached_aux,
                                 runtime_assigns=runtime_aux,
                                 jvp_terms=jvp_terms,
@@ -420,8 +745,8 @@ def generate_prepare_jac_code_from_jvp(
 ) -> Tuple[str, int]:
     """Emit the auxiliary preparation factory from JVP expressions."""
 
-    cached_aux, _, _ = _split_jvp_expressions(jvp_exprs)
-    body = _build_prepare_body(cached_aux, index_map)
+    cached_aux, _, _, prepare_assigns = _split_jvp_expressions(jvp_exprs)
+    body = _build_prepare_body(cached_aux, prepare_assigns, index_map)
     const_block = render_constant_assignments(index_map.constants.symbol_map)
     code = PREPARE_JAC_TEMPLATE.format(
         func_name=func_name, body=body, const_lines=const_block
@@ -436,7 +761,7 @@ def generate_cached_jvp_code_from_jvp(
 ) -> str:
     """Emit the cached JVP factory from precomputed JVP expressions."""
 
-    cached_aux, runtime_aux, jvp_terms = _split_jvp_expressions(jvp_exprs)
+    cached_aux, runtime_aux, jvp_terms, _ = _split_jvp_expressions(jvp_exprs)
     body = _build_cached_jvp_body(
         cached_assigns=cached_aux,
         runtime_assigns=runtime_aux,
@@ -752,18 +1077,24 @@ def generate_neumann_preconditioner_cached_code(
 RESIDUAL_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED RESIDUAL FACTORY\n"
-    "def {func_name}(constants, precision,  beta=1.0, gamma=1.0, order=None):\n"
-    '    """Auto-generated residual function for Newton-Krylov ODE integration.\n'
+    "def {func_name}(constants, precision,  beta=1.0, gamma=1.0, "
+    "order=None):\n"
+    '    """Auto-generated residual function for Newton-Krylov ODE '
+    'integration.\n'
     "    \n"
     "    Computes residual = beta * M @ v - gamma * h * (J @ eval_point)\n"
     "    where eval_point depends on the residual mode:\n"
-    "    - Stage mode: eval_point = base_state + a_ij * u, residual uses M @ u\n"
-    "    - End-state mode: eval_point = u, residual uses M @ (u - base_state)\n"
+    "    - Stage mode: eval_point = base_state + a_ij * u, residual uses M @ "
+    "u\n"
+    "    - End-state mode: eval_point = u, residual uses M @ (u - "
+    "base_state)\n"
     "    \n"
-    "    Uses dx_ numbered symbols for derivatives and aux_ symbols for observables,\n"
+    "    Uses dx_ numbered symbols for derivatives and aux_ symbols for "
+    "observables,\n"
     "    following the same pattern as JVP generation.\n"
     "    \n"
-    "    Order is ignored, included for compatibility with preconditioner API.\n"
+    "    Order is ignored, included for compatibility with preconditioner "
+    "API.\n"
     '    """\n'
     "{const_lines}"
     "    @cuda.jit((precision[:],\n"
