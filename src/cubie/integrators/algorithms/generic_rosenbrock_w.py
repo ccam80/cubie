@@ -9,166 +9,19 @@ from numba import cuda, int32
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
-    StepControlDefaults, ButcherTableau,
+    StepControlDefaults,
+    ButcherTableau,
 )
-from cubie.integrators.algorithms.ode_implicitstep import (ImplicitStepConfig,
-                                                           ODEImplicitStep)
+from cubie.integrators.algorithms.ode_implicitstep import (
+    ImplicitStepConfig,
+    ODEImplicitStep,
+)
+from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
+    DEFAULT_ROSENBROCK_TABLEAU,
+    ROSENBROCK_W6S4OS_TABLEAU,
+    RosenbrockTableau,
+)
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
-
-@attrs.define(frozen=True)
-class RosenbrockWTableau(ButcherTableau):
-    """Coefficient tableau describing a Rosenbrock-W method.
-
-    a
-        `a` matrix of the weights of other substages to the current stage
-        gradient
-    b
-        'b' matrix of weights of the stage gradients to the final estimate (
-        row 0) and the next-order-up for error calculation (row 1).
-    c
-        'c' vector of the substage times (in proportion of step size)
-    C
-        Matrix of jacobian correction coefficients for each stage - elements
-        correspond to the a matrix
-    d
-        Linear correction term added to the jacobian correction to maintain
-        order of accuracy with inexact Jacobians
-    gamma
-        'implicitness' parameter - controls the weighting of the jacobian
-        term in the linear solver. Constant across stages in Rosenbrock-W
-        methods.
-
-
-    order
-        Classical order of the accuracy of the method - error grows like O(
-        n^order)
-
-    Methods
-    -------
-    stage_count
-        Return the number of stages described by the tableau.
-    typed_rows(rows, numba_precision)
-        Returns a given matrix (rows) as precision-typed tuples for each stage.
-    """
-
-    C: Tuple[Tuple[float, ...], ...] = attrs.field(factory=tuple)
-    gamma: float = attrs.field(default=0.25)
-
-
-ROSENBROCK_W6S4OS_TABLEAU = RosenbrockWTableau(
-    a=(
-        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        (
-            0.5812383407115008,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ),
-        (
-            0.9039624413714670,
-            1.8615191555345010,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ),
-        (
-            2.0765797196750000,
-            0.1884255381414796,
-            1.8701589674910320,
-            0.0,
-            0.0,
-            0.0,
-        ),
-        (
-            4.4355506384843120,
-            5.4571817986101890,
-            4.6163507880689300,
-            3.1181119524023610,
-            0.0,
-            0.0,
-        ),
-        (
-            10.791701698483260,
-            -10.056915225841310,
-            14.995644854284190,
-            5.2743399543909430,
-            1.4297308712611900,
-            0.0,
-        ),
-    ),
-    C=(
-        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        (
-            -2.661294105131369,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ),
-        (
-            -3.128450202373838,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ),
-        (
-            -6.920335474535658,
-            -1.202675288266817,
-            -9.733561811413620,
-            0.0,
-            0.0,
-            0.0,
-        ),
-        (
-            -28.095306291026950,
-            20.371262954793770,
-            -41.043752753028690,
-            -19.663731756208950,
-            0.0,
-            0.0,
-        ),
-        (
-            9.7998186780974000,
-            11.935792886603180,
-            3.6738749290132010,
-            14.807828541095500,
-            0.8318583998690680,
-            0.0,
-        ),
-    ),
-    b=(
-        6.4562170746532350,
-        -4.8531413177680530,
-        9.7653183340692600,
-        2.0810841772787230,
-        0.6603936866352417,
-        0.6000000000000000,
-    ),
-    b_hat=(
-        6.2062170746532350,
-        -4.9368104361973420,
-        9.7108464717176250,
-        2.4213131495143094,
-        0.6266285278012887,
-        0.6903074267618540,
-    ),
-    c=(
-        0.0,
-        0.1453095851778752,
-        0.3817422770256738,
-        0.6367813704374599,
-        0.7560744496323561,
-        0.9271047239875670,
-    ),
-    gamma=0.25,
-    order=4,
-)
 
 
 ROSENBROCK_DEFAULTS = StepControlDefaults(
@@ -190,7 +43,7 @@ ROSENBROCK_DEFAULTS = StepControlDefaults(
 class RosenbrockWStepConfig(ImplicitStepConfig):
     """Configuration describing the Rosenbrock-W integrator."""
 
-    tableau: RosenbrockWTableau = attrs.field(default=ROSENBROCK_W6S4OS_TABLEAU)
+    tableau: RosenbrockTableau = attrs.field(default=DEFAULT_ROSENBROCK_TABLEAU)
 
 
 class GenericRosenbrockWStep(ODEImplicitStep):
@@ -209,11 +62,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         krylov_tolerance: float = 1e-6,
         max_linear_iters: int = 200,
         linear_correction_type: str = "minimal_residual",
-        tableau: RosenbrockWTableau = ROSENBROCK_W6S4OS_TABLEAU,
+        tableau: RosenbrockTableau = DEFAULT_ROSENBROCK_TABLEAU,
     ) -> None:
         """Initialise the Rosenbrock-W step configuration."""
 
         mass = np.eye(n, dtype=precision)
+        tableau_value = tableau
         config = RosenbrockWStepConfig(
             precision=precision,
             n=n,
@@ -226,9 +80,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             krylov_tolerance=krylov_tolerance,
             max_linear_iters=max_linear_iters,
             linear_correction_type=linear_correction_type,
-            tableau=tableau,
+            tableau=tableau_value,
             beta=1.0,
-            gamma=tableau.gamma,
+            gamma=tableau_value.gamma,
             M=mass,
         )
         self._cached_auxiliary_count = None
@@ -617,4 +471,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     def threads_per_step(self) -> int:
         """Return the number of CUDA threads that advance one state."""
         return 1
+
+
+__all__ = [
+    "GenericRosenbrockWStep",
+    "RosenbrockWStepConfig",
+    "RosenbrockTableau",
+    "ROSENBROCK_W6S4OS_TABLEAU",
+]
 

@@ -1,6 +1,6 @@
 """Diagonally implicit Runge–Kutta integration step implementation."""
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 
 import attrs
 import numpy as np
@@ -11,44 +11,17 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults, ButcherTableau,
 )
+from cubie.integrators.algorithms.generic_dirk_tableaus import (
+    DEFAULT_DIRK_TABLEAU,
+    DIRKTableau,
+)
 from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
-    ODEImplicitStep, )
+    ODEImplicitStep,
+)
 from cubie.integrators.matrix_free_solvers import (
     linear_solver_factory,
     newton_krylov_solver_factory,
-)
-
-
-@attrs.define(frozen=True)
-class DIRKTableau(ButcherTableau):
-    """Coefficient tableau describing a diagonally implicit Runge–Kutta method.
-
-    Methods
-    -------
-    diagonal(precision)
-        Returns diagonal elements of the a matrix as a precision-typed tuple.
-
-    """
-
-    def diagonal(self, precision: PrecisionDType) -> Tuple[float, ...]:
-        """Return the diagonal entries of the tableau."""
-
-        diagonal_entries = tuple(
-            self.a[idx][idx] for idx in range(self.stage_count)
-        )
-        return self.typed_vector(diagonal_entries, precision)
-
-
-SDIRK_2_2_TABLEAU = DIRKTableau(
-    a=(
-        (0.2928932188134524, 0.0),
-        (0.7071067811865476, 0.2928932188134524),
-    ),
-    b=(0.5, 0.5),
-    b_hat=(-0.5, 0.5),
-    c=(0.2928932188134524, 1.0),
-    order=2,
 )
 
 
@@ -65,13 +38,13 @@ DIRK_DEFAULTS = StepControlDefaults(
         "max_gain": 2.0,
     }
 )
-
-
 @attrs.define
 class DIRKStepConfig(ImplicitStepConfig):
     """Configuration describing the DIRK integrator."""
 
-    tableau: DIRKTableau = attrs.field(default=SDIRK_2_2_TABLEAU)
+    tableau: DIRKTableau = attrs.field(
+        default=DEFAULT_DIRK_TABLEAU,
+    )
 
 
 class DIRKStep(ODEImplicitStep):
@@ -94,7 +67,7 @@ class DIRKStep(ODEImplicitStep):
         max_newton_iters: int = 100,
         newton_damping: float = 0.5,
         newton_max_backtracks: int = 8,
-        tableau: DIRKTableau = SDIRK_2_2_TABLEAU,
+        tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
     ) -> None:
         """Initialise the DIRK step configuration."""
 
@@ -198,7 +171,7 @@ class DIRKStep(ODEImplicitStep):
             precision=precision,
         )
 
-        return nonlinear_solver#, prepare_jacobian
+        return nonlinear_solver
 
     def build_step(
         self,
@@ -212,8 +185,9 @@ class DIRKStep(ODEImplicitStep):
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the DIRK device step."""
 
-        tableau = self.tableau
-        nonlinear_solver, prepare_jacobian = solver_fn
+        config = self.compile_settings
+        tableau = config.tableau
+        nonlinear_solver = solver_fn
         stage_count = tableau.stage_count
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive

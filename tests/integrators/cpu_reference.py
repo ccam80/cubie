@@ -23,7 +23,8 @@ import sympy as sp
 from numpy.typing import NDArray
 
 from cubie.integrators import IntegratorReturnCodes
-from cubie.integrators.algorithms.generic_dirk import (
+from cubie.integrators.algorithms.generic_dirk_tableaus import (
+    DEFAULT_DIRK_TABLEAU,
     DIRKTableau,
     SDIRK_2_2_TABLEAU,
 )
@@ -31,9 +32,9 @@ from cubie.integrators.algorithms.generic_erk import (
     DORMAND_PRINCE_54_TABLEAU,
     ERKTableau,
 )
-from cubie.integrators.algorithms.generic_rosenbrock_w import (
-    RosenbrockWTableau,
-    ROSENBROCK_W6S4OS_TABLEAU,
+from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
+    DEFAULT_ROSENBROCK_TABLEAU,
+    RosenbrockTableau,
 )
 from cubie import SymbolicODE
 from cubie._utils import PrecisionDType
@@ -714,27 +715,21 @@ def dirk_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
     *,
-    state: Optional[Array] = None,
+    state: Array,
     params: Optional[Array] = None,
     dt: Optional[float] = None,
     tol: Optional[float] = None,
     max_iters: Optional[int] = None,
     time: float = 0.0,
-    tableau: Optional[DIRKTableau] = None,
+    tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
 ) -> StepResult:
     """Execute a generic diagonally implicit Runge--Kutta step on the CPU."""
-
-    if state is None or dt is None:
-        raise ValueError("State and dt must be provided for DIRK steppers.")
 
     precision = evaluator.precision
     dt_value = precision(dt)
     current_time = precision(time)
 
-    if tableau is None:
-        tableau_value = SDIRK_2_2_TABLEAU
-    else:
-        tableau_value = tableau
+    tableau_value = tableau
 
     stage_count = tableau_value.stage_count
     a_matrix = _tableau_matrix(tableau_value.a, stage_count, precision)
@@ -892,7 +887,7 @@ def rosenbrock_step(
     tol: Optional[float] = None,
     max_iters: Optional[int] = None,
     time: float = 0.0,
-    tableau: Optional[RosenbrockWTableau] = None,
+    tableau: Optional[RosenbrockTableau] = None,
 ) -> StepResult:
     """Six-stage Rosenbrock-W method with an embedded error estimate."""
 
@@ -901,10 +896,7 @@ def rosenbrock_step(
     current_time = precision(time)
     end_time = current_time + dt_value
 
-    if tableau is None:
-        tableau_value = ROSENBROCK_W6S4OS_TABLEAU
-    else:
-        tableau_value = tableau
+    tableau_value = tableau
     stage_count = tableau_value.stage_count
 
     a_matrix = _tableau_matrix(tableau_value.a, stage_count, precision)
@@ -1322,7 +1314,7 @@ def get_ref_step_function(
     algorithm: str,
     *,
     tableau: Optional[
-        Union[ERKTableau, DIRKTableau, RosenbrockWTableau]
+        Union[ERKTableau, DIRKTableau, RosenbrockTableau]
     ] = None,
 ) -> Callable:
     """Return the CPU reference implementation for ``algorithm``."""
@@ -1357,18 +1349,14 @@ def get_ref_step_function(
         "rosenbrock_w6s4",
         "rosenbrock-w6s4",
     }:
-        ros_tableau = _resolve_tableau(
-            tableau,
-            ROSENBROCK_W6S4OS_TABLEAU,
-            RosenbrockWTableau,
-        )
+        ros_tableau = DEFAULT_ROSENBROCK_TABLEAU
         return partial(rosenbrock_step, tableau=ros_tableau)
     raise ValueError(f"Unknown stepper algorithm: {algorithm}")
 
 
 def _resolve_tableau(
     provided: Optional[
-        Union[ERKTableau, DIRKTableau, RosenbrockWTableau]
+        Union[ERKTableau, DIRKTableau, RosenbrockTableau]
     ],
     default,
     expected_type,
@@ -1408,7 +1396,7 @@ def run_reference_loop(
     controller,
     *,
     tableau: Optional[
-        Union[ERKTableau, DIRKTableau, RosenbrockWTableau]
+        Union[ERKTableau, DIRKTableau, RosenbrockTableau]
     ] = None,
 ) -> dict[str, Array]:
     """Execute a CPU loop mirroring :class:`IVPLoop` behaviour."""
