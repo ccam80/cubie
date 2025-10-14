@@ -26,6 +26,8 @@ from cubie._utils import is_devfunc
 # Lambda notation, Auto-number, factorial notation, implicit multiplication
 PARSE_TRANSORMS = (T[0][0], T[3][0], T[4][0], T[8][0])
 
+_INDEXED_NAME_PATTERN = re.compile(r"(?P<name>[A-Za-z_]\w*)\[(?P<index>\d+)\]")
+
 TIME_SYMBOL = sp.Symbol("t", real=True)
 DRIVER_SETTING_KEYS = {"time", "dt", "wrap", "order"}
 
@@ -265,6 +267,29 @@ def _replace_if(expr_str: str) -> str:
         false_str = _replace_if(match.group(3).strip())
         return f"Piecewise(({true_str}, {cond_str}), ({false_str}, True))"
     return expr_str
+
+
+def _normalise_indexed_tokens(lines: Iterable[str]) -> list[str]:
+    """Collapse numeric index access into scalar-style symbol names.
+
+    Parameters
+    ----------
+    lines
+        Raw equation strings supplied by the user.
+
+    Returns
+    -------
+    list[str]
+        Lines with occurrences of ``name[index]`` rewritten as ``nameindex``
+        whenever ``index`` is an integer literal.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        base = match.group("name")
+        index = match.group("index")
+        return f"{base}{index}"
+
+    return [_INDEXED_NAME_PATTERN.sub(_replace, line) for line in lines]
 
 # ---------------------------- Function handling --------------------------- #
 
@@ -632,6 +657,7 @@ def _rhs_pass(
     user_funcs: Optional[Dict[str, Callable]] = None,
     user_function_derivatives: Optional[Dict[str, Callable]] = None,
     strict: bool = True,
+    raw_lines: Optional[Sequence[str]] = None,
 ) -> Tuple[List[Tuple[sp.Symbol, sp.Expr]], Dict[str, Callable], List[sp.Symbol]]:
     """Parse right-hand sides, validating symbols and callable usage.
 
@@ -647,18 +673,27 @@ def _rhs_pass(
         Optional mapping of user-provided derivative helpers.
     strict
         When ``False``, unknown symbols are inferred from expressions.
+    raw_lines
+        Optional representation of the original equations prior to indexed
+        token normalisation. When provided, error messages reference these
+        inputs.
 
     Returns
     -------
     tuple
         Parsed expressions, callable mapping, and any inferred symbols.
     """
+    lines = list(lines)
     expressions = []
     # Detect all calls as before for erroring on unknown names and for returning funcs
     funcs = _process_calls(lines, user_funcs)
 
     # Prepare user function environment with underscore renaming to avoid collisions
     sanitized_lines, rename = _rename_user_calls(lines, user_funcs or {})
+    if raw_lines is None:
+        raw_iter: Sequence[str] = lines
+    else:
+        raw_iter = list(raw_lines)
     parse_locals, alias_map, dev_map = _build_sympy_user_functions(
         user_funcs or {}, rename, user_function_derivatives
     )
@@ -668,7 +703,7 @@ def _rhs_pass(
     local_dict.update(parse_locals)
     local_dict.setdefault("t", TIME_SYMBOL)
     new_symbols = []
-    for raw_line, line in zip(lines, sanitized_lines):
+    for raw_line, line in zip(raw_iter, sanitized_lines):
         lhs, rhs = [p.strip() for p in line.split("=", 1)]
         rhs_expr = _sanitise_input_math(rhs)
         if strict:
@@ -827,6 +862,9 @@ def parse_input(
     else:
         raise ValueError("dxdt must be a string or a list/tuple of strings")
 
+    raw_lines = list(lines)
+    lines = _normalise_indexed_tokens(lines)
+
     constants = index_map.constants.default_values
     fn_hash = hash_system_definition(dxdt, constants)
     anon_aux = _lhs_pass(lines, index_map, strict=strict)
@@ -840,6 +878,7 @@ def parse_input(
         user_funcs=user_functions,
         user_function_derivatives=user_function_derivatives,
         strict=strict,
+        raw_lines=raw_lines,
     )
 
     for param in new_params:

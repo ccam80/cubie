@@ -513,6 +513,57 @@ class TestParseInput:
         assert observable_equations[0][0] == y
         assert observable_equations[0][1] == x
 
+    def test_parse_input_indexed_variable_equivalence(self):
+        """Indexed tokens are parsed equivalently to scalar naming."""
+
+        states = {"x0": 0.0, "x1": 0.0}
+        parameters = {"parameters0": 1.0, "parameters1": 2.0}
+        constants = {}
+        observables = []
+        drivers = []
+        indexed_dxdt = [
+            "dx[0] = parameters[0] * x[1]",
+            "dx[1] = parameters[1] * x[0]",
+        ]
+        scalar_dxdt = [
+            "dx0 = parameters0 * x1",
+            "dx1 = parameters1 * x0",
+        ]
+
+        (
+            _,
+            _,
+            _,
+            indexed_equations,
+            _,
+        ) = parse_input(
+            states=states,
+            parameters=parameters,
+            constants=constants,
+            observables=observables,
+            drivers=drivers,
+            dxdt=indexed_dxdt,
+            strict=True,
+        )
+
+        (
+            _,
+            _,
+            _,
+            scalar_equations,
+            _,
+        ) = parse_input(
+            states=states,
+            parameters=parameters,
+            constants=constants,
+            observables=observables,
+            drivers=drivers,
+            dxdt=scalar_dxdt,
+            strict=True,
+        )
+
+        assert indexed_equations.ordered == scalar_equations.ordered
+
 
 class TestIntegrationWithFixtures:
     """Test integration with conftest fixtures."""
