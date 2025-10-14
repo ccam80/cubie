@@ -23,8 +23,8 @@ import sympy as sp
 from numpy.typing import NDArray
 
 from cubie.integrators import IntegratorReturnCodes
-from cubie.integrators.algorithms.rosenbrock import (
-    RosenbrockTableau,
+from cubie.integrators.algorithms.generic_rosenbrock_w import (
+    RosenbrockWTableau,
     ROSENBROCK_W6S4OS_TABLEAU,
 )
 from cubie import SymbolicODE
@@ -613,7 +613,7 @@ def rosenbrock_step(
     tol: Optional[float] = None,
     max_iters: Optional[int] = None,
     time: float = 0.0,
-    tableau: Optional[RosenbrockTableau] = None,
+    tableau: Optional[RosenbrockWTableau] = None,
 ) -> StepResult:
     """Six-stage Rosenbrock-W method with an embedded error estimate."""
 
@@ -1042,7 +1042,7 @@ class CPUAdaptiveController:
 def get_ref_step_function(
     algorithm: str,
     *,
-    tableau: Optional[RosenbrockTableau] = None,
+    tableau: Optional[RosenbrockWTableau] = None,
 ) -> Callable:
     """Return the CPU reference implementation for ``algorithm``."""
 
@@ -1082,7 +1082,7 @@ def run_reference_loop(
     output_functions,
     controller,
     *,
-    tableau: Optional[RosenbrockTableau] = None,
+    tableau: Optional[RosenbrockWTableau] = None,
 ) -> dict[str, Array]:
     """Execute a CPU loop mirroring :class:`IVPLoop` behaviour."""
 

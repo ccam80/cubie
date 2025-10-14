@@ -12,45 +12,52 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     StepControlDefaults,
 )
 from cubie.integrators.algorithms.ode_implicitstep import (ImplicitStepConfig,
-                                                 ODEImplicitStep)
+                                                           ODEImplicitStep,
+                                                           ButcherTableau)
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
 
 @attrs.define(frozen=True)
-class RosenbrockTableau:
-    """Coefficient tableau describing a Rosenbrock-W method."""
+class RosenbrockWTableau(ButcherTableau):
+    """Coefficient tableau describing a Rosenbrock-W method.
 
-    a: Tuple[Tuple[float, ...], ...]
+    a
+        `a` matrix of the weights of other substages to the current stage
+        gradient
+    b
+        'b' matrix of weights of the stage gradients to the final estimate (
+        row 0) and the next-order-up for error calculation (row 1).
+    c
+        'c' vector of the substage times (in proportion of step size)
+    C
+        Matrix of jacobian correction coefficients for each stage - elements
+        correspond to the a matrix
+    d
+        Linear correction term added to the jacobian correction to maintain
+        order of accuracy with inexact Jacobians
+    gamma
+        'implicitness' parameter - controls the weighting of the jacobian
+        term in the linear solver. Constant across stages in Rosenbrock-W
+        methods.
+
+
+    order
+        Classical order of the accuracy of the method - error grows like O(
+        n^order)
+
+    Methods
+    -------
+    stage_count
+        Return the number of stages described by the tableau.
+    typed_rows(rows, numba_precision)
+        Returns a given matrix (rows) as precision-typed tuples for each stage.
+    """
+
     C: Tuple[Tuple[float, ...], ...]
-    b: Tuple[float, ...]
     d: Tuple[float, ...]
-    c: Tuple[float, ...]
     gamma: float
-    order: int
 
-    @property
-    def stage_count(self) -> int:
-        """Return the number of stages described by the tableau."""
 
-        return len(self.b)
-
-    def typed_rows(
-        self,
-        rows: Sequence[Sequence[float]],
-        numba_precision: type,
-    ) -> Tuple[Tuple[float, ...], ...]:
-        """Pad and convert tableau rows to the requested precision."""
-
-        typed_rows = []
-        for row in rows:
-            padded = list(row)
-            if len(padded) < self.stage_count:
-                padded.extend([0.0] * (self.stage_count - len(padded)))
-            typed_rows.append(
-                tuple(numba_precision(value) for value in padded)
-            )
-        return tuple(typed_rows)
-
-ROSENBROCK_W6S4OS_TABLEAU = RosenbrockTableau(
+ROSENBROCK_W6S4OS_TABLEAU = RosenbrockWTableau(
     a=(
         (0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         (
@@ -183,10 +190,10 @@ ROSENBROCK_DEFAULTS = StepControlDefaults(
 
 
 @attrs.define
-class RosenbrockStepConfig(ImplicitStepConfig):
+class RosenbrockWStepConfig(ImplicitStepConfig):
     """Configuration describing the Rosenbrock-W integrator."""
 
-    tableau: RosenbrockTableau = attrs.field(default=ROSENBROCK_W6S4OS_TABLEAU)
+    tableau: RosenbrockWTableau = attrs.field(default=ROSENBROCK_W6S4OS_TABLEAU)
 
     @property
     def settings_dict(self) -> dict:
@@ -201,7 +208,7 @@ class RosenbrockStepConfig(ImplicitStepConfig):
         return settings
 
 
-class RosenbrockStep(ODEImplicitStep):
+class GenericRosenbrockWStep(ODEImplicitStep):
     """Rosenbrock-W step with an embedded error estimate."""
 
     def __init__(
@@ -217,12 +224,12 @@ class RosenbrockStep(ODEImplicitStep):
         krylov_tolerance: float = 1e-6,
         max_linear_iters: int = 200,
         linear_correction_type: str = "minimal_residual",
-        tableau: RosenbrockTableau = ROSENBROCK_W6S4OS_TABLEAU,
+        tableau: RosenbrockWTableau = ROSENBROCK_W6S4OS_TABLEAU,
     ) -> None:
         """Initialise the Rosenbrock-W step configuration."""
 
         mass = np.eye(n, dtype=precision)
-        config = RosenbrockStepConfig(
+        config = RosenbrockWStepConfig(
             precision=precision,
             n=n,
             dt=dt,
@@ -643,7 +650,7 @@ class RosenbrockStep(ODEImplicitStep):
         return 1
 
     @property
-    def tableau(self) -> RosenbrockTableau:
+    def tableau(self) -> RosenbrockWTableau:
         """Return the tableau used by the integrator."""
 
         return self.compile_settings.tableau

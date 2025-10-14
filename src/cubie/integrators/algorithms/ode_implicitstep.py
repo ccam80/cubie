@@ -1,7 +1,7 @@
 """Infrastructure for implicit integration step implementations."""
 
 from abc import abstractmethod
-from typing import Callable, Optional, Union
+from typing import Callable, Optional, Union, Sequence, Tuple
 
 import attrs
 import numpy as np
@@ -17,6 +17,69 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     BaseStepConfig,
     StepCache, StepControlDefaults,
 )
+
+@attrs.define(frozen=True)
+class ButcherTableau:
+    """ Generic ``Butcher Tableau``` object.
+
+    Attributes
+    ----------
+    a
+        `a` matrix of the weights of other substages to the current stage
+        gradient
+    b
+        'b' matrix of weights of the stage gradients to the final estimate (
+        row 0) and the next-order-up for error calculation (row 1).
+    c
+        'c' vector of the substage times (in proportion of step size)
+    d
+        Coefficients for error estimation
+    order
+        Classical order of the accuracy of the method - error grows like O(
+        n^order)
+
+    Methods
+    -------
+    stage_count
+        Return the number of stages described by the tableau.
+    has_error_estimate
+        Returns ``True`` when embedded error weights are supplied.
+    typed_rows(rows, numba_precision)
+        Returns a given matrix (rows) as precision-typed tuples for each stage.
+    """
+
+    a: Tuple[Tuple[float, ...], ...]
+    b: Tuple[float, ...]
+    c: Tuple[float, ...]
+    order: int
+    d: Optional[Tuple[float, ...]] = None
+
+    @property
+    def stage_count(self) -> int:
+        """Return the number of stages described by the tableau."""
+        return len(self.b)
+
+    @property
+    def has_error_estimate(self) -> bool:
+        """Return ``True`` when embedded error weights are supplied."""
+        return any(weight != 0.0 for weight in self.d) if self.d else False
+
+    def typed_rows(
+        self,
+        rows: Sequence[Sequence[float]],
+        numba_precision: type,
+    ) -> Tuple[Tuple[float, ...], ...]:
+        """Pad and convert tableau rows to the requested precision."""
+
+        typed_rows = []
+        for row in rows:
+            padded = list(row)
+            if len(padded) < self.stage_count:
+                padded.extend([0.0] * (self.stage_count - len(padded)))
+            typed_rows.append(
+                tuple(numba_precision(value) for value in padded)
+            )
+        return tuple(typed_rows)
 
 @attrs.define
 class ImplicitStepConfig(BaseStepConfig):
