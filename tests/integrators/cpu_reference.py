@@ -17,12 +17,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import partial
 import math
-from typing import Callable, Dict, Mapping, Sequence, Optional, Set
+from typing import Callable, Dict, Mapping, Sequence, Optional, Set, Union
 import numpy as np
 import sympy as sp
 from numpy.typing import NDArray
 
 from cubie.integrators import IntegratorReturnCodes
+from cubie.integrators.algorithms.generic_dirk import (
+    DIRKTableau,
+    SDIRK_2_2_TABLEAU,
+)
+from cubie.integrators.algorithms.generic_erk import (
+    DORMAND_PRINCE_54_TABLEAU,
+    ERKTableau,
+)
 from cubie.integrators.algorithms.generic_rosenbrock_w import (
     RosenbrockWTableau,
     ROSENBROCK_W6S4OS_TABLEAU,
@@ -603,6 +611,277 @@ def _tableau_vector(entries: Sequence[float], dtype: np.dtype) -> Array:
     return np.asarray(entries, dtype=dtype)
 
 
+def erk_step(
+    evaluator: CPUODESystem,
+    driver_evaluator: DriverEvaluator,
+    *,
+    state: Optional[Array] = None,
+    params: Optional[Array] = None,
+    dt: Optional[float] = None,
+    tol: Optional[float] = None,
+    max_iters: Optional[int] = None,
+    time: float = 0.0,
+    tableau: Optional[ERKTableau] = None,
+) -> StepResult:
+    """Execute a generic explicit Runge--Kutta step on the CPU."""
+
+    if state is None or dt is None:
+        raise ValueError("State and dt must be provided for ERK steppers.")
+
+    precision = evaluator.precision
+    dt_value = precision(dt)
+    current_time = precision(time)
+
+    if tableau is None:
+        tableau_value = DORMAND_PRINCE_54_TABLEAU
+    else:
+        tableau_value = tableau
+
+    stage_count = tableau_value.stage_count
+    a_matrix = _tableau_matrix(tableau_value.a, stage_count, precision)
+    b_weights = _tableau_vector(tableau_value.b, precision)
+    if tableau_value.d is None:
+        error_weights = np.zeros(stage_count, dtype=precision)
+    else:
+        error_weights = _tableau_vector(tableau_value.d, precision)
+    c_nodes = _tableau_vector(tableau_value.c, precision)
+
+    if params is None:
+        params_array = np.zeros(
+            evaluator.system.sizes.parameters,
+            dtype=precision,
+        )
+    else:
+        params_array = np.asarray(params, dtype=precision)
+    state_vector = state.astype(precision, copy=True)
+    stage_derivatives = np.zeros(
+        (stage_count, state_vector.shape[0]),
+        dtype=precision,
+    )
+
+    for stage_index in range(stage_count):
+        stage_state = state_vector.copy()
+        for dependency in range(stage_index):
+            stage_state = stage_state + (
+                dt_value
+                * a_matrix[stage_index, dependency]
+                * stage_derivatives[dependency]
+            )
+        stage_time = current_time + c_nodes[stage_index] * dt_value
+        drivers_stage = driver_evaluator(float(stage_time))
+        observables_stage = evaluator.observables(
+            stage_state,
+            params_array,
+            drivers_stage,
+            stage_time,
+        )
+        derivative, _ = evaluator.rhs(
+            stage_state,
+            params_array,
+            drivers_stage,
+            observables_stage,
+            stage_time,
+        )
+        stage_derivatives[stage_index, :] = derivative
+
+    state_update = np.zeros_like(state_vector)
+    for stage_index in range(stage_count):
+        state_update = state_update + (
+            b_weights[stage_index] * stage_derivatives[stage_index]
+        )
+    new_state = state_vector + dt_value * state_update
+
+    error_update = np.zeros_like(state_vector)
+    for stage_index in range(stage_count):
+        error_update = error_update + (
+            error_weights[stage_index] * stage_derivatives[stage_index]
+        )
+    error = dt_value * error_update
+
+    end_time = current_time + dt_value
+    drivers_next = driver_evaluator(float(end_time))
+    observables = evaluator.observables(
+        new_state,
+        params_array,
+        drivers_next,
+        end_time,
+    )
+    status = _encode_solver_status(True, 0)
+    return StepResult(new_state, observables, error, status, 0)
+
+
+def dirk_step(
+    evaluator: CPUODESystem,
+    driver_evaluator: DriverEvaluator,
+    *,
+    state: Optional[Array] = None,
+    params: Optional[Array] = None,
+    dt: Optional[float] = None,
+    tol: Optional[float] = None,
+    max_iters: Optional[int] = None,
+    time: float = 0.0,
+    tableau: Optional[DIRKTableau] = None,
+) -> StepResult:
+    """Execute a generic diagonally implicit Runge--Kutta step on the CPU."""
+
+    if state is None or dt is None:
+        raise ValueError("State and dt must be provided for DIRK steppers.")
+
+    precision = evaluator.precision
+    dt_value = precision(dt)
+    current_time = precision(time)
+
+    if tableau is None:
+        tableau_value = SDIRK_2_2_TABLEAU
+    else:
+        tableau_value = tableau
+
+    stage_count = tableau_value.stage_count
+    a_matrix = _tableau_matrix(tableau_value.a, stage_count, precision)
+    b_weights = _tableau_vector(tableau_value.b, precision)
+    if tableau_value.d is None:
+        error_weights = np.zeros(stage_count, dtype=precision)
+    else:
+        error_weights = _tableau_vector(tableau_value.d, precision)
+    c_nodes = _tableau_vector(tableau_value.c, precision)
+
+    if params is None:
+        params_array = np.zeros(
+            evaluator.system.sizes.parameters,
+            dtype=precision,
+        )
+    else:
+        params_array = np.asarray(params, dtype=precision)
+    state_vector = state.astype(precision, copy=True)
+    stage_derivatives = np.zeros(
+        (stage_count, state_vector.shape[0]),
+        dtype=precision,
+    )
+
+    tol_value = 1e-10 if tol is None else float(tol)
+    max_iters_value = 25 if max_iters is None else int(max_iters)
+    all_converged = True
+    total_iters = 0
+
+    for stage_index in range(stage_count):
+        stage_state = state_vector.copy()
+        for dependency in range(stage_index):
+            stage_state = stage_state + (
+                dt_value
+                * a_matrix[stage_index, dependency]
+                * stage_derivatives[dependency]
+            )
+
+        stage_time = current_time + c_nodes[stage_index] * dt_value
+        drivers_stage = driver_evaluator(float(stage_time))
+        diag_coeff = a_matrix[stage_index, stage_index]
+
+        if math.isclose(float(diag_coeff), 0.0):
+            stage_observables = evaluator.observables(
+                stage_state,
+                params_array,
+                drivers_stage,
+                stage_time,
+            )
+            derivative, _ = evaluator.rhs(
+                stage_state,
+                params_array,
+                drivers_stage,
+                stage_observables,
+                stage_time,
+            )
+            stage_derivatives[stage_index, :] = derivative
+            continue
+
+        def residual(candidate: Array) -> Array:
+            candidate_observables = evaluator.observables(
+                candidate,
+                params_array,
+                drivers_stage,
+                stage_time,
+            )
+            derivative_value, _ = evaluator.rhs(
+                candidate,
+                params_array,
+                drivers_stage,
+                candidate_observables,
+                stage_time,
+            )
+            return (
+                candidate
+                - stage_state
+                - dt_value * diag_coeff * derivative_value
+            )
+
+        def jacobian(candidate: Array) -> Array:
+            candidate_observables = evaluator.observables(
+                candidate,
+                params_array,
+                drivers_stage,
+                stage_time,
+            )
+            jacobian_value = evaluator.jacobian(
+                candidate,
+                params_array,
+                drivers_stage,
+                candidate_observables,
+                stage_time,
+            )
+            identity = np.eye(jacobian_value.shape[0], dtype=precision)
+            return identity - dt_value * diag_coeff * jacobian_value
+
+        guess = stage_state.copy()
+        solved_state, converged, niters = _newton_solve(
+            residual,
+            jacobian,
+            guess,
+            precision,
+            tol_value,
+            max_iters_value,
+        )
+        all_converged = all_converged and converged
+        total_iters += niters
+        stage_observables = evaluator.observables(
+            solved_state,
+            params_array,
+            drivers_stage,
+            stage_time,
+        )
+        derivative, _ = evaluator.rhs(
+            solved_state,
+            params_array,
+            drivers_stage,
+            stage_observables,
+            stage_time,
+        )
+        stage_derivatives[stage_index, :] = derivative
+
+    state_update = np.zeros_like(state_vector)
+    for stage_index in range(stage_count):
+        state_update = state_update + (
+            b_weights[stage_index] * stage_derivatives[stage_index]
+        )
+    new_state = state_vector + dt_value * state_update
+
+    error_update = np.zeros_like(state_vector)
+    for stage_index in range(stage_count):
+        error_update = error_update + (
+            error_weights[stage_index] * stage_derivatives[stage_index]
+        )
+    error = dt_value * error_update
+
+    end_time = current_time + dt_value
+    drivers_next = driver_evaluator(float(end_time))
+    observables = evaluator.observables(
+        new_state,
+        params_array,
+        drivers_next,
+        end_time,
+    )
+    status = _encode_solver_status(all_converged, total_iters)
+    return StepResult(new_state, observables, error, status, total_iters)
+
+
 def rosenbrock_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
@@ -1042,7 +1321,9 @@ class CPUAdaptiveController:
 def get_ref_step_function(
     algorithm: str,
     *,
-    tableau: Optional[RosenbrockWTableau] = None,
+    tableau: Optional[
+        Union[ERKTableau, DIRKTableau, RosenbrockWTableau]
+    ] = None,
 ) -> Callable:
     """Return the CPU reference implementation for ``algorithm``."""
 
@@ -1055,9 +1336,53 @@ def get_ref_step_function(
         return backward_euler_predict_correct_step
     if key == "crank_nicolson":
         return crank_nicolson_step
-    if key == "rosenbrock":
-        return partial(rosenbrock_step, tableau=tableau)
+    if key in {"dopri54", "erk", "rk", "dormand_prince", "dormand-prince"}:
+        erk_tableau = _resolve_tableau(
+            tableau,
+            DORMAND_PRINCE_54_TABLEAU,
+            ERKTableau,
+        )
+        return partial(erk_step, tableau=erk_tableau)
+    if key in {"dirk", "sdirk22", "sdirk_2_2"}:
+        dirk_tableau = _resolve_tableau(
+            tableau,
+            SDIRK_2_2_TABLEAU,
+            DIRKTableau,
+        )
+        return partial(dirk_step, tableau=dirk_tableau)
+    if key in {
+        "rosenbrock",
+        "ros54",
+        "rosenbrock54",
+        "rosenbrock_w6s4",
+        "rosenbrock-w6s4",
+    }:
+        ros_tableau = _resolve_tableau(
+            tableau,
+            ROSENBROCK_W6S4OS_TABLEAU,
+            RosenbrockWTableau,
+        )
+        return partial(rosenbrock_step, tableau=ros_tableau)
     raise ValueError(f"Unknown stepper algorithm: {algorithm}")
+
+
+def _resolve_tableau(
+    provided: Optional[
+        Union[ERKTableau, DIRKTableau, RosenbrockWTableau]
+    ],
+    default,
+    expected_type,
+):
+    """Return ``provided`` when it matches ``expected_type`` else ``default``."""
+
+    if provided is None:
+        return default
+    if isinstance(provided, expected_type):
+        return provided
+    raise TypeError(
+        f"Expected tableau of type {expected_type.__name__}, "
+        f"received {type(provided).__name__}."
+    )
 
 
 def _collect_saved_outputs(
@@ -1082,7 +1407,9 @@ def run_reference_loop(
     output_functions,
     controller,
     *,
-    tableau: Optional[RosenbrockWTableau] = None,
+    tableau: Optional[
+        Union[ERKTableau, DIRKTableau, RosenbrockWTableau]
+    ] = None,
 ) -> dict[str, Array]:
     """Execute a CPU loop mirroring :class:`IVPLoop` behaviour."""
 
