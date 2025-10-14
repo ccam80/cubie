@@ -1,7 +1,7 @@
 """Infrastructure for implicit integration step implementations."""
 
 from abc import abstractmethod
-from typing import Callable, Optional, Union, Sequence, Tuple
+from typing import Callable, Optional, Union
 
 import attrs
 import numpy as np
@@ -18,132 +18,6 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache, StepControlDefaults,
 )
 
-@attrs.define(frozen=True)
-class ButcherTableau:
-    """ Generic ``Butcher Tableau``` object.
-
-    Attributes
-    ----------
-    a
-        `a` matrix of the weights of other substages to the current stage
-        gradient
-    b
-        'b' matrix of weights of the stage gradients to the final estimate (
-        row 0) and the next-order-up for error calculation (row 1).
-    b_hat
-        Embedded weights for the higher-order estimate used when calculating
-        an error signal.
-    c
-        'c' vector of the substage times (in proportion of step size)
-    order
-        Classical order of the accuracy of the method - error grows like O(
-        n^order)
-
-    Methods
-    -------
-    stage_count
-        Return the number of stages described by the tableau.
-    has_error_estimate
-        Returns ``True`` when embedded error weights are supplied.
-    typed_rows(rows, numba_precision)
-        Returns a given matrix (rows) as precision-typed tuples for each stage.
-    """
-
-    a: Tuple[Tuple[float, ...], ...] = attrs.field()
-    b: Tuple[float, ...] = attrs.field()
-    c: Tuple[float, ...] = attrs.field()
-    order: int = attrs.field()
-    b_hat: Optional[Tuple[float, ...]] = attrs.field(default=None)
-
-    def __attrs_post_init__(self) -> None:
-        """Validate tableau coefficients after initialisation."""
-
-        stage_count = self.stage_count
-        if self.b_hat is not None and len(self.b_hat) != stage_count:
-            raise ValueError("b_hat must match the number of stages in b")
-
-    @property
-    def d(self) -> Optional[Tuple[float, ...]]:
-        """Return coefficients for embedded error estimation."""
-
-        if self.b_hat is None:
-            return None
-        return tuple(
-            b_value - b_hat_value
-            for b_value, b_hat_value in zip(self.b, self.b_hat)
-        )
-
-    @property
-    def stage_count(self) -> int:
-        """Return the number of stages described by the tableau."""
-        return len(self.b)
-
-    @property
-    def has_error_estimate(self) -> bool:
-        """Return ``True`` when embedded error weights are supplied."""
-        error_coeffs = self.d
-        if error_coeffs is None:
-            return False
-        return any(weight != 0.0 for weight in error_coeffs)
-
-    def typed_rows(
-        self,
-        rows: Sequence[Sequence[float]],
-        numba_precision: type,
-    ) -> Tuple[Tuple[float, ...], ...]:
-        """Pad and convert tableau rows to the requested precision."""
-
-        typed_rows = []
-        for row in rows:
-            padded = list(row)
-            if len(padded) < self.stage_count:
-                padded.extend([0.0] * (self.stage_count - len(padded)))
-            typed_rows.append(
-                tuple(numba_precision(value) for value in padded)
-            )
-        return tuple(typed_rows)
-
-    def typed_vector(
-        self,
-        vector: Sequence[float],
-        numba_precision: type,
-    ) -> Tuple[float, ...]:
-        """Return ``vector`` typed with ``numba_precision``."""
-
-        return tuple(numba_precision(value) for value in vector)
-
-    def error_weights(
-        self,
-        numba_precision: type,
-    ) -> Optional[Tuple[float, ...]]:
-        """Return precision-typed weights for the embedded error estimate."""
-
-        if not self.has_error_estimate:
-            return None
-        error_coeffs = self.d
-        return self.typed_vector(error_coeffs, numba_precision)
-
-    def embedded_weights(
-        self,
-        numba_precision: type,
-    ) -> Optional[Tuple[float, ...]]:
-        """Return the embedded solution weights typed to ``numba_precision``."""
-
-        if not self.has_error_estimate:
-            return None
-        return self.typed_vector(self.b_hat, numba_precision)
-
-    @property
-    def first_same_as_last(self) -> bool:
-        """Return ``True`` when the first and last stages align."""
-
-        return bool(self.c and self.c[0] == 0.0 and self.c[-1] == 1.0)
-
-    @property
-    def can_reuse_accepted_start(self) -> bool:
-        """Return ``True`` when an accepted step can reuse the start state."""
-
-        return bool(self.c and self.c[0] == 0.0)
 
 @attrs.define
 class ImplicitStepConfig(BaseStepConfig):
@@ -216,30 +90,6 @@ class ImplicitStepConfig(BaseStepConfig):
         default=10,
         validator=inrangetype_validator(int, 1, 32767)
     )
-
-    @property
-    def first_same_as_last(self) -> bool:
-        """Return ``True`` when the first and last stages align.
-
-        Returns ``False`` when the algorithm is not tableau-based.
-        """
-
-        tableau = getattr(self, "tableau", None)
-        if tableau is None:
-            return False
-        return tableau.first_same_as_last
-
-    @property
-    def can_reuse_accepted_start(self) -> bool:
-        """Return ``True`` when the accepted state seeds the next proposal.
-
-        Returns ``False`` when the algorithm is not tableau-based.
-        """
-
-        tableau = getattr(self, "tableau", None)
-        if tableau is None:
-            return False
-        return tableau.can_reuse_accepted_start
 
     @property
     def beta(self) -> float:
@@ -450,30 +300,6 @@ class ODEImplicitStep(BaseAlgorithmStep):
             max_backtracks=newton_max_backtracks,
         )
         return nonlinear_solver
-
-    @property
-    def tableau(self) -> Optional[ButcherTableau]:
-        """Return the configured tableau when available."""
-
-        return getattr(self.compile_settings, "tableau", None)
-
-    @property
-    def first_same_as_last(self) -> bool:
-        """Return ``True`` when the first and last stages align.
-
-        Returns ``False`` when the algorithm is not tableau-based.
-        """
-
-        return self.compile_settings.first_same_as_last
-
-    @property
-    def can_reuse_accepted_start(self) -> bool:
-        """Return ``True`` when the accepted state seeds the next proposal.
-
-        Returns ``False`` when the algorithm is not tableau-based.
-        """
-
-        return self.compile_settings.can_reuse_accepted_start
 
     @property
     def solver_shared_elements(self) -> int:

@@ -9,11 +9,10 @@ from numba import cuda, int32
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
-    StepControlDefaults,
+    StepControlDefaults, ButcherTableau,
 )
 from cubie.integrators.algorithms.ode_implicitstep import (ImplicitStepConfig,
-                                                           ODEImplicitStep,
-                                                           ButcherTableau)
+                                                           ODEImplicitStep)
 from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
 
 @attrs.define(frozen=True)

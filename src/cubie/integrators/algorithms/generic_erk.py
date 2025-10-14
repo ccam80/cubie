@@ -8,14 +8,12 @@ from numba import cuda, int32
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
-    StepControlDefaults,
+    StepControlDefaults, ButcherTableau,
 )
 from cubie.integrators.algorithms.ode_explicitstep import (
     ExplicitStepConfig,
     ODEExplicitStep,
 )
-from cubie.integrators.algorithms.ode_implicitstep import ButcherTableau
-
 
 
 @attrs.define(frozen=True)
