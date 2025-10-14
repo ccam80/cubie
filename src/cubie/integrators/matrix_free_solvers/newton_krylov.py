@@ -114,8 +114,10 @@ def newton_krylov_solver_factory(
         Notes
         -----
         Scratch space requirements total two vectors of length ``n`` drawn from
-        ``shared_scratch``. ``delta`` is reset to zero before the first linear
-        solve so it can be reused as the Newton direction buffer. The linear
+        ``shared_scratch``. No need to zero scratch space before passing -
+        it's write-first in this function.
+        ``delta`` is reset to zero before the first linear solve so it can be
+        reused as the Newton direction buffer. The linear
         solver is invoked on the Jacobian system ``J * delta = rhs`` with
         ``rhs`` stored in ``residual``. The tentative state updates are reverted
         if no acceptable backtracking step is found.

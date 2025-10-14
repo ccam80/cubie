@@ -81,6 +81,14 @@ class ButcherTableau:
             )
         return tuple(typed_rows)
 
+    @property
+    def first_same_as_last(self):
+        return self.c[0] == 0 and self.c[-1] == 1
+
+    @property
+    def can_reuse_accepted_start(self):
+        return self.c[0]
+
 @attrs.define
 class ImplicitStepConfig(BaseStepConfig):
     """Configuration settings for implicit integration steps.

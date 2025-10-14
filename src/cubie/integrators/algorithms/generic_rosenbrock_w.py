@@ -215,7 +215,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         observables_function: Optional[Callable] = None,
         driver_function: Optional[Callable] = None,
         get_solver_helper_fn: Optional[Callable] = None,
-        preconditioner_order: int = 1,
+        preconditioner_order: int = 2,
         krylov_tolerance: float = 1e-6,
         max_linear_iters: int = 200,
         linear_correction_type: str = "minimal_residual",
@@ -334,9 +334,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         stage_count = tableau.stage_count
         has_driver_function = driver_function is not None
 
-        stage_rhs_coeffs = self.tableau.typed_rows(
-            tableau.a, numba_precision
-        )
+        stage_rhs_coeffs = self.tableau.typed_rows(tableau.a, numba_precision)
         jacobian_update_coeffs = self.tableau.typed_rows(
             tableau.C, numba_precision
         )
@@ -419,6 +417,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             for idx in range(n):
                 error[idx*has_error] = typed_zero
                 proposed_state[idx] = state[idx]
+                stage_increment[idx] = typed_zero
 
             status_code = int32(0)
 
@@ -436,7 +435,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             for idx in range(n):
-                stage_increment[idx] = typed_zero
                 stage_rhs[idx] = dt_value * stage_rhs[idx]
 
             status_code |= linear_solver(
@@ -491,7 +489,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 # Position in accumulator
                 stage_offset = (stage_idx - 1) * n
-
                 stage_time = (
                     current_time + dt_value * stage_time_fractions[stage_idx]
                 )
@@ -595,7 +592,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         """Return the number of cached auxiliary entries for the JVP.
 
         Lazily builds implicit helpers so as not to return an errant 'None'."""
-
         if self._cached_auxiliary_count is None:
             self.build_implicit_helpers()
         return self._cached_auxiliary_count
@@ -618,13 +614,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     @property
     def persistent_local_required(self) -> int:
         """Return the number of persistent local entries required."""
-
         return 0
 
     @property
     def is_implicit(self) -> bool:
         """Return ``True`` because the method solves linear systems."""
-
         return True
 
     @property
@@ -635,12 +629,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     @property
     def threads_per_step(self) -> int:
         """Return the number of CUDA threads that advance one state."""
-
         return 1
 
     @property
     def tableau(self) -> RosenbrockWTableau:
-        """Return the tableau used by the integrator."""
-
+        """Return the tableau used by the integrator.""" 
         return self.compile_settings.tableau
 
