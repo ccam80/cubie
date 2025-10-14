@@ -35,7 +35,11 @@ class DIRKTableau(ButcherTableau):
 
     def diagonal(self, precision: PrecisionDType) -> Tuple[float, ...]:
         """Return the diagonal entries of the tableau."""
-        return tuple(precision(self.a[i][i]) for i in range(self.stage_count))
+
+        diagonal_entries = tuple(
+            self.a[idx][idx] for idx in range(self.stage_count)
+        )
+        return self.typed_vector(diagonal_entries, precision)
 
 
 SDIRK_2_2_TABLEAU = DIRKTableau(
@@ -44,8 +48,9 @@ SDIRK_2_2_TABLEAU = DIRKTableau(
         (0.7071067811865476, 0.2928932188134524),
     ),
     b=(0.5, 0.5),
-    d=(1.0, 0.0),
+    b_hat=(-0.5, 0.5),
     c=(0.2928932188134524, 1.0),
+    order=2,
 )
 
 
@@ -217,25 +222,13 @@ class DIRKStep(ODEImplicitStep):
 
 
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
-        solution_weights = tuple(numba_precision(value) for value in tableau.b)
-        if has_error:
-            embedded_weights = tuple(
-                numba_precision(value) for value in tableau.b_hat
-            )
-            error_weights = tuple(
-                solution_weights[idx] - embedded_weights[idx]
-                for idx in range(stage_count)
-            ) # TODO: shift to tableau.
-        else:
-            error_weights = (numba_precision(0.0),)
-
-        stage_time_fractions = tuple(
-            numba_precision(value) for value in tableau.c
-        ) # TODO: add typed_vector to tableau for this.
-        diagonal_coeffs = tuple(
-            numba_precision(value) for value in tableau.diagonal()
-        )
+        solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
+        error_weights = tableau.error_weights(numba_precision)
+        if error_weights is None or not has_error:
+            error_weights = tuple(typed_zero for _ in range(stage_count))
+        stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
+        diagonal_coeffs = tableau.diagonal(numba_precision)
         accumulator_length = max(stage_count - 1, 0) * n
         solver_shared_elements = self.solver_shared_elements
         cached_auxiliary_count = self.cached_auxiliary_count

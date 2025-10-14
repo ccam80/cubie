@@ -151,13 +151,13 @@ ROSENBROCK_W6S4OS_TABLEAU = RosenbrockWTableau(
         0.6603936866352417,
         0.6000000000000000,
     ),
-    d=(
-        0.2500000000000000,
-        0.0836691184292894,
-        0.0544718623516351,
-        -0.3402289722355864,
-        0.0337651588339529,
-        -0.0903074267618540,
+    b_hat=(
+        6.2062170746532350,
+        -4.9368104361973420,
+        9.7108464717176250,
+        2.4213131495143094,
+        0.6266285278012887,
+        0.6903074267618540,
     ),
     c=(
         0.0,
@@ -325,21 +325,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         stage_count = tableau.stage_count
         has_driver_function = driver_function is not None
 
-        stage_rhs_coeffs = self.tableau.typed_rows(tableau.a, numba_precision)
-        jacobian_update_coeffs = self.tableau.typed_rows(
-            tableau.C, numba_precision
-        )
-        solution_weights = tuple(
-            numba_precision(value) for value in tableau.b
-        )
-        error_weights = tuple(numba_precision(value) for value in tableau.d)
-        stage_time_fractions = tuple(
-            numba_precision(value) for value in tableau.c
-        )
+        has_error = self.is_adaptive
+        stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+        jacobian_update_coeffs = tableau.typed_rows(tableau.C, numba_precision)
+        solution_weights = tableau.typed_vector(tableau.b, numba_precision)
         typed_zero = numba_precision(0.0)
+        error_weights = tableau.error_weights(numba_precision)
+        if error_weights is None or not has_error:
+            error_weights = tuple(typed_zero for _ in range(stage_count))
+        stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
         accumulator_length = max(stage_count - 1, 0) * n
         cached_auxiliary_count = self.cached_auxiliary_count
-        has_error = self.is_adaptive
 
         # no cover: start
         @cuda.jit(

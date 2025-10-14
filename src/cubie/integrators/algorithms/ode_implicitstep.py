@@ -30,10 +30,11 @@ class ButcherTableau:
     b
         'b' matrix of weights of the stage gradients to the final estimate (
         row 0) and the next-order-up for error calculation (row 1).
+    b_hat
+        Embedded weights for the higher-order estimate used when calculating
+        an error signal.
     c
         'c' vector of the substage times (in proportion of step size)
-    d
-        Coefficients for error estimation
     order
         Classical order of the accuracy of the method - error grows like O(
         n^order)
@@ -52,7 +53,25 @@ class ButcherTableau:
     b: Tuple[float, ...] = attrs.field()
     c: Tuple[float, ...] = attrs.field()
     order: int = attrs.field()
-    d: Optional[Tuple[float, ...]] = attrs.field(default=None)
+    b_hat: Optional[Tuple[float, ...]] = attrs.field(default=None)
+
+    def __attrs_post_init__(self) -> None:
+        """Validate tableau coefficients after initialisation."""
+
+        stage_count = self.stage_count
+        if self.b_hat is not None and len(self.b_hat) != stage_count:
+            raise ValueError("b_hat must match the number of stages in b")
+
+    @property
+    def d(self) -> Optional[Tuple[float, ...]]:
+        """Return coefficients for embedded error estimation."""
+
+        if self.b_hat is None:
+            return None
+        return tuple(
+            b_value - b_hat_value
+            for b_value, b_hat_value in zip(self.b, self.b_hat)
+        )
 
     @property
     def stage_count(self) -> int:
@@ -62,7 +81,10 @@ class ButcherTableau:
     @property
     def has_error_estimate(self) -> bool:
         """Return ``True`` when embedded error weights are supplied."""
-        return any(weight != 0.0 for weight in self.d) if self.d else False
+        error_coeffs = self.d
+        if error_coeffs is None:
+            return False
+        return any(weight != 0.0 for weight in error_coeffs)
 
     def typed_rows(
         self,
@@ -80,6 +102,36 @@ class ButcherTableau:
                 tuple(numba_precision(value) for value in padded)
             )
         return tuple(typed_rows)
+
+    def typed_vector(
+        self,
+        vector: Sequence[float],
+        numba_precision: type,
+    ) -> Tuple[float, ...]:
+        """Return ``vector`` typed with ``numba_precision``."""
+
+        return tuple(numba_precision(value) for value in vector)
+
+    def error_weights(
+        self,
+        numba_precision: type,
+    ) -> Optional[Tuple[float, ...]]:
+        """Return precision-typed weights for the embedded error estimate."""
+
+        if not self.has_error_estimate:
+            return None
+        error_coeffs = self.d
+        return self.typed_vector(error_coeffs, numba_precision)
+
+    def embedded_weights(
+        self,
+        numba_precision: type,
+    ) -> Optional[Tuple[float, ...]]:
+        """Return the embedded solution weights typed to ``numba_precision``."""
+
+        if not self.has_error_estimate:
+            return None
+        return self.typed_vector(self.b_hat, numba_precision)
 
     @property
     def first_same_as_last(self) -> bool:

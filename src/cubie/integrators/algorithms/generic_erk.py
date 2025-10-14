@@ -74,14 +74,14 @@ DORMAND_PRINCE_54_TABLEAU = ERKTableau(
         11.0 / 84.0,
         0.0,
     ),
-    d=(
-        35.0 / 384.0 - 5179.0 / 57600.0,
+    b_hat=(
+        5179.0 / 57600.0,
         0.0,
-        500.0 / 1113.0 - 7571.0 / 16695.0,
-        125.0 / 192.0 - 393.0 / 640.0,
-        -2187.0 / 6784.0 + 92097.0 / 339200.0,
-        11.0 / 84.0 - 187.0 / 2100.0,
-        0.0 - 1.0 / 40.0,
+        7571.0 / 16695.0,
+        393.0 / 640.0,
+        -92097.0 / 339200.0,
+        187.0 / 2100.0,
+        1.0 / 40.0,
     ),
     c=(
         0.0,
@@ -92,7 +92,7 @@ DORMAND_PRINCE_54_TABLEAU = ERKTableau(
         1.0,
         1.0,
     ),
-    order=4
+    order=4,
 )
 
 
@@ -175,17 +175,15 @@ class ERKStep(ODEExplicitStep):
         stage_count = tableau.stage_count
         has_driver_function = driver_function is not None
 
-        stage_rhs_coeffs = self.tableau.typed_rows(tableau.a, numba_precision)
-        solution_weights = tuple(
-            numba_precision(value) for value in tableau.b
-        )
-        error_weights = tuple(numba_precision(value) for value in tableau.d)
-        stage_time_fractions = tuple(
-            numba_precision(value) for value in tableau.c
-        )
-        typed_zero = numba_precision(0.0)
-        accumulator_length = max(stage_count - 1, 0) * n
         has_error = self.is_adaptive
+        stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
+        solution_weights = tableau.typed_vector(tableau.b, numba_precision)
+        typed_zero = numba_precision(0.0)
+        error_weights = tableau.error_weights(numba_precision)
+        if error_weights is None or not has_error:
+            error_weights = tuple(typed_zero for _ in range(stage_count))
+        stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
+        accumulator_length = max(stage_count - 1, 0) * n
 
         # no cover: start
         @cuda.jit(

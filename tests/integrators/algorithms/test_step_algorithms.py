@@ -329,6 +329,14 @@ def test_algorithm(
     assert config.n == system.sizes.states, "compile_settings.n getter"
     assert config.precision == precision, "compile_settings.precision getter"
 
+    tableau = getattr(step_object, "tableau", None)
+    if tableau is not None and tableau.b_hat is not None:
+        expected_error = tuple(
+            b_value - b_hat_value
+            for b_value, b_hat_value in zip(tableau.b, tableau.b_hat)
+        )
+        assert tableau.d == pytest.approx(expected_error), "embedded weights"
+
     if properties["is_implicit"]:
         if algorithm == "rosenbrock":
             assert config.max_linear_iters == solver_settings[
