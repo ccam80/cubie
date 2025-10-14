@@ -118,12 +118,16 @@ class ERKStepConfig(ExplicitStepConfig):
     tableau: ERKTableau = attrs.field(default=DORMAND_PRINCE_54_TABLEAU)
 
     @property
-    def settings_dict(self) -> dict:
-        """Return configuration values as a dictionary."""
+    def first_same_as_last(self) -> bool:
+        """Return ``True`` when the tableau shares the first and last stage."""
 
-        settings = super().settings_dict
-        settings.update({"tableau": self.tableau})
-        return settings
+        return self.tableau.first_same_as_last
+
+    @property
+    def can_reuse_accepted_start(self) -> bool:
+        """Return ``True`` when the accepted state can seed the next step."""
+
+        return self.tableau.can_reuse_accepted_start
 
 
 class ERKStep(ODEExplicitStep):
@@ -388,3 +392,16 @@ class ERKStep(ODEExplicitStep):
         """Return the tableau used by the integrator."""
 
         return self.compile_settings.tableau
+
+    @property
+    def first_same_as_last(self) -> bool:
+        """Return ``True`` when the first and last stages align."""
+
+        return self.tableau.first_same_as_last
+
+    @property
+    def can_reuse_accepted_start(self) -> bool:
+        """Return ``True`` when the accepted state seeds the next proposal."""
+
+        return self.tableau.can_reuse_accepted_start
+

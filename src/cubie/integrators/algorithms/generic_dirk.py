@@ -70,14 +70,6 @@ class DIRKStepConfig(ImplicitStepConfig):
 
     tableau: DIRKTableau = attrs.field(default=SDIRK_2_2_TABLEAU)
 
-    @property
-    def settings_dict(self) -> dict:
-        """Return configuration values as a dictionary."""
-
-        settings = super().settings_dict
-        settings.update({"tableau": self.tableau})
-        return settings
-
 
 class DIRKStep(ODEImplicitStep):
     """Diagonally implicit Runge–Kutta step with an embedded error estimate."""
@@ -217,7 +209,7 @@ class DIRKStep(ODEImplicitStep):
     ) -> StepCache:  # pragma: no cover - device function
         """Compile the DIRK device step."""
 
-        tableau = self.compile_settings.tableau
+        tableau = self.tableau
         nonlinear_solver, prepare_jacobian = solver_fn
         stage_count = tableau.stage_count
         has_driver_function = driver_function is not None
@@ -489,7 +481,8 @@ class DIRKStep(ODEImplicitStep):
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
 
-        stage_count = self.compile_settings.tableau.stage_count
+        tableau = self.tableau
+        stage_count = tableau.stage_count
         accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
         return (accumulator_span
             + self.solver_shared_elements
@@ -522,8 +515,3 @@ class DIRKStep(ODEImplicitStep):
         """Return the number of CUDA threads that advance one state."""
 
         return 1
-
-    @property
-    def tableau(self) -> DIRKTableau:
-        """Return the tableau used by the integrator."""
-        return self.compile_settings.tableau

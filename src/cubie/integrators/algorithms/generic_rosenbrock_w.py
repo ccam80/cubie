@@ -193,14 +193,6 @@ class RosenbrockWStepConfig(ImplicitStepConfig):
 
     tableau: RosenbrockWTableau = attrs.field(default=ROSENBROCK_W6S4OS_TABLEAU)
 
-    @property
-    def settings_dict(self) -> dict:
-        """Return configuration values as a dictionary."""
-
-        settings = super().settings_dict
-        settings.update({"tableau": self.tableau})
-        return settings
-
 
 class GenericRosenbrockWStep(ODEImplicitStep):
     """Rosenbrock-W step with an embedded error estimate."""
@@ -599,7 +591,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     def shared_memory_required(self) -> int:
         """Return the number of precision entries required in shared memory."""
 
-        stage_count = self.compile_settings.tableau.stage_count
+        tableau = self.tableau
+        stage_count = tableau.stage_count
         accumulator_span = max(stage_count - 1, 0) * self.compile_settings.n
         cached_auxiliary_count = self.cached_auxiliary_count
         return 2 * accumulator_span + cached_auxiliary_count
@@ -629,9 +622,4 @@ class GenericRosenbrockWStep(ODEImplicitStep):
     def threads_per_step(self) -> int:
         """Return the number of CUDA threads that advance one state."""
         return 1
-
-    @property
-    def tableau(self) -> RosenbrockWTableau:
-        """Return the tableau used by the integrator.""" 
-        return self.compile_settings.tableau
 

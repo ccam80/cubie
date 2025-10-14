@@ -82,12 +82,16 @@ class ButcherTableau:
         return tuple(typed_rows)
 
     @property
-    def first_same_as_last(self):
-        return self.c[0] == 0 and self.c[-1] == 1
+    def first_same_as_last(self) -> bool:
+        """Return ``True`` when the first and last stages align."""
+
+        return bool(self.c and self.c[0] == 0.0 and self.c[-1] == 1.0)
 
     @property
-    def can_reuse_accepted_start(self):
-        return self.c[0]
+    def can_reuse_accepted_start(self) -> bool:
+        """Return ``True`` when an accepted step can reuse the start state."""
+
+        return bool(self.c and self.c[0] == 0.0)
 
 @attrs.define
 class ImplicitStepConfig(BaseStepConfig):
@@ -160,6 +164,30 @@ class ImplicitStepConfig(BaseStepConfig):
         default=10,
         validator=inrangetype_validator(int, 1, 32767)
     )
+
+    @property
+    def first_same_as_last(self) -> bool:
+        """Return ``True`` when the first and last stages align.
+
+        Returns ``False`` when the algorithm is not tableau-based.
+        """
+
+        tableau = getattr(self, "tableau", None)
+        if tableau is None:
+            return False
+        return tableau.first_same_as_last
+
+    @property
+    def can_reuse_accepted_start(self) -> bool:
+        """Return ``True`` when the accepted state seeds the next proposal.
+
+        Returns ``False`` when the algorithm is not tableau-based.
+        """
+
+        tableau = getattr(self, "tableau", None)
+        if tableau is None:
+            return False
+        return tableau.can_reuse_accepted_start
 
     @property
     def beta(self) -> float:
@@ -370,6 +398,30 @@ class ODEImplicitStep(BaseAlgorithmStep):
             max_backtracks=newton_max_backtracks,
         )
         return nonlinear_solver
+
+    @property
+    def tableau(self) -> Optional[ButcherTableau]:
+        """Return the configured tableau when available."""
+
+        return getattr(self.compile_settings, "tableau", None)
+
+    @property
+    def first_same_as_last(self) -> bool:
+        """Return ``True`` when the first and last stages align.
+
+        Returns ``False`` when the algorithm is not tableau-based.
+        """
+
+        return self.compile_settings.first_same_as_last
+
+    @property
+    def can_reuse_accepted_start(self) -> bool:
+        """Return ``True`` when the accepted state seeds the next proposal.
+
+        Returns ``False`` when the algorithm is not tableau-based.
+        """
+
+        return self.compile_settings.can_reuse_accepted_start
 
     @property
     def solver_shared_elements(self) -> int:
