@@ -1,6 +1,7 @@
 """Parse symbolic ODE descriptions into structured SymPy objects."""
 
 import re
+from dataclasses import dataclass, field
 from typing import (
     Any,
     Callable,
@@ -92,6 +93,134 @@ KNOWN_FUNCTIONS = {
     'Piecewise': sp.Piecewise,
     'sign': sp.sign,
 }
+
+
+@dataclass(frozen=True)
+class ParsedEquations:
+    """Container separating state, observable, and auxiliary assignments.
+
+    Parameters
+    ----------
+    ordered
+        Equations in evaluation order exactly as supplied by the parser.
+    state_derivatives
+        Equations whose left-hand side corresponds to ``dx/dt`` outputs.
+    observables
+        Equations assigning user-requested observable symbols.
+    auxiliaries
+        Anonymous helper assignments required by either ``dx/dt`` or the
+        observables.
+    state_symbols
+        Symbols that identify the derivative outputs.
+    observable_symbols
+        Symbols designating observables.
+    auxiliary_symbols
+        Symbols introduced for intermediate calculations.
+    """
+
+    ordered: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
+    state_derivatives: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
+    observables: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
+    auxiliaries: Tuple[Tuple[sp.Symbol, sp.Expr], ...]
+    _state_symbols: frozenset[sp.Symbol] = field(repr=False)
+    _observable_symbols: frozenset[sp.Symbol] = field(repr=False)
+    _auxiliary_symbols: frozenset[sp.Symbol] = field(repr=False)
+
+    def __iter__(self) -> Iterable[Tuple[sp.Symbol, sp.Expr]]:
+        """Iterate over all equations in the original evaluation order."""
+
+        return iter(self.ordered)
+
+    def __len__(self) -> int:
+        """Return the number of stored equations."""
+
+        return len(self.ordered)
+
+    def __getitem__(self, index: int) -> Tuple[sp.Symbol, sp.Expr]:
+        """Return the equation at ``index`` from the original ordering."""
+
+        return self.ordered[index]
+
+    def copy(self) -> Dict[sp.Symbol, sp.Expr]:
+        """Return a mapping copy compatible with ``topological_sort``."""
+
+        return {lhs: rhs for lhs, rhs in self.ordered}
+
+    def to_equation_list(self) -> list[Tuple[sp.Symbol, sp.Expr]]:
+        """Return the stored equations as a mutable list."""
+
+        return list(self.ordered)
+
+    @property
+    def state_symbols(self) -> frozenset[sp.Symbol]:
+        """Symbols representing derivative outputs."""
+
+        return self._state_symbols
+
+    @property
+    def observable_symbols(self) -> frozenset[sp.Symbol]:
+        """Symbols representing observable outputs."""
+
+        return self._observable_symbols
+
+    @property
+    def auxiliary_symbols(self) -> frozenset[sp.Symbol]:
+        """Symbols representing auxiliary assignments."""
+
+        return self._auxiliary_symbols
+
+    def non_observable_equations(self) -> list[Tuple[sp.Symbol, sp.Expr]]:
+        """Return equations whose outputs are not observables."""
+
+        observable_syms = self.observable_symbols
+        return [eq for eq in self.ordered if eq[0] not in observable_syms]
+
+    @property
+    def dxdt_equations(self) -> Tuple[Tuple[sp.Symbol, sp.Expr], ...]:
+        """Return equations required to evaluate ``dx/dt`` outputs."""
+
+        return tuple(self.non_observable_equations())
+
+    @property
+    def observable_system(self) -> Tuple[Tuple[sp.Symbol, sp.Expr], ...]:
+        """Return equations contributing to observable evaluation."""
+
+        return self.ordered
+
+    @classmethod
+    def from_equations(
+        cls,
+        equations: Iterable[Tuple[sp.Symbol, sp.Expr]],
+        index_map: "IndexedBases",
+    ) -> "ParsedEquations":
+        """Partition equations according to their assigned symbols."""
+
+        if isinstance(equations, dict):
+            items = list(equations.items())
+        else:
+            items = list(equations)
+        ordered = tuple((lhs, rhs) for lhs, rhs in items)
+        state_symbols = frozenset(index_map.dxdt.ref_map.keys())
+        observable_symbols = frozenset(index_map.observables.ref_map.keys())
+        state_eqs = tuple(eq for eq in ordered if eq[0] in state_symbols)
+        observable_eqs = tuple(
+            eq for eq in ordered if eq[0] in observable_symbols
+        )
+        auxiliary_eqs = tuple(
+            eq
+            for eq in ordered
+            if eq[0] not in state_symbols and eq[0] not in observable_symbols
+        )
+        auxiliary_symbols = frozenset(eq[0] for eq in auxiliary_eqs)
+        return cls(
+            ordered=ordered,
+            state_derivatives=state_eqs,
+            observables=observable_eqs,
+            auxiliaries=auxiliary_eqs,
+            _state_symbols=state_symbols,
+            _observable_symbols=observable_symbols,
+            _auxiliary_symbols=auxiliary_symbols,
+        )
 
 
 class EquationWarning(Warning):
@@ -612,7 +741,7 @@ def parse_input(
     IndexedBases,
     Dict[str, object],
     Dict[str, Callable],
-    List[Tuple[sp.Symbol, sp.Expr]],
+    ParsedEquations,
     str,
 ]:
     """Process user equations and symbol metadata into structured components.
@@ -646,7 +775,7 @@ def parse_input(
     Returns
     -------
     tuple
-        Indexed bases, combined symbol mapping, callable mapping, parsed
+        Indexed bases, combined symbol mapping, callable mapping, partitioned
         equations, and the system hash.
 
     Notes
@@ -739,4 +868,6 @@ def parse_input(
             alias_map = {v: k for k, v in rename.items()}
             all_symbols['__function_aliases__'] = alias_map
 
-    return index_map, all_symbols, funcs, equation_map, fn_hash
+    parsed_equations = ParsedEquations.from_equations(equation_map, index_map)
+
+    return index_map, all_symbols, funcs, parsed_equations, fn_hash

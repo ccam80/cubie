@@ -10,6 +10,7 @@ from .ode_implicitstep import ImplicitStepConfig, ODEImplicitStep
 from .explicit_euler import ExplicitEulerStep
 from .backwards_euler import BackwardsEulerStep
 from .crank_nicolson import CrankNicolsonStep
+from .rosenbrock import RosenbrockStep
 from .backwards_euler_predict_correct import BackwardsEulerPCStep
 
 
@@ -21,6 +22,7 @@ __all__ = [
     "BackwardsEulerStep",
     "BackwardsEulerPCStep",
     "CrankNicolsonStep",
+    "RosenbrockStep",
     "_ALGORITHM_REGISTRY",
 ]
 
@@ -29,6 +31,7 @@ _ALGORITHM_REGISTRY: Dict[str, Type[BaseAlgorithmStep]] = {
     "backwards_euler": BackwardsEulerStep,
     "backwards_euler_pc": BackwardsEulerPCStep,
     "crank_nicolson": CrankNicolsonStep,
+    "rosenbrock": RosenbrockStep,
 }
 
 

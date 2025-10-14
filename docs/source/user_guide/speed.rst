@@ -40,8 +40,8 @@ up your solves:
 3. Use summary metrics. If you want to know the mean and standard
    deviation of a variable over the course of the solve, rather than save
    the whole history and process each dataset offline (slow!), use Cubie's
-    built in summary metrics to calculate these on the GPU during the solve. You
-    don't even need to save the state history at all!
+   built in summary metrics to calculate these on the GPU during the solve. You
+   don't even need to save the state history at all!
 
 Constants
 ---------

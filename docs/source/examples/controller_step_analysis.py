@@ -589,7 +589,10 @@ def run_reference_loop_with_history(
     zero = precision(0.0)
     step_records: List[StepRecord] = []
 
-    step_function = get_ref_step_function(solver_settings["algorithm"])
+    tableau = implicit_step_settings.get("tableau")
+    step_function = get_ref_step_function(
+        solver_settings["algorithm"], tableau=tableau
+    )
 
     saved_state_indices = np.asarray(
         solver_settings["saved_state_indices"], dtype=np.int32

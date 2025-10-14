@@ -180,3 +180,113 @@ def linear_solver_factory(
 
     # no cover: end
     return linear_solver
+
+
+def linear_solver_cached_factory(
+    operator_apply: Callable,
+    n: int,
+    preconditioner: Optional[Callable] = None,
+    correction_type: str = "minimal_residual",
+    tolerance: float = 1e-6,
+    max_iters: int = 100,
+    precision: PrecisionDType = np.float64,
+) -> Callable:
+    """Create a CUDA linear solver that forwards cached auxiliaries."""
+
+    sd_flag = 1 if correction_type == "steepest_descent" else 0
+    mr_flag = 1 if correction_type == "minimal_residual" else 0
+    if correction_type not in ("steepest_descent", "minimal_residual"):
+        raise ValueError(
+            "Correction type must be 'steepest_descent' or 'minimal_residual'."
+        )
+    preconditioned = 1 if preconditioner is not None else 0
+
+    precision_dtype = np.dtype(precision)
+    precision_scalar = from_dtype(precision_dtype)
+    typed_zero = precision_scalar(0.0)
+    tol_squared = tolerance * tolerance
+
+    # no cover: start
+    @cuda.jit(device=True)
+    def linear_solver_cached(
+        state,
+        parameters,
+        drivers,
+        cached_aux,
+        h,
+        rhs,
+        x,
+    ):
+        """Run one cached preconditioned steepest-descent or MR solve."""
+
+        preconditioned_vec = cuda.local.array(n, precision_scalar)
+        temp = cuda.local.array(n, precision_scalar)
+
+        operator_apply(state, parameters, drivers, cached_aux, h, x, temp)
+        acc = typed_zero
+        for i in range(n):
+            residual_value = rhs[i] - temp[i]
+            rhs[i] = residual_value
+            acc += residual_value * residual_value
+        mask = activemask()
+        converged = acc <= tol_squared
+
+        for _ in range(max_iters):
+            if preconditioned:
+                preconditioner(
+                    state,
+                    parameters,
+                    drivers,
+                    cached_aux,
+                    h,
+                    rhs,
+                    preconditioned_vec,
+                    temp,
+                )
+            else:
+                for i in range(n):
+                    preconditioned_vec[i] = rhs[i]
+
+            operator_apply(
+                state,
+                parameters,
+                drivers,
+                cached_aux,
+                h,
+                preconditioned_vec,
+                temp,
+            )
+            numerator = typed_zero
+            denominator = typed_zero
+            if sd_flag:
+                for i in range(n):
+                    zi = preconditioned_vec[i]
+                    numerator += rhs[i] * zi
+                    denominator += temp[i] * zi
+            elif mr_flag:
+                for i in range(n):
+                    ti = temp[i]
+                    numerator += ti * rhs[i]
+                    denominator += ti * ti
+
+            alpha = selp(
+                denominator != typed_zero,
+                numerator / denominator,
+                typed_zero,
+            )
+            alpha_effective = selp(converged, 0.0, alpha)
+
+            acc = typed_zero
+            for i in range(n):
+                x[i] += alpha_effective * preconditioned_vec[i]
+                rhs[i] -= alpha_effective * temp[i]
+                residual_value = rhs[i]
+                acc += residual_value * residual_value
+            converged = converged or (acc <= tol_squared)
+
+            if all_sync(mask, converged):
+                return int32(0)
+        return int32(4)
+
+    # no cover: end
+    return linear_solver_cached

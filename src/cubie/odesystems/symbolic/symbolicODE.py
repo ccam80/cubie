@@ -1,6 +1,6 @@
 """Symbolic ODE system built from :mod:`sympy` expressions."""
 
-from typing import Any, Callable, Iterable, Optional, Set, Union
+from typing import Any, Callable, Iterable, List, Optional, Set, Union
 
 import numpy as np
 import sympy as sp
@@ -9,14 +9,23 @@ from cubie.odesystems.symbolic.dxdt import (
     generate_dxdt_fac_code,
     generate_observables_fac_code,
 )
+from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.solver_helpers import (
+    generate_cached_operator_apply_code,
+    generate_neumann_preconditioner_cached_code,
     generate_neumann_preconditioner_code,
+    generate_prepare_jac_code,
+    generate_cached_jvp_code,
     generate_operator_apply_code,
     generate_residual_end_state_code,
     generate_stage_residual_code,
 )
-from cubie.odesystems.symbolic.parser import IndexedBases, parse_input
+from cubie.odesystems.symbolic.parser import (
+    IndexedBases,
+    ParsedEquations,
+    parse_input,
+)
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
 from cubie.odesystems.baseODE import BaseODE, ODECache
 from cubie._utils import PrecisionDType
@@ -97,7 +106,7 @@ class SymbolicODE(BaseODE):
     Parameters
     ----------
     equations
-        Ordered symbolic equations describing the system dynamics.
+        Parsed equations describing the system dynamics.
     all_indexed_bases
         Indexed base collections providing access to state, parameter,
         constant, and observable metadata.
@@ -116,7 +125,7 @@ class SymbolicODE(BaseODE):
 
     def __init__(
         self,
-        equations: Iterable[tuple[sp.Symbol, sp.Expr]],
+        equations: ParsedEquations,
         all_indexed_bases: IndexedBases,
         all_symbols: Optional[dict[str, sp.Symbol]] = None,
         precision: PrecisionDType = np.float64,
@@ -129,7 +138,7 @@ class SymbolicODE(BaseODE):
         Parameters
         ----------
         equations
-            Ordered symbolic equations describing the system dynamics.
+            Parsed equations describing the system dynamics.
         all_indexed_bases
             Indexed base collections providing access to state, parameter,
             constant, and observable metadata.
@@ -181,6 +190,8 @@ class SymbolicODE(BaseODE):
             num_drivers=ndriv,
             name=name
         )
+        self._jacobian_aux_count: Optional[int] = None
+        self._jvp_exprs: Optional[list[tuple[sp.Symbol, sp.Expr]]] = None
 
     @classmethod
     def create(
@@ -259,6 +270,25 @@ class SymbolicODE(BaseODE):
                    precision=precision)
 
 
+    @property
+    def jacobian_aux_count(self) -> Optional[int]:
+        """Return the number of cached Jacobian auxiliary values."""
+
+        return self._jacobian_aux_count
+
+    def _get_jvp_exprs(self) -> list[tuple[sp.Symbol, sp.Expr]]:
+        """Return cached Jacobian-vector assignments."""
+
+        if self._jvp_exprs is None:
+            self._jvp_exprs = generate_analytical_jvp(
+                self.equations,
+                input_order=self.indices.states.index_map,
+                output_order=self.indices.dxdt.index_map,
+                observables=self.indices.observable_symbols,
+                cse=True,
+            )
+        return self._jvp_exprs
+
     def build(self) -> ODECache:
         """Compile the ``dxdt`` factory and refresh the cache.
 
@@ -269,6 +299,7 @@ class SymbolicODE(BaseODE):
         """
         numba_precision = self.numba_precision
         constants = self.constants.values_dict
+        self._jacobian_aux_count = None
         new_hash = hash_system_definition(
             self.equations, self.indices.constants.default_values
         )
@@ -333,9 +364,9 @@ class SymbolicODE(BaseODE):
         func_type: str,
         beta: float = 1.0,
         gamma: float = 1.0,
-        preconditioner_order: int = 1,
+        preconditioner_order: int = 2,
         mass: Optional[Union[np.ndarray, sp.Matrix]] = None,
-    ) -> Callable:
+    ) -> Union[Callable, int]:
         """Return a generated solver helper device function.
 
         Solvers use a linear operator, preconditioner, and residual function.
@@ -349,8 +380,10 @@ class SymbolicODE(BaseODE):
         ----------
         func_type
             Helper identifier. Supported values are ``"linear_operator"``,
-            ``"neumann_preconditioner"``, ``"end_residual"``, and
-            ``"stage_residual"``.
+            ``"linear_operator_cached"``, ``"neumann_preconditioner"``,
+            ``"neumann_preconditioner_cached"``, ``"end_residual"`,
+            ``"stage_residual"``, ``"prepare_jac"``, ``"cached_aux_count"`` and
+            ``"calculate_cached_jvp"``.
         beta
             Shift parameter for the linear operator.
         gamma
@@ -384,24 +417,72 @@ class SymbolicODE(BaseODE):
             "constants": constants,
             "precision": numba_precision,
         }
-
         if func_type == "linear_operator":
             code = generate_operator_apply_code(
                 self.equations,
                 self.indices,
                 M=mass,
                 func_name=func_type,
+                jvp_exprs=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,
                 gamma=gamma,
                 order=preconditioner_order,
             )
+        elif func_type == "linear_operator_cached":
+            code = generate_cached_operator_apply_code(
+                self.equations,
+                self.indices,
+                M=mass,
+                func_name=func_type,
+                jvp_exprs=self._get_jvp_exprs(),
+            )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
+        elif func_type == "prepare_jac":
+            code, aux_count = generate_prepare_jac_code(
+                self.equations,
+                self.indices,
+                func_name=func_type,
+                jvp_exprs=self._get_jvp_exprs(),
+            )
+            self._jacobian_aux_count = aux_count
+        elif func_type == "cached_aux_count":
+            # Not a callable but returned here as it is a "solver helper" and
+            # the only hook into symbolicODE that the step functions have.
+            if self._jacobian_aux_count is None:
+                self.get_solver_helper("prepare_jac")
+            return self._jacobian_aux_count
+
+        elif func_type == "calculate_cached_jvp":
+            code = generate_cached_jvp_code(
+                self.equations,
+                self.indices,
+                func_name=func_type,
+                jvp_exprs=self._get_jvp_exprs(),
+            )
         elif func_type == "neumann_preconditioner":
             code = generate_neumann_preconditioner_code(
                 self.equations,
                 self.indices,
                 func_type,
+                jvp_exprs=self._get_jvp_exprs(),
+            )
+            factory_kwargs.update(
+                beta=beta,
+                gamma=gamma,
+                order=preconditioner_order,
+            )
+        elif func_type == "neumann_preconditioner_cached":
+            code = generate_neumann_preconditioner_cached_code(
+                self.equations,
+                self.indices,
+                func_type,
+                jvp_exprs=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,

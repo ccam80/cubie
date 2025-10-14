@@ -19,6 +19,7 @@ from cubie.odesystems.symbolic.parser import (
     _replace_if,
     _rhs_pass,
     _sanitise_input_math,
+    ParsedEquations,
     parse_input,
 )
 from cubie.odesystems.symbolic.sym_utils import hash_system_definition
@@ -389,7 +390,7 @@ class TestParseInput:
 
         assert isinstance(index_map, IndexedBases)
         assert isinstance(all_symbols, dict)
-        assert isinstance(equation_map, list)
+        assert isinstance(equation_map, ParsedEquations)
         assert isinstance(fn_hash, str)  # Changed from int to str
 
         # Check that we got the expected symbols
@@ -420,7 +421,7 @@ class TestParseInput:
                 dxdt=dxdt_list,
             )
 
-        assert isinstance(equation_map, list)
+        assert isinstance(equation_map, ParsedEquations)
         assert len(equation_map) > 0
 
     def test_parse_input_with_user_functions(self):
@@ -461,7 +462,9 @@ class TestParseInput:
         )
 
         assert "t" in all_symbols
-        assert equation_map == [[all_symbols["dx"], TIME_SYMBOL]]
+        assert equation_map.non_observable_equations() == [
+            (all_symbols["dx"], TIME_SYMBOL)
+        ]
         assert funcs == {}
 
     def test_parse_input_invalid_dxdt_type(self):
@@ -503,10 +506,12 @@ class TestParseInput:
             dxdt=dxdt,
         )
 
-        assert equation_map[0][0] == dx
-        assert equation_map[0][1] == x + a
-        assert equation_map[1][0] == y
-        assert equation_map[1][1] == x
+        dx_equations = equation_map.non_observable_equations()
+        assert dx_equations[0][0] == dx
+        assert dx_equations[0][1] == x + a
+        observable_equations = list(equation_map.observables)
+        assert observable_equations[0][0] == y
+        assert observable_equations[0][1] == x
 
 
 class TestIntegrationWithFixtures:

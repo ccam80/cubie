@@ -66,7 +66,7 @@ Optional Dependencies
   consecutive batches of different sizes)
 * Pandas: For DataFrame output support
 * Matplotlib: For plotting support. Only used to plot an interpolated driver function for sanity-checks (see
-:ref: `Drivers <user_guide/drivers>`_)
+  :doc:`Drivers <user_guide/drivers>`)
 
 GPU Requirements
 ~~~~~~~~~~~~~~~~

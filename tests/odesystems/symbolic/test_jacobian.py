@@ -6,21 +6,35 @@ from cubie.odesystems.symbolic.jacobian import (
     generate_jacobian,
     get_cache_counts,
 )
+from cubie.odesystems.symbolic.parser import IndexedBases, ParsedEquations
 
 
 def test_generate_jacobian_with_auxiliary():
     """Jacobian matches expected expressions with auxiliaries."""
 
-    x, y = sp.symbols("x y")
-    a, b = sp.symbols("a b")
+    index_map = IndexedBases.from_user_inputs(
+        states=["x", "y"],
+        parameters=[],
+        constants={"a": 0.0, "b": 0.0},
+        observables=[],
+        drivers=[],
+    )
+    x, y = list(index_map.states.ref_map.keys())
+    a = index_map.constants.symbol_map["a"]
+    b = index_map.constants.symbol_map["b"]
+    dx, dy = list(index_map.dxdt.ref_map.keys())
+    aux = sp.Symbol("aux", real=True)
     equations = [
-        (sp.Symbol("aux"), a * x + b * y),
-        (sp.Symbol("dx"), sp.Symbol("aux") - x),
-        (sp.Symbol("dy"), -sp.Symbol("aux") + y),
+        (aux, a * x + b * y),
+        (dx, aux - x),
+        (dy, -aux + y),
     ]
-    input_order = {x: 0, y: 1}
-    output_order = {sp.Symbol("dx"): 0, sp.Symbol("dy"): 1}
-    jac = generate_jacobian(equations, input_order, output_order)
+    parsed = ParsedEquations.from_equations(equations, index_map)
+    jac = generate_jacobian(
+        parsed,
+        index_map.states.index_map,
+        index_map.dxdt.index_map,
+    )
     expected = sp.Matrix([[a - 1, b], [-a, -b + 1]])
     assert jac.equals(expected)
 
@@ -28,14 +42,25 @@ def test_generate_jacobian_with_auxiliary():
 def test_generate_jacobian_coupled_nonlinear():
     """Jacobian of a coupled nonlinear system matches full expression."""
 
-    x0, x1 = sp.symbols("x0 x1")
+    index_map = IndexedBases.from_user_inputs(
+        states=["x0", "x1"],
+        parameters=[],
+        constants={},
+        observables=[],
+        drivers=[],
+    )
+    x0, x1 = list(index_map.states.ref_map.keys())
+    dx0, dx1 = list(index_map.dxdt.ref_map.keys())
     equations = [
-        (sp.Symbol("dx0"), sp.sin(x0) + x0 * x1 ** 2),
-        (sp.Symbol("dx1"), x0 ** 2 + sp.exp(x1)),
+        (dx0, sp.sin(x0) + x0 * x1 ** 2),
+        (dx1, x0 ** 2 + sp.exp(x1)),
     ]
-    input_order = {x0: 0, x1: 1}
-    output_order = {sp.Symbol("dx0"): 0, sp.Symbol("dx1"): 1}
-    jac = generate_jacobian(equations, input_order, output_order)
+    parsed = ParsedEquations.from_equations(equations, index_map)
+    jac = generate_jacobian(
+        parsed,
+        index_map.states.index_map,
+        index_map.dxdt.index_map,
+    )
     expected = sp.Matrix(
         [
             [sp.cos(x0) + x1 ** 2, 2 * x0 * x1],
@@ -48,16 +73,27 @@ def test_generate_jacobian_coupled_nonlinear():
 def test_jacobian_caching():
     """Repeated calls reuse cached Jacobian and JVP."""
 
-    x, y = sp.symbols("x y")
-    equations = [(sp.Symbol("dx"), x + y)]
-    input_order = {x: 0, y: 1}
-    output_order = {sp.Symbol("dx"): 0}
+    index_map = IndexedBases.from_user_inputs(
+        states=["x", "y"],
+        parameters=[],
+        constants={},
+        observables=[],
+        drivers=[],
+    )
+    x, y = list(index_map.states.ref_map.keys())
+    dx = next(iter(index_map.dxdt.ref_map.keys()))
+    equations = [(dx, x + y)]
+    parsed = ParsedEquations.from_equations(equations, index_map)
     clear_cache()
-    generate_jacobian(equations, input_order, output_order)
-    generate_analytical_jvp(equations, input_order, output_order)
+    generate_jacobian(parsed, index_map.states.index_map, index_map.dxdt.index_map)
+    generate_analytical_jvp(
+        parsed, index_map.states.index_map, index_map.dxdt.index_map
+    )
     counts = get_cache_counts()
     assert counts == {"jac": 1, "jvp": 1}
-    generate_jacobian(equations, input_order, output_order)
-    generate_analytical_jvp(equations, input_order, output_order)
+    generate_jacobian(parsed, index_map.states.index_map, index_map.dxdt.index_map)
+    generate_analytical_jvp(
+        parsed, index_map.states.index_map, index_map.dxdt.index_map
+    )
     counts2 = get_cache_counts()
     assert counts2 == counts

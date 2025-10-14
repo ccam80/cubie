@@ -15,6 +15,7 @@ outputs.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import partial
 import math
 from typing import Callable, Dict, Mapping, Sequence, Optional, Set
 import numpy as np
@@ -22,6 +23,10 @@ import sympy as sp
 from numpy.typing import NDArray
 
 from cubie.integrators import IntegratorReturnCodes
+from cubie.integrators.algorithms.rosenbrock import (
+    RosenbrockTableau,
+    ROSENBROCK_W6S4OS_TABLEAU,
+)
 from cubie import SymbolicODE
 from cubie._utils import PrecisionDType
 from cubie.odesystems.symbolic.jacobian import generate_jacobian
@@ -69,7 +74,7 @@ class CPUODESystem():
         ordered_equations = topological_sort(system.equations)
         self._equations = ordered_equations
         self._jacobian_expr = generate_jacobian(
-            ordered_equations,
+            system.equations,
             self._state_index,
             self._dx_index,
         )
@@ -574,6 +579,148 @@ def crank_nicolson_step(
     status = _encode_solver_status(converged, niters)
     return StepResult(next_state, observables, error, status, niters)
 
+
+def _tableau_matrix(
+    rows: Sequence[Sequence[float]],
+    stage_count: int,
+    dtype: np.dtype,
+) -> Array:
+    """Return a dense matrix created from ``rows`` padded with zeros."""
+
+    matrix = np.zeros((stage_count, stage_count), dtype=dtype)
+    for row_index, row in enumerate(rows[:stage_count]):
+        if not row:
+            continue
+        padded = np.asarray(row, dtype=dtype)
+        limit = min(stage_count, padded.shape[0])
+        matrix[row_index, :limit] = padded[:limit]
+    return matrix
+
+
+def _tableau_vector(entries: Sequence[float], dtype: np.dtype) -> Array:
+    """Return a one-dimensional array from ``entries`` using ``dtype``."""
+
+    return np.asarray(entries, dtype=dtype)
+
+
+def rosenbrock_step(
+    evaluator: CPUODESystem,
+    driver_evaluator: DriverEvaluator,
+    *,
+    state: Optional[Array] = None,
+    params: Optional[Array] = None,
+    dt: Optional[float] = None,
+    tol: Optional[float] = None,
+    max_iters: Optional[int] = None,
+    time: float = 0.0,
+    tableau: Optional[RosenbrockTableau] = None,
+) -> StepResult:
+    """Six-stage Rosenbrock-W method with an embedded error estimate."""
+
+    precision = evaluator.precision
+    dt_value = precision(dt)
+    current_time = precision(time)
+    end_time = current_time + dt_value
+
+    if tableau is None:
+        tableau_value = ROSENBROCK_W6S4OS_TABLEAU
+    else:
+        tableau_value = tableau
+    stage_count = tableau_value.stage_count
+
+    a_matrix = _tableau_matrix(tableau_value.a, stage_count, precision)
+    C_matrix = _tableau_matrix(tableau_value.C, stage_count, precision)
+    b_weights = _tableau_vector(tableau_value.b, precision)
+    error_weights = _tableau_vector(tableau_value.d, precision)
+    c_nodes = _tableau_vector(tableau_value.c, precision)
+    gamma = precision(tableau_value.gamma)
+    zero = precision(0.0)
+
+    drivers_now = driver_evaluator(float(current_time))
+    observables_now = evaluator.observables(
+        state,
+        params,
+        drivers_now,
+        current_time,
+    )
+    f_now, _ = evaluator.rhs(
+        state,
+        params,
+        drivers_now,
+        observables_now,
+        current_time,
+    )
+    jac = evaluator.jacobian(
+        state,
+        params,
+        drivers_now,
+        observables_now,
+        current_time,
+    )
+
+    identity = np.eye(len(state), dtype=precision)
+    lhs = identity - dt_value * gamma * jac
+
+    stage_count = b_weights.size
+    state_accum = np.zeros_like(state, dtype=precision)
+    error_accum = np.zeros_like(state, dtype=precision)
+    state_shifts = np.zeros((stage_count, len(state)), dtype=precision)
+    jacobian_shifts = np.zeros_like(state_shifts)
+
+    drivers_stage = drivers_now
+    rhs = np.zeros_like(state, dtype=precision)
+
+    for stage_index in range(stage_count):
+        stage_time = current_time + c_nodes[stage_index] * dt_value
+        if stage_index == 0:
+            stage_state = state
+            f_stage = f_now
+        else:
+            drivers_stage = driver_evaluator(float(stage_time))
+            stage_state = state + state_shifts[stage_index]
+            observables_stage = evaluator.observables(
+                stage_state,
+                params,
+                drivers_stage,
+                stage_time,
+            )
+            f_stage, _ = evaluator.rhs(
+                stage_state,
+                params,
+                drivers_stage,
+                observables_stage,
+                stage_time,
+            )
+
+        rhs[:] = dt_value * f_stage
+        if stage_index > 0 and np.any(C_matrix[stage_index, :stage_index]):
+            jac_term = jac @ jacobian_shifts[stage_index]
+            rhs[:] += dt_value * jac_term
+
+        stage_increment = np.linalg.solve(lhs, rhs).astype(precision)
+        state_accum += b_weights[stage_index] * stage_increment
+        error_accum += error_weights[stage_index] * stage_increment
+
+        for successor in range(stage_index + 1, stage_count):
+            a_coeff = a_matrix[successor, stage_index]
+            if a_coeff != zero:
+                state_shifts[successor] += a_coeff * stage_increment
+            C_coeff = C_matrix[successor, stage_index]
+            if C_coeff != zero:
+                jacobian_shifts[successor] += C_coeff * stage_increment
+
+    new_state = state + state_accum
+    drivers_end = driver_evaluator(float(end_time))
+    observables = evaluator.observables(
+        new_state,
+        params,
+        drivers_end,
+        end_time,
+    )
+    status = _encode_solver_status(True, 0)
+    return StepResult(new_state, observables, error_accum, status, 0)
+
+
 def backward_euler_predict_correct_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
@@ -893,19 +1040,24 @@ class CPUAdaptiveController:
 
 
 def get_ref_step_function(
-         algorithm: str,
-    ) -> Callable:
+    algorithm: str,
+    *,
+    tableau: Optional[RosenbrockTableau] = None,
+) -> Callable:
+    """Return the CPU reference implementation for ``algorithm``."""
 
-    if algorithm.lower() == "euler":
+    key = algorithm.lower()
+    if key == "euler":
         return explicit_euler_step
-    elif algorithm.lower() == "backwards_euler":
+    if key == "backwards_euler":
         return backward_euler_step
-    elif algorithm.lower() == "backwards_euler_pc":
+    if key == "backwards_euler_pc":
         return backward_euler_predict_correct_step
-    elif algorithm.lower() == "crank_nicolson":
+    if key == "crank_nicolson":
         return crank_nicolson_step
-    else:
-        raise ValueError(f"Unknown stepper algorithm: {algorithm}")
+    if key == "rosenbrock":
+        return partial(rosenbrock_step, tableau=tableau)
+    raise ValueError(f"Unknown stepper algorithm: {algorithm}")
 
 
 def _collect_saved_outputs(
@@ -929,6 +1081,8 @@ def run_reference_loop(
     solver_settings,
     output_functions,
     controller,
+    *,
+    tableau: Optional[RosenbrockTableau] = None,
 ) -> dict[str, Array]:
     """Execute a CPU loop mirroring :class:`IVPLoop` behaviour."""
 
@@ -944,7 +1098,12 @@ def run_reference_loop(
     status_flags = 0
     zero = precision(0.0)
 
-    step_function = get_ref_step_function(solver_settings["algorithm"])
+    tableau_value = tableau
+    if tableau_value is None:
+        tableau_value = solver_settings.get("tableau")
+    step_function = get_ref_step_function(
+        solver_settings["algorithm"], tableau=tableau_value
+    )
 
     coefficients = inputs.get("driver_coefficients")
     if coefficients is not None:

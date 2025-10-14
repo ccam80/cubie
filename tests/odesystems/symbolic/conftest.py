@@ -5,6 +5,7 @@ from cubie.odesystems.symbolic.indexedbasemaps import (
     IndexedBaseMap,
     IndexedBases,
 )
+from cubie.odesystems.symbolic.parser import ParsedEquations
 from cubie.odesystems.symbolic.symbolicODE import SymbolicODE
 
 
@@ -68,36 +69,42 @@ def simple_symbols():
 
 
 @pytest.fixture
-def simple_equations():
+def simple_equations(indexed_bases):
     """Simple symbolic equations for testing."""
-    x, y = sp.symbols("x y", real=True)
-    a, b = sp.symbols("a b", real=True)
+    x = indexed_bases.states.symbol_map["x"]
+    y = indexed_bases.states.symbol_map["y"]
+    a = indexed_bases.parameters.symbol_map["a"]
+    b = indexed_bases.parameters.symbol_map["b"]
+    dx = indexed_bases.dxdt.symbol_map["dx"]
+    dy = indexed_bases.dxdt.symbol_map["dy"]
 
-    # dx/dt = -a*x + b*y
-    # dy/dt = a*x - b*y
     equations = [
-        (sp.Symbol("dx", real=True), -a * x + b * y),
-        (sp.Symbol("dy", real=True), a * x - b * y),
+        (dx, -a * x + b * y),
+        (dy, a * x - b * y),
     ]
-    return equations
+    return ParsedEquations.from_equations(equations, indexed_bases)
 
 
 @pytest.fixture
-def complex_equations():
+def complex_equations(indexed_bases):
     """More complex equations with auxiliary variables."""
-    x, y, z = sp.symbols("x y z", real=True)
-    a, b, c = sp.symbols("a b c", real=True)
+    x = indexed_bases.states.symbol_map["x"]
+    y = indexed_bases.states.symbol_map["y"]
+    a = indexed_bases.parameters.symbol_map["a"]
+    b = indexed_bases.parameters.symbol_map["b"]
+    c = indexed_bases.constants.symbol_map["c"]
+    dx = indexed_bases.dxdt.symbol_map["dx"]
+    dy = indexed_bases.dxdt.symbol_map["dy"]
+    obs = indexed_bases.observables.symbol_map["obs1"]
 
-    # Auxiliary variable
-    aux = a * x + b * y
-
+    aux = sp.Symbol("aux", real=True)
     equations = [
-        (sp.Symbol("aux", real=True), aux),
-        (sp.Symbol("dx", real=True), -aux + c),
-        (sp.Symbol("dy", real=True), aux - c * y),
-        (sp.Symbol("dz", real=True), x + y - z),
+        (aux, a * x + b * y),
+        (dx, -aux + c),
+        (dy, aux - c * y),
+        (obs, x + y),
     ]
-    return equations
+    return ParsedEquations.from_equations(equations, indexed_bases)
 
 
 @pytest.fixture(scope="function")
@@ -139,7 +146,7 @@ def indexed_bases():
     """Sample IndexedBases for testing."""
     states = ["x", "y"]
     parameters = ["a", "b"]
-    constants = ["c"]
+    constants = ["c", "d"]
     observables = ["obs1"]
     drivers = ["driver1"]
 
@@ -159,27 +166,36 @@ def sample_hash():
 
 
 @pytest.fixture
-def linear_system_equations():
+def linear_system_equations(indexed_bases):
     """Linear system equations for Jacobian testing."""
-    x, y = sp.symbols("x y", real=True)
-    a, b, c, d = sp.symbols("a b c d", real=True)
+    x = indexed_bases.states.symbol_map["x"]
+    y = indexed_bases.states.symbol_map["y"]
+    a = indexed_bases.parameters.symbol_map["a"]
+    b = indexed_bases.parameters.symbol_map["b"]
+    c = indexed_bases.constants.symbol_map["c"]
+    d = indexed_bases.constants.symbol_map["d"]
+    dx = indexed_bases.dxdt.symbol_map["dx"]
+    dy = indexed_bases.dxdt.symbol_map["dy"]
 
-    # Linear system: dx/dt = ax + by, dy/dt = cx + dy
     equations = [
-        (sp.Symbol("dx", real=True), a * x + b * y),
-        (sp.Symbol("dy", real=True), c * x + d * y),
+        (dx, a * x + b * y),
+        (dy, c * x + d * y),
     ]
-    return equations
+    return ParsedEquations.from_equations(equations, indexed_bases)
 
 
 @pytest.fixture
-def nonlinear_equations():
+def nonlinear_equations(indexed_bases):
     """Nonlinear equations for comprehensive testing."""
-    x, y = sp.symbols("x y", real=True)
-    a, b = sp.symbols("a b", real=True)
+    x = indexed_bases.states.symbol_map["x"]
+    y = indexed_bases.states.symbol_map["y"]
+    a = indexed_bases.parameters.symbol_map["a"]
+    b = indexed_bases.parameters.symbol_map["b"]
+    dx = indexed_bases.dxdt.symbol_map["dx"]
+    dy = indexed_bases.dxdt.symbol_map["dy"]
 
     equations = [
-        (sp.Symbol('dx', real=True), a*x - b*x*y),
-        (sp.Symbol('dy', real=True), b*x*y - a*y)
+        (dx, a * x - b * x * y),
+        (dy, b * x * y - a * y),
     ]
-    return equations
+    return ParsedEquations.from_equations(equations, indexed_bases)

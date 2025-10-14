@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional
+import os
 
 import numpy as np
 import pytest
@@ -48,6 +49,47 @@ from tests.system_fixtures import (
     build_three_state_very_stiff_system,
 )
 
+enable_tempdir = "0"
+os.environ["CUBIE_GENERATED_DIR_REDIRECT"] = enable_tempdir
+# --------------------------------------------------------------------------- #
+#                            Codegen Redirect                                 #
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture(scope="session", autouse=True)
+def codegen_dir():
+    """Redirect code generation to a temporary directory for the whole session.
+
+    Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
+    removed automatically between parameterized test cases. Remove the
+    directory at session teardown.
+
+    Toggle: set environment variable `CUBIE_GENERATED_DIR_REDIRECT` to `0` to
+    disable the temporary redirect and keep the original
+    `odefile.GENERATED_DIR`.
+    """
+    import tempfile
+    import shutil
+    import os
+    from cubie.odesystems.symbolic import odefile
+
+    original_dir = getattr(odefile, "GENERATED_DIR", None)
+    redirect_enabled = int(os.environ.get("CUBIE_GENERATED_DIR_REDIRECT",
+                                    "1"))
+
+    if not redirect_enabled:
+        # Don't change odefile.GENERATED_DIR; yield the original value (or None).
+        yield Path(original_dir) if original_dir is not None else None
+        return
+
+    gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
+    mp = MonkeyPatch()
+    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
+    try:
+        yield gen_dir
+    finally:
+        # restore original attribute and remove temporary dir
+        mp.undo()
+        shutil.rmtree(gen_dir, ignore_errors=True)
 
 # ========================================
 # HELPER BUILDERS
@@ -501,29 +543,6 @@ def step_controller_settings(
 # OBJECT FIXTURES
 # ========================================
 
-@pytest.fixture(scope="session", autouse=True)
-def codegen_dir():
-    """Redirect code generation to a temporary directory for the whole session.
-
-    Use tempfile.mkdtemp instead of pytest's tmp path so the directory isn't
-    removed automatically between parameterized test cases. Remove the
-    directory at session teardown.
-    """
-    import tempfile
-    import shutil
-    from cubie.odesystems.symbolic import odefile
-
-    gen_dir = Path(tempfile.mkdtemp(prefix="cubie_generated_"))
-    mp = MonkeyPatch()
-    mp.setattr(odefile, "GENERATED_DIR", gen_dir, raising=True)
-    try:
-        yield gen_dir
-    finally:
-        # restore original attribute and remove temporary dir
-        mp.undo()
-        shutil.rmtree(gen_dir, ignore_errors=True)
-
-
 @pytest.fixture(scope="session")
 def output_settings(solver_settings):
     settings, _ = merge_kwargs_into_settings(
@@ -830,6 +849,7 @@ def cpu_loop_runner(
     step_controller_settings,
     output_functions,
     cpu_driver_evaluator,
+    step_object,
 ):
     """Return a callable for generating CPU reference loop outputs."""
 
@@ -871,6 +891,9 @@ def cpu_loop_runner(
             precision=precision,
             step_controller_settings=step_controller_settings,
         )
+        tableau = getattr(
+            step_object, "tableau", solver_settings.get("tableau")
+        )
         return run_reference_loop(
             evaluator=cpu_system,
             inputs=inputs,
@@ -878,6 +901,7 @@ def cpu_loop_runner(
             solver_settings=solver_settings,
             output_functions=output_functions,
             controller=controller,
+            tableau=tableau,
         )
 
     return _run_loop
@@ -893,6 +917,7 @@ def cpu_loop_outputs(
     output_functions,
     cpu_driver_evaluator,
     driver_array,
+    step_object,
 ) -> dict[str, Array]:
     """Execute the CPU reference loop with the provided configuration."""
     inputs = {
@@ -908,6 +933,9 @@ def cpu_loop_outputs(
         precision=precision,
         step_controller_settings=step_controller_settings,
     )
+    tableau = getattr(
+        step_object, "tableau", solver_settings.get("tableau")
+    )
     return run_reference_loop(
         evaluator=cpu_system,
         inputs=inputs,
@@ -915,6 +943,7 @@ def cpu_loop_outputs(
         solver_settings=solver_settings,
         output_functions=output_functions,
         controller=controller,
+        tableau=tableau,
     )
 
 
@@ -923,6 +952,7 @@ def device_loop_outputs(
     loop,
     system,
     single_integrator_run,
+    step_object,
     initial_state,
     solver_settings,
     step_controller_settings,
@@ -938,6 +968,7 @@ def device_loop_outputs(
         output_functions=output_functions,
         solver_config=solver_settings,
         localmem_required=single_integrator_run.local_memory_elements,
-        sharedmem_required=single_integrator_run.shared_memory_elements,
+        sharedmem_required=step_object.shared_memory_required +
+                           loop.shared_memory_elements,
         driver_array=driver_array,
     )
