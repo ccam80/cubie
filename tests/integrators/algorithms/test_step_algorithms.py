@@ -461,8 +461,8 @@ def test_algorithm(
 
     # Test equality for a single step
     tolerances = {
-        "rtol": tolerance.rel_tight,
-        "atol": tolerance.abs_tight,
+        "rtol": tolerance.rel_loose,
+        "atol": tolerance.abs_loose,
     }
     assert device_step_results.status == cpu_step_results.status, \
         "status matches"

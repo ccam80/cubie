@@ -13,6 +13,7 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_prepare_jac_code,
     generate_stage_residual_code,
     generate_residual_end_state_code,
+    _build_expression_costs,
     _split_jvp_expressions,
 )
 
@@ -340,6 +341,42 @@ def test_split_jvp_expressions_limits_cache_size():
     assert heavy_symbols[2] in cached_symbols
     assert heavy_symbols[0] not in cached_symbols
     assert heavy_symbols[0] in runtime_symbols
+
+
+def test_build_expression_costs_tracks_jvp_dependencies():
+    """Propagate JVP usage counts through dependency closures."""
+
+    x0, x1 = sp.symbols("x0 x1")
+    dep0 = sp.Symbol("dep0")
+    heavy = sp.Symbol("aux_heavy")
+    simple = sp.Symbol("simple")
+    j_00 = sp.Symbol("j_00")
+
+    non_jvp_order = [dep0, heavy, simple, j_00]
+    non_jvp_exprs = {
+        dep0: sp.sin(x0) + sp.cos(x1),
+        heavy: dep0**2 + sp.exp(dep0),
+        simple: x0 + x1,
+        j_00: heavy + simple,
+    }
+    assigned_symbols = set(non_jvp_order)
+    jvp_terms = {0: j_00 * sp.Symbol("v[0]")}
+
+    (
+        _dependencies,
+        _dependents,
+        _ops_cost,
+        jvp_usage,
+        jvp_closure,
+    ) = _build_expression_costs(
+        non_jvp_order, non_jvp_exprs, assigned_symbols, jvp_terms
+    )
+
+    assert jvp_usage == {j_00: 1}
+    assert jvp_closure[j_00] == 1
+    assert jvp_closure[heavy] == 1
+    assert jvp_closure[dep0] == 1
+    assert jvp_closure[simple] == 1
 
 
 @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)

@@ -196,6 +196,7 @@ def _build_expression_costs(
     Dict[sp.Symbol, Set[sp.Symbol]],
     Dict[sp.Symbol, int],
     Dict[sp.Symbol, int],
+    Dict[sp.Symbol, int],
 ]:
     """Build dependency graphs, operation costs, and JVP usage counts.
 
@@ -212,15 +213,16 @@ def _build_expression_costs(
 
     Returns
     -------
-    tuple of dict, dict, dict, and dict
-        Dependency edges, dependent adjacency, operation counts, and JVP usage
-        reference counts for each auxiliary symbol.
+    tuple of dict, dict, dict, dict, and dict
+        Dependency edges, dependent adjacency, operation counts, direct JVP
+        reference counts, and transitive JVP usage tallies for each auxiliary
+        symbol.
 
     Notes
     -----
     Counts operations using ``sympy.count_ops`` while tracking parent-child
     relationships and recording how many JVP expressions consume each auxiliary
-    symbol.
+    symbol directly and through their dependency closures.
     """
 
     dependencies = {}
@@ -238,12 +240,34 @@ def _build_expression_costs(
         for dep in deps:
             if dep in dependents:
                 dependents[dep].add(lhs)
-    jvp_usage = defaultdict(int)
+    jvp_roots = defaultdict(int)
+    jvp_closure = defaultdict(int)
     for rhs in jvp_terms.values():
-        for sym in rhs.free_symbols:
-            if sym in dependents:
-                jvp_usage[sym] += 1
-    return dependencies, dependents, ops_cost, dict(jvp_usage)
+        direct = [sym for sym in rhs.free_symbols if sym in dependents]
+        seen_direct = set()
+        for sym in direct:
+            if sym in seen_direct:
+                continue
+            seen_direct.add(sym)
+            jvp_roots[sym] += 1
+        stack = list(seen_direct)
+        seen_closure = set()
+        while stack:
+            sym = stack.pop()
+            if sym in seen_closure:
+                continue
+            seen_closure.add(sym)
+            jvp_closure[sym] += 1
+            for dep in dependencies.get(sym, set()):
+                if dep in dependents:
+                    stack.append(dep)
+    return (
+        dependencies,
+        dependents,
+        ops_cost,
+        dict(jvp_roots),
+        dict(jvp_closure),
+    )
 
 
 def _select_cached_nodes(
@@ -252,6 +276,7 @@ def _select_cached_nodes(
     dependents: Dict[sp.Symbol, Set[sp.Symbol]],
     ops_cost: Dict[sp.Symbol, int],
     jvp_usage: Dict[sp.Symbol, int],
+    jvp_closure_usage: Dict[sp.Symbol, int],
     max_cached_terms: int,
     min_ops_threshold: int,
 ) -> Tuple[List[sp.Symbol], Set[sp.Symbol]]:
@@ -269,10 +294,14 @@ def _select_cached_nodes(
         Operation counts required to compute each symbol.
     jvp_usage
         Usage counts contributed by Jacobian-vector expressions.
+    jvp_closure_usage
+        Counts of Jacobian-vector expressions that rely on each symbol or its
+        dependencies.
     max_cached_terms
         Maximum number of auxiliary expressions permitted in the cache.
     min_ops_threshold
-        Minimum operations required for a symbol to qualify for caching.
+        Minimum operations saved by caching a symbol and its dependencies for
+        the candidate to qualify.
 
     Returns
     -------
@@ -283,8 +312,10 @@ def _select_cached_nodes(
     Notes
     -----
     Iteratively evaluates each candidate with :func:`simulate_removal`, caching
-    the symbol that yields the largest operation reduction until limits or
-    savings thresholds halt the process.
+    the symbol that yields the largest weighted operation reduction, where the
+    weight scales with the number of Jacobian-vector outputs that consume the
+    symbol or its dependencies. The search halts when limits or savings
+    thresholds prevent further improvement.
     """
 
     active_nodes = set(non_jvp_order)
@@ -296,11 +327,10 @@ def _select_cached_nodes(
     while len(cached_nodes) < max_cached_terms:
         best_symbol = None
         best_saved = 0
+        best_weighted = 0
         best_removal = set()
         for symbol in candidate_order:
             if symbol not in active_nodes:
-                continue
-            if ops_cost.get(symbol, 0) < min_ops_threshold:
                 continue
             saved, removal = simulate_removal(
                 symbol,
@@ -309,9 +339,19 @@ def _select_cached_nodes(
                 dependencies,
                 ops_cost,
             )
-            if saved > best_saved:
+            if saved < min_ops_threshold:
+                continue
+            influence = max(1, jvp_closure_usage.get(symbol, 0)) + len(
+                dependents.get(symbol, set())
+            )
+            symbol_cost = ops_cost.get(symbol, 0)
+            weighted = saved * influence + symbol_cost
+            if weighted > best_weighted or (
+                weighted == best_weighted and saved > best_saved
+            ):
                 best_symbol = symbol
                 best_saved = saved
+                best_weighted = weighted
                 best_removal = removal
         if best_symbol is None or best_saved <= 0:
             break
@@ -347,8 +387,8 @@ def _split_jvp_expressions(
         Maximum number of expressions to cache. Defaults to twice the number
         of JVP outputs.
     min_ops_threshold
-        Minimum number of operations required for an expression to be
-        considered for caching.
+        Minimum number of operations that must be saved by caching an
+        expression and its dependencies for the candidate to be considered.
 
     Returns
     -------
@@ -391,6 +431,7 @@ def _split_jvp_expressions(
         dependents,
         ops_cost,
         jvp_usage,
+        jvp_closure_usage,
     ) = _build_expression_costs(
         non_jvp_order, non_jvp_exprs, assigned_symbols, jvp_terms
     )
@@ -401,6 +442,7 @@ def _split_jvp_expressions(
         dependents,
         ops_cost,
         jvp_usage,
+        jvp_closure_usage,
         max_cached_terms,
         min_ops_threshold,
     )

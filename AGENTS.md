@@ -7,7 +7,7 @@ Use descriptive function names rather than minimal ones.
 Don't type hint variables inside functions.
 Never call build() directly on a CUDAFactory subclass. These objects automatially cache or build when you request the result through the object's property.
 Don't import from __future__ import annotations, assume Python 3.7+.
-The repository is in development, do not enforce backwards compatibility; breaking changes are expected.
+The repository is in development, do not enforce backwards compatibility; breaking changes are expected. Never retain an obsolete feature or argument for API compatibility.
 Type hints are compulsory, in PEP484 format in function definitions, rather than in docstrings.
 Never add comments or docstrings that form part of the conversation with the user, e.g. "this part now does this". Comments only serve
 to explain what a complex piece of code is doing. They are always addressed to future developers.
