@@ -596,8 +596,12 @@ class RosenbrockStep(ODEImplicitStep):
 
     @property
     def cached_auxiliary_count(self) -> int:
-        """Return the number of cached auxiliary entries for the JVP."""
+        """Return the number of cached auxiliary entries for the JVP.
 
+        Lazily builds implicit helpers so as not to return an errant 'None'."""
+
+        if self._cached_auxiliary_count is None:
+            self.build_implicit_helpers()
         return self._cached_auxiliary_count
 
     @property
