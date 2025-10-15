@@ -348,7 +348,7 @@ def test_initial_observable_seed_matches_reference(
     LOOP_CASES,
     indirect=True,
 )
-def test_loop(
+def  test_loop(
     device_loop_outputs,
     cpu_loop_outputs,
     output_functions,

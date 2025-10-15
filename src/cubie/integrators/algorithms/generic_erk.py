@@ -16,9 +16,7 @@ from cubie.integrators.algorithms.ode_explicitstep import (
 )
 from cubie.integrators.algorithms.generic_erk_tableaus import (
     DEFAULT_ERK_TABLEAU,
-    DORMAND_PRINCE_54_TABLEAU,
     ERKTableau,
-    ERK_TABLEAU_REGISTRY,
 )
 
 
@@ -154,8 +152,6 @@ class ERKStep(ODEExplicitStep):
             persistent_local,
         ):
             stage_rhs = cuda.local.array(n, numba_precision)
-            stage_state = cuda.local.array(n, numba_precision)
-            stage_increment = cuda.local.array(n, numba_precision)
 
             dt_value = dt_scalar
             current_time = time_scalar
@@ -185,13 +181,9 @@ class ERKStep(ODEExplicitStep):
             )
 
             for idx in range(n):
-                stage_increment[idx] = dt_value * stage_rhs[idx]
-                proposed_state[idx] += (
-                    solution_weights[0] * stage_increment[idx]
-                )
-                error[idx*has_error] += (
-                    error_weights[0] * stage_increment[idx]
-                )
+                increment = dt_value * stage_rhs[idx]
+                proposed_state[idx] += solution_weights[0] * increment
+                error[idx*has_error] += error_weights[0] * increment
 
             # ----------------------------------------------------------- #
             #            Stages 1-s: refresh observables and drivers       #
@@ -208,7 +200,9 @@ class ERKStep(ODEExplicitStep):
                     state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
                     base = (successor_idx - 1) * n
                     for idx in range(n):
-                        contribution = state_coeff * stage_increment[idx]
+                        # 1x duplicated FMUL to avoid a memory save/load - nice
+                        increment = dt_value * stage_rhs[idx]
+                        contribution = state_coeff * increment
                         stage_accumulator[base + idx] += contribution
 
 
@@ -218,9 +212,13 @@ class ERKStep(ODEExplicitStep):
                 )
 
                 for idx in range(n):
-                    stage_state[idx] = state[idx] + stage_accumulator[
-                        stage_offset + idx
-                    ]
+                    stage_accumulator[stage_offset + idx] = (
+                        state[idx] + stage_accumulator[stage_offset + idx]
+                    )
+
+                stage_state = stage_accumulator[
+                    stage_offset:stage_offset + n
+                ]
 
                 stage_drivers = proposed_drivers
                 if has_driver_function:
@@ -248,12 +246,13 @@ class ERKStep(ODEExplicitStep):
                 )
 
                 for idx in range(n):
-                    stage_increment[idx] = dt_value * stage_rhs[idx]
+                    # 1x duplicated FMUL to avoid a memory save/load - nice
+                    increment = dt_value * stage_rhs[idx]
                     proposed_state[idx] += (
-                        solution_weights[stage_idx] * stage_increment[idx]
+                        solution_weights[stage_idx] * increment
                     )
                     error[idx*has_error] += (
-                        error_weights[stage_idx] * stage_increment[idx]
+                        error_weights[stage_idx] * increment
                     )
             # ----------------------------------------------------------- #
 
@@ -299,7 +298,7 @@ class ERKStep(ODEExplicitStep):
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
-        return 3 * self.compile_settings.n
+        return self.compile_settings.n
 
     @property
     def persistent_local_required(self) -> int:

@@ -249,8 +249,7 @@ class DIRKStep(ODEImplicitStep):
             persistent_local,
         ):
             stage_rhs = cuda.local.array(n, numba_precision)
-            stage_state = cuda.local.array(n, numba_precision)
-            stage_base = cuda.local.array(n, numba_precision)
+            stage_base = stage_rhs # lifetimes are disjoint - reuse
 
             dt_value = dt_scalar
             current_time = time_scalar
@@ -258,23 +257,19 @@ class DIRKStep(ODEImplicitStep):
 
             stage_accumulator = shared[acc_start:acc_end]
             solver_scratch = shared[solver_start:solver_end]
-            # cached_auxiliaries = shared[cached_start:cached_end]
 
-            for idx in range(accumulator_length):
-                stage_accumulator[idx] = typed_zero
 
-            # prepare_jacobian(
-            #     state,
-            #     parameters,
-            #     drivers_buffer,
-            #     cached_auxiliaries,
-            # )
+
+            stage_state = stage_accumulator[:n]
 
             for idx in range(n):
                 error[idx] = typed_zero
                 stage_base[idx] = state[idx]
-                stage_state[idx] = stage_base[idx]
+                stage_state[idx] = state[idx]
                 proposed_state[idx] = state[idx]
+
+            for idx in range(accumulator_length - n):
+                stage_accumulator[idx+n] = typed_zero
 
             status_code = int32(0)
 
@@ -337,11 +332,19 @@ class DIRKStep(ODEImplicitStep):
                 # Fill accumulators with previous step's contributions
                 prev_idx = stage_idx - 1
                 successor_range = stage_count - stage_idx
-                for successor_offset in range(successor_range):
-                    successor_idx = stage_idx + successor_offset
-                    state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                    base = (successor_idx - 1) * n
-                    for idx in range(n):
+
+                # This loop order might look backwards, but it allows the
+                # aliasing of stage_increment and stage_accumulator. Shared
+                # memory buffers won't suffer from bad locality - if local
+                # buffers have spilled into global memory, then you're at
+                # worst-case locality anyhow, so this has no penalty.
+                for idx in range(n):
+                    if prev_idx == 0:
+                        stage_accumulator[idx] = typed_zero
+                    for successor_offset in range(successor_range):
+                        successor_idx = stage_idx + successor_offset
+                        base = (successor_idx - 1) * n
+                        state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
                         contribution = state_coeff * stage_rhs[idx]
                         stage_accumulator[base + idx] += contribution
 
@@ -358,12 +361,10 @@ class DIRKStep(ODEImplicitStep):
                         stage_drivers,
                     )
 
+                stage_state = stage_accumulator[stage_offset:stage_offset + n]
                 for idx in range(n):
-                    base_state_value = (
-                        state[idx] + stage_accumulator[stage_offset + idx]
-                    )
-                    stage_base[idx] = base_state_value
-                    stage_state[idx] = base_state_value
+                    stage_state[idx] += state[idx]
+                    stage_base[idx] = stage_state[idx]
 
                 status_code |= nonlinear_solver(
                     stage_state,
@@ -455,7 +456,7 @@ class DIRKStep(ODEImplicitStep):
     @property
     def local_scratch_required(self) -> int:
         """Return the number of local precision entries required."""
-        return 3 * self.compile_settings.n
+        return 2 * self.compile_settings.n
 
     @property
     def persistent_local_required(self) -> int:

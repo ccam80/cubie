@@ -4,11 +4,12 @@ import numpy as np
 import pytest
 
 from cubie.integrators.algorithms.generic_erk import (
-    DEFAULT_ERK_TABLEAU,
     ERKStep,
+)
+from cubie.integrators.algorithms.generic_erk_tableaus import (
+    DEFAULT_ERK_TABLEAU,
     ERK_TABLEAU_REGISTRY,
 )
-
 EXPECTED_TABLEAU_NAMES = (
     "heun-21",
     "ralston-33",

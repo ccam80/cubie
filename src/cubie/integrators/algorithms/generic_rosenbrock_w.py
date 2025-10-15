@@ -226,9 +226,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             persistent_local,
         ):
             stage_rhs = cuda.local.array(n, numba_precision)
-            stage_state = cuda.local.array(n, numba_precision)
-            stage_increment = cuda.local.array(n, numba_precision)
-            jacobian_stage_product = cuda.local.array(n, numba_precision)
+            jacobian_stage_product = stage_rhs # lifetimes are disjoint - reuse
 
             dt_value = dt_scalar
             current_time = time_scalar
@@ -242,6 +240,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 2 * accumulator_length:
                 2 * accumulator_length + cached_auxiliary_count
             ]
+
+            if accumulator_length >= n:
+                #First block of accumulator is consumed immediately - reuse
+                stage_increment = stage_accumulator[:n]
+            else:
+                stage_increment = cuda.local.array(n, numba_precision)
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
@@ -310,34 +314,43 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 # Fill accumulators with previous step's contributions
                 prev_idx = stage_idx - 1
                 successor_range = stage_count - stage_idx
-                for successor_offset in range(successor_range):
-                    successor_idx = stage_idx + successor_offset
-                    state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                    jacobian_coeff = jacobian_update_coeffs[successor_idx][
-                        prev_idx
-                    ]
-                    base = (successor_idx - 1) * n
-                    for idx in range(n):
-                        contribution = state_coeff * stage_increment[idx]
-                        stage_accumulator[base + idx] += contribution
-                        jacobian_contribution = (
-                            jacobian_coeff * jacobian_stage_product[idx]
+
+                # This loop order might look backwards, but it allows the
+                # aliasing of stage_increment and stage_accumulator. Shared
+                # memory buffers won't suffer from bad locality - if local
+                # buffers have spilled into global memory, then you're at
+                # worst-case locality anyhow, so this has no penalty.
+                for idx in range(n):
+                    increment_value = stage_increment[idx]
+                    jacobian_value = jacobian_stage_product[idx]
+                    if prev_idx == 0:
+                        stage_accumulator[idx] = typed_zero
+                    for successor_offset in range(successor_range):
+                        successor_idx = stage_idx + successor_offset
+                        state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
+                        jacobian_coeff = jacobian_update_coeffs[successor_idx][
+                            prev_idx
+                        ]
+                        base = (successor_idx - 1) * n + idx
+                        stage_accumulator[base] += (
+                            state_coeff * increment_value
                         )
-                        jacobian_product_accumulator[base + idx] += (
-                            jacobian_contribution
+                        jacobian_product_accumulator[base] += (
+                            jacobian_coeff * jacobian_value
                         )
 
-                # Position in accumulator
                 stage_offset = (stage_idx - 1) * n
                 stage_time = (
                     current_time + dt_value * stage_time_fractions[stage_idx]
                 )
 
+                # Directly reuse the accumulator block, as this is the last
+                # consumer of it's data. Add state and away we go.
+                stage_state = stage_accumulator[stage_offset:stage_offset + n]
                 for idx in range(n):
-                    stage_state[idx] = (
-                        state[idx] + stage_accumulator[stage_offset + idx]
-                    )
+                    stage_state[idx] += state[idx]
 
+                # This is just an alias to a more descriptive name, no sharing.
                 stage_drivers = proposed_drivers
                 if has_driver_function:
                     driver_function(
