@@ -9,7 +9,7 @@ from numba import cuda, int32
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
-    StepControlDefaults, ButcherTableau,
+    StepControlDefaults,
 )
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DEFAULT_DIRK_TABLEAU,
@@ -262,8 +262,6 @@ class DIRKStep(ODEImplicitStep):
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
-            for idx in range(solver_shared_elements):
-                solver_scratch[idx] = typed_zero
 
             # prepare_jacobian(
             #     state,
