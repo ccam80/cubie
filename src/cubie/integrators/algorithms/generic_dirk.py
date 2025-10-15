@@ -248,8 +248,7 @@ class DIRKStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            stage_rhs = cuda.local.array(n, numba_precision)
-            stage_base = stage_rhs # lifetimes are disjoint - reuse
+            stage_base = cuda.local.array(n, numba_precision)
 
             dt_value = dt_scalar
             current_time = time_scalar
@@ -257,6 +256,7 @@ class DIRKStep(ODEImplicitStep):
 
             stage_accumulator = shared[acc_start:acc_end]
             solver_scratch = shared[solver_start:solver_end]
+            stage_rhs = solver_scratch[:n]
 
 
 
