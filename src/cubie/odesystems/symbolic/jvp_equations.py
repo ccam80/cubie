@@ -1,5 +1,19 @@
 """Structured representation for Jacobian-vector product assignments."""
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+from typing import (
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TYPE_CHECKING,
+)
+
+
+if TYPE_CHECKING:
+    from cubie.odesystems.symbolic.auxiliary_caching import CacheSelection
 
 import sympy as sp
 
@@ -25,26 +39,22 @@ class JVPEquations:
         cache candidate qualifies for selection.
     """
 
-    assignments: Sequence[Tuple[sp.Symbol, sp.Expr]] = attrs.field()
-    max_cached_terms: Optional[int] = attrs.field(default=None)
-    min_ops_threshold: int = attrs.field(default=10)
+    assignments = attrs.field()
+    max_cached_terms = attrs.field(default=None)
+    min_ops_threshold = attrs.field(default=10)
 
-    _ordered_assignments: Tuple[Tuple[sp.Symbol, sp.Expr], ...] = attrs.field(
-        init=False, repr=False
-    )
-    _non_jvp_order: Tuple[sp.Symbol, ...] = attrs.field(init=False, repr=False)
-    _non_jvp_exprs: Dict[sp.Symbol, sp.Expr] = attrs.field(init=False, repr=False)
-    _jvp_terms: Dict[int, sp.Expr] = attrs.field(init=False, repr=False)
-    _dependencies: Dict[sp.Symbol, Set[sp.Symbol]] = attrs.field(
-        init=False, repr=False
-    )
-    _dependents: Dict[sp.Symbol, Set[sp.Symbol]] = attrs.field(
-        init=False, repr=False
-    )
-    _ops_cost: Dict[sp.Symbol, int] = attrs.field(init=False, repr=False)
-    _jvp_usage: Dict[sp.Symbol, int] = attrs.field(init=False, repr=False)
-    _jvp_closure_usage: Dict[sp.Symbol, int] = attrs.field(init=False, repr=False)
-    _cache_slot_limit: int = attrs.field(init=False, repr=False)
+    _ordered_assignments = attrs.field(init=False, repr=False)
+    _non_jvp_order = attrs.field(init=False, repr=False)
+    _non_jvp_exprs = attrs.field(init=False, repr=False)
+    _jvp_terms = attrs.field(init=False, repr=False)
+    _dependencies = attrs.field(init=False, repr=False)
+    _dependents = attrs.field(init=False, repr=False)
+    _ops_cost = attrs.field(init=False, repr=False)
+    _jvp_usage = attrs.field(init=False, repr=False)
+    _jvp_closure_usage = attrs.field(init=False, repr=False)
+    _cache_slot_limit = attrs.field(init=False, repr=False)
+    _reference_counts = attrs.field(init=False, repr=False)
+    _cache_selection = attrs.field(init=False, default=None, repr=False)
 
     def __attrs_post_init__(self) -> None:
         ordered = tuple(self.assignments)
@@ -112,6 +122,11 @@ class JVPEquations:
         self._ops_cost = ops_cost
         self._jvp_usage = jvp_usage
         self._jvp_closure_usage = jvp_closure
+        reference_counts = {
+            sym: len(dependents[sym]) + jvp_usage.get(sym, 0)
+            for sym in self._non_jvp_order
+        }
+        self._reference_counts = reference_counts
 
     @property
     def ordered_assignments(self) -> Tuple[Tuple[sp.Symbol, sp.Expr], ...]:
@@ -163,7 +178,7 @@ class JVPEquations:
 
     @property
     def jvp_closure_usage(self) -> Mapping[sp.Symbol, int]:
-        """Return transitive JVP usage counts across dependency closures."""
+        """Return transitive JVP usage counts across dependency chains."""
 
         return self._jvp_closure_usage
 
@@ -172,6 +187,12 @@ class JVPEquations:
         """Return the maximum number of cached auxiliary leaves permitted."""
 
         return self._cache_slot_limit
+
+    @property
+    def reference_counts(self) -> Mapping[sp.Symbol, int]:
+        """Return base reference counts including JVP usage."""
+
+        return self._reference_counts
 
     def partition_assignments(
         self,
@@ -211,5 +232,54 @@ class JVPEquations:
             if lhs in cached_set:
                 cached_assigns.append((lhs, rhs))
             elif lhs in runtime_set:
+                runtime_assigns.append((lhs, rhs))
+        return cached_assigns, runtime_assigns, prepare_assigns
+
+    def update_cache_selection(self, selection: "CacheSelection") -> None:
+        """Persist the cache selection for reuse by solver helpers."""
+
+        self._cache_selection = selection
+
+    def ensure_cache_selection(self) -> None:
+        """Ensure a cache selection has been computed."""
+
+        if self._cache_selection is None:
+            from cubie.odesystems.symbolic.auxiliary_caching import (
+                plan_auxiliary_cache,
+            )
+
+            self._cache_selection = plan_auxiliary_cache(self)
+
+    @property
+    def cache_selection(self) -> "CacheSelection":
+        """Return the cached auxiliary selection."""
+
+        self.ensure_cache_selection()
+        assert self._cache_selection is not None
+        return self._cache_selection
+
+    def cached_partition(
+        self,
+    ) -> Tuple[
+        List[Tuple[sp.Symbol, sp.Expr]],
+        List[Tuple[sp.Symbol, sp.Expr]],
+        List[Tuple[sp.Symbol, sp.Expr]],
+    ]:
+        """Return cached, runtime, and preparation assignments from selection."""
+
+        selection = self.cache_selection
+        cached_symbols = set(selection.cached_leaf_order)
+        runtime_symbols = set(selection.runtime_nodes)
+        prepare_symbols = set(selection.prepare_nodes)
+        cached_assigns = []
+        runtime_assigns = []
+        prepare_assigns = []
+        for lhs in self._non_jvp_order:
+            rhs = self._non_jvp_exprs[lhs]
+            if lhs in prepare_symbols:
+                prepare_assigns.append((lhs, rhs))
+            if lhs in cached_symbols:
+                cached_assigns.append((lhs, rhs))
+            elif lhs in runtime_symbols:
                 runtime_assigns.append((lhs, rhs))
         return cached_assigns, runtime_assigns, prepare_assigns

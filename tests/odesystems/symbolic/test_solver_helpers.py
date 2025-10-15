@@ -4,7 +4,6 @@ import sympy as sp
 from numba import cuda, from_dtype
 
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
-from cubie.odesystems.symbolic.auxiliary_caching import select_cached_nodes
 from cubie.odesystems.symbolic.jvp_equations import JVPEquations
 from cubie.odesystems.symbolic.solver_helpers import (
     generate_cached_jvp_code,
@@ -278,16 +277,15 @@ def test_split_jvp_expressions_caches_high_cost_terms():
     ]
 
     equations = JVPEquations(exprs)
-    cached_nodes, runtime_nodes = select_cached_nodes(equations)
-    cached_aux, runtime_aux, prepare_assigns = equations.partition_assignments(
-        cached_nodes, runtime_nodes
-    )
+    cached_aux, runtime_aux, prepare_assigns = equations.cached_partition()
+    selection = equations.cache_selection
 
     cached_symbols = [lhs for lhs, _ in cached_aux]
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
     prepare_symbols = [lhs for lhs, _ in prepare_assigns]
 
     assert cached_symbols == [j_00]
+    assert list(selection.cached_leaf_order) == [j_00]
     assert heavy not in runtime_symbols
     assert heavy in prepare_symbols
     assert dep0 not in runtime_symbols
@@ -336,15 +334,14 @@ def test_split_jvp_expressions_limits_cache_size():
     exprs.append((sp.Symbol("jvp[0]"), j_00 * sp.Symbol("v[0]")))
 
     equations = JVPEquations(exprs)
-    cached_nodes, runtime_nodes = select_cached_nodes(equations)
-    cached_aux, runtime_aux, _ = equations.partition_assignments(
-        cached_nodes, runtime_nodes
-    )
+    cached_aux, runtime_aux, _ = equations.cached_partition()
+    selection = equations.cache_selection
 
     cached_symbols = [lhs for lhs, _ in cached_aux]
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
 
     assert cached_symbols == [j_00]
+    assert list(selection.cached_leaf_order) == [j_00]
     assert all(sym not in runtime_symbols for sym in heavy_symbols)
 
 
@@ -386,16 +383,15 @@ def test_split_jvp_expressions_groups_cse_dependents():
     ]
 
     equations = JVPEquations(exprs, min_ops_threshold=5)
-    cached_nodes, runtime_nodes = select_cached_nodes(equations)
-    cached_aux, runtime_aux, prepare_assigns = equations.partition_assignments(
-        cached_nodes, runtime_nodes
-    )
+    cached_aux, runtime_aux, prepare_assigns = equations.cached_partition()
+    selection = equations.cache_selection
 
     cached_symbols = [lhs for lhs, _ in cached_aux]
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
     prepare_symbols = [lhs for lhs, _ in prepare_assigns]
 
     assert cached_symbols == [jac]
+    assert list(selection.cached_leaf_order) == [jac]
     assert cse_sym in runtime_symbols
     assert aux_a in prepare_symbols
     assert aux_b in prepare_symbols
@@ -451,21 +447,93 @@ def test_split_jvp_expressions_limits_cse_depth_for_slots():
         max_cached_terms=1,
         min_ops_threshold=1,
     )
-    cached_nodes, runtime_nodes = select_cached_nodes(equations)
-    cached_aux, runtime_aux, prepare_assigns = equations.partition_assignments(
-        cached_nodes, runtime_nodes
-    )
+    cached_aux, runtime_aux, prepare_assigns = equations.cached_partition()
+    selection = equations.cache_selection
 
     cached_symbols = [lhs for lhs, _ in cached_aux]
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
     prepare_symbols = {lhs for lhs, _ in prepare_assigns}
 
     assert cached_symbols == [jac]
+    assert list(selection.cached_leaf_order) == [jac]
     assert aux_a not in runtime_symbols
     assert aux_b not in runtime_symbols
     assert aux_c not in runtime_symbols
     assert cse_mid in prepare_symbols
     assert cse_root in runtime_symbols
+
+
+def test_cache_plan_shared_cse_with_slot_limit():
+    """Ensure shared CSE branches remain available with cache limits."""
+
+    x0, x1 = sp.symbols("x0 x1")
+    cse_sym = sp.Symbol("_cse_shared")
+    aux_a = sp.Symbol("aux_a")
+    aux_b = sp.Symbol("aux_b")
+    jac_a = sp.Symbol("j_00")
+    jac_b = sp.Symbol("j_01")
+
+    exprs = [
+        (
+            cse_sym,
+            sp.sin(x0)
+            + sp.cos(x1)
+            + sp.exp(x0 + x1)
+            + sp.log(x0 + 2),
+        ),
+        (
+            aux_a,
+            cse_sym**2
+            + sp.sin(cse_sym)
+            + sp.tan(cse_sym)
+            + sp.log(cse_sym + 3),
+        ),
+        (
+            aux_b,
+            cse_sym**3
+            + sp.cos(cse_sym)
+            + sp.sinh(cse_sym)
+            + sp.log(cse_sym + 4),
+        ),
+        (
+            jac_a,
+            aux_a + sp.exp(cse_sym) + sp.sin(aux_a),
+        ),
+        (
+            jac_b,
+            aux_b + sp.tanh(cse_sym) + sp.cos(aux_b),
+        ),
+        (sp.Symbol("jvp[0]"), jac_a * sp.Symbol("v[0]")),
+        (sp.Symbol("jvp[1]"), jac_b * sp.Symbol("v[1]")),
+    ]
+
+    equations = JVPEquations(
+        exprs,
+        max_cached_terms=1,
+        min_ops_threshold=1,
+    )
+    cached_aux, runtime_aux, prepare_assigns = equations.cached_partition()
+    selection = equations.cache_selection
+
+    assert len(selection.cached_leaf_order) == 1
+    cached_leaf = selection.cached_leaf_order[0]
+    runtime_symbols = [lhs for lhs, _ in runtime_aux]
+    prepare_symbols = [lhs for lhs, _ in prepare_assigns]
+
+    assert cse_sym in runtime_symbols
+    assert cse_sym in prepare_symbols
+
+    if cached_leaf == jac_a:
+        assert jac_b in runtime_symbols
+        assert aux_b in runtime_symbols
+        assert aux_a in prepare_symbols
+    else:
+        assert jac_a in runtime_symbols
+        assert aux_a in runtime_symbols
+        assert aux_b in prepare_symbols
+
+    remaining_leaf = jac_b if cached_leaf == jac_a else jac_a
+    assert remaining_leaf in runtime_symbols
 
 
 def test_build_expression_costs_tracks_jvp_dependencies():

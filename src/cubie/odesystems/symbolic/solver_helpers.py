@@ -18,7 +18,6 @@ from cubie.odesystems.symbolic.sym_utils import (
     render_constant_assignments,
     topological_sort,
 )
-from cubie.odesystems.symbolic.auxiliary_caching import select_cached_nodes
 
 CACHED_OPERATOR_APPLY_TEMPLATE = (
     "\n"
@@ -141,8 +140,7 @@ def _partition_cached_assignments(
         assignments required to populate cached intermediates.
     """
 
-    cached_nodes, runtime_nodes = select_cached_nodes(equations)
-    return equations.partition_assignments(cached_nodes, runtime_nodes)
+    return equations.cached_partition()
 
 def _build_operator_body(
     cached_assigns: List[Tuple[sp.Symbol, sp.Expr]],

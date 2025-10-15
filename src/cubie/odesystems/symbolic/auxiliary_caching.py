@@ -1,351 +1,358 @@
 """Auxiliary caching heuristics for symbolic solver helpers."""
 
-from dataclasses import dataclass
-from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
+from itertools import combinations
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 import sympy as sp
 
 from cubie.odesystems.symbolic.jvp_equations import JVPEquations
 
-def is_cse_symbol(symbol: sp.Symbol) -> bool:
-    """Return True if ``symbol`` starts with _cse."""
-    return str(symbol).startswith("_cse")
+
+import attrs
 
 
-def simulate_removal(
-    symbol: sp.Symbol,
-    active_nodes: Set[sp.Symbol],
-    current_ref_counts: Dict[sp.Symbol, int],
-    equations: JVPEquations,
-    cse_depth: Optional[int] = None,
-) -> Tuple[int, Set[sp.Symbol], Set[sp.Symbol]]:
-    """Estimate saved operations when removing a symbol from active nodes.
+@attrs.frozen
+class CacheGroup:
+    """Describe a group of cached leaves derived from a seed symbol.
 
     Parameters
     ----------
-    symbol
-        Candidate auxiliary assignment considered for caching.
-    active_nodes
-        Symbols still present in the runtime evaluation order.
-    current_ref_counts
-        Reference count map for active symbols, including JVP usage.
-    equations
-        Structured view of the Jacobian-vector product assignments providing
-        dependency graphs and operation counts.
-    cse_depth
-        Maximum number of ``"_cse"`` dependency layers traversed when
-        exploring common subexpression closures. ``None`` traverses the full
-        dependency graph.
-
-    Returns
-    -------
-    tuple of int and two sets
-        Estimated operations saved, the dependency closure removed from the
-        active set, and the leaf symbols that require caching to enable the
-        removal.
-    """
-
-    if symbol not in active_nodes:
-        return 0, set(), set()
-    dependencies = equations.dependencies
-    dependents = equations.dependents
-    ops_cost = equations.ops_cost
-    temp_counts = current_ref_counts.copy()
-    to_remove = set()
-    stack = [(symbol, cse_depth, True)]
-    cache_group = set()
-    while stack:
-        node, depth_left, cache_member = stack.pop()
-        if node in to_remove or node not in active_nodes:
-            continue
-        to_remove.add(node)
-        if (
-            cache_member
-            and not is_cse_symbol(node)
-            and not dependents.get(node)
-        ):
-            cache_group.add(node)
-        if is_cse_symbol(node):
-            if depth_left is None or depth_left >= 0:
-                for child in dependents.get(node, set()):
-                    if child in active_nodes and child not in to_remove:
-                        stack.append((child, depth_left, True))
-        for dep in dependencies.get(node, set()):
-            if dep not in temp_counts:
-                continue
-            temp_counts[dep] -= 1
-            if dep in active_nodes and temp_counts[dep] == 0:
-                if is_cse_symbol(dep) and depth_left is not None:
-                    next_depth = depth_left - 1
-                    if next_depth < 0:
-                        continue
-                elif is_cse_symbol(dep):
-                    next_depth = None
-                else:
-                    next_depth = depth_left
-                stack.append((dep, next_depth, False))
-            elif is_cse_symbol(dep):
-                if depth_left is None:
-                    dep_depth = None
-                else:
-                    dep_depth = depth_left - 1
-                    if dep_depth < 0:
-                        continue
-                for child in dependents.get(dep, set()):
-                    if child in active_nodes and child not in to_remove:
-                        stack.append((child, dep_depth, True))
-    saved = sum(
-        ops_cost.get(node, 0) for node in to_remove if node in active_nodes
-    )
-    return saved, to_remove, cache_group
-
-
-def max_cse_depth(
-    symbol: sp.Symbol,
-    equations: JVPEquations,
-    memo: Optional[Dict[sp.Symbol, int]] = None,
-) -> int:
-    """Return the maximum number of CSE layers reachable from ``symbol``.
-
-    Parameters
-    ----------
-    symbol
-        Auxiliary assignment symbol explored for upstream CSE depth.
-    equations
-        Structured view of the Jacobian-vector product assignments providing
-        dependency graphs.
-    memo
-        Optional memoisation dictionary reused across invocations.
-
-    Returns
-    -------
-    int
-        Maximum number of ``"_cse"`` layers encountered along any upstream
-        dependency path.
-    """
-
-    if memo is None:
-        memo = {}
-    if symbol in memo:
-        return memo[symbol]
-    dependencies = equations.dependencies
-    max_depth = 0
-    for dep in dependencies.get(symbol, set()):
-        depth = max_cse_depth(dep, equations, memo)
-        if str(dep).startswith("_cse"):
-            depth += 1
-        if depth > max_depth:
-            max_depth = depth
-    memo[symbol] = max_depth
-    return max_depth
-
-
-@dataclass(frozen=True)
-class CacheCandidate:
-    """Describe a potential group of auxiliaries to cache.
-
-    Parameters
-    ----------
-    symbol
-        Seed symbol used when simulating removal.
-    depth
-        Maximum ``"_cse"`` depth traversed while forming the group.
-    saved
-        Estimated operations saved if the group is cached.
+    seed
+        Seed symbol used when exploring dependency chains.
+    leaves
+        Ordered tuple of auxiliary symbols whose values are cached.
     removal
-        Symbols removed from the runtime evaluation order by caching the
-        group.
-    cache_nodes
-        Leaf symbols whose values must be stored in the cache.
+        Ordered tuple of symbols removed from runtime evaluation.
+    prepare
+        Ordered tuple of symbols evaluated when populating the cache.
+    saved
+        Estimated number of operations saved by caching the group.
     """
 
-    symbol: sp.Symbol
-    depth: Optional[int]
-    saved: int
-    removal: Tuple[sp.Symbol, ...]
-    cache_nodes: Tuple[sp.Symbol, ...]
+    seed = attrs.field()
+    leaves = attrs.field(converter=tuple)
+    removal = attrs.field(converter=tuple)
+    prepare = attrs.field(converter=tuple)
+    saved = attrs.field()
 
 
-def generate_cache_candidates(
-    equations: JVPEquations,
-    active_nodes: Set[sp.Symbol],
-    current_ref_counts: Dict[sp.Symbol, int],
-    depth_memo: Optional[Dict[sp.Symbol, int]] = None,
-) -> List[CacheCandidate]:
-    """Construct cache candidates by simulating removals for each symbol.
+@attrs.frozen
+class CacheSelection:
+    """Capture the final auxiliary cache plan."""
 
-    Parameters
-    ----------
-    active_nodes
-        Symbols still considered for runtime execution.
-    current_ref_counts
-        Reference count map incorporating JVP usage.
-    equations
-        Structured view of the Jacobian-vector product assignments providing
-        dependency graphs and cost metadata.
-    depth_memo
-        Optional memo dict reused for :func:`max_cse_depth` lookups.
+    groups = attrs.field(converter=tuple)
+    cached_leaves = attrs.field(converter=tuple)
+    cached_leaf_order = attrs.field(converter=tuple)
+    removal_nodes = attrs.field(converter=tuple)
+    runtime_nodes = attrs.field(converter=tuple)
+    prepare_nodes = attrs.field(converter=tuple)
+    saved = attrs.field()
 
-    Returns
-    -------
-    list of CacheCandidate
-        Cache candidates ordered by descending savings.
-    """
 
-    if depth_memo is None:
-        depth_memo = {}
-    candidate_map = {}
-    non_jvp_order = equations.non_jvp_order
-    dependents = equations.dependents
-    max_cached_terms = equations.cache_slot_limit
-    min_ops_threshold = equations.min_ops_threshold
-    for symbol in non_jvp_order:
-        if symbol not in active_nodes:
+def _order_index(equations: JVPEquations) -> Dict[sp.Symbol, int]:
+    """Return a lookup mapping symbols to their evaluation order index."""
+
+    return {sym: idx for idx, sym in enumerate(equations.non_jvp_order)}
+
+
+def _reachable_leaves(
+    seed: sp.Symbol,
+    dependents: Mapping[sp.Symbol, Set[sp.Symbol]],
+    jvp_usage: Mapping[sp.Symbol, int],
+) -> Set[sp.Symbol]:
+    """Return JVP-dependent leaves reachable from ``seed``."""
+
+    stack = [seed]
+    visited = set()
+    leaves = set()
+    while stack:
+        node = stack.pop()
+        if node in visited:
             continue
-        max_depth = max_cse_depth(symbol, equations, depth_memo)
-        depth_options = list(range(max_depth, -1, -1)) or [0]
-        for depth in depth_options:
-            saved, removal, group_nodes = simulate_removal(
-                symbol,
-                active_nodes,
-                current_ref_counts,
-                equations,
-                cse_depth=depth,
-            )
-            cache_nodes = [
-                node
-                for node in non_jvp_order
-                if node in group_nodes
-                and node in active_nodes
-                and not is_cse_symbol(node)
-                and not dependents.get(node)
-            ]
-            group_size = len(cache_nodes)
-            if (
-                group_size == 0
-                or group_size > max_cached_terms
-                or saved < min_ops_threshold
-            ):
-                continue
-            key = frozenset(cache_nodes)
-            removal_tuple = tuple(
-                node for node in removal if node in active_nodes
-            )
-            candidate = CacheCandidate(
-                symbol=symbol,
-                depth=depth,
-                saved=saved,
-                removal=removal_tuple,
-                cache_nodes=tuple(cache_nodes),
-            )
-            existing = candidate_map.get(key)
-            if existing is None or saved > existing.saved:
-                candidate_map[key] = candidate
-    candidates = sorted(
-        candidate_map.values(), key=lambda cand: cand.saved, reverse=True
-    )
-    return list(candidates)
+        visited.add(node)
+        if jvp_usage.get(node, 0) > 0:
+            leaves.add(node)
+        for child in dependents.get(node, set()):
+            stack.append(child)
+    return leaves
 
 
-def evaluate_candidate_combinations(
+def _prepare_nodes_for_leaves(
+    leaves: Iterable[sp.Symbol],
+    dependencies: Mapping[sp.Symbol, Set[sp.Symbol]],
+) -> Set[sp.Symbol]:
+    """Return dependencies that must execute to populate ``leaves``."""
+
+    stack = list(leaves)
+    prepare = set()
+    while stack:
+        node = stack.pop()
+        if node in prepare:
+            continue
+        prepare.add(node)
+        stack.extend(dependencies.get(node, set()))
+    return prepare
+
+
+def _simulate_cached_leaves(
     equations: JVPEquations,
-    candidates: Sequence[CacheCandidate],
-) -> List[CacheCandidate]:
-    """Return the candidate subset that maximises saved operations.
+    leaves: Sequence[sp.Symbol],
+    base_ref_counts: Mapping[sp.Symbol, int],
+) -> Optional[Tuple[int, Set[sp.Symbol]]]:
+    """Return saved operations and removed nodes for cached ``leaves``."""
 
-    Parameters
-    ----------
-    candidates
-        Candidate cache groups generated by :func:`generate_cache_candidates`.
-    equations
-        Structured view of the Jacobian-vector product assignments providing
-        operation cost metadata and cache size limits.
-
-    Returns
-    -------
-    list of CacheCandidate
-        Candidate subset whose cached leaves fit within the slot budget while
-        maximising saved operations.
-    """
-
-    best_saved_total = 0
-    best_selection = []
-
+    dependencies = equations.dependencies
+    dependents = equations.dependents
     ops_cost = equations.ops_cost
-    max_cached_terms = equations.cache_slot_limit
-
-    def dfs(
-        start: int,
-        cached_union: Set[sp.Symbol],
-        removal_union: Set[sp.Symbol],
-        saved_total: int,
-        chosen: List[CacheCandidate],
-    ) -> None:
-        nonlocal best_saved_total, best_selection
-        if saved_total > best_saved_total:
-            best_saved_total = saved_total
-            best_selection = list(chosen)
-        for idx in range(start, len(candidates)):
-            candidate = candidates[idx]
-            next_cached = cached_union | set(candidate.cache_nodes)
-            if len(next_cached) > max_cached_terms:
+    ref_counts = dict(base_ref_counts)
+    removal = set()
+    stack = list(leaves)
+    while stack:
+        node = stack.pop()
+        if str(node).startswith("_cse"):
+            continue
+        if node in removal:
+            continue
+        removal.add(node)
+        for dep in dependencies.get(node, set()):
+            if dep not in ref_counts:
                 continue
-            new_nodes = set(candidate.removal) - removal_union
-            increment = sum(ops_cost.get(node, 0) for node in new_nodes)
-            next_saved = saved_total + increment
-            next_removal = removal_union | set(candidate.removal)
-            chosen.append(candidate)
-            dfs(idx + 1, next_cached, next_removal, next_saved, chosen)
-            chosen.pop()
+            ref_counts[dep] -= 1
+            if ref_counts[dep] == 0:
+                stack.append(dep)
+    for node in removal:
+        for child in dependents.get(node, set()):
+            if child not in removal:
+                return None
+    saved = sum(ops_cost.get(node, 0) for node in removal)
+    return saved, removal
 
-    dfs(0, set(), set(), 0, [])
-    return best_selection
+
+def _collect_candidates(
+    equations: JVPEquations,
+    order_idx: Mapping[sp.Symbol, int],
+    base_ref_counts: Mapping[sp.Symbol, int],
+) -> List[CacheGroup]:
+    """Return candidate cache groups explored from each seed symbol."""
+
+    slot_limit = equations.cache_slot_limit
+    if slot_limit <= 0:
+        return []
+    dependents = equations.dependents
+    dependencies = equations.dependencies
+    jvp_usage = equations.jvp_usage
+    min_ops = equations.min_ops_threshold
+    candidate_map = {}
+    for seed in equations.non_jvp_order:
+        if equations.jvp_closure_usage.get(seed, 0) == 0:
+            continue
+        reachable = _reachable_leaves(seed, dependents, jvp_usage)
+        if not reachable:
+            continue
+        ordered_leaves = sorted(reachable, key=order_idx.get)
+        max_size = min(len(ordered_leaves), slot_limit)
+        for size in range(1, max_size + 1):
+            for subset in combinations(ordered_leaves, size):
+                simulation = _simulate_cached_leaves(
+                    equations,
+                    subset,
+                    base_ref_counts,
+                )
+                if simulation is None:
+                    continue
+                saved, removal = simulation
+                if saved < min_ops:
+                    continue
+                prepare_nodes = _prepare_nodes_for_leaves(subset, dependencies)
+                group = CacheGroup(
+                    seed=seed,
+                    leaves=tuple(subset),
+                    removal=tuple(
+                        sorted(removal, key=order_idx.get)
+                    ),
+                    prepare=tuple(
+                        sorted(prepare_nodes, key=order_idx.get)
+                    ),
+                    saved=saved,
+                )
+                key = frozenset(subset)
+                existing = candidate_map.get(key)
+                if existing is None or saved > existing.saved:
+                    candidate_map[key] = group
+    return sorted(
+        candidate_map.values(), key=lambda group: group.saved, reverse=True
+    )
+
+
+def _evaluate_leaves(
+    equations: JVPEquations,
+    leaves_key: frozenset,
+    base_ref_counts: Mapping[sp.Symbol, int],
+    dependencies: Mapping[sp.Symbol, Set[sp.Symbol]],
+    memo: Dict[
+        frozenset,
+        Optional[Tuple[int, Set[sp.Symbol], Set[sp.Symbol]]],
+    ],
+) -> Optional[Tuple[int, Set[sp.Symbol], Set[sp.Symbol]]]:
+    """Return cached evaluation metadata for the provided leaves."""
+
+    if leaves_key in memo:
+        return memo[leaves_key]
+    if not leaves_key:
+        result = (0, set(), set())
+        memo[leaves_key] = result
+        return result
+    simulation = _simulate_cached_leaves(
+        equations,
+        tuple(leaves_key),
+        base_ref_counts,
+    )
+    if simulation is None:
+        memo[leaves_key] = None
+        return None
+    saved, removal = simulation
+    prepare = _prepare_nodes_for_leaves(leaves_key, dependencies)
+    result = (saved, removal, prepare)
+    memo[leaves_key] = result
+    return result
+
+
+def _search_group_combinations(
+    equations: JVPEquations,
+    candidates: Sequence[CacheGroup],
+    base_ref_counts: Mapping[sp.Symbol, int],
+    order_idx: Mapping[sp.Symbol, int],
+) -> CacheSelection:
+    """Return the optimal combination of cache groups."""
+
+    slot_limit = equations.cache_slot_limit
+    if not candidates or slot_limit <= 0:
+        runtime_nodes = tuple(equations.non_jvp_order)
+        return CacheSelection(
+            groups=tuple(),
+            cached_leaves=tuple(),
+            cached_leaf_order=tuple(),
+            removal_nodes=tuple(),
+            runtime_nodes=runtime_nodes,
+            prepare_nodes=tuple(),
+            saved=0,
+        )
+
+    dependencies = equations.dependencies
+    min_ops = equations.min_ops_threshold
+    memo = {}
+    best_state = None
+    stack = [(0, frozenset(), tuple())]
+    while stack:
+        start, leaves_key, chosen = stack.pop()
+        evaluation = _evaluate_leaves(
+            equations,
+            leaves_key,
+            base_ref_counts,
+            dependencies,
+            memo,
+        )
+        if evaluation is None:
+            continue
+        saved, removal_set, prepare_set = evaluation
+        if leaves_key and saved >= min_ops:
+            if best_state is None:
+                best_state = (
+                    leaves_key,
+                    chosen,
+                    removal_set,
+                    prepare_set,
+                    saved,
+                )
+            else:
+                best_leaves = best_state[0]
+                best_saved = best_state[-1]
+                if saved > best_saved:
+                    improvement = saved - best_saved
+                    if improvement >= min_ops or len(leaves_key) <= len(best_leaves):
+                        best_state = (
+                            leaves_key,
+                            chosen,
+                            removal_set,
+                            prepare_set,
+                            saved,
+                        )
+                elif saved == best_saved:
+                    if len(leaves_key) < len(best_leaves):
+                        best_state = (
+                            leaves_key,
+                            chosen,
+                            removal_set,
+                            prepare_set,
+                            saved,
+                        )
+                else:
+                    deficit = best_saved - saved
+                    if deficit < min_ops and len(leaves_key) < len(best_leaves):
+                        best_state = (
+                            leaves_key,
+                            chosen,
+                            removal_set,
+                            prepare_set,
+                            saved,
+                        )
+        for idx in range(start, len(candidates)):
+            group = candidates[idx]
+            new_leaves = leaves_key.union(group.leaves)
+            if len(new_leaves) > slot_limit:
+                continue
+            stack.append((idx + 1, frozenset(new_leaves), chosen + (group,)))
+
+    if best_state is None:
+        runtime_nodes = tuple(equations.non_jvp_order)
+        return CacheSelection(
+            groups=tuple(),
+            cached_leaves=tuple(),
+            cached_leaf_order=tuple(),
+            removal_nodes=tuple(),
+            runtime_nodes=runtime_nodes,
+            prepare_nodes=tuple(),
+            saved=0,
+        )
+
+    leaves_key, best_groups, removal_set, prepare_set, saved = best_state
+    cached_order = tuple(sorted(leaves_key, key=order_idx.get))
+    removal_order = tuple(sorted(removal_set, key=order_idx.get))
+    prepare_order = tuple(sorted(prepare_set, key=order_idx.get))
+    runtime_nodes = tuple(
+        sym for sym in equations.non_jvp_order if sym not in removal_set
+    )
+    return CacheSelection(
+        groups=best_groups,
+        cached_leaves=cached_order,
+        cached_leaf_order=cached_order,
+        removal_nodes=removal_order,
+        runtime_nodes=runtime_nodes,
+        prepare_nodes=prepare_order,
+        saved=saved,
+    )
+
+
+def plan_auxiliary_cache(equations: JVPEquations) -> CacheSelection:
+    """Compute and persist the auxiliary cache plan for ``equations``."""
+
+    order_idx = _order_index(equations)
+    base_ref_counts = equations.reference_counts
+    candidates = _collect_candidates(equations, order_idx, base_ref_counts)
+    selection = _search_group_combinations(
+        equations,
+        candidates,
+        base_ref_counts,
+        order_idx,
+    )
+    equations.update_cache_selection(selection)
+    return selection
 
 
 def select_cached_nodes(
     equations: JVPEquations,
 ) -> Tuple[List[sp.Symbol], Set[sp.Symbol]]:
-    """Select auxiliary nodes to cache based on estimated savings.
+    """Return cached leaves and runtime nodes for ``equations``."""
 
-    Parameters
-    ----------
-    equations
-        Structured view of the Jacobian-vector product assignments providing
-        dependency graphs and cost metadata.
-
-    Returns
-    -------
-    tuple of list and set
-        Cached auxiliary nodes ordered by evaluation sequence and remaining
-        runtime nodes after the cached removals are applied.
-    """
-
-    non_jvp_order = equations.non_jvp_order
-    dependents = equations.dependents
-    jvp_usage = equations.jvp_usage
-    active_nodes = set(non_jvp_order)
-    current_ref_counts = {}
-    for sym in non_jvp_order:
-        current_ref_counts[sym] = len(dependents[sym]) + jvp_usage.get(sym, 0)
-    depth_memo = {}
-    candidates = generate_cache_candidates(
-        equations,
-        active_nodes,
-        current_ref_counts,
-        depth_memo,
-    )
-    if not candidates:
-        return [], active_nodes
-    selected = evaluate_candidate_combinations(equations, candidates)
-    if not selected:
-        return [], active_nodes
-    cached_union = set()
-    for candidate in selected:
-        cached_union.update(candidate.cache_nodes)
-    cached_nodes = [sym for sym in non_jvp_order if sym in cached_union]
-    removed_union = set()
-    for candidate in selected:
-        removed_union.update(candidate.removal)
-    remaining = {sym for sym in non_jvp_order if sym not in removed_union}
-    return cached_nodes, remaining
-
+    selection = equations.cache_selection
+    return list(selection.cached_leaf_order), set(selection.runtime_nodes)
