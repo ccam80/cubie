@@ -31,6 +31,10 @@ __all__ = [
     "ERKStep",
     "GenericRosenbrockWStep",
     "_ALGORITHM_REGISTRY",
+    "DIRKTableau",
+    "DIRK_TABLEAU_REGISTRY",
+    "ERKTableau",
+    "ERK_TABLEAU_REGISTRY",
 ]
 
 _ALGORITHM_REGISTRY = {

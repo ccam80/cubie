@@ -20,6 +20,10 @@ Algorithms
    algorithms/backwards_euler_step
    algorithms/backwards_euler_pc_step
    algorithms/crank_nicolson_step
+   algorithms/generic_erk_step
+   algorithms/generic_erk_tableaus
+   algorithms/generic_dirk_step
+   algorithms/generic_dirk_tableaus
    algorithms/get_algorithm_step
 
 Factories in :mod:`cubie.integrators.algorithms` assemble explicit and implicit
@@ -42,6 +46,8 @@ Explicit steps
 
 * :doc:`ExplicitStepConfig <algorithms/explicit_step_config>` – configuration for explicit step factories.
 * :doc:`ExplicitEulerStep <algorithms/explicit_euler_step>` – Euler step that invokes the RHS device function.
+* :doc:`ERKStep <algorithms/generic_erk_step>` – multistage explicit Runge–Kutta step with adaptive control defaults.
+* :doc:`ERK tableau registry <algorithms/generic_erk_tableaus>` – named explicit Runge–Kutta tableaus and references.
 
 Implicit steps
 --------------
@@ -50,6 +56,8 @@ Implicit steps
 * :doc:`BackwardsEulerStep <algorithms/backwards_euler_step>` – backward Euler implicit algorithm.
 * :doc:`BackwardsEulerPCStep <algorithms/backwards_euler_pc_step>` – predictor-corrector backward Euler variant.
 * :doc:`CrankNicolsonStep <algorithms/crank_nicolson_step>` – Crank–Nicolson implicit algorithm.
+* :doc:`DIRKStep <algorithms/generic_dirk_step>` – diagonally implicit Runge–Kutta family with embedded error estimates.
+* :doc:`DIRK tableau registry <algorithms/generic_dirk_tableaus>` – named diagonally implicit Runge–Kutta tableaus and references.
 
 Factory helpers
 ---------------

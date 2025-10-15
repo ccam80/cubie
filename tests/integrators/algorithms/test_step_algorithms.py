@@ -11,6 +11,7 @@ from numpy.testing import assert_allclose
 from cubie.integrators.algorithms import get_algorithm_step
 from cubie.integrators.algorithms.generic_dirk import DIRKStep
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
+    DEFAULT_DIRK_TABLEAU,
     DIRK_TABLEAU_REGISTRY,
 )
 from cubie.integrators.algorithms.generic_erk import ERKStep
@@ -22,6 +23,7 @@ from cubie.integrators.algorithms.generic_rosenbrock_w import (
     GenericRosenbrockWStep,
 )
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
+    DEFAULT_ROSENBROCK_TABLEAU,
     ROSENBROCK_TABLEAUS,
 )
 from tests.integrators.cpu_reference import (
@@ -48,10 +50,32 @@ class StepResult:
 
 ALIAS_CASES = [
     pytest.param(
+        "erk",
+        ERKStep,
+        DEFAULT_ERK_TABLEAU,
+        erk_step,
+        id="erk",
+    ),
+    pytest.param(
+        "dirk",
+        DIRKStep,
+        DEFAULT_DIRK_TABLEAU,
+        dirk_step,
+        id="dirk",
+    ),
+    pytest.param(
+        "rosenbrock",
+        GenericRosenbrockWStep,
+        DEFAULT_ROSENBROCK_TABLEAU,
+        rosenbrock_step,
+        id="rosenbrock",
+    ),
+    pytest.param(
         "dormand-prince-54",
         ERKStep,
         ERK_TABLEAU_REGISTRY["dormand-prince-54"],
         erk_step,
+        marks=pytest.mark.specific_algos,
         id="erk-dormand-prince-54",
     ),
     pytest.param(
@@ -71,10 +95,67 @@ ALIAS_CASES = [
         id="erk-cash-karp-54",
     ),
     pytest.param(
+        "fehlberg-45",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["fehlberg-45"],
+        erk_step,
+        marks=pytest.mark.specific_algos,
+        id="erk-fehlberg-45",
+    ),
+    pytest.param(
+        "bogacki-shampine-32",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["bogacki-shampine-32"],
+        erk_step,
+        marks=pytest.mark.specific_algos,
+        id="erk-bogacki-shampine-32",
+    ),
+    pytest.param(
+        "heun-21",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["heun-21"],
+        erk_step,
+        marks=pytest.mark.specific_algos,
+        id="erk-heun-21",
+    ),
+    pytest.param(
+        "ralston-33",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["ralston-33"],
+        erk_step,
+        marks=pytest.mark.specific_algos,
+        id="erk-ralston-33",
+    ),
+    pytest.param(
+        "classical-rk4",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["classical-rk4"],
+        erk_step,
+        marks=pytest.mark.specific_algos,
+        id="erk-classical-rk4",
+    ),
+    pytest.param(
+        "implicit_midpoint",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["implicit_midpoint"],
+        dirk_step,
+        marks=pytest.mark.specific_algos,
+        id="dirk-implicit-midpoint",
+    ),
+    pytest.param(
+        "trapezoidal_dirk",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["trapezoidal_dirk"],
+        dirk_step,
+        marks=pytest.mark.specific_algos,
+        id="dirk-trapezoidal",
+    ),
+    pytest.param(
         "sdirk_2_2",
         DIRKStep,
         DIRK_TABLEAU_REGISTRY["sdirk_2_2"],
         dirk_step,
+        marks=pytest.mark.specific_algos,
         id="dirk-sdirk-2-2",
     ),
     pytest.param(
@@ -90,7 +171,393 @@ ALIAS_CASES = [
         GenericRosenbrockWStep,
         ROSENBROCK_TABLEAUS["ros3p"],
         rosenbrock_step,
+        marks=pytest.mark.specific_algos,
         id="rosenbrock-ros3p",
+    ),
+    pytest.param(
+        "rosenbrock_w6s4os",
+        GenericRosenbrockWStep,
+        ROSENBROCK_TABLEAUS["rosenbrock_w6s4os"],
+        rosenbrock_step,
+        marks=pytest.mark.specific_algos,
+        id="rosenbrock-w6s4os",
+    ),
+]
+
+STEP_CASES = [
+    pytest.param(
+        {
+            "algorithm": "euler",
+            "step_controller": "fixed",
+            "dt": 0.0025,
+            "dt_min": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="euler",
+    ),
+    pytest.param(
+        {
+            "algorithm": "backwards_euler",
+            "step_controller": "fixed",
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="backwards_euler",
+    ),
+    pytest.param(
+        {
+            "algorithm": "backwards_euler_pc",
+            "step_controller": "fixed",
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="backwards_euler_pc",
+    ),
+    pytest.param(
+        {
+            "algorithm": "crank_nicolson",
+            "step_controller": "pid",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 1e-6,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="crank_nicolson_pid",
+    ),
+    pytest.param(
+        {
+            "algorithm": "crank_nicolson",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 1e-6,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="crank_nicolson_pi",
+    ),
+    pytest.param(
+        {
+            "algorithm": "crank_nicolson",
+            "step_controller": "i",
+            "atol": 1e-5,
+            "rtol": 1e-5,
+            "dt_min": 1e-6,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="crank_nicolson_i",
+    ),
+    pytest.param(
+        {
+            "algorithm": "crank_nicolson",
+            "step_controller": "gustafsson",
+            "atol": 1e-5,
+            "rtol": 1e-5,
+            "dt_min": 1e-6,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="crank_nicolson_gustafsson",
+    ),
+    pytest.param(
+        {
+            "algorithm": "rosenbrock",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 1e-6,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="rosenbrock",
+    ),
+    pytest.param(
+        {
+            "algorithm": "erk",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 0.0025,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="erk",
+    ),
+    pytest.param(
+        {
+            "algorithm": "dirk",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 1e-6,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="dirk",
+    ),
+    pytest.param(
+        {
+            "algorithm": "ros3p",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 1e-6,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="rosenbrock-ros3p",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "rosenbrock_w6s4os",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 1e-6,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="rosenbrock-w6s4os",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "dormand-prince-54",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 0.0025,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="erk-dormand-prince-54",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "dopri54",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 0.0025,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="erk-dopri54",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "cash-karp-54",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 0.0025,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="erk-cash-karp-54",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "fehlberg-45",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 0.0025,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="erk-fehlberg-45",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "bogacki-shampine-32",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 0.0025,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="erk-bogacki-shampine-32",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "heun-21",
+            "step_controller": "fixed",
+            "dt_min": 0.0025,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="erk-heun-21",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "ralston-33",
+            "step_controller": "fixed",
+            "dt_min": 0.0025,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="erk-ralston-33",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "classical-rk4",
+            "step_controller": "fixed",
+            "dt_min": 0.0025,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+        },
+        {},
+        id="erk-classical-rk4",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "implicit_midpoint",
+            "step_controller": "fixed",
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="dirk-implicit-midpoint",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "trapezoidal_dirk",
+            "step_controller": "fixed",
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="dirk-trapezoidal",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "sdirk_2_2",
+            "step_controller": "pi",
+            "atol": 1e-6,
+            "rtol": 1e-6,
+            "dt_min": 1e-6,
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="dirk-sdirk-2-2",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "lobatto_iiic_3",
+            "step_controller": "fixed",
+            "dt": 0.0025,
+            "dt_save": 0.2,
+            "output_types": ["state"],
+            "saved_state_indices": [0, 1, 2],
+            "newton_tolerance": 5e-6,
+            "krylov_tolerance": 1e-6,
+        },
+        {},
+        id="dirk-lobatto-iiic-3",
+        marks=pytest.mark.specific_algos,
     ),
 ]
 
@@ -187,6 +654,31 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "order": 4,
             "shared_memory_required": 10 * n_states,
             "local_scratch_required": 4 * n_states,
+        },
+        "erk": {
+            "threads_per_step": 1,
+            "persistent_local_required": 0,
+            "is_multistage": DEFAULT_ERK_TABLEAU.stage_count > 1,
+            "is_implicit": False,
+            "is_adaptive": DEFAULT_ERK_TABLEAU.has_error_estimate,
+            "order": DEFAULT_ERK_TABLEAU.order,
+            "shared_memory_required": (
+                max(DEFAULT_ERK_TABLEAU.stage_count - 1, 0) * n_states
+            ),
+            "local_scratch_required": 3 * n_states,
+        },
+        "dirk": {
+            "threads_per_step": 1,
+            "persistent_local_required": 0,
+            "is_multistage": DEFAULT_DIRK_TABLEAU.stage_count > 1,
+            "is_implicit": True,
+            "is_adaptive": DEFAULT_DIRK_TABLEAU.has_error_estimate,
+            "order": DEFAULT_DIRK_TABLEAU.order,
+            "shared_memory_required": (
+                max(DEFAULT_DIRK_TABLEAU.stage_count - 1, 0) * n_states
+                + 2 * n_states
+            ),
+            "local_scratch_required": 3 * n_states,
         },
     }
 
@@ -374,22 +866,7 @@ def cpu_step_results(
 #All-in-one step test to share fixture setup at the expense of readability
 @pytest.mark.parametrize(
     "solver_settings_override, system_override",
-    [
-        [{"algorithm": "euler", 'step_controller': 'fixed'}, {}],
-        [{"algorithm": "backwards_euler"}, {}],
-        [{"algorithm": "backwards_euler_pc", "dt_min": 0.0025}, {}],
-        [{"algorithm": "crank_nicolson", 'step_controller': 'pid', 'atol':
-            1e-6, 'rtol': 1e-6, 'dt_min': 1e-6}, {}],
-        [{"algorithm": "rosenbrock", 'step_controller': 'pi',
-         'krylov_tolerance': 1e-7}, {}],
-    ],
-    ids=[
-        "euler",
-        "backwards_euler",
-        "backwards_euler_pc",
-        "crank_nicolson",
-        "rosenbrock",
-    ],
+    STEP_CASES,
     indirect=True,
 )
 
@@ -411,25 +888,26 @@ def test_algorithm(
 
     # test getters
     algorithm = solver_settings["algorithm"]
-    properties = expected_step_properties[algorithm]
-    assert step_object.is_implicit is properties["is_implicit"], \
-        "is_implicit getter"
-    assert step_object.is_adaptive is properties["is_adaptive"], \
-        "is_adaptive getter"
-    assert step_object.is_multistage is properties["is_multistage"],\
-        "is_multistage getter"
-    # assert step_object.order == properties["order"],\
-    #     "order getter"
-    # TODO: Update to fetch tableau order
-    assert step_object.local_scratch_required \
-        == properties["local_scratch_required"],\
-        "local_scratch_required getter"
-    assert step_object.persistent_local_required \
-        == properties["persistent_local_required"], \
-        "persistent_local_required getter"
-    assert (
-        step_object.threads_per_step == properties["threads_per_step"]
-    ), "threads_per_step getter"
+    properties = expected_step_properties.get(algorithm)
+    if properties is not None:
+        assert step_object.is_implicit is properties["is_implicit"], \
+            "is_implicit getter"
+        assert step_object.is_adaptive is properties["is_adaptive"], \
+            "is_adaptive getter"
+        assert step_object.is_multistage is properties["is_multistage"],\
+            "is_multistage getter"
+        # assert step_object.order == properties["order"],\
+        #     "order getter"
+        # TODO: Update to fetch tableau order
+        assert step_object.local_scratch_required \
+            == properties["local_scratch_required"],\
+            "local_scratch_required getter"
+        assert step_object.persistent_local_required \
+            == properties["persistent_local_required"], \
+            "persistent_local_required getter"
+        assert (
+            step_object.threads_per_step == properties["threads_per_step"]
+        ), "threads_per_step getter"
     config = step_object.compile_settings
     assert config.n == system.sizes.states, "compile_settings.n getter"
     assert config.precision == precision, "compile_settings.precision getter"
@@ -442,7 +920,7 @@ def test_algorithm(
         )
         assert tableau.d == pytest.approx(expected_error), "embedded weights"
 
-    if properties["is_implicit"]:
+    if properties is not None and properties["is_implicit"]:
         if algorithm == "rosenbrock":
             assert config.max_linear_iters == solver_settings[
                 "max_linear_iters"
@@ -489,7 +967,7 @@ def test_algorithm(
                 abs=tolerance.abs_tight,
             ), "newton_damping set"
         assert callable(system.get_solver_helper)
-    else:
+    elif properties is not None:
         assert step_object.dt == pytest.approx(
             solver_settings["dt_min"],
             rel=tolerance.rel_tight,
@@ -499,7 +977,9 @@ def test_algorithm(
     if step_object.is_implicit:
         if algorithm == "rosenbrock":
             updates = {
-                "max_linear_iters": max(1, solver_settings["max_linear_iters"] // 2),
+                "max_linear_iters": max(
+                    1, solver_settings["max_linear_iters"] // 2
+                ),
                 "krylov_tolerance": solver_settings["krylov_tolerance"] * 0.5,
                 "linear_correction_type": "steepest_descent",
             }
