@@ -5,19 +5,7 @@ array or a SymPy matrix. Its entries are embedded directly into the generated
 device routine to avoid extra passes or buffers.
 """
 
-from collections import defaultdict
-from typing import (
-    Dict,
-    Iterable,
-    List,
-    Mapping,
-    NamedTuple,
-    Optional,
-    Sequence,
-    Set,
-    Tuple,
-    Union,
-)
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
 import sympy as sp
 
@@ -28,6 +16,10 @@ from cubie.odesystems.symbolic.sym_utils import (
     cse_and_stack,
     render_constant_assignments,
     topological_sort,
+)
+from cubie.odesystems.symbolic.auxiliary_caching import (
+    build_expression_costs,
+    select_cached_nodes,
 )
 
 CACHED_OPERATOR_APPLY_TEMPLATE = (
@@ -105,12 +97,6 @@ PREPARE_JAC_TEMPLATE = (
 )
 
 
-def _is_cse_symbol(symbol: sp.Symbol) -> bool:
-    """Return ``True`` when ``symbol`` names a common subexpression."""
-
-    return str(symbol).startswith("_cse")
-
-
 CACHED_JVP_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED CACHED JVP FACTORY\n"
@@ -134,412 +120,6 @@ CACHED_JVP_TEMPLATE = (
     "    return calculate_cached_jvp\n"
 )
 
-
-
-def simulate_removal(
-    symbol: sp.Symbol,
-    active_nodes: Set[sp.Symbol],
-    current_ref_counts: Dict[sp.Symbol, int],
-    dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
-    dependents: Dict[sp.Symbol, Set[sp.Symbol]],
-    ops_cost: Dict[sp.Symbol, int],
-    cse_depth: Optional[int] = None,
-) -> Tuple[int, Set[sp.Symbol], Set[sp.Symbol]]:
-    """Estimate saved operations when removing a symbol from active nodes.
-
-    Parameters
-    ----------
-    symbol
-        Candidate assignment symbol considered for caching.
-    active_nodes
-        Symbols that remain available for runtime execution.
-    current_ref_counts
-        Reference counts for each symbol across dependents and JVP usage.
-    dependencies
-        Mapping of symbols to the prerequisite assignments they rely on.
-    dependents
-        Reverse dependency edges describing downstream assignments for each
-        symbol.
-    ops_cost
-        Operation counts accrued for computing each symbol.
-    cse_depth
-        Maximum number of common-subexpression (``"_cse"`` prefix) dependency
-        layers to traverse when simulating removals. ``None`` permits
-        traversing the full dependency closure.
-
-    Returns
-    -------
-    tuple of int and two sets
-        The estimated number of operations saved, the dependency closure
-        removable alongside the symbol, and the non-``"_cse"`` symbols that
-        should be cached together.
-
-    Notes
-    -----
-    Performs a stack-based traversal that simulates removing the symbol, then
-    cascades through dependents whose reference counts drop to zero while
-    tallying the operations saved by omitting those assignments.
-
-    """
-
-    if symbol not in active_nodes:
-        return 0, set(), set()
-    temp_counts = current_ref_counts.copy()
-    to_remove = set()
-    stack = [
-        (symbol, cse_depth, True)
-    ]
-    cache_group = set()
-    while stack:
-        node, depth_left, cache_member = stack.pop()
-        if node in to_remove or node not in active_nodes:
-            continue
-        to_remove.add(node)
-        if (
-            cache_member
-            and not _is_cse_symbol(node)
-            and not dependents.get(node)
-        ):
-            cache_group.add(node)
-        if _is_cse_symbol(node):
-            if depth_left is None or depth_left >= 0:
-                for child in dependents.get(node, set()):
-                    if child in active_nodes and child not in to_remove:
-                        stack.append((child, depth_left, True))
-        for dep in dependencies.get(node, set()):
-            if dep not in temp_counts:
-                continue
-            temp_counts[dep] -= 1
-            if dep in active_nodes and temp_counts[dep] == 0:
-                if _is_cse_symbol(dep) and depth_left is not None:
-                    next_depth = depth_left - 1
-                    if next_depth < 0:
-                        continue
-                elif _is_cse_symbol(dep):
-                    next_depth = None
-                else:
-                    next_depth = depth_left
-                stack.append((dep, next_depth, False))
-            elif _is_cse_symbol(dep):
-                if depth_left is None:
-                    dep_depth = None
-                else:
-                    dep_depth = depth_left - 1
-                    if dep_depth < 0:
-                        continue
-                for child in dependents.get(dep, set()):
-                    if child in active_nodes and child not in to_remove:
-                        stack.append((child, dep_depth, True))
-    saved = sum(
-        ops_cost.get(node, 0) for node in to_remove if node in active_nodes
-    )
-    return saved, to_remove, cache_group
-
-
-def _build_expression_costs(
-    non_jvp_order: Sequence[sp.Symbol],
-    non_jvp_exprs: Mapping[sp.Symbol, sp.Expr],
-    assigned_symbols: Set[sp.Symbol],
-    jvp_terms: Mapping[int, sp.Expr],
-) -> Tuple[
-    Dict[sp.Symbol, Set[sp.Symbol]],
-    Dict[sp.Symbol, Set[sp.Symbol]],
-    Dict[sp.Symbol, int],
-    Dict[sp.Symbol, int],
-    Dict[sp.Symbol, int],
-]:
-    """Build dependency graphs, operation costs, and JVP usage counts.
-
-    Parameters
-    ----------
-    non_jvp_order
-        Evaluation order for auxiliary assignments.
-    non_jvp_exprs
-        Mapping from auxiliary symbols to their SymPy expressions.
-    assigned_symbols
-        Symbols introduced by the expression sequence.
-    jvp_terms
-        Indexed Jacobian-vector expressions.
-
-    Returns
-    -------
-    tuple of dict, dict, dict, dict, and dict
-        Dependency edges, dependent adjacency, operation counts, direct JVP
-        reference counts, and transitive JVP usage tallies for each auxiliary
-        symbol.
-
-    Notes
-    -----
-    Counts operations using ``sympy.count_ops`` while tracking parent-child
-    relationships and recording how many JVP expressions consume each auxiliary
-    symbol directly and through their dependency closures.
-    """
-
-    dependencies = {}
-    dependents = {sym: set() for sym in non_jvp_order}
-    ops_cost = {}
-    for lhs in non_jvp_order:
-        rhs = non_jvp_exprs[lhs]
-        ops_cost[lhs] = int(sp.count_ops(rhs, visual=False))
-        deps = {
-            sym
-            for sym in rhs.free_symbols
-            if sym in assigned_symbols and not str(sym).startswith("jvp[")
-        }
-        dependencies[lhs] = deps
-        for dep in deps:
-            if dep in dependents:
-                dependents[dep].add(lhs)
-    jvp_roots = defaultdict(int)
-    jvp_closure = defaultdict(int)
-    for rhs in jvp_terms.values():
-        direct = [sym for sym in rhs.free_symbols if sym in dependents]
-        seen_direct = set()
-        for sym in direct:
-            if sym in seen_direct:
-                continue
-            seen_direct.add(sym)
-            jvp_roots[sym] += 1
-        stack = list(seen_direct)
-        seen_closure = set()
-        while stack:
-            sym = stack.pop()
-            if sym in seen_closure:
-                continue
-            seen_closure.add(sym)
-            jvp_closure[sym] += 1
-            for dep in dependencies.get(sym, set()):
-                if dep in dependents:
-                    stack.append(dep)
-    return (
-        dependencies,
-        dependents,
-        ops_cost,
-        dict(jvp_roots),
-        dict(jvp_closure),
-    )
-
-
-def _max_cse_depth(
-    symbol: sp.Symbol,
-    dependencies: Mapping[sp.Symbol, Set[sp.Symbol]],
-    memo: Optional[Dict[sp.Symbol, int]] = None,
-) -> int:
-    """Return the maximum number of CSE layers reachable from ``symbol``.
-
-    Parameters
-    ----------
-    symbol
-        The assignment symbol whose dependency chain is being inspected.
-    dependencies
-        Mapping from symbols to the prerequisites they require.
-    memo
-        Optional cache reused across recursive invocations.
-
-    Returns
-    -------
-    int
-        The number of ``"_cse"``-prefixed dependencies traversed along the
-        longest upstream path.
-
-    """
-
-    if memo is None:
-        memo = {}
-    if symbol in memo:
-        return memo[symbol]
-    max_depth = 0
-    for dep in dependencies.get(symbol, set()):
-        depth = _max_cse_depth(dep, dependencies, memo)
-        if str(dep).startswith("_cse"):
-            depth += 1
-        if depth > max_depth:
-            max_depth = depth
-    memo[symbol] = max_depth
-    return max_depth
-
-
-class CacheCandidate(NamedTuple):
-    """Describe a potential group of auxiliaries to cache."""
-
-    symbol: sp.Symbol
-    depth: Optional[int]
-    saved: int
-    removal: Tuple[sp.Symbol, ...]
-    cache_nodes: Tuple[sp.Symbol, ...]
-
-
-def _select_cached_nodes(
-    non_jvp_order: Sequence[sp.Symbol],
-    dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
-    dependents: Dict[sp.Symbol, Set[sp.Symbol]],
-    ops_cost: Dict[sp.Symbol, int],
-    jvp_usage: Dict[sp.Symbol, int],
-    max_cached_terms: int,
-    min_ops_threshold: int,
-) -> Tuple[List[sp.Symbol], Set[sp.Symbol]]:
-    """Select auxiliary nodes to cache based on estimated savings.
-
-    Parameters
-    ----------
-    non_jvp_order
-        Evaluation order for candidate auxiliary assignments.
-    dependencies
-        Mapping from each symbol to the prerequisites required to compute it.
-    dependents
-        Mapping from each symbol to the downstream assignments that use it.
-    ops_cost
-        Operation counts required to compute each symbol.
-    jvp_usage
-        Usage counts contributed by Jacobian-vector expressions.
-    max_cached_terms
-        Maximum number of auxiliary expressions permitted in the cache.
-    min_ops_threshold
-        Minimum operations saved by caching a symbol and its dependencies for
-        the candidate to qualify.
-
-    Returns
-    -------
-    tuple of list and set
-        Symbols chosen for caching and the remaining symbols evaluated at
-        runtime.
-
-    Notes
-    -----
-    Builds candidate cache groups with :func:`simulate_removal`, then explores
-    combinations of those groups to maximise saved operations while respecting
-    the cache slot budget. When a dependency is a common subexpression
-    (``"_cse"`` prefix), the heuristic considers all active dependents together,
-    measuring savings per group and reducing traversal depth whenever grouping
-    exceeds ``max_cached_terms``. Candidates that share cached members or
-    removal closures are treated as mutually exclusive to avoid double counting
-    operations during optimisation.
-    """
-
-    active_nodes = set(non_jvp_order)
-    current_ref_counts = {}
-    for sym in non_jvp_order:
-        current_ref_counts[sym] = len(dependents[sym]) + jvp_usage.get(sym, 0)
-    order_index = {sym: idx for idx, sym in enumerate(non_jvp_order)}
-    depth_memo = {}
-    candidate_map = {}
-    for symbol in non_jvp_order:
-        if symbol not in active_nodes:
-            continue
-        max_depth = _max_cse_depth(symbol, dependencies, depth_memo)
-        depth_options = list(range(max_depth, -1, -1))
-        if not depth_options:
-            depth_options = [0]
-        for depth in depth_options:
-            saved, removal, group_nodes = simulate_removal(
-                symbol,
-                active_nodes,
-                current_ref_counts,
-                dependencies,
-                dependents,
-                ops_cost,
-                cse_depth=depth,
-            )
-            cache_nodes = [
-                node
-                for node in non_jvp_order
-                if node in group_nodes
-                and node in active_nodes
-                and not _is_cse_symbol(node)
-                and not dependents.get(node)
-            ]
-            group_size = len(cache_nodes)
-            if (
-                group_size == 0
-                or group_size > max_cached_terms
-                or saved < min_ops_threshold
-            ):
-                continue
-            key = frozenset(cache_nodes)
-            removal_tuple = tuple(
-                node for node in removal if node in active_nodes
-            )
-            candidate = CacheCandidate(
-                symbol=symbol,
-                depth=depth,
-                saved=saved,
-                removal=removal_tuple,
-                cache_nodes=tuple(cache_nodes),
-            )
-            existing = candidate_map.get(key)
-            if existing is None or saved > existing.saved:
-                candidate_map[key] = candidate
-
-    candidates = sorted(
-        candidate_map.values(), key=lambda cand: cand.saved, reverse=True
-    )
-
-    best_saved_total = 0
-    best_selection = []
-
-    def search_candidates(
-        start: int,
-        remaining_slots: int,
-        cached_set: Set[sp.Symbol],
-        removed_set: Set[sp.Symbol],
-        saved_total: int,
-        chosen: List[CacheCandidate],
-    ) -> None:
-        nonlocal best_saved_total, best_selection
-        if saved_total > best_saved_total:
-            best_saved_total = saved_total
-            best_selection = list(chosen)
-        for idx in range(start, len(candidates)):
-            candidate = candidates[idx]
-            size = len(candidate.cache_nodes)
-            if size > remaining_slots:
-                continue
-            # if any(node in cached_set for node in candidate.cache_nodes):
-            #     continue
-            # if any(node in removed_set for node in candidate.removal):
-            #     continue
-            next_cached = set(cached_set)
-            next_cached.update(candidate.cache_nodes)
-            next_removed = set(removed_set)
-            next_removed.update(candidate.removal)
-            chosen.append(candidate)
-            search_candidates(
-                idx + 1,
-                remaining_slots - size,
-                next_cached,
-                next_removed,
-                saved_total + candidate.saved,
-                chosen,
-            )
-            chosen.pop()
-
-    search_candidates(0, max_cached_terms, set(), set(), 0, [])
-
-    if not best_selection:
-        return [], active_nodes
-
-    best_selection.sort(
-        key=lambda cand: min(order_index[node] for node in cand.cache_nodes)
-    )
-    cached_nodes_set = set()
-    cached_nodes = []
-    for candidate in best_selection:
-        cached_nodes_set.update(candidate.cache_nodes)
-    for sym in non_jvp_order:
-        if sym in cached_nodes_set:
-            cached_nodes.append(sym)
-
-    for candidate in best_selection:
-        for node in candidate.removal:
-            if node in active_nodes:
-                active_nodes.remove(node)
-                current_ref_counts.pop(node, None)
-        for node in candidate.removal:
-            for dep in dependencies.get(node, set()):
-                if dep in current_ref_counts:
-                    current_ref_counts[dep] -= 1
-
-    return cached_nodes, active_nodes
 
 
 def _split_jvp_expressions(
@@ -575,8 +155,8 @@ def _split_jvp_expressions(
     Notes
     -----
     Separates Jacobian-vector outputs from auxiliary expressions, scores the
-    auxiliaries with :func:`_build_expression_costs`, selects cache candidates
-    via :func:`_select_cached_nodes`, and computes the closure required to
+    auxiliaries with :func:`build_expression_costs`, selects cache candidates
+    via :func:`select_cached_nodes`, and computes the closure required to
     populate cached intermediates.
     """
 
@@ -607,11 +187,11 @@ def _split_jvp_expressions(
         ops_cost,
         jvp_usage,
         jvp_closure_usage,
-    ) = _build_expression_costs(
+    ) = build_expression_costs(
         non_jvp_order, non_jvp_exprs, assigned_symbols, jvp_terms
     )
 
-    cached_nodes, active_nodes = _select_cached_nodes(
+    cached_nodes, active_nodes = select_cached_nodes(
         non_jvp_order,
         dependencies,
         dependents,

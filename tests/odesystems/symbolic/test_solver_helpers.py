@@ -4,6 +4,7 @@ import sympy as sp
 from numba import cuda, from_dtype
 
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
+from cubie.odesystems.symbolic.auxiliary_caching import build_expression_costs
 from cubie.odesystems.symbolic.solver_helpers import (
     generate_cached_jvp_code,
     generate_cached_operator_apply_code,
@@ -13,7 +14,6 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_prepare_jac_code,
     generate_stage_residual_code,
     generate_residual_end_state_code,
-    _build_expression_costs,
     _split_jvp_expressions,
 )
 
@@ -482,7 +482,7 @@ def test_build_expression_costs_tracks_jvp_dependencies():
         _ops_cost,
         jvp_usage,
         jvp_closure,
-    ) = _build_expression_costs(
+    ) = build_expression_costs(
         non_jvp_order, non_jvp_exprs, assigned_symbols, jvp_terms
     )
 
