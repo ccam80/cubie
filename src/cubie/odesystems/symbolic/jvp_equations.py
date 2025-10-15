@@ -1,0 +1,215 @@
+"""Structured representation for Jacobian-vector product assignments."""
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
+
+import sympy as sp
+
+
+import attrs
+
+
+@attrs.define
+class JVPEquations:
+    """Capture ordered auxiliary and JVP assignments with dependency metadata.
+
+    Parameters
+    ----------
+    assignments
+        Topologically ordered sequence of symbolic assignments defining the
+        Jacobian-vector product. Entries include auxiliary intermediates and the
+        ``jvp[<idx>]`` outputs produced during SymPy code generation.
+    max_cached_terms
+        Optional upper bound on the number of auxiliary expressions that may be
+        cached. Defaults to twice the number of JVP outputs when omitted.
+    min_ops_threshold
+        Minimum number of arithmetic operations that must be saved before a
+        cache candidate qualifies for selection.
+    """
+
+    assignments: Sequence[Tuple[sp.Symbol, sp.Expr]] = attrs.field()
+    max_cached_terms: Optional[int] = attrs.field(default=None)
+    min_ops_threshold: int = attrs.field(default=10)
+
+    _ordered_assignments: Tuple[Tuple[sp.Symbol, sp.Expr], ...] = attrs.field(
+        init=False, repr=False
+    )
+    _non_jvp_order: Tuple[sp.Symbol, ...] = attrs.field(init=False, repr=False)
+    _non_jvp_exprs: Dict[sp.Symbol, sp.Expr] = attrs.field(init=False, repr=False)
+    _jvp_terms: Dict[int, sp.Expr] = attrs.field(init=False, repr=False)
+    _dependencies: Dict[sp.Symbol, Set[sp.Symbol]] = attrs.field(
+        init=False, repr=False
+    )
+    _dependents: Dict[sp.Symbol, Set[sp.Symbol]] = attrs.field(
+        init=False, repr=False
+    )
+    _ops_cost: Dict[sp.Symbol, int] = attrs.field(init=False, repr=False)
+    _jvp_usage: Dict[sp.Symbol, int] = attrs.field(init=False, repr=False)
+    _jvp_closure_usage: Dict[sp.Symbol, int] = attrs.field(init=False, repr=False)
+    _cache_slot_limit: int = attrs.field(init=False, repr=False)
+
+    def __attrs_post_init__(self) -> None:
+        ordered = tuple(self.assignments)
+        self._ordered_assignments = ordered
+        non_jvp_order = []
+        non_jvp_exprs = {}
+        jvp_terms = {}
+        for lhs, rhs in ordered:
+            lhs_str = str(lhs)
+            if lhs_str.startswith("jvp["):
+                index = int(lhs_str.split("[")[1].split("]")[0])
+                jvp_terms[index] = rhs
+            else:
+                non_jvp_order.append(lhs)
+                non_jvp_exprs[lhs] = rhs
+        self._non_jvp_order = tuple(non_jvp_order)
+        self._non_jvp_exprs = non_jvp_exprs
+        self._jvp_terms = jvp_terms
+        if self.max_cached_terms is None:
+            self._cache_slot_limit = 2 * len(jvp_terms)
+        else:
+            self._cache_slot_limit = self.max_cached_terms
+        self._initialise_expression_metadata()
+
+    def _initialise_expression_metadata(self) -> None:
+        dependencies = {}
+        dependents = {sym: set() for sym in self._non_jvp_order}
+        ops_cost = {}
+        assigned_symbols = set(sym for sym, _ in self._ordered_assignments)
+        for lhs in self._non_jvp_order:
+            rhs = self._non_jvp_exprs[lhs]
+            ops_cost[lhs] = int(sp.count_ops(rhs, visual=False))
+            deps = {
+                sym
+                for sym in rhs.free_symbols
+                if sym in assigned_symbols and not str(sym).startswith("jvp[")
+            }
+            dependencies[lhs] = deps
+            for dep in deps:
+                if dep in dependents:
+                    dependents[dep].add(lhs)
+        jvp_usage = {}
+        jvp_closure = {}
+        for rhs in self._jvp_terms.values():
+            direct = [sym for sym in rhs.free_symbols if sym in dependents]
+            seen_direct = set()
+            for sym in direct:
+                if sym in seen_direct:
+                    continue
+                seen_direct.add(sym)
+                jvp_usage[sym] = jvp_usage.get(sym, 0) + 1
+            stack = list(seen_direct)
+            seen_closure = set()
+            while stack:
+                sym = stack.pop()
+                if sym in seen_closure:
+                    continue
+                seen_closure.add(sym)
+                jvp_closure[sym] = jvp_closure.get(sym, 0) + 1
+                for dep in dependencies.get(sym, set()):
+                    if dep in dependents:
+                        stack.append(dep)
+        self._dependencies = dependencies
+        self._dependents = dependents
+        self._ops_cost = ops_cost
+        self._jvp_usage = jvp_usage
+        self._jvp_closure_usage = jvp_closure
+
+    @property
+    def ordered_assignments(self) -> Tuple[Tuple[sp.Symbol, sp.Expr], ...]:
+        """Return the canonical ordered assignments."""
+
+        return self._ordered_assignments
+
+    @property
+    def non_jvp_order(self) -> Tuple[sp.Symbol, ...]:
+        """Return auxiliary assignment order excluding JVP outputs."""
+
+        return self._non_jvp_order
+
+    @property
+    def non_jvp_exprs(self) -> Mapping[sp.Symbol, sp.Expr]:
+        """Return mapping from auxiliary symbols to their expressions."""
+
+        return self._non_jvp_exprs
+
+    @property
+    def jvp_terms(self) -> Mapping[int, sp.Expr]:
+        """Return mapping from output indices to JVP expressions."""
+
+        return self._jvp_terms
+
+    @property
+    def dependencies(self) -> Mapping[sp.Symbol, Set[sp.Symbol]]:
+        """Return dependency graph for auxiliary assignments."""
+
+        return self._dependencies
+
+    @property
+    def dependents(self) -> Mapping[sp.Symbol, Set[sp.Symbol]]:
+        """Return reverse dependency graph for auxiliary assignments."""
+
+        return self._dependents
+
+    @property
+    def ops_cost(self) -> Mapping[sp.Symbol, int]:
+        """Return per-assignment operation counts."""
+
+        return self._ops_cost
+
+    @property
+    def jvp_usage(self) -> Mapping[sp.Symbol, int]:
+        """Return direct JVP usage counts for auxiliary symbols."""
+
+        return self._jvp_usage
+
+    @property
+    def jvp_closure_usage(self) -> Mapping[sp.Symbol, int]:
+        """Return transitive JVP usage counts across dependency closures."""
+
+        return self._jvp_closure_usage
+
+    @property
+    def cache_slot_limit(self) -> int:
+        """Return the maximum number of cached auxiliary leaves permitted."""
+
+        return self._cache_slot_limit
+
+    def partition_assignments(
+        self,
+        cached_symbols: Iterable[sp.Symbol],
+        runtime_symbols: Iterable[sp.Symbol],
+    ) -> Tuple[
+        List[Tuple[sp.Symbol, sp.Expr]],
+        List[Tuple[sp.Symbol, sp.Expr]],
+        List[Tuple[sp.Symbol, sp.Expr]],
+    ]:
+        """Return cached, runtime, and preparation assignments in order.
+
+        Parameters
+        ----------
+        cached_symbols
+            Symbols whose values will be stored in the auxiliary cache.
+        runtime_symbols
+            Symbols evaluated on demand without caching.
+
+        Returns
+        -------
+        tuple of list, list, list
+            Cached assignments, runtime assignments, and preparation assignments
+            that populate cached intermediates.
+        """
+
+        cached_set = set(cached_symbols)
+        runtime_set = set(runtime_symbols)
+        prepare_nodes = set(self._non_jvp_order) - runtime_set
+        cached_assigns = []
+        runtime_assigns = []
+        prepare_assigns = []
+        for lhs in self._non_jvp_order:
+            rhs = self._non_jvp_exprs[lhs]
+            if lhs in prepare_nodes:
+                prepare_assigns.append((lhs, rhs))
+            if lhs in cached_set:
+                cached_assigns.append((lhs, rhs))
+            elif lhs in runtime_set:
+                runtime_assigns.append((lhs, rhs))
+        return cached_assigns, runtime_assigns, prepare_assigns

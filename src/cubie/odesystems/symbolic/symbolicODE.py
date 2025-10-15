@@ -10,6 +10,7 @@ from cubie.odesystems.symbolic.dxdt import (
     generate_observables_fac_code,
 )
 from cubie.odesystems.symbolic.jacobian import generate_analytical_jvp
+from cubie.odesystems.symbolic.jvp_equations import JVPEquations
 from cubie.odesystems.symbolic.odefile import ODEFile
 from cubie.odesystems.symbolic.solver_helpers import (
     generate_cached_operator_apply_code,
@@ -191,7 +192,7 @@ class SymbolicODE(BaseODE):
             name=name
         )
         self._jacobian_aux_count: Optional[int] = None
-        self._jvp_exprs: Optional[list[tuple[sp.Symbol, sp.Expr]]] = None
+        self._jvp_exprs: Optional[JVPEquations] = None
 
     @classmethod
     def create(
@@ -276,7 +277,7 @@ class SymbolicODE(BaseODE):
 
         return self._jacobian_aux_count
 
-    def _get_jvp_exprs(self) -> list[tuple[sp.Symbol, sp.Expr]]:
+    def _get_jvp_exprs(self) -> JVPEquations:
         """Return cached Jacobian-vector assignments."""
 
         if self._jvp_exprs is None:
@@ -423,7 +424,7 @@ class SymbolicODE(BaseODE):
                 self.indices,
                 M=mass,
                 func_name=func_type,
-                jvp_exprs=self._get_jvp_exprs(),
+                jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,
@@ -436,7 +437,7 @@ class SymbolicODE(BaseODE):
                 self.indices,
                 M=mass,
                 func_name=func_type,
-                jvp_exprs=self._get_jvp_exprs(),
+                jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,
@@ -448,7 +449,7 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 func_name=func_type,
-                jvp_exprs=self._get_jvp_exprs(),
+                jvp_equations=self._get_jvp_exprs(),
             )
             self._jacobian_aux_count = aux_count
         elif func_type == "cached_aux_count":
@@ -463,14 +464,14 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 func_name=func_type,
-                jvp_exprs=self._get_jvp_exprs(),
+                jvp_equations=self._get_jvp_exprs(),
             )
         elif func_type == "neumann_preconditioner":
             code = generate_neumann_preconditioner_code(
                 self.equations,
                 self.indices,
                 func_type,
-                jvp_exprs=self._get_jvp_exprs(),
+                jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,
@@ -482,7 +483,7 @@ class SymbolicODE(BaseODE):
                 self.equations,
                 self.indices,
                 func_type,
-                jvp_exprs=self._get_jvp_exprs(),
+                jvp_equations=self._get_jvp_exprs(),
             )
             factory_kwargs.update(
                 beta=beta,

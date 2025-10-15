@@ -1,11 +1,11 @@
 """Auxiliary caching heuristics for symbolic solver helpers."""
 
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 import sympy as sp
 
+from cubie.odesystems.symbolic.jvp_equations import JVPEquations
 
 def is_cse_symbol(symbol: sp.Symbol) -> bool:
     """Return True if ``symbol`` starts with _cse."""
@@ -16,9 +16,7 @@ def simulate_removal(
     symbol: sp.Symbol,
     active_nodes: Set[sp.Symbol],
     current_ref_counts: Dict[sp.Symbol, int],
-    dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
-    dependents: Dict[sp.Symbol, Set[sp.Symbol]],
-    ops_cost: Dict[sp.Symbol, int],
+    equations: JVPEquations,
     cse_depth: Optional[int] = None,
 ) -> Tuple[int, Set[sp.Symbol], Set[sp.Symbol]]:
     """Estimate saved operations when removing a symbol from active nodes.
@@ -31,12 +29,9 @@ def simulate_removal(
         Symbols still present in the runtime evaluation order.
     current_ref_counts
         Reference count map for active symbols, including JVP usage.
-    dependencies
-        Mapping from each symbol to the prerequisites required to compute it.
-    dependents
-        Reverse dependency mapping capturing downstream expressions.
-    ops_cost
-        Operation counts accrued while evaluating each symbol.
+    equations
+        Structured view of the Jacobian-vector product assignments providing
+        dependency graphs and operation counts.
     cse_depth
         Maximum number of ``"_cse"`` dependency layers traversed when
         exploring common subexpression closures. ``None`` traverses the full
@@ -52,6 +47,9 @@ def simulate_removal(
 
     if symbol not in active_nodes:
         return 0, set(), set()
+    dependencies = equations.dependencies
+    dependents = equations.dependents
+    ops_cost = equations.ops_cost
     temp_counts = current_ref_counts.copy()
     to_remove = set()
     stack = [(symbol, cse_depth, True)]
@@ -102,88 +100,9 @@ def simulate_removal(
     return saved, to_remove, cache_group
 
 
-def build_expression_costs(
-    non_jvp_order: Sequence[sp.Symbol],
-    non_jvp_exprs: Mapping[sp.Symbol, sp.Expr],
-    assigned_symbols: Set[sp.Symbol],
-    jvp_terms: Mapping[int, sp.Expr],
-) -> Tuple[
-    Dict[sp.Symbol, Set[sp.Symbol]],
-    Dict[sp.Symbol, Set[sp.Symbol]],
-    Dict[sp.Symbol, int],
-    Dict[sp.Symbol, int],
-    Dict[sp.Symbol, int],
-]:
-    """Build dependency graphs, operation costs, and JVP usage counts.
-
-    Parameters
-    ----------
-    non_jvp_order
-        Topological order for auxiliary assignments excluding JVP outputs.
-    non_jvp_exprs
-        Mapping from auxiliary symbols to their expressions.
-    assigned_symbols
-        Symbols introduced across the combined auxiliary and JVP expressions.
-    jvp_terms
-        Mapping from JVP indices to their SymPy expressions.
-
-    Returns
-    -------
-    tuple of dict, dict, dict, dict, and dict
-        Dependency edges, reverse dependency edges, operation costs, direct
-        JVP usage counts, and transitive JVP usage counts for each symbol.
-    """
-
-    dependencies = {}
-    dependents = {
-        sym: set() for sym in non_jvp_order
-    }
-    ops_cost = {}
-    for lhs in non_jvp_order:
-        rhs = non_jvp_exprs[lhs]
-        ops_cost[lhs] = int(sp.count_ops(rhs, visual=False))
-        deps = {
-            sym
-            for sym in rhs.free_symbols
-            if sym in assigned_symbols and not str(sym).startswith("jvp[")
-        }
-        dependencies[lhs] = deps
-        for dep in deps:
-            if dep in dependents:
-                dependents[dep].add(lhs)
-    jvp_roots = defaultdict(int)
-    jvp_closure = defaultdict(int)
-    for rhs in jvp_terms.values():
-        direct = [sym for sym in rhs.free_symbols if sym in dependents]
-        seen_direct = set()
-        for sym in direct:
-            if sym in seen_direct:
-                continue
-            seen_direct.add(sym)
-            jvp_roots[sym] += 1
-        stack = list(seen_direct)
-        seen_closure = set()
-        while stack:
-            sym = stack.pop()
-            if sym in seen_closure:
-                continue
-            seen_closure.add(sym)
-            jvp_closure[sym] += 1
-            for dep in dependencies.get(sym, set()):
-                if dep in dependents:
-                    stack.append(dep)
-    return (
-        dependencies,
-        dependents,
-        ops_cost,
-        dict(jvp_roots),
-        dict(jvp_closure),
-    )
-
-
 def max_cse_depth(
     symbol: sp.Symbol,
-    dependencies: Mapping[sp.Symbol, Set[sp.Symbol]],
+    equations: JVPEquations,
     memo: Optional[Dict[sp.Symbol, int]] = None,
 ) -> int:
     """Return the maximum number of CSE layers reachable from ``symbol``.
@@ -192,8 +111,9 @@ def max_cse_depth(
     ----------
     symbol
         Auxiliary assignment symbol explored for upstream CSE depth.
-    dependencies
-        Mapping from each symbol to its prerequisite assignments.
+    equations
+        Structured view of the Jacobian-vector product assignments providing
+        dependency graphs.
     memo
         Optional memoisation dictionary reused across invocations.
 
@@ -208,9 +128,10 @@ def max_cse_depth(
         memo = {}
     if symbol in memo:
         return memo[symbol]
+    dependencies = equations.dependencies
     max_depth = 0
     for dep in dependencies.get(symbol, set()):
-        depth = max_cse_depth(dep, dependencies, memo)
+        depth = max_cse_depth(dep, equations, memo)
         if str(dep).startswith("_cse"):
             depth += 1
         if depth > max_depth:
@@ -246,36 +167,22 @@ class CacheCandidate:
 
 
 def generate_cache_candidates(
-    non_jvp_order: Sequence[sp.Symbol],
+    equations: JVPEquations,
     active_nodes: Set[sp.Symbol],
     current_ref_counts: Dict[sp.Symbol, int],
-    dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
-    dependents: Dict[sp.Symbol, Set[sp.Symbol]],
-    ops_cost: Dict[sp.Symbol, int],
-    max_cached_terms: int,
-    min_ops_threshold: int,
     depth_memo: Optional[Dict[sp.Symbol, int]] = None,
 ) -> List[CacheCandidate]:
     """Construct cache candidates by simulating removals for each symbol.
 
     Parameters
     ----------
-    non_jvp_order
-        Evaluation order for auxiliary assignments.
     active_nodes
         Symbols still considered for runtime execution.
     current_ref_counts
         Reference count map incorporating JVP usage.
-    dependencies
-        Mapping from each symbol to its prerequisites.
-    dependents
-        Reverse dependency mapping from each symbol to its users.
-    ops_cost
-        Operation counts for each auxiliary symbol.
-    max_cached_terms
-        Maximum number of cached auxiliary leaves permitted.
-    min_ops_threshold
-        Minimum operations saved for a candidate to qualify.
+    equations
+        Structured view of the Jacobian-vector product assignments providing
+        dependency graphs and cost metadata.
     depth_memo
         Optional memo dict reused for :func:`max_cse_depth` lookups.
 
@@ -288,19 +195,21 @@ def generate_cache_candidates(
     if depth_memo is None:
         depth_memo = {}
     candidate_map = {}
+    non_jvp_order = equations.non_jvp_order
+    dependents = equations.dependents
+    max_cached_terms = equations.cache_slot_limit
+    min_ops_threshold = equations.min_ops_threshold
     for symbol in non_jvp_order:
         if symbol not in active_nodes:
             continue
-        max_depth = max_cse_depth(symbol, dependencies, depth_memo)
+        max_depth = max_cse_depth(symbol, equations, depth_memo)
         depth_options = list(range(max_depth, -1, -1)) or [0]
         for depth in depth_options:
             saved, removal, group_nodes = simulate_removal(
                 symbol,
                 active_nodes,
                 current_ref_counts,
-                dependencies,
-                dependents,
-                ops_cost,
+                equations,
                 cse_depth=depth,
             )
             cache_nodes = [
@@ -339,9 +248,8 @@ def generate_cache_candidates(
 
 
 def evaluate_candidate_combinations(
+    equations: JVPEquations,
     candidates: Sequence[CacheCandidate],
-    ops_cost: Mapping[sp.Symbol, int],
-    max_cached_terms: int,
 ) -> List[CacheCandidate]:
     """Return the candidate subset that maximises saved operations.
 
@@ -349,10 +257,9 @@ def evaluate_candidate_combinations(
     ----------
     candidates
         Candidate cache groups generated by :func:`generate_cache_candidates`.
-    ops_cost
-        Operation cost mapping for auxiliary assignments.
-    max_cached_terms
-        Maximum number of cached auxiliary leaves permitted.
+    equations
+        Structured view of the Jacobian-vector product assignments providing
+        operation cost metadata and cache size limits.
 
     Returns
     -------
@@ -363,6 +270,9 @@ def evaluate_candidate_combinations(
 
     best_saved_total = 0
     best_selection = []
+
+    ops_cost = equations.ops_cost
+    max_cached_terms = equations.cache_slot_limit
 
     def dfs(
         start: int,
@@ -393,32 +303,15 @@ def evaluate_candidate_combinations(
 
 
 def select_cached_nodes(
-    non_jvp_order: Sequence[sp.Symbol],
-    dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
-    dependents: Dict[sp.Symbol, Set[sp.Symbol]],
-    ops_cost: Dict[sp.Symbol, int],
-    jvp_usage: Dict[sp.Symbol, int],
-    max_cached_terms: int,
-    min_ops_threshold: int,
+    equations: JVPEquations,
 ) -> Tuple[List[sp.Symbol], Set[sp.Symbol]]:
     """Select auxiliary nodes to cache based on estimated savings.
 
     Parameters
     ----------
-    non_jvp_order
-        Evaluation order for auxiliary assignments.
-    dependencies
-        Mapping from each symbol to its prerequisites.
-    dependents
-        Reverse dependency mapping from each symbol to its users.
-    ops_cost
-        Operation cost mapping for auxiliary assignments.
-    jvp_usage
-        Direct usage counts contributed by Jacobian-vector expressions.
-    max_cached_terms
-        Maximum number of cached auxiliary leaves permitted.
-    min_ops_threshold
-        Minimum operations saved for a candidate to qualify.
+    equations
+        Structured view of the Jacobian-vector product assignments providing
+        dependency graphs and cost metadata.
 
     Returns
     -------
@@ -427,27 +320,23 @@ def select_cached_nodes(
         runtime nodes after the cached removals are applied.
     """
 
+    non_jvp_order = equations.non_jvp_order
+    dependents = equations.dependents
+    jvp_usage = equations.jvp_usage
     active_nodes = set(non_jvp_order)
     current_ref_counts = {}
     for sym in non_jvp_order:
         current_ref_counts[sym] = len(dependents[sym]) + jvp_usage.get(sym, 0)
     depth_memo = {}
     candidates = generate_cache_candidates(
-        non_jvp_order,
+        equations,
         active_nodes,
         current_ref_counts,
-        dependencies,
-        dependents,
-        ops_cost,
-        max_cached_terms,
-        min_ops_threshold,
         depth_memo,
     )
     if not candidates:
         return [], active_nodes
-    selected = evaluate_candidate_combinations(
-        candidates, ops_cost, max_cached_terms
-    )
+    selected = evaluate_candidate_combinations(equations, candidates)
     if not selected:
         return [], active_nodes
     cached_union = set()

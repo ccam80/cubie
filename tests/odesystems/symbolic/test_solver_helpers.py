@@ -4,7 +4,8 @@ import sympy as sp
 from numba import cuda, from_dtype
 
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
-from cubie.odesystems.symbolic.auxiliary_caching import build_expression_costs
+from cubie.odesystems.symbolic.auxiliary_caching import select_cached_nodes
+from cubie.odesystems.symbolic.jvp_equations import JVPEquations
 from cubie.odesystems.symbolic.solver_helpers import (
     generate_cached_jvp_code,
     generate_cached_operator_apply_code,
@@ -14,7 +15,6 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_prepare_jac_code,
     generate_stage_residual_code,
     generate_residual_end_state_code,
-    _split_jvp_expressions,
 )
 
 
@@ -277,8 +277,10 @@ def test_split_jvp_expressions_caches_high_cost_terms():
         ),
     ]
 
-    cached_aux, runtime_aux, jvp_terms, prepare_assigns = _split_jvp_expressions(
-        exprs
+    equations = JVPEquations(exprs)
+    cached_nodes, runtime_nodes = select_cached_nodes(equations)
+    cached_aux, runtime_aux, prepare_assigns = equations.partition_assignments(
+        cached_nodes, runtime_nodes
     )
 
     cached_symbols = [lhs for lhs, _ in cached_aux]
@@ -290,7 +292,7 @@ def test_split_jvp_expressions_caches_high_cost_terms():
     assert heavy in prepare_symbols
     assert dep0 not in runtime_symbols
     assert dep0 in prepare_symbols
-    assert jvp_terms[0] == exprs[-1][1]
+    assert equations.jvp_terms[0] == exprs[-1][1]
 
 
 def test_split_jvp_expressions_limits_cache_size():
@@ -333,7 +335,11 @@ def test_split_jvp_expressions_limits_cache_size():
     exprs.append((j_00, sum(heavy_symbols)))
     exprs.append((sp.Symbol("jvp[0]"), j_00 * sp.Symbol("v[0]")))
 
-    cached_aux, runtime_aux, _, _ = _split_jvp_expressions(exprs)
+    equations = JVPEquations(exprs)
+    cached_nodes, runtime_nodes = select_cached_nodes(equations)
+    cached_aux, runtime_aux, _ = equations.partition_assignments(
+        cached_nodes, runtime_nodes
+    )
 
     cached_symbols = [lhs for lhs, _ in cached_aux]
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
@@ -379,9 +385,10 @@ def test_split_jvp_expressions_groups_cse_dependents():
         (sp.Symbol("jvp[0]"), jac * sp.Symbol("v[0]")),
     ]
 
-    cached_aux, runtime_aux, jvp_terms, prepare_assigns = _split_jvp_expressions(
-        exprs,
-        min_ops_threshold=5,
+    equations = JVPEquations(exprs, min_ops_threshold=5)
+    cached_nodes, runtime_nodes = select_cached_nodes(equations)
+    cached_aux, runtime_aux, prepare_assigns = equations.partition_assignments(
+        cached_nodes, runtime_nodes
     )
 
     cached_symbols = [lhs for lhs, _ in cached_aux]
@@ -393,7 +400,7 @@ def test_split_jvp_expressions_groups_cse_dependents():
     assert aux_a in prepare_symbols
     assert aux_b in prepare_symbols
     assert runtime_symbols == [cse_sym]
-    assert jvp_terms[0] == exprs[-1][1]
+    assert equations.jvp_terms[0] == exprs[-1][1]
 
 
 def test_split_jvp_expressions_limits_cse_depth_for_slots():
@@ -439,10 +446,14 @@ def test_split_jvp_expressions_limits_cse_depth_for_slots():
         (sp.Symbol("jvp[0]"), jac * sp.Symbol("v[0]")),
     ]
 
-    cached_aux, runtime_aux, _, prepare_assigns = _split_jvp_expressions(
+    equations = JVPEquations(
         exprs,
         max_cached_terms=1,
         min_ops_threshold=1,
+    )
+    cached_nodes, runtime_nodes = select_cached_nodes(equations)
+    cached_aux, runtime_aux, prepare_assigns = equations.partition_assignments(
+        cached_nodes, runtime_nodes
     )
 
     cached_symbols = [lhs for lhs, _ in cached_aux]
@@ -473,24 +484,17 @@ def test_build_expression_costs_tracks_jvp_dependencies():
         simple: x0 + x1,
         j_00: heavy + simple,
     }
-    assigned_symbols = set(non_jvp_order)
     jvp_terms = {0: j_00 * sp.Symbol("v[0]")}
 
-    (
-        _dependencies,
-        _dependents,
-        _ops_cost,
-        jvp_usage,
-        jvp_closure,
-    ) = build_expression_costs(
-        non_jvp_order, non_jvp_exprs, assigned_symbols, jvp_terms
-    )
+    exprs = [(sym, non_jvp_exprs[sym]) for sym in non_jvp_order]
+    exprs.append((sp.Symbol("jvp[0]"), jvp_terms[0]))
+    equations = JVPEquations(exprs)
 
-    assert jvp_usage == {j_00: 1}
-    assert jvp_closure[j_00] == 1
-    assert jvp_closure[heavy] == 1
-    assert jvp_closure[dep0] == 1
-    assert jvp_closure[simple] == 1
+    assert equations.jvp_usage == {j_00: 1}
+    assert equations.jvp_closure_usage[j_00] == 1
+    assert equations.jvp_closure_usage[heavy] == 1
+    assert equations.jvp_closure_usage[dep0] == 1
+    assert equations.jvp_closure_usage[simple] == 1
 
 
 @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
