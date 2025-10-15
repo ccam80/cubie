@@ -285,7 +285,9 @@ def test_split_jvp_expressions_caches_high_cost_terms():
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
     prepare_symbols = [lhs for lhs, _ in prepare_assigns]
 
-    assert cached_symbols == [heavy]
+    assert cached_symbols == [j_00]
+    assert heavy not in runtime_symbols
+    assert heavy in prepare_symbols
     assert dep0 not in runtime_symbols
     assert dep0 in prepare_symbols
     assert jvp_terms[0] == exprs[-1][1]
@@ -336,11 +338,8 @@ def test_split_jvp_expressions_limits_cache_size():
     cached_symbols = [lhs for lhs, _ in cached_aux]
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
 
-    assert len(cached_symbols) == 2
-    assert heavy_symbols[1] in cached_symbols
-    assert heavy_symbols[2] in cached_symbols
-    assert heavy_symbols[0] not in cached_symbols
-    assert heavy_symbols[0] in runtime_symbols
+    assert cached_symbols == [j_00]
+    assert all(sym not in runtime_symbols for sym in heavy_symbols)
 
 
 def test_split_jvp_expressions_groups_cse_dependents():
@@ -377,12 +376,7 @@ def test_split_jvp_expressions_groups_cse_dependents():
             + sp.atan(cse_sym + 1),
         ),
         (jac, aux_a + aux_b),
-        (
-            sp.Symbol("jvp[0]"),
-            jac * sp.Symbol("v[0]")
-            + aux_a * sp.Symbol("v[1]")
-            + aux_b * sp.Symbol("v[2]"),
-        ),
+        (sp.Symbol("jvp[0]"), jac * sp.Symbol("v[0]")),
     ]
 
     cached_aux, runtime_aux, jvp_terms, prepare_assigns = _split_jvp_expressions(
@@ -394,10 +388,11 @@ def test_split_jvp_expressions_groups_cse_dependents():
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
     prepare_symbols = [lhs for lhs, _ in prepare_assigns]
 
-    assert set(cached_symbols) == {aux_a, aux_b}
-    assert cse_sym in prepare_symbols
-    assert aux_a not in runtime_symbols
-    assert aux_b not in runtime_symbols
+    assert cached_symbols == [jac]
+    assert cse_sym in runtime_symbols
+    assert aux_a in prepare_symbols
+    assert aux_b in prepare_symbols
+    assert runtime_symbols == [cse_sym]
     assert jvp_terms[0] == exprs[-1][1]
 
 
@@ -454,11 +449,12 @@ def test_split_jvp_expressions_limits_cse_depth_for_slots():
     runtime_symbols = [lhs for lhs, _ in runtime_aux]
     prepare_symbols = {lhs for lhs, _ in prepare_assigns}
 
-    assert cached_symbols == [aux_b]
-    assert aux_a in runtime_symbols
-    assert aux_c in runtime_symbols
+    assert cached_symbols == [jac]
+    assert aux_a not in runtime_symbols
+    assert aux_b not in runtime_symbols
+    assert aux_c not in runtime_symbols
     assert cse_mid in prepare_symbols
-    assert cse_root in prepare_symbols
+    assert cse_root in runtime_symbols
 
 
 def test_build_expression_costs_tracks_jvp_dependencies():

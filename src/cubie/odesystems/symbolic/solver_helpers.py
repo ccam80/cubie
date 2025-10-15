@@ -11,6 +11,7 @@ from typing import (
     Iterable,
     List,
     Mapping,
+    NamedTuple,
     Optional,
     Sequence,
     Set,
@@ -104,6 +105,12 @@ PREPARE_JAC_TEMPLATE = (
 )
 
 
+def _is_cse_symbol(symbol: sp.Symbol) -> bool:
+    """Return ``True`` when ``symbol`` names a common subexpression."""
+
+    return str(symbol).startswith("_cse")
+
+
 CACHED_JVP_TEMPLATE = (
     "\n"
     "# AUTO-GENERATED CACHED JVP FACTORY\n"
@@ -178,19 +185,23 @@ def simulate_removal(
     if symbol not in active_nodes:
         return 0, set(), set()
     temp_counts = current_ref_counts.copy()
-    to_remove: Set[sp.Symbol] = set()
-    stack: List[Tuple[sp.Symbol, Optional[int], bool]] = [
+    to_remove = set()
+    stack = [
         (symbol, cse_depth, True)
     ]
-    cache_group: Set[sp.Symbol] = set()
+    cache_group = set()
     while stack:
         node, depth_left, cache_member = stack.pop()
         if node in to_remove or node not in active_nodes:
             continue
         to_remove.add(node)
-        if cache_member and not str(node).startswith("_cse"):
+        if (
+            cache_member
+            and not _is_cse_symbol(node)
+            and not dependents.get(node)
+        ):
             cache_group.add(node)
-        if str(node).startswith("_cse"):
+        if _is_cse_symbol(node):
             if depth_left is None or depth_left >= 0:
                 for child in dependents.get(node, set()):
                     if child in active_nodes and child not in to_remove:
@@ -200,17 +211,16 @@ def simulate_removal(
                 continue
             temp_counts[dep] -= 1
             if dep in active_nodes and temp_counts[dep] == 0:
-                next_depth: Optional[int]
-                if str(dep).startswith("_cse") and depth_left is not None:
+                if _is_cse_symbol(dep) and depth_left is not None:
                     next_depth = depth_left - 1
                     if next_depth < 0:
                         continue
-                elif str(dep).startswith("_cse"):
+                elif _is_cse_symbol(dep):
                     next_depth = None
                 else:
                     next_depth = depth_left
                 stack.append((dep, next_depth, False))
-            elif str(dep).startswith("_cse"):
+            elif _is_cse_symbol(dep):
                 if depth_left is None:
                     dep_depth = None
                 else:
@@ -349,13 +359,22 @@ def _max_cse_depth(
     return max_depth
 
 
+class CacheCandidate(NamedTuple):
+    """Describe a potential group of auxiliaries to cache."""
+
+    symbol: sp.Symbol
+    depth: Optional[int]
+    saved: int
+    removal: Tuple[sp.Symbol, ...]
+    cache_nodes: Tuple[sp.Symbol, ...]
+
+
 def _select_cached_nodes(
     non_jvp_order: Sequence[sp.Symbol],
     dependencies: Dict[sp.Symbol, Set[sp.Symbol]],
     dependents: Dict[sp.Symbol, Set[sp.Symbol]],
     ops_cost: Dict[sp.Symbol, int],
     jvp_usage: Dict[sp.Symbol, int],
-    jvp_closure_usage: Dict[sp.Symbol, int],
     max_cached_terms: int,
     min_ops_threshold: int,
 ) -> Tuple[List[sp.Symbol], Set[sp.Symbol]]:
@@ -373,9 +392,6 @@ def _select_cached_nodes(
         Operation counts required to compute each symbol.
     jvp_usage
         Usage counts contributed by Jacobian-vector expressions.
-    jvp_closure_usage
-        Counts of Jacobian-vector expressions that rely on each symbol or its
-        dependencies.
     max_cached_terms
         Maximum number of auxiliary expressions permitted in the cache.
     min_ops_threshold
@@ -390,90 +406,139 @@ def _select_cached_nodes(
 
     Notes
     -----
-    Iteratively evaluates each candidate with :func:`simulate_removal`, caching
-    groups of auxiliaries that yield the largest weighted operation reduction,
-    where the weight scales with the number of Jacobian-vector outputs that
-    consume the symbol or its dependencies. When a dependency is a common
-    subexpression (``"_cse"`` prefix), the heuristic considers all active
-    dependents together, measuring savings on a per-cache basis. When grouping
-    these dependents would exceed the remaining cache budget, the traversal
-    depth across ``"_cse"`` dependencies is reduced until the group fits. The
-    search halts when limits or savings thresholds prevent further improvement.
+    Builds candidate cache groups with :func:`simulate_removal`, then explores
+    combinations of those groups to maximise saved operations while respecting
+    the cache slot budget. When a dependency is a common subexpression
+    (``"_cse"`` prefix), the heuristic considers all active dependents together,
+    measuring savings per group and reducing traversal depth whenever grouping
+    exceeds ``max_cached_terms``. Candidates that share cached members or
+    removal closures are treated as mutually exclusive to avoid double counting
+    operations during optimisation.
     """
 
     active_nodes = set(non_jvp_order)
     current_ref_counts = {}
     for sym in non_jvp_order:
         current_ref_counts[sym] = len(dependents[sym]) + jvp_usage.get(sym, 0)
-    cached_nodes = []
-    candidate_order = list(non_jvp_order)
-    depth_memo: Dict[sp.Symbol, int] = {}
-    while len(cached_nodes) < max_cached_terms:
-        remaining_slots = max_cached_terms - len(cached_nodes)
-        best_symbol = None
-        best_saved = 0
-        best_weighted = 0
-        best_per_cache = 0
-        best_removal = set()
-        best_group: Set[sp.Symbol] = set()
-        for symbol in candidate_order:
-            if symbol not in active_nodes:
+    order_index = {sym: idx for idx, sym in enumerate(non_jvp_order)}
+    depth_memo = {}
+    candidate_map = {}
+    for symbol in non_jvp_order:
+        if symbol not in active_nodes:
+            continue
+        max_depth = _max_cse_depth(symbol, dependencies, depth_memo)
+        depth_options = list(range(max_depth, -1, -1))
+        if not depth_options:
+            depth_options = [0]
+        for depth in depth_options:
+            saved, removal, group_nodes = simulate_removal(
+                symbol,
+                active_nodes,
+                current_ref_counts,
+                dependencies,
+                dependents,
+                ops_cost,
+                cse_depth=depth,
+            )
+            cache_nodes = [
+                node
+                for node in non_jvp_order
+                if node in group_nodes
+                and node in active_nodes
+                and not _is_cse_symbol(node)
+                and not dependents.get(node)
+            ]
+            group_size = len(cache_nodes)
+            if (
+                group_size == 0
+                or group_size > max_cached_terms
+                or saved < min_ops_threshold
+            ):
                 continue
-            max_depth = _max_cse_depth(symbol, dependencies, depth_memo)
-            depth_options = list(range(max_depth, -1, -1))
-            if not depth_options:
-                depth_options = [0]
-            for depth in depth_options:
-                saved, removal, group_nodes = simulate_removal(
-                    symbol,
-                    active_nodes,
-                    current_ref_counts,
-                    dependencies,
-                    dependents,
-                    ops_cost,
-                    cse_depth=depth,
-                )
-                cache_nodes = [
-                    node
-                    for node in group_nodes
-                    if node in active_nodes and not str(node).startswith("_cse")
-                ]
-                group_size = len(cache_nodes) or 1
-                if group_size > remaining_slots or saved < min_ops_threshold:
-                    continue
-                influence = max(1, jvp_closure_usage.get(symbol, 0)) + len(
-                    dependents.get(symbol, set())
-                )
-                symbol_cost = ops_cost.get(symbol, 0)
-                per_cache = saved / group_size
-                weighted = per_cache * influence + symbol_cost
-                if weighted > best_weighted or (
-                    weighted == best_weighted
-                    and (per_cache > best_per_cache or saved > best_saved)
-                ):
-                    best_symbol = symbol
-                    best_saved = saved
-                    best_weighted = weighted
-                    best_per_cache = per_cache
-                    best_removal = removal
-                    best_group = set(cache_nodes)
-        if best_symbol is None or best_saved <= 0:
-            break
-        cached_candidates = [
-            sym
-            for sym in non_jvp_order
-            if sym in best_group
-            and sym not in cached_nodes
-        ]
-        cached_nodes.extend(cached_candidates)
-        for node in best_removal:
+            key = frozenset(cache_nodes)
+            removal_tuple = tuple(
+                node for node in removal if node in active_nodes
+            )
+            candidate = CacheCandidate(
+                symbol=symbol,
+                depth=depth,
+                saved=saved,
+                removal=removal_tuple,
+                cache_nodes=tuple(cache_nodes),
+            )
+            existing = candidate_map.get(key)
+            if existing is None or saved > existing.saved:
+                candidate_map[key] = candidate
+
+    candidates = sorted(
+        candidate_map.values(), key=lambda cand: cand.saved, reverse=True
+    )
+
+    best_saved_total = 0
+    best_selection = []
+
+    def search_candidates(
+        start: int,
+        remaining_slots: int,
+        cached_set: Set[sp.Symbol],
+        removed_set: Set[sp.Symbol],
+        saved_total: int,
+        chosen: List[CacheCandidate],
+    ) -> None:
+        nonlocal best_saved_total, best_selection
+        if saved_total > best_saved_total:
+            best_saved_total = saved_total
+            best_selection = list(chosen)
+        for idx in range(start, len(candidates)):
+            candidate = candidates[idx]
+            size = len(candidate.cache_nodes)
+            if size > remaining_slots:
+                continue
+            # if any(node in cached_set for node in candidate.cache_nodes):
+            #     continue
+            # if any(node in removed_set for node in candidate.removal):
+            #     continue
+            next_cached = set(cached_set)
+            next_cached.update(candidate.cache_nodes)
+            next_removed = set(removed_set)
+            next_removed.update(candidate.removal)
+            chosen.append(candidate)
+            search_candidates(
+                idx + 1,
+                remaining_slots - size,
+                next_cached,
+                next_removed,
+                saved_total + candidate.saved,
+                chosen,
+            )
+            chosen.pop()
+
+    search_candidates(0, max_cached_terms, set(), set(), 0, [])
+
+    if not best_selection:
+        return [], active_nodes
+
+    best_selection.sort(
+        key=lambda cand: min(order_index[node] for node in cand.cache_nodes)
+    )
+    cached_nodes_set = set()
+    cached_nodes = []
+    for candidate in best_selection:
+        cached_nodes_set.update(candidate.cache_nodes)
+    for sym in non_jvp_order:
+        if sym in cached_nodes_set:
+            cached_nodes.append(sym)
+
+    for candidate in best_selection:
+        for node in candidate.removal:
             if node in active_nodes:
                 active_nodes.remove(node)
                 current_ref_counts.pop(node, None)
-        for node in best_removal:
+        for node in candidate.removal:
             for dep in dependencies.get(node, set()):
                 if dep in current_ref_counts:
                     current_ref_counts[dep] -= 1
+
     return cached_nodes, active_nodes
 
 
@@ -552,7 +617,6 @@ def _split_jvp_expressions(
         dependents,
         ops_cost,
         jvp_usage,
-        jvp_closure_usage,
         max_cached_terms,
         min_ops_threshold,
     )
@@ -560,16 +624,7 @@ def _split_jvp_expressions(
     cached_set = set(cached_nodes)
     runtime_nodes = set(active_nodes)
 
-    prepare_nodes = set()
-    stack = list(cached_set)
-    while stack:
-        node = stack.pop()
-        if node in prepare_nodes:
-            continue
-        prepare_nodes.add(node)
-        for dep in dependencies.get(node, set()):
-            if dep in non_jvp_exprs:
-                stack.append(dep)
+    prepare_nodes = set(non_jvp_order) - runtime_nodes
 
     cached_aux = []
     runtime_aux = []
@@ -663,7 +718,7 @@ def _build_operator_body(
         ] + runtime_assigns
     else:
         combined = list(prepare_assigns or []) + cached_assigns + runtime_assigns
-        seen: Set[sp.Symbol] = set()
+        seen = set()
         aux_assignments = []
         for lhs, rhs in combined:
             if lhs in seen:
