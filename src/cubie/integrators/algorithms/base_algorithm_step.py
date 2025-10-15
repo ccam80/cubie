@@ -28,7 +28,6 @@ ALL_ALGORITHM_STEP_PARAMETERS = {
     'dt', 'beta', 'gamma', 'M', 'preconditioner_order', 'krylov_tolerance',
     'max_linear_iters', 'linear_correction_type', 'newton_tolerance',
     'max_newton_iters', 'newton_damping', 'newton_max_backtracks',
-    'tableau'
 }
 
 

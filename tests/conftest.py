@@ -891,9 +891,7 @@ def cpu_loop_runner(
             precision=precision,
             step_controller_settings=step_controller_settings,
         )
-        tableau = getattr(
-            step_object, "tableau", solver_settings.get("tableau")
-        )
+        tableau = getattr(step_object, "tableau", None)
         return run_reference_loop(
             evaluator=cpu_system,
             inputs=inputs,
@@ -933,9 +931,7 @@ def cpu_loop_outputs(
         precision=precision,
         step_controller_settings=step_controller_settings,
     )
-    tableau = getattr(
-        step_object, "tableau", solver_settings.get("tableau")
-    )
+    tableau = getattr(step_object, "tableau", None)
     return run_reference_loop(
         evaluator=cpu_system,
         inputs=inputs,

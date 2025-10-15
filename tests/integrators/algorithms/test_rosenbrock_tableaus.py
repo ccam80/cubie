@@ -31,8 +31,7 @@ def test_rosenbrock_step_function_accepts_registry_key():
     [
         (
             {
-                "algorithm": "rosenbrock",
-                "tableau": DEFAULT_ROSENBROCK_TABLEAU,
+                "algorithm": "ros3p",
                 "step_controller": "pi",
                 "krylov_tolerance": 1e-7,
             },

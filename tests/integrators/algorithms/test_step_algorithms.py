@@ -1,7 +1,5 @@
 """Reusable tester for single-step integration algorithms."""
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,9 +8,28 @@ import pytest
 from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
+from cubie.integrators.algorithms import get_algorithm_step
+from cubie.integrators.algorithms.generic_dirk import DIRKStep
+from cubie.integrators.algorithms.generic_dirk_tableaus import (
+    DIRK_TABLEAU_REGISTRY,
+)
+from cubie.integrators.algorithms.generic_erk import ERKStep
+from cubie.integrators.algorithms.generic_erk_tableaus import (
+    DEFAULT_ERK_TABLEAU,
+    ERK_TABLEAU_REGISTRY,
+)
+from cubie.integrators.algorithms.generic_rosenbrock_w import (
+    GenericRosenbrockWStep,
+)
+from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
+    ROSENBROCK_TABLEAUS,
+)
 from tests.integrators.cpu_reference import (
     CPUODESystem,
+    dirk_step,
+    erk_step,
     get_ref_step_function,
+    rosenbrock_step,
 )
 
 Array = np.ndarray
@@ -27,6 +44,96 @@ class StepResult:
     error: Array
     status: int
     niters: int
+
+
+ALIAS_CASES = [
+    pytest.param(
+        "dormand-prince-54",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["dormand-prince-54"],
+        erk_step,
+        id="erk-dormand-prince-54",
+    ),
+    pytest.param(
+        "dopri54",
+        ERKStep,
+        DEFAULT_ERK_TABLEAU,
+        erk_step,
+        marks=pytest.mark.specific_algos,
+        id="erk-dopri54",
+    ),
+    pytest.param(
+        "cash-karp-54",
+        ERKStep,
+        ERK_TABLEAU_REGISTRY["cash-karp-54"],
+        erk_step,
+        marks=pytest.mark.specific_algos,
+        id="erk-cash-karp-54",
+    ),
+    pytest.param(
+        "sdirk_2_2",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["sdirk_2_2"],
+        dirk_step,
+        id="dirk-sdirk-2-2",
+    ),
+    pytest.param(
+        "lobatto_iiic_3",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["lobatto_iiic_3"],
+        dirk_step,
+        marks=pytest.mark.specific_algos,
+        id="dirk-lobatto-iiic-3",
+    ),
+    pytest.param(
+        "ros3p",
+        GenericRosenbrockWStep,
+        ROSENBROCK_TABLEAUS["ros3p"],
+        rosenbrock_step,
+        id="rosenbrock-ros3p",
+    ),
+]
+
+@pytest.mark.parametrize(
+    "alias_key, expected_step_type, expected_tableau, cpu_step",
+    ALIAS_CASES,
+)
+def test_algorithm_factory_resolves_tableau_alias(
+    alias_key,
+    expected_step_type,
+    expected_tableau,
+    cpu_step,
+):
+    """Algorithm factory should inject the tableau advertised for aliases."""
+
+    step = get_algorithm_step(
+        np.float64,
+        settings={"algorithm": alias_key, "n": 2, "dt": 1e-3},
+        warn_on_unused=False,
+    )
+    assert isinstance(step, expected_step_type)
+    tableau_value = getattr(step, "tableau", None)
+    if tableau_value is None:
+        tableau_value = step.compile_settings.tableau
+    assert tableau_value is expected_tableau
+
+
+@pytest.mark.parametrize(
+    "alias_key, expected_step_type, expected_tableau, cpu_step",
+    ALIAS_CASES,
+)
+def test_cpu_reference_resolves_tableau_alias(
+    alias_key,
+    expected_step_type,
+    expected_tableau,
+    cpu_step,
+):
+    """CPU reference helpers should resolve alias tableaus consistently."""
+
+    stepper = get_ref_step_function(alias_key)
+    assert stepper.func is cpu_step
+    assert stepper.keywords["tableau"] is expected_tableau
+
 
 def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
     """Generate expected properties for each algorithm given n_states."""
@@ -231,9 +338,7 @@ def cpu_step_results(
 ) -> StepResult:
     """Execute the CPU reference stepper."""
 
-    tableau = getattr(
-        step_object, "tableau", solver_settings.get("tableau")
-    )
+    tableau = getattr(step_object, "tableau", None)
     step_function = get_ref_step_function(
         solver_settings["algorithm"], tableau=tableau
     )

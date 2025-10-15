@@ -61,6 +61,7 @@ markers = [
     "nocudasim: Will fail if run on the GPU simulator, only test on real GPU",
     "cupy: Requires optional dependency CuPy, will fail if not installed",
     "slow: Marks tests that are slow to run, can be skipped with -m 'not slow'",
+    "specific_algos: Marks tests covering non-default algorithm tableau aliases",
 ]
 addopts = [
     "--import-mode=importlib",

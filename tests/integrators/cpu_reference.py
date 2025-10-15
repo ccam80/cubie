@@ -23,17 +23,27 @@ import sympy as sp
 from numpy.typing import NDArray
 
 from cubie.integrators import IntegratorReturnCodes
+from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
+from cubie.integrators.algorithms import (
+    BackwardsEulerPCStep,
+    BackwardsEulerStep,
+    CrankNicolsonStep,
+    DIRKStep,
+    ERKStep,
+    ExplicitEulerStep,
+    GenericRosenbrockWStep,
+    resolve_alias,
+    resolve_supplied_tableau,
+)
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DEFAULT_DIRK_TABLEAU,
     DIRKTableau,
-    SDIRK_2_2_TABLEAU,
 )
-from cubie.integrators.algorithms.generic_erk import (
-    DORMAND_PRINCE_54_TABLEAU,
+from cubie.integrators.algorithms.generic_erk_tableaus import (
+    DEFAULT_ERK_TABLEAU,
     ERKTableau,
 )
 from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
-    DEFAULT_ROSENBROCK_TABLEAU,
     RosenbrockTableau,
 )
 from cubie import SymbolicODE
@@ -48,8 +58,6 @@ TIME_SYMBOL = sp.Symbol("t", real=True)
 
 Array = NDArray[np.floating]
 STATUS_MASK = 0xFFFF
-
-
 def _ensure_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
     """Return ``vector`` as a one-dimensional array with the desired dtype."""
 
@@ -634,7 +642,7 @@ def erk_step(
     current_time = precision(time)
 
     if tableau is None:
-        tableau_value = DORMAND_PRINCE_54_TABLEAU
+        tableau_value = DEFAULT_ERK_TABLEAU
     else:
         tableau_value = tableau
 
@@ -1320,57 +1328,60 @@ def get_ref_step_function(
     """Return the CPU reference implementation for ``algorithm``."""
 
     key = algorithm.lower()
-    if key == "euler":
-        return explicit_euler_step
-    if key == "backwards_euler":
-        return backward_euler_step
-    if key == "backwards_euler_pc":
-        return backward_euler_predict_correct_step
-    if key == "crank_nicolson":
-        return crank_nicolson_step
-    if key in {"dopri54", "erk", "rk", "dormand_prince", "dormand-prince"}:
-        erk_tableau = _resolve_tableau(
-            tableau,
-            DORMAND_PRINCE_54_TABLEAU,
-            ERKTableau,
+    constructor_to_cpu = {
+        ExplicitEulerStep: explicit_euler_step,
+        BackwardsEulerStep: backward_euler_step,
+        BackwardsEulerPCStep: backward_euler_predict_correct_step,
+        CrankNicolsonStep: crank_nicolson_step,
+        ERKStep: erk_step,
+        DIRKStep: dirk_step,
+        GenericRosenbrockWStep: rosenbrock_step,
+    }
+
+    try:
+        step_constructor, resolved_tableau = resolve_alias(key)
+    except KeyError as exc:
+        raise ValueError(f"Unknown stepper algorithm: {algorithm}") from exc
+
+    stepper = constructor_to_cpu.get(step_constructor)
+    if stepper is None:
+        raise ValueError(
+            f"No CPU reference implementation registered for {algorithm}."
         )
-        return partial(erk_step, tableau=erk_tableau)
-    if key in {"dirk", "sdirk22", "sdirk_2_2"}:
-        dirk_tableau = _resolve_tableau(
-            tableau,
-            SDIRK_2_2_TABLEAU,
-            DIRKTableau,
+
+    tableau_value = resolved_tableau
+    if isinstance(tableau, str):
+        try:
+            override_constructor, tableau_value = resolve_alias(tableau)
+        except KeyError as exc:
+            raise ValueError(
+                f"Unknown {step_constructor.__name__} tableau '{tableau}'."
+            ) from exc
+        if tableau_value is None:
+            raise ValueError(
+                f"Alias '{tableau}' does not reference a tableau."
+            )
+        if override_constructor is not step_constructor:
+            raise ValueError(
+                "Tableau alias does not match the requested algorithm type."
+            )
+    elif isinstance(tableau, ButcherTableau):
+        override_constructor, override_tableau = resolve_supplied_tableau(tableau)
+        if override_constructor is not step_constructor:
+            raise ValueError(
+                "Tableau instance does not match the requested algorithm type."
+            )
+        tableau_value = override_tableau
+    elif tableau is not None:
+        raise TypeError(
+            "Expected tableau alias or ButcherTableau instance, "
+            f"received {type(tableau).__name__}."
         )
-        return partial(dirk_step, tableau=dirk_tableau)
-    if key in {
-        "rosenbrock",
-        "ros54",
-        "rosenbrock54",
-        "rosenbrock_w6s4",
-        "rosenbrock-w6s4",
-    }:
-        ros_tableau = DEFAULT_ROSENBROCK_TABLEAU
-        return partial(rosenbrock_step, tableau=ros_tableau)
-    raise ValueError(f"Unknown stepper algorithm: {algorithm}")
 
+    if tableau_value is None:
+        return stepper
 
-def _resolve_tableau(
-    provided: Optional[
-        Union[ERKTableau, DIRKTableau, RosenbrockTableau]
-    ],
-    default,
-    expected_type,
-):
-    """Return ``provided`` when it matches ``expected_type`` else ``default``."""
-
-    if provided is None:
-        return default
-    if isinstance(provided, expected_type):
-        return provided
-    raise TypeError(
-        f"Expected tableau of type {expected_type.__name__}, "
-        f"received {type(provided).__name__}."
-    )
+    return partial(stepper, tableau=tableau_value)
 
 
 def _collect_saved_outputs(
@@ -1413,11 +1424,8 @@ def run_reference_loop(
     status_flags = 0
     zero = precision(0.0)
 
-    tableau_value = tableau
-    if tableau_value is None:
-        tableau_value = solver_settings.get("tableau")
     step_function = get_ref_step_function(
-        solver_settings["algorithm"], tableau=tableau_value
+        solver_settings["algorithm"], tableau=tableau
     )
 
     coefficients = inputs.get("driver_coefficients")

@@ -8,8 +8,6 @@ import numpy as np
 from numpy.typing import NDArray
 import pytest
 
-from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import \
-    DEFAULT_ROSENBROCK_TABLEAU
 from tests._utils import assert_integration_outputs
 
 Array = NDArray[np.floating]
@@ -172,8 +170,7 @@ def test_initial_observable_seed_matches_reference(
             "saved_state_indices": [0, 1, 2],
         },
 {
-            "algorithm": "rosenbrock",
-            'tableau': DEFAULT_ROSENBROCK_TABLEAU,
+            "algorithm": "ros3p",
             "step_controller": "pi",
             "atol": 1e-4,
             "rtol": 1e-4,
