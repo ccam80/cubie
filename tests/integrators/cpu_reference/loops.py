@@ -6,7 +6,7 @@ import numpy as np
 
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
-from .algorithms import get_ref_step_function
+from .algorithms import get_ref_stepper
 from .cpu_ode_system import CPUODESystem
 from .cpu_utils import Array, DriverEvaluator, STATUS_MASK, _ensure_array
 from .step_controllers import CPUAdaptiveController
@@ -19,7 +19,22 @@ def _collect_saved_outputs(
     indices: Sequence[int],
     dtype: np.dtype,
 ) -> Array:
-    """Return the saved samples at ``indices`` as a dense array."""
+    """Return the saved samples at ``indices`` as a dense array.
+
+    Parameters
+    ----------
+    save_history
+        Sequence of saved state or observable samples.
+    indices
+        Column indices to extract from each saved sample.
+    dtype
+        Target dtype for the dense output array.
+
+    Returns
+    -------
+    Array
+        Dense array containing the selected samples.
+    """
 
     width = len(indices)
     if width == 0:
@@ -40,7 +55,30 @@ def run_reference_loop(
     *,
     tableau: Optional[Union[str, ButcherTableau]] = None,
 ) -> Mapping[str, Array]:
-    """Execute a CPU loop mirroring :class:`IVPLoop` behaviour."""
+    """Execute a CPU loop mirroring :class:`IVPLoop` behaviour.
+
+    Parameters
+    ----------
+    evaluator
+        CPU-side ODE evaluator used for state updates.
+    inputs
+        Mapping providing initial conditions and parameters.
+    driver_evaluator
+        Callable returning driver samples for a requested time.
+    solver_settings
+        Settings dictionary describing the integration problem.
+    output_functions
+        Output configuration mirroring the device loop behaviour.
+    controller
+        Adaptive or fixed step controller used during the run.
+    tableau
+        Optional tableau override supplied as a name or instance.
+
+    Returns
+    -------
+    Mapping[str, Array]
+        Dictionary containing state, observable, summary, and status arrays.
+    """
 
     precision = evaluator.precision
 
@@ -51,7 +89,9 @@ def run_reference_loop(
     dt_save = precision(solver_settings["dt_save"])
     dt_summarise = precision(solver_settings["dt_summarise"])
 
-    step_function = get_ref_step_function(
+    stepper = get_ref_stepper(
+        evaluator,
+        driver_evaluator,
         solver_settings["algorithm"],
         tableau=tableau,
     )
@@ -118,9 +158,7 @@ def run_reference_loop(
             else:
                 fixed_step_count += 1
 
-        result = step_function(
-            evaluator,
-            driver_evaluator,
+        result = stepper(
             state=state,
             params=params,
             dt=dt,

@@ -7,7 +7,9 @@ from .algorithms import (
     dirk_step,
     erk_step,
     explicit_euler_step,
+    get_ref_step_factory,
     get_ref_step_function,
+    get_ref_stepper,
     rosenbrock_step,
 )
 from .cpu_ode_system import CPUODESystem
@@ -29,7 +31,9 @@ __all__ = [
     "dirk_step",
     "erk_step",
     "explicit_euler_step",
+    "get_ref_step_factory",
     "get_ref_step_function",
+    "get_ref_stepper",
     "rosenbrock_step",
     "run_reference_loop",
 ]

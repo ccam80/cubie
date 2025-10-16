@@ -1,6 +1,7 @@
 """Reusable tester for single-step integration algorithms."""
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 import numpy as np
@@ -34,10 +35,13 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
 )
 from tests.integrators.cpu_reference import (
     CPUODESystem,
-    dirk_step,
-    erk_step,
-    get_ref_step_function,
-    rosenbrock_step,
+    get_ref_step_factory,
+    get_ref_stepper,
+)
+from tests.integrators.cpu_reference.algorithms import (
+    CPUDIRKStep,
+    CPUERKStep,
+    CPURosenbrockWStep,
 )
 
 Array = np.ndarray
@@ -118,28 +122,28 @@ ALIAS_CASES = [
         "erk",
         ERKStep,
         DEFAULT_ERK_TABLEAU,
-        erk_step,
+        CPUERKStep,
         id="erk",
     ),
     pytest.param(
         "dirk",
         DIRKStep,
         DEFAULT_DIRK_TABLEAU,
-        dirk_step,
+        CPUDIRKStep,
         id="dirk",
     ),
     pytest.param(
         "rosenbrock",
         GenericRosenbrockWStep,
         DEFAULT_ROSENBROCK_TABLEAU,
-        rosenbrock_step,
+        CPURosenbrockWStep,
         id="rosenbrock",
     ),
     pytest.param(
         "dormand-prince-54",
         ERKStep,
         ERK_TABLEAU_REGISTRY["dormand-prince-54"],
-        erk_step,
+        CPUERKStep,
         marks=pytest.mark.specific_algos,
         id="erk-dormand-prince-54",
     ),
@@ -147,7 +151,7 @@ ALIAS_CASES = [
         "dopri54",
         ERKStep,
         DEFAULT_ERK_TABLEAU,
-        erk_step,
+        CPUERKStep,
         marks=pytest.mark.specific_algos,
         id="erk-dopri54",
     ),
@@ -155,7 +159,7 @@ ALIAS_CASES = [
         "cash-karp-54",
         ERKStep,
         ERK_TABLEAU_REGISTRY["cash-karp-54"],
-        erk_step,
+        CPUERKStep,
         marks=pytest.mark.specific_algos,
         id="erk-cash-karp-54",
     ),
@@ -163,7 +167,7 @@ ALIAS_CASES = [
         "fehlberg-45",
         ERKStep,
         ERK_TABLEAU_REGISTRY["fehlberg-45"],
-        erk_step,
+        CPUERKStep,
         marks=pytest.mark.specific_algos,
         id="erk-fehlberg-45",
     ),
@@ -171,7 +175,7 @@ ALIAS_CASES = [
         "bogacki-shampine-32",
         ERKStep,
         ERK_TABLEAU_REGISTRY["bogacki-shampine-32"],
-        erk_step,
+        CPUERKStep,
         marks=pytest.mark.specific_algos,
         id="erk-bogacki-shampine-32",
     ),
@@ -179,7 +183,7 @@ ALIAS_CASES = [
         "heun-21",
         ERKStep,
         ERK_TABLEAU_REGISTRY["heun-21"],
-        erk_step,
+        CPUERKStep,
         marks=pytest.mark.specific_algos,
         id="erk-heun-21",
     ),
@@ -187,7 +191,7 @@ ALIAS_CASES = [
         "ralston-33",
         ERKStep,
         ERK_TABLEAU_REGISTRY["ralston-33"],
-        erk_step,
+        CPUERKStep,
         marks=pytest.mark.specific_algos,
         id="erk-ralston-33",
     ),
@@ -195,7 +199,7 @@ ALIAS_CASES = [
         "classical-rk4",
         ERKStep,
         ERK_TABLEAU_REGISTRY["classical-rk4"],
-        erk_step,
+        CPUERKStep,
         marks=pytest.mark.specific_algos,
         id="erk-classical-rk4",
     ),
@@ -203,7 +207,7 @@ ALIAS_CASES = [
         "implicit_midpoint",
         DIRKStep,
         DIRK_TABLEAU_REGISTRY["implicit_midpoint"],
-        dirk_step,
+        CPUDIRKStep,
         marks=pytest.mark.specific_algos,
         id="dirk-implicit-midpoint",
     ),
@@ -211,7 +215,7 @@ ALIAS_CASES = [
         "trapezoidal_dirk",
         DIRKStep,
         DIRK_TABLEAU_REGISTRY["trapezoidal_dirk"],
-        dirk_step,
+        CPUDIRKStep,
         marks=pytest.mark.specific_algos,
         id="dirk-trapezoidal",
     ),
@@ -219,7 +223,7 @@ ALIAS_CASES = [
         "sdirk_2_2",
         DIRKStep,
         DIRK_TABLEAU_REGISTRY["sdirk_2_2"],
-        dirk_step,
+        CPUDIRKStep,
         marks=pytest.mark.specific_algos,
         id="dirk-sdirk-2-2",
     ),
@@ -227,7 +231,7 @@ ALIAS_CASES = [
         "lobatto_iiic_3",
         DIRKStep,
         DIRK_TABLEAU_REGISTRY["lobatto_iiic_3"],
-        dirk_step,
+        CPUDIRKStep,
         marks=pytest.mark.specific_algos,
         id="dirk-lobatto-iiic-3",
     ),
@@ -235,7 +239,7 @@ ALIAS_CASES = [
         "ros3p",
         GenericRosenbrockWStep,
         ROSENBROCK_TABLEAUS["ros3p"],
-        rosenbrock_step,
+        CPURosenbrockWStep,
         marks=pytest.mark.specific_algos,
         id="rosenbrock-ros3p",
     ),
@@ -243,7 +247,7 @@ ALIAS_CASES = [
         "rosenbrock_w6s4os",
         GenericRosenbrockWStep,
         ROSENBROCK_TABLEAUS["rosenbrock_w6s4os"],
-        rosenbrock_step,
+        CPURosenbrockWStep,
         marks=pytest.mark.specific_algos,
         id="rosenbrock-w6s4os",
     ),
@@ -627,14 +631,14 @@ STEP_CASES = [
 ]
 
 @pytest.mark.parametrize(
-    "alias_key, expected_step_type, expected_tableau, cpu_step",
+    "alias_key, expected_step_type, expected_tableau, expected_cpu_step",
     ALIAS_CASES,
 )
 def test_algorithm_factory_resolves_tableau_alias(
     alias_key,
     expected_step_type,
     expected_tableau,
-    cpu_step,
+    expected_cpu_step,
 ):
     """Algorithm factory should inject the tableau advertised for aliases."""
 
@@ -651,18 +655,33 @@ def test_algorithm_factory_resolves_tableau_alias(
 
 
 @pytest.mark.parametrize(
-    "alias_key, expected_step_type, expected_tableau, cpu_step",
+    "alias_key, expected_step_type, expected_tableau, expected_cpu_step",
     ALIAS_CASES,
 )
 def test_cpu_reference_resolves_tableau_alias(
     alias_key,
     expected_step_type,
     expected_tableau,
-    cpu_step,
+    expected_cpu_step,
+    cpu_system: CPUODESystem,
+    cpu_driver_evaluator,
 ):
     """CPU reference helpers should resolve alias tableaus consistently."""
-    stepper = get_ref_step_function(alias_key)
-    assert stepper is cpu_step
+    factory = get_ref_step_factory(alias_key)
+    bound_step = factory(cpu_system, cpu_driver_evaluator)
+    default_tableaus = {
+        CPUERKStep: DEFAULT_ERK_TABLEAU,
+        CPUDIRKStep: DEFAULT_DIRK_TABLEAU,
+        CPURosenbrockWStep: DEFAULT_ROSENBROCK_TABLEAU,
+    }
+    default_tableau = default_tableaus[expected_cpu_step]
+    if isinstance(bound_step, partial):
+        assert isinstance(bound_step.func, expected_cpu_step)
+        assert bound_step.keywords.get("tableau") is expected_tableau
+    else:
+        assert isinstance(bound_step, expected_cpu_step)
+        if expected_tableau is not default_tableau:
+            raise AssertionError("Resolved tableau was not bound to stepper.")
 
 
 def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
@@ -868,9 +887,6 @@ def cpu_step_results(
     """Execute the CPU reference stepper."""
 
     tableau = getattr(step_object, "tableau", None)
-    step_function = get_ref_step_function(
-        solver_settings["algorithm"], tableau=tableau
-    )
     dt = solver_settings["dt"]
     state = np.asarray(step_inputs["state"], dtype=cpu_system.precision)
     params = np.asarray(step_inputs["parameters"], dtype=cpu_system.precision)
@@ -881,9 +897,14 @@ def cpu_step_results(
     else:
         driver_evaluator = cpu_driver_evaluator
 
-    result = step_function(
+    stepper = get_ref_stepper(
         cpu_system,
         driver_evaluator,
+        solver_settings["algorithm"],
+        tableau=tableau,
+    )
+
+    result = stepper(
         state=state,
         params=params,
         dt=dt,

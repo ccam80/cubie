@@ -211,7 +211,7 @@ class CPUODESystem:
                     self._compiled_equations[lhs](*args)
                 )
             else:
-                value = self._compiled_equations[lhs]
+                value = self.precision(self._compiled_equations[lhs])
 
             symbol_values[lhs] = value
             if lhs in self._observable_index:
@@ -246,7 +246,7 @@ class CPUODESystem:
                     self._compiled_equations[lhs](*args)
                 )
             else:
-                value = self._compiled_equations[lhs]
+                value = self.precision(self._compiled_equations[lhs])
 
             symbol_values[lhs] = value
             if lhs in self._dx_index:

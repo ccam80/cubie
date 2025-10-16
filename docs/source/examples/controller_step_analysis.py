@@ -31,7 +31,7 @@ from tests.integrators.cpu_reference import (
     DriverEvaluator,
     STATUS_MASK,
     _collect_saved_outputs,
-    get_ref_step_function,
+    get_ref_stepper,
 )
 from tests.system_fixtures import (
     build_large_nonlinear_system,
@@ -590,8 +590,11 @@ def run_reference_loop_with_history(
     step_records: List[StepRecord] = []
 
     tableau = implicit_step_settings.get("tableau")
-    step_function = get_ref_step_function(
-        solver_settings["algorithm"], tableau=tableau
+    stepper = get_ref_stepper(
+        evaluator,
+        driver_fn,
+        solver_settings["algorithm"],
+        tableau=tableau,
     )
 
     saved_state_indices = np.asarray(
@@ -649,9 +652,7 @@ def run_reference_loop_with_history(
 
         timenow = perf_counter()
 
-        result = step_function(
-            evaluator,
-            driver_fn,
+        result = stepper(
             state=state,
             params=params,
             dt=dt,
