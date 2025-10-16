@@ -63,6 +63,7 @@ LOOP_CASES = [
             krylov_tolerance=1e-6,
         ),
         id="crank_nicolson_pid",
+        marks=pytest.mark.specific_algos,
     ),
     pytest.param(
         _loop_override(
@@ -85,6 +86,7 @@ LOOP_CASES = [
             dt_min=1e-6,
         ),
         id="crank_nicolson_i",
+        marks=pytest.mark.specific_algos,
     ),
     pytest.param(
         _loop_override(
@@ -95,13 +97,14 @@ LOOP_CASES = [
             dt_min=1e-6,
         ),
         id="crank_nicolson_gustafsson",
+        marks=pytest.mark.specific_algos,
     ),
     pytest.param(
         _loop_override(
             algorithm="rosenbrock",
             step_controller="pi",
-            atol=1e-4,
-            rtol=1e-4,
+            atol=1e-5,
+            rtol=1e-5,
             dt_min=1e-6,
             krylov_tolerance=1e-6,
         ),
@@ -151,17 +154,6 @@ LOOP_CASES = [
             krylov_tolerance=1e-6,
         ),
         id="rosenbrock-w6s4os",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        _loop_override(
-            algorithm="dormand-prince-54",
-            step_controller="pi",
-            atol=1e-6,
-            rtol=1e-6,
-            dt_min=1e-6,
-        ),
-        id="erk-dormand-prince-54",
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(

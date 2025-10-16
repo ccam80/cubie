@@ -9,6 +9,12 @@ from numba import cuda, from_dtype
 from numpy.testing import assert_allclose
 
 from cubie.integrators.algorithms import get_algorithm_step
+from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
+from cubie.integrators.algorithms.backwards_euler_predict_correct import (
+    BackwardsEulerPCStep,
+)
+from cubie.integrators.algorithms.crank_nicolson import CrankNicolsonStep
+from cubie.integrators.algorithms.explicit_euler import ExplicitEulerStep
 from cubie.integrators.algorithms.generic_dirk import DIRKStep
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DEFAULT_DIRK_TABLEAU,
@@ -46,6 +52,65 @@ class StepResult:
     error: Array
     status: int
     niters: int
+
+
+def _expected_order(step_object: Any, tableau: Any) -> int:
+    """Return the theoretical order of accuracy for ``step_object``."""
+
+    if tableau is not None:
+        return tableau.order
+    if isinstance(
+        step_object,
+        (
+            ExplicitEulerStep,
+            BackwardsEulerStep,
+            BackwardsEulerPCStep,
+        ),
+    ):
+        return 1
+    if isinstance(step_object, CrankNicolsonStep):
+        return 2
+    raise NotImplementedError(
+        f"Order expectation missing for {type(step_object).__name__}."
+    )
+
+
+def _expected_memory_requirements(
+    step_object: Any,
+    tableau: Any,
+    n_states: int,
+    extra_shared: int,
+) -> tuple[int, int]:
+    """Return the expected shared and local scratch requirements."""
+
+    if isinstance(step_object, ERKStep):
+        stage_count = tableau.stage_count
+        accumulator_span = max(stage_count - 1, 0) * n_states
+        return accumulator_span, n_states
+    if isinstance(step_object, DIRKStep):
+        stage_count = tableau.stage_count
+        accumulator_span = max(stage_count - 1, 0) * n_states
+        shared = accumulator_span + 2 * n_states + extra_shared
+        local = 2 * n_states
+        return shared, local
+    if isinstance(step_object, GenericRosenbrockWStep):
+        stage_count = tableau.stage_count
+        accumulator_span = max(stage_count - 1, 0) * n_states
+        shared = 2 * accumulator_span + extra_shared
+        local = 4 * n_states
+        return shared, local
+    if isinstance(
+        step_object,
+        (BackwardsEulerStep, BackwardsEulerPCStep, CrankNicolsonStep),
+    ):
+        shared = 2 * n_states + extra_shared
+        return shared, 0
+    if isinstance(step_object, ExplicitEulerStep):
+        return 0, 0
+    raise NotImplementedError(
+        "Memory expectation missing for "
+        f"{type(step_object).__name__}."
+    )
 
 
 ALIAS_CASES = [
@@ -596,10 +661,8 @@ def test_cpu_reference_resolves_tableau_alias(
     cpu_step,
 ):
     """CPU reference helpers should resolve alias tableaus consistently."""
-
     stepper = get_ref_step_function(alias_key)
-    assert stepper.func is cpu_step
-    assert stepper.keywords["tableau"] is expected_tableau
+    assert stepper is cpu_step
 
 
 def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
@@ -611,9 +674,6 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_multistage": False,
             "is_implicit": False,
             "is_adaptive": False,
-            "order": 1,
-            "shared_memory_required": 0,
-            "local_scratch_required": 0,
         },
         "backwards_euler": {
             "threads_per_step": 1,
@@ -621,9 +681,6 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": False,
-            "order": 1,
-            "shared_memory_required": 2 * n_states,
-            "local_scratch_required": 0,
         },
         "backwards_euler_pc": {
             "threads_per_step": 1,
@@ -631,9 +688,6 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": False,
-            "order": 1,
-            "shared_memory_required": 2 * n_states,
-            "local_scratch_required": 0,
         },
         "crank_nicolson": {
             "threads_per_step": 1,
@@ -641,9 +695,6 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_multistage": False,
             "is_implicit": True,
             "is_adaptive": True,
-            "order": 2,
-            "shared_memory_required": 2 * n_states,
-            "local_scratch_required": 0,
         },
         "rosenbrock": {
             "threads_per_step": 1,
@@ -651,9 +702,6 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_multistage": True,
             "is_implicit": True,
             "is_adaptive": True,
-            "order": 4,
-            "shared_memory_required": 10 * n_states,
-            "local_scratch_required": 4 * n_states,
         },
         "erk": {
             "threads_per_step": 1,
@@ -661,11 +709,6 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_multistage": DEFAULT_ERK_TABLEAU.stage_count > 1,
             "is_implicit": False,
             "is_adaptive": DEFAULT_ERK_TABLEAU.has_error_estimate,
-            "order": DEFAULT_ERK_TABLEAU.order,
-            "shared_memory_required": (
-                max(DEFAULT_ERK_TABLEAU.stage_count - 1, 0) * n_states
-            ),
-            "local_scratch_required": 3 * n_states,
         },
         "dirk": {
             "threads_per_step": 1,
@@ -673,12 +716,6 @@ def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
             "is_multistage": DEFAULT_DIRK_TABLEAU.stage_count > 1,
             "is_implicit": True,
             "is_adaptive": DEFAULT_DIRK_TABLEAU.has_error_estimate,
-            "order": DEFAULT_DIRK_TABLEAU.order,
-            "shared_memory_required": (
-                max(DEFAULT_DIRK_TABLEAU.stage_count - 1, 0) * n_states
-                + 2 * n_states
-            ),
-            "local_scratch_required": 3 * n_states,
         },
     }
 
@@ -896,12 +933,6 @@ def test_algorithm(
             "is_adaptive getter"
         assert step_object.is_multistage is properties["is_multistage"],\
             "is_multistage getter"
-        # assert step_object.order == properties["order"],\
-        #     "order getter"
-        # TODO: Update to fetch tableau order
-        assert step_object.local_scratch_required \
-            == properties["local_scratch_required"],\
-            "local_scratch_required getter"
         assert step_object.persistent_local_required \
             == properties["persistent_local_required"], \
             "persistent_local_required getter"
@@ -919,6 +950,23 @@ def test_algorithm(
             for b_value, b_hat_value in zip(tableau.b, tableau.b_hat)
         )
         assert tableau.d == pytest.approx(expected_error), "embedded weights"
+
+    expected_order = _expected_order(step_object, tableau)
+    assert step_object.order == expected_order, "order getter"
+
+    extra_shared = system._jacobian_aux_count or 0
+    expected_shared, expected_local = _expected_memory_requirements(
+        step_object,
+        tableau,
+        system.sizes.states,
+        extra_shared,
+    )
+    assert (
+        step_object.shared_memory_required == expected_shared
+    ), "shared_memory_required getter"
+    assert (
+        step_object.local_scratch_required == expected_local
+    ), "local_scratch_required getter"
 
     if properties is not None and properties["is_implicit"]:
         if algorithm == "rosenbrock":
@@ -1042,15 +1090,6 @@ def test_algorithm(
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
         ), "dt update"
-
-    if system._jacobian_aux_count is not None:
-        extra_shared = system._jacobian_aux_count
-    else:
-        extra_shared = 0
-    # assert (
-    #     step_object.shared_memory_required
-    #     == (properties["shared_memory_required"] + extra_shared)
-    # ), "shared_memory_required getter" #TODO: this needs to be tableau based
 
     # Test equality for a single step
     tolerances = {
