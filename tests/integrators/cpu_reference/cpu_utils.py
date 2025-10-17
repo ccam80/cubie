@@ -233,7 +233,7 @@ def krylov_solve(
 
     applied = np.asarray(operator_apply(solution), dtype=precision)
     residual = vector - applied
-    residual_squared = float(np.dot(residual, residual))
+    residual_squared = precision(np.dot(residual, residual))
     if residual_squared <= tol_squared:
         return solution, True, 0
 
@@ -264,11 +264,11 @@ def krylov_solve(
         )
 
         if correction_type == "steepest_descent":
-            numerator = float(np.dot(residual, direction))
-            denominator = float(np.dot(operator_direction, direction))
+            numerator = precision(np.dot(residual, direction))
+            denominator = precision(np.dot(operator_direction, direction))
         else:
-            numerator = float(np.dot(operator_direction, residual))
-            denominator = float(np.dot(operator_direction, operator_direction))
+            numerator = precision(np.dot(operator_direction, residual))
+            denominator = precision(np.dot(operator_direction, operator_direction))
 
         if denominator == 0.0:
             return solution, False, iteration
@@ -279,7 +279,7 @@ def krylov_solve(
 
         solution = solution + alpha * direction
         residual = residual - alpha * operator_direction
-        residual_squared = float(np.dot(residual, residual))
+        residual_squared = precision(np.dot(residual, residual))
         if residual_squared <= tol_squared:
             converged = True
             break

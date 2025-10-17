@@ -53,6 +53,8 @@ class CPUStep:
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        linear_correction_type: str = "minimal_residual",
+        preconditioner_order: int = 2,
         tableau: Optional[ButcherTableau] = None,
     ) -> None:
         self.evaluator = evaluator
@@ -64,6 +66,18 @@ class CPUStep:
         self._newton_max_iters = int(newton_max_iters)
         self._linear_tol = self.precision(linear_tol)
         self._linear_max_iters = int(linear_max_iters)
+        correction = str(linear_correction_type)
+        if correction not in {
+            "steepest_descent",
+            "minimal_residual",
+        }:
+            raise ValueError(
+                "Correction type must be 'steepest_descent' or 'minimal_residual'."
+            )
+        self._linear_correction_type = correction
+        self._preconditioner_order = int(preconditioner_order)
+        if self._preconditioner_order < 0:
+            raise ValueError("Preconditioner order must be non-negative.")
         self.tableau = tableau
 
     def _tableau_rows(
@@ -243,8 +257,46 @@ class CPUStep:
             tolerance=self._linear_tol,
             max_iterations=self._linear_max_iters,
             precision=self.precision,
+            neumann_order=self._preconditioner_order,
+            correction_type=self._linear_correction_type,
         )
         return np.asarray(solution, dtype=self.precision), converged, niters
+
+    @property
+    def linear_correction_type(self) -> str:
+        """Return the Krylov correction strategy used by the step."""
+
+        return self._linear_correction_type
+
+    @property
+    def preconditioner_order(self) -> int:
+        """Return the Neumann-series preconditioner order."""
+
+        return self._preconditioner_order
+
+    @property
+    def newton_tolerance(self) -> np.floating:
+        """Return the Newton iteration convergence tolerance."""
+
+        return self._newton_tol
+
+    @property
+    def max_newton_iterations(self) -> int:
+        """Return the Newton iteration cap."""
+
+        return self._newton_max_iters
+
+    @property
+    def linear_tolerance(self) -> np.floating:
+        """Return the Krylov solver convergence tolerance."""
+
+        return self._linear_tol
+
+    @property
+    def max_linear_iterations(self) -> int:
+        """Return the Krylov iteration cap."""
+
+        return self._linear_max_iters
 
     def residual(self, candidate: Array) -> Array:
         raise NotImplementedError
@@ -318,6 +370,9 @@ class CPUBackwardEulerStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        *,
+        linear_correction_type: str = "minimal_residual",
+        preconditioner_order: int = 2,
     ) -> None:
         super().__init__(
             evaluator,
@@ -326,6 +381,8 @@ class CPUBackwardEulerStep(CPUStep):
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
             linear_max_iters=linear_max_iters,
+            linear_correction_type=linear_correction_type,
+            preconditioner_order=preconditioner_order,
         )
         self._be_state = np.zeros(self._state_size, dtype=self.precision)
         self._be_params = np.zeros(0, dtype=self.precision)
@@ -418,6 +475,8 @@ class CPUCrankNicolsonStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        linear_correction_type: str = "minimal_residual",
+        preconditioner_order: int = 2,
         backward_step: Optional[CPUBackwardEulerStep] = None,
     ) -> None:
         super().__init__(
@@ -427,6 +486,8 @@ class CPUCrankNicolsonStep(CPUStep):
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
             linear_max_iters=linear_max_iters,
+            linear_correction_type=linear_correction_type,
+            preconditioner_order=preconditioner_order,
         )
         self._cn_previous_state = np.zeros(
             self._state_size, dtype=self.precision
@@ -447,6 +508,8 @@ class CPUCrankNicolsonStep(CPUStep):
                 newton_max_iters=newton_max_iters,
                 linear_tol=linear_tol,
                 linear_max_iters=linear_max_iters,
+                linear_correction_type=linear_correction_type,
+                preconditioner_order=preconditioner_order,
             )
             self._backward = backward_step
 
@@ -554,6 +617,8 @@ class CPUERKStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        linear_correction_type: str = "minimal_residual",
+        preconditioner_order: int = 2,
         tableau: Optional[ERKTableau] = None,
     ) -> None:
         resolved = DEFAULT_ERK_TABLEAU if tableau is None else tableau
@@ -564,6 +629,8 @@ class CPUERKStep(CPUStep):
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
             linear_max_iters=linear_max_iters,
+            linear_correction_type=linear_correction_type,
+            preconditioner_order=preconditioner_order,
             tableau=resolved,
         )
         self._erk_cached_slope = np.zeros(
@@ -674,6 +741,8 @@ class CPUDIRKStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        linear_correction_type: str = "minimal_residual",
+        preconditioner_order: int = 2,
         tableau: Optional[DIRKTableau] = None,
     ) -> None:
         resolved = DEFAULT_DIRK_TABLEAU if tableau is None else tableau
@@ -684,6 +753,8 @@ class CPUDIRKStep(CPUStep):
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
             linear_max_iters=linear_max_iters,
+            linear_correction_type=linear_correction_type,
+            preconditioner_order=preconditioner_order,
             tableau=tableau,
         )
         self._dirk_reference = np.zeros(
@@ -909,6 +980,8 @@ class CPURosenbrockWStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        linear_correction_type: str = "minimal_residual",
+        preconditioner_order: int = 2,
         tableau: Optional[RosenbrockTableau] = None,
     ) -> None:
         resolved = (
@@ -921,6 +994,8 @@ class CPURosenbrockWStep(CPUStep):
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
             linear_max_iters=linear_max_iters,
+            linear_correction_type=linear_correction_type,
+            preconditioner_order=preconditioner_order,
             tableau=resolved,
         )
         self._rosenbrock_cached_slope = np.zeros(
@@ -1090,6 +1165,8 @@ class CPUBackwardEulerPCStep(CPUStep):
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        linear_correction_type: str = "minimal_residual",
+        preconditioner_order: int = 2,
         corrector: Optional[CPUBackwardEulerStep] = None,
     ) -> None:
         super().__init__(
@@ -1099,15 +1176,19 @@ class CPUBackwardEulerPCStep(CPUStep):
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
             linear_max_iters=linear_max_iters,
+            linear_correction_type=linear_correction_type,
+            preconditioner_order=preconditioner_order,
         )
         if corrector is None:
             corrector = CPUBackwardEulerStep(
-                    evaluator,
-                    driver_evaluator,
-                    newton_tol=newton_tol,
-                    newton_max_iters=newton_max_iters,
-                    linear_tol=linear_tol,
-                    linear_max_iters=linear_max_iters,
+                evaluator,
+                driver_evaluator,
+                newton_tol=newton_tol,
+                newton_max_iters=newton_max_iters,
+                linear_tol=linear_tol,
+                linear_max_iters=linear_max_iters,
+                linear_correction_type=linear_correction_type,
+                preconditioner_order=preconditioner_order,
             )
         self._corrector = corrector
 
@@ -1138,7 +1219,7 @@ class CPUBackwardEulerPCStep(CPUStep):
             observables_now,
             current_time,
         )
-        predictor = state_vector + dt_value * derivative_now
+        predictor = dt_value * derivative_now
         return self._corrector(
             state=state_vector,
             params=params_array,
@@ -1146,6 +1227,7 @@ class CPUBackwardEulerPCStep(CPUStep):
             initial_guess=predictor,
             time=current_time,
         )
+
 def explicit_euler_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
@@ -1153,6 +1235,9 @@ def explicit_euler_step(
     newton_max_iters: int,
     linear_tol: float,
     linear_max_iters: int,
+    *,
+    linear_correction_type: str = "minimal_residual",
+    preconditioner_order: int = 2,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single explicit Euler step."""
@@ -1164,6 +1249,8 @@ def explicit_euler_step(
         newton_max_iters=newton_max_iters,
         linear_tol=linear_tol,
         linear_max_iters=linear_max_iters,
+        linear_correction_type=linear_correction_type,
+        preconditioner_order=preconditioner_order,
     )
     return stepper(**kwargs)
 
@@ -1176,6 +1263,8 @@ def backward_euler_step(
     newton_max_iters: int,
     linear_tol: float,
     linear_max_iters: int,
+    linear_correction_type: str = "minimal_residual",
+    preconditioner_order: int = 2,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single backward Euler step."""
@@ -1187,6 +1276,8 @@ def backward_euler_step(
         newton_max_iters=newton_max_iters,
         linear_tol=linear_tol,
         linear_max_iters=linear_max_iters,
+        linear_correction_type=linear_correction_type,
+        preconditioner_order=preconditioner_order,
     )
     return stepper(**kwargs)
 
@@ -1199,6 +1290,8 @@ def crank_nicolson_step(
     newton_max_iters: int,
     linear_tol: float,
     linear_max_iters: int,
+    linear_correction_type: str = "minimal_residual",
+    preconditioner_order: int = 2,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single Crank--Nicolson step."""
@@ -1210,6 +1303,8 @@ def crank_nicolson_step(
         newton_max_iters=newton_max_iters,
         linear_tol=linear_tol,
         linear_max_iters=linear_max_iters,
+        linear_correction_type=linear_correction_type,
+        preconditioner_order=preconditioner_order,
     )
     return stepper(**kwargs)
 
@@ -1222,6 +1317,8 @@ def erk_step(
     newton_max_iters: int,
     linear_tol: float,
     linear_max_iters: int,
+    linear_correction_type: str = "minimal_residual",
+    preconditioner_order: int = 2,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single explicit Runge--Kutta step."""
@@ -1233,6 +1330,8 @@ def erk_step(
         newton_max_iters=newton_max_iters,
         linear_tol=linear_tol,
         linear_max_iters=linear_max_iters,
+        linear_correction_type=linear_correction_type,
+        preconditioner_order=preconditioner_order,
     )
     return stepper(**kwargs)
 
@@ -1245,6 +1344,8 @@ def dirk_step(
     newton_max_iters: int,
     linear_tol: float,
     linear_max_iters: int,
+    linear_correction_type: str = "minimal_residual",
+    preconditioner_order: int = 2,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single DIRK step."""
@@ -1256,6 +1357,8 @@ def dirk_step(
         newton_max_iters=newton_max_iters,
         linear_tol=linear_tol,
         linear_max_iters=linear_max_iters,
+        linear_correction_type=linear_correction_type,
+        preconditioner_order=preconditioner_order,
     )
     return stepper(**kwargs)
 
@@ -1268,6 +1371,8 @@ def rosenbrock_step(
     newton_max_iters: int,
     linear_tol: float,
     linear_max_iters: int,
+    linear_correction_type: str = "minimal_residual",
+    preconditioner_order: int = 2,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single Rosenbrock--W step."""
@@ -1279,6 +1384,8 @@ def rosenbrock_step(
         newton_max_iters=newton_max_iters,
         linear_tol=linear_tol,
         linear_max_iters=linear_max_iters,
+        linear_correction_type=linear_correction_type,
+        preconditioner_order=preconditioner_order,
     )
     return stepper(**kwargs)
 
@@ -1291,6 +1398,8 @@ def backward_euler_predict_correct_step(
     newton_max_iters: int,
     linear_tol: float,
     linear_max_iters: int,
+    linear_correction_type: str = "minimal_residual",
+    preconditioner_order: int = 2,
     **kwargs: object,
 ) -> StepResult:
     """Execute a backward Euler predictor--corrector step."""
@@ -1302,6 +1411,8 @@ def backward_euler_predict_correct_step(
         newton_max_iters=newton_max_iters,
         linear_tol=linear_tol,
         linear_max_iters=linear_max_iters,
+        linear_correction_type=linear_correction_type,
+        preconditioner_order=preconditioner_order,
     )
     return stepper(**kwargs)
 
@@ -1398,6 +1509,8 @@ def get_ref_step_factory(
         newton_max_iters: int,
         linear_tol: float,
         linear_max_iters: int,
+        linear_correction_type: str = "minimal_residual",
+        preconditioner_order: int = 2,
     ) -> Callable:
         if tableau_value is None:
             return step_class(
@@ -1407,6 +1520,8 @@ def get_ref_step_factory(
                 newton_max_iters=newton_max_iters,
                 linear_tol=linear_tol,
                 linear_max_iters=linear_max_iters,
+                linear_correction_type=linear_correction_type,
+                preconditioner_order=preconditioner_order,
             )
         return step_class(
             evaluator,
@@ -1415,6 +1530,8 @@ def get_ref_step_factory(
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
             linear_max_iters=linear_max_iters,
+            linear_correction_type=linear_correction_type,
+            preconditioner_order=preconditioner_order,
             tableau=tableau_value,
         )
 
@@ -1430,6 +1547,8 @@ def get_ref_stepper(
     newton_max_iters: int,
     linear_tol: float,
     linear_max_iters: int,
+    linear_correction_type: str = "minimal_residual",
+    preconditioner_order: int = 2,
     tableau: Optional[Union[str, ButcherTableau]] = None,
 ) -> StepCallable:
     """Return a configured CPU reference stepper for ``algorithm``."""
@@ -1442,4 +1561,6 @@ def get_ref_stepper(
         newton_max_iters=newton_max_iters,
         linear_tol=linear_tol,
         linear_max_iters=linear_max_iters,
+        linear_correction_type=linear_correction_type,
+        preconditioner_order=preconditioner_order,
     )

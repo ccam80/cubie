@@ -598,6 +598,8 @@ def run_reference_loop_with_history(
         newton_max_iters=implicit_step_settings["max_newton_iters"],
         linear_tol=implicit_step_settings["krylov_tolerance"],
         linear_max_iters=implicit_step_settings["max_linear_iters"],
+        linear_correction_type=implicit_step_settings["correction_type"],
+        preconditioner_order=implicit_step_settings["preconditioner_order"],
         tableau=tableau,
     )
 

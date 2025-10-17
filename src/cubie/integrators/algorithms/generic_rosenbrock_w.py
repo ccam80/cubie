@@ -276,7 +276,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #TODO: find one extra cache vector slot to store stage_increment
             # and RHS
+            values_in_cache = False
             if first_same_as_last:
+                for cache_idx in range(n):
+                    if shared[cache_idx] != typed_zero:
+                        values_in_cache = True
+                        
+            if first_same_as_last and values_in_cache:
                 for idx in range(n):
                     stage_rhs[idx] = stage_cache[idx]
             else:

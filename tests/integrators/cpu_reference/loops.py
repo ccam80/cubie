@@ -97,6 +97,8 @@ def run_reference_loop(
         newton_max_iters=solver_settings["max_newton_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
         linear_max_iters=solver_settings["max_linear_iters"],
+        linear_correction_type=solver_settings["correction_type"],
+        preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
     )
 

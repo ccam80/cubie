@@ -626,6 +626,8 @@ def test_cpu_reference_resolves_tableau_alias(
         newton_max_iters=25,
         linear_tol=1e-10,
         linear_max_iters=cpu_system.system.sizes.states,
+        linear_correction_type="minimal_residual",
+        preconditioner_order=2,
     )
 
     assert isinstance(bound_step, expected_cpu_step)
@@ -853,6 +855,8 @@ def cpu_step_results(
         newton_max_iters=solver_settings["max_newton_iters"],
         linear_tol=solver_settings["krylov_tolerance"],
         linear_max_iters=solver_settings["max_linear_iters"],
+        linear_correction_type=solver_settings["correction_type"],
+        preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
     )
 

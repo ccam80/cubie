@@ -34,6 +34,8 @@ def test_rosenbrock_step_function_accepts_registry_key(
         newton_max_iters=25,
         linear_tol=1e-10,
         linear_max_iters=cpu_system.system.sizes.states,
+        linear_correction_type="minimal_residual",
+        preconditioner_order=2,
         tableau="ros3p",
     )
     assert hasattr(stepper, "tableau")

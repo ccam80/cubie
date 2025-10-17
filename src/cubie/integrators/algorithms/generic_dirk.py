@@ -264,7 +264,6 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 if has_error:
                     error[idx] = typed_zero
-                # stage_base[idx] = state[idx]
                 proposed_state[idx] = state[idx]
 
             status_code = int32(0)
@@ -274,7 +273,13 @@ class DIRKStep(ODEImplicitStep):
 
             stage_time = current_time + dt_value * stage_time_fractions[0]
             stage_drivers = proposed_drivers
+            values_in_cache = False
             if first_same_as_last:
+                for cache_idx in range(n):
+                    if shared[cache_idx] != typed_zero:
+                        values_in_cache = True
+
+            if first_same_as_last and values_in_cache:
                 for i in range(n):
                     # Get stored dxdt
                     stage_rhs[i] = shared[i]
