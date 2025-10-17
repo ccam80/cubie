@@ -177,8 +177,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         stage_count = tableau.stage_count
         multistage = stage_count > 1
         has_driver_function = driver_function is not None
-
+        first_same_as_last = self.first_same_as_last
+        can_reuse_accepted_start = self.can_reuse_accepted_start
         has_error = self.is_adaptive
+
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         jacobian_update_coeffs = tableau.typed_rows(tableau.C, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -187,8 +189,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
+
         accumulator_length = max(stage_count - 1, 0) * n
         cached_auxiliary_count = self.cached_auxiliary_count
+        acc_start = 0
+        acc_end = accumulator_length
+        jac_start = acc_end
+        jac_end = jac_start + accumulator_length
+        aux_start = jac_end
+        aux_end = aux_start + cached_auxiliary_count
 
         # no cover: start
         @cuda.jit(
@@ -232,14 +241,10 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_value
 
-            stage_accumulator = shared[:accumulator_length]
-            jacobian_product_accumulator = shared[
-                accumulator_length: 2 * accumulator_length
-            ]
-            cached_auxiliaries = shared[
-                2 * accumulator_length:
-                2 * accumulator_length + cached_auxiliary_count
-            ]
+            stage_accumulator = shared[acc_start:acc_end]
+            jacobian_product_accumulator = shared[jac_start:jac_end]
+            cached_auxiliaries = shared[aux_start:aux_end]
+            stage_cache = jacobian_product_accumulator[:n]
 
             if multistage:
                 #First block of accumulator is consumed immediately - reuse
@@ -249,7 +254,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
-                jacobian_product_accumulator[idx] = typed_zero
+
 
             prepare_jacobian(
                 state,
@@ -269,19 +274,24 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #            Stage 0: operates out of supplied buffers            #
             # --------------------------------------------------------------- #
-
-            dxdt_fn(
-                state,
-                parameters,
-                drivers_buffer,
-                observables,
-                stage_rhs,
-                current_time,
-            )
-
+            #TODO: find one extra cache vector slot to store stage_increment
+            # and RHS
+            if first_same_as_last:
+                for idx in range(n):
+                    stage_rhs[idx] = stage_cache[idx]
+            else:
+                for idx in range(n):
+                    stage_increment[idx] = stage_cache[idx]
+                dxdt_fn(
+                    state,
+                    parameters,
+                    drivers_buffer,
+                    observables,
+                    stage_rhs,
+                    current_time,
+                )
             for idx in range(n):
-                stage_rhs[idx] = dt_value * stage_rhs[idx] # get full-step
-                # stage state increment
+                stage_rhs[idx] = dt_value * stage_rhs[idx]
 
             status_code |= linear_solver(
                 state,
@@ -307,6 +317,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_increment,
                 jacobian_stage_product,
             )
+
+            for idx in range(accumulator_length):
+                jacobian_product_accumulator[idx] = typed_zero
 
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh obs/drivers                 #
@@ -378,12 +391,18 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs,
                     stage_time,
                 )
+                if stage_idx == stage_count - 1 and first_same_as_last:
+                    for idx in range(n):
+                        stage_cache[idx] = stage_rhs[idx]
 
                 for idx in range(n):
                     rhs_value = stage_rhs[idx]
                     jacobian_term = jacobian_product_accumulator[
                         stage_offset + idx
                     ]
+                    if first_same_as_last and stage_idx == stage_count - 1:
+                        stage_cache[idx] = stage_rhs[idx] #overwrites start
+                        # of jacobian accumulator
                     stage_increment[idx] = typed_zero
                     stage_rhs[idx] = dt_value * (rhs_value + jacobian_term)
 
@@ -430,6 +449,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 proposed_observables,
                 final_time,
             )
+            if not first_same_as_last:
+                for idx in range(n):
+                    stage_cache[idx] = stage_increment[idx]
             return status_code
         # no cover: end
         return StepCache(step=step)

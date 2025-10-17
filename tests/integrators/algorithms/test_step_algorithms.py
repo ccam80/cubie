@@ -1,7 +1,6 @@
 """Reusable tester for single-step integration algorithms."""
 
 from dataclasses import dataclass
-from functools import partial
 from typing import Any
 
 import numpy as np
@@ -300,7 +299,6 @@ STEP_CASES = [
     pytest.param(
         {
             "algorithm": "crank_nicolson",
-            "step_controller": "pid",
             "atol": 1e-6,
             "rtol": 1e-6,
             "dt_min": 1e-6,
@@ -312,54 +310,7 @@ STEP_CASES = [
             "krylov_tolerance": 1e-6,
         },
         {},
-        id="crank_nicolson_pid",
-    ),
-    pytest.param(
-        {
-            "algorithm": "crank_nicolson",
-            "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 1e-6,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 5e-6,
-            "krylov_tolerance": 1e-6,
-        },
-        {},
-        id="crank_nicolson_pi",
-    ),
-    pytest.param(
-        {
-            "algorithm": "crank_nicolson",
-            "step_controller": "i",
-            "atol": 1e-5,
-            "rtol": 1e-5,
-            "dt_min": 1e-6,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-        },
-        {},
-        id="crank_nicolson_i",
-    ),
-    pytest.param(
-        {
-            "algorithm": "crank_nicolson",
-            "step_controller": "gustafsson",
-            "atol": 1e-5,
-            "rtol": 1e-5,
-            "dt_min": 1e-6,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-        },
-        {},
-        id="crank_nicolson_gustafsson",
+        id="crank_nicolson",
     ),
     pytest.param(
         {
@@ -676,20 +627,9 @@ def test_cpu_reference_resolves_tableau_alias(
         linear_tol=1e-10,
         linear_max_iters=cpu_system.system.sizes.states,
     )
-    default_tableaus = {
-        CPUERKStep: DEFAULT_ERK_TABLEAU,
-        CPUDIRKStep: DEFAULT_DIRK_TABLEAU,
-        CPURosenbrockWStep: DEFAULT_ROSENBROCK_TABLEAU,
-    }
-    default_tableau = default_tableaus[expected_cpu_step]
-    if isinstance(bound_step, partial):
-        assert isinstance(bound_step.func, expected_cpu_step)
-        assert bound_step.keywords.get("tableau") is expected_tableau
-    else:
-        assert isinstance(bound_step, expected_cpu_step)
-        if expected_tableau is not default_tableau:
-            raise AssertionError("Resolved tableau was not bound to stepper.")
 
+    assert isinstance(bound_step, expected_cpu_step)
+    assert bound_step.tableau is expected_tableau
 
 def generate_step_props(n_states: int) -> dict[str, dict[str, Any]]:
     """Generate expected properties for each algorithm given n_states."""

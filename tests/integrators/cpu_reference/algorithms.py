@@ -18,6 +18,7 @@ from cubie.integrators.algorithms import (
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
     DIRKTableau,
+    DEFAULT_DIRK_TABLEAU,
 )
 from cubie.integrators.algorithms.generic_erk_tableaus import (
     DEFAULT_ERK_TABLEAU,
@@ -559,6 +560,10 @@ class CPUERKStep(CPUStep):
             linear_max_iters=linear_max_iters,
             tableau=resolved,
         )
+        self._erk_cached_slope = np.zeros(
+            self._state_size, dtype=self.precision
+        )
+        self._erk_has_cached_slope = False
 
     def step(
         self,
@@ -595,6 +600,13 @@ class CPUERKStep(CPUStep):
                 )
             stage_time = current_time + c_nodes[stage_index] * dt_value
             drivers_stage = self.drivers(stage_time)
+            if (
+                stage_index == 0
+                and self.tableau.first_same_as_last
+                and self._erk_has_cached_slope
+            ):
+                stage_derivatives[stage_index, :] = self._erk_cached_slope
+                continue
             observables_stage = self.observables(
                 stage_state,
                 params_array,
@@ -635,6 +647,11 @@ class CPUERKStep(CPUStep):
             drivers_next,
             end_time,
         )
+        if self.tableau.first_same_as_last:
+            self._erk_cached_slope = stage_derivatives[-1, :].copy()
+            self._erk_has_cached_slope = True
+        else:
+            self._erk_has_cached_slope = False
         status = self._status(True, 0)
         return StepResult(new_state, observables, error, status, 0)
 
@@ -653,6 +670,7 @@ class CPUDIRKStep(CPUStep):
         linear_max_iters: int,
         tableau: Optional[DIRKTableau] = None,
     ) -> None:
+        resolved = DEFAULT_DIRK_TABLEAU if tableau is None else tableau
         super().__init__(
             evaluator,
             driver_evaluator,
@@ -671,6 +689,8 @@ class CPUDIRKStep(CPUStep):
         self._dirk_dt_coeff = self.precision(0.0)
         self._dirk_slope = np.zeros(self._state_size, dtype=self.precision)
         self._dirk_increment = np.zeros(self._state_size, dtype=self.precision)
+        self._dirk_has_slope = False
+        self._dirk_has_increment = False
 
     def residual(self, candidate: Array) -> Array:
         base_state = self._dirk_reference
@@ -729,24 +749,35 @@ class CPUDIRKStep(CPUStep):
         all_converged = True
         total_iters = 0
 
+        drivers_now = self.drivers(current_time)
+        observables_now = None
+        derivative_now = None
+
         for stage_index in range(stage_count):
             if stage_index == 0:
-                if self.tableau.first_same_as_last:
+                if (
+                    self.tableau.first_same_as_last
+                    and self._dirk_has_slope
+                ):
                     stage_derivatives[stage_index, :] = self._dirk_slope
-                elif self.tableau.can_reuse_accepted_start:
-                    observables = self.observables(
-                            state,
-                            params_array,
-                            self.drivers(current_time),
-                            current_time,
-                    )
-                    stage_derivatives[stage_index, :] = self.rhs(
+                    continue
+                if self.tableau.can_reuse_accepted_start:
+                    if observables_now is None:
+                        observables_now = self.observables(
                             state_vector,
                             params_array,
-                            self.drivers(current_time),
-                            observables,
+                            drivers_now,
                             current_time,
-                    )
+                        )
+                    if derivative_now is None:
+                        derivative_now = self.rhs(
+                            state_vector,
+                            params_array,
+                            drivers_now,
+                            observables_now,
+                            current_time,
+                        )
+                    stage_derivatives[stage_index, :] = derivative_now
                     continue
 
             stage_state = state_vector.copy()
@@ -758,7 +789,10 @@ class CPUDIRKStep(CPUStep):
                 )
 
             stage_time = current_time + c_nodes[stage_index] * dt_value
-            drivers_stage = self.drivers(stage_time)
+            if stage_index == 0:
+                drivers_stage = drivers_now
+            else:
+                drivers_stage = self.drivers(stage_time)
             diag_coeff = a_matrix[stage_index, stage_index]
 
             if np.isclose(diag_coeff, self.precision(0.0)):
@@ -776,15 +810,25 @@ class CPUDIRKStep(CPUStep):
                     stage_time,
                 )
                 stage_derivatives[stage_index, :] = derivative
+                if stage_index == stage_count - 1:
+                    self._dirk_has_increment = False
                 continue
 
-            self._dirk_reference = stage_state
+            base_state = stage_state.copy()
+            self._dirk_reference = base_state
             self._dirk_params = params_array
             self._dirk_drivers = drivers_stage
             self._dirk_time = stage_time
             self._dirk_dt_coeff = dt_value * diag_coeff
 
-            guess = stage_state.copy()
+            guess = base_state.copy()
+            if (
+                stage_index == 0
+                and not self.tableau.first_same_as_last
+                and not self.tableau.can_reuse_accepted_start
+                and self._dirk_has_increment
+            ):
+                guess = base_state + self._dirk_increment
             solved_state, converged, niters = self.newton_solve(guess)
             all_converged = all_converged and converged
             total_iters += niters
@@ -802,6 +846,12 @@ class CPUDIRKStep(CPUStep):
                 stage_time,
             )
             stage_derivatives[stage_index, :] = derivative
+            if (
+                stage_index == stage_count - 1
+                and not self.tableau.can_reuse_accepted_start
+            ):
+                self._dirk_increment = solved_state - base_state
+                self._dirk_has_increment = True
 
         state_accum = np.zeros_like(state_vector)
         error_accum = np.zeros_like(state_vector)
@@ -826,6 +876,11 @@ class CPUDIRKStep(CPUStep):
         )
         if self.tableau.first_same_as_last:
             self._dirk_slope = stage_derivatives[-1, :].copy()
+            self._dirk_has_slope = True
+        else:
+            self._dirk_has_slope = False
+        if self.tableau.can_reuse_accepted_start:
+            self._dirk_has_increment = False
         status = self._status(all_converged, total_iters)
         return StepResult(
             new_state,
@@ -847,7 +902,8 @@ class CPURosenbrockWStep(CPUStep):
         newton_tol: float,
         newton_max_iters: int,
         linear_tol: float,
-        linear_max_iters: int,        tableau: Optional[RosenbrockTableau] = None,
+        linear_max_iters: int,
+        tableau: Optional[RosenbrockTableau] = None,
     ) -> None:
         resolved = (
             DEFAULT_ROSENBROCK_TABLEAU if tableau is None else tableau
@@ -858,8 +914,13 @@ class CPURosenbrockWStep(CPUStep):
             newton_tol=newton_tol,
             newton_max_iters=newton_max_iters,
             linear_tol=linear_tol,
-            linear_max_iters=linear_max_iters,            tableau=resolved,
+            linear_max_iters=linear_max_iters,
+            tableau=resolved,
         )
+        self._rosenbrock_cached_slope = np.zeros(
+            self._state_size, dtype=self.precision
+        )
+        self._rosenbrock_has_cached_slope = False
     @property
     def C_matrix(self) -> Optional[Array]:
         """Return the Jacobian update coefficients."""
@@ -915,13 +976,16 @@ class CPURosenbrockWStep(CPUStep):
             drivers_now,
             current_time,
         )
-        derivative_now = self.rhs(
-            state_vector,
-            params_array,
-            drivers_now,
-            observables_now,
-            current_time,
-        )
+        if self._rosenbrock_has_cached_slope:
+            derivative_now = self._rosenbrock_cached_slope.copy()
+        else:
+            derivative_now = self.rhs(
+                state_vector,
+                params_array,
+                drivers_now,
+                observables_now,
+                current_time,
+            )
         jacobian_now = self.evaluator.jacobian(
             state_vector,
             params_array,
@@ -942,6 +1006,7 @@ class CPURosenbrockWStep(CPUStep):
         rhs = np.zeros_like(state_vector)
 
         drivers_stage = drivers_now
+        last_stage_derivative = derivative_now
         for stage_index in range(stage_count):
             stage_time = current_time + c_nodes[stage_index] * dt_value
             if stage_index == 0:
@@ -963,6 +1028,7 @@ class CPURosenbrockWStep(CPUStep):
                     observables_stage,
                     stage_time,
                 )
+            last_stage_derivative = derivative_stage
 
             rhs[:] = dt_value * derivative_stage
             if stage_index > 0 and np.any(
@@ -1000,6 +1066,8 @@ class CPURosenbrockWStep(CPUStep):
             drivers_end,
             end_time,
         )
+        self._rosenbrock_cached_slope = last_stage_derivative.copy()
+        self._rosenbrock_has_cached_slope = True
         status = self._status(True, 0)
         return StepResult(new_state, observables, error_accum, status, 0)
 

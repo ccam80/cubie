@@ -47,13 +47,6 @@ class ERKStepConfig(ExplicitStepConfig):
 
         return self.tableau.first_same_as_last
 
-    @property
-    def can_reuse_accepted_start(self) -> bool:
-        """Return ``True`` when the accepted state can seed the next step."""
-
-        return self.tableau.can_reuse_accepted_start
-
-
 class ERKStep(ODEExplicitStep):
     """Generic explicit Runge--Kutta step with configurable tableaus."""
 
@@ -115,6 +108,7 @@ class ERKStep(ODEExplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
         accumulator_length = max(stage_count - 1, 0) * n
+        first_same_as_last = self.first_same_as_last
 
         # no cover: start
         @cuda.jit(
@@ -158,9 +152,7 @@ class ERKStep(ODEExplicitStep):
             end_time = current_time + dt_value
 
             stage_accumulator = shared[:accumulator_length]
-
-            for idx in range(accumulator_length):
-                stage_accumulator[idx] = typed_zero
+            stage_cache = stage_accumulator[:n]
 
             for idx in range(n):
                 proposed_state[idx] = state[idx]
@@ -172,20 +164,27 @@ class ERKStep(ODEExplicitStep):
             #            Stage 0: operates out of supplied buffers          #
             # ----------------------------------------------------------- #
 
-            dxdt_fn(
-                state,
-                parameters,
-                drivers_buffer,
-                observables,
-                stage_rhs,
-                current_time,
-            )
+            if first_same_as_last:
+                for idx in range(n):
+                    stage_rhs[idx] = stage_cache[idx]
+            else:
+                dxdt_fn(
+                    state,
+                    parameters,
+                    drivers_buffer,
+                    observables,
+                    stage_rhs,
+                    current_time,
+                )
 
             for idx in range(n):
                 increment = dt_value * stage_rhs[idx]
                 proposed_state[idx] += solution_weights[0] * increment
                 if has_error:
                     error[idx] += error_weights[0] * increment
+
+            for idx in range(accumulator_length):
+                stage_accumulator[idx] = typed_zero
 
             # ----------------------------------------------------------- #
             #            Stages 1-s: refresh observables and drivers       #
@@ -274,6 +273,9 @@ class ERKStep(ODEExplicitStep):
                 proposed_observables,
                 final_time,
             )
+            if first_same_as_last:
+                for idx in range(n):
+                    stage_cache[idx] = stage_rhs[idx]
             return int32(0)
 
         return StepCache(step=step)
@@ -316,22 +318,3 @@ class ERKStep(ODEExplicitStep):
         """Return the number of CUDA threads that advance one state."""
 
         return 1
-
-    @property
-    def tableau(self) -> ERKTableau:
-        """Return the tableau used by the integrator."""
-
-        return self.compile_settings.tableau
-
-    @property
-    def first_same_as_last(self) -> bool:
-        """Return ``True`` when the first and last stages align."""
-
-        return self.tableau.first_same_as_last
-
-    @property
-    def can_reuse_accepted_start(self) -> bool:
-        """Return ``True`` when the accepted state seeds the next proposal."""
-
-        return self.tableau.can_reuse_accepted_start
-
