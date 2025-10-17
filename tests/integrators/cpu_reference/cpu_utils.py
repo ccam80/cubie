@@ -139,6 +139,74 @@ class DriverEvaluator:
         )
 
 
+def krylov_solve(
+    matrix: Array,
+    rhs: Array,
+    *,
+    tolerance: np.floating,
+    max_iterations: int,
+    precision: np.dtype,
+) -> tuple[Array, bool, int]:
+    """Solve ``matrix @ x = rhs`` using steepest descent iterations.
+
+    Parameters
+    ----------
+    matrix
+        Square system matrix.
+    rhs
+        Right-hand side vector.
+    tolerance
+        Convergence tolerance on the residual norm.
+    max_iterations
+        Maximum iteration count for the descent loop.
+    precision
+        Floating-point precision to use for the iteration.
+
+    Returns
+    -------
+    tuple[Array, bool, int]
+        Solution vector, convergence flag, and iteration count.
+    """
+
+    coefficients = np.asarray(matrix, dtype=precision)
+    vector = np.asarray(rhs, dtype=precision)
+
+    if (
+        coefficients.ndim != 2
+        or coefficients.shape[0] != coefficients.shape[1]
+    ):
+        raise ValueError("System matrix must be square.")
+    if vector.ndim != 1 or vector.shape[0] != coefficients.shape[0]:
+        raise ValueError("Right-hand side must match the system dimension.")
+
+    tol_value = precision(tolerance)
+    iteration_limit = max(1, int(max_iterations))
+
+    solution = np.zeros_like(vector)
+    residual = vector - coefficients @ solution
+    residual_norm = np.linalg.norm(residual)
+    if residual_norm <= tol_value:
+        return solution, True, 0
+
+    converged = False
+    iteration = 0
+    for iteration in range(1, iteration_limit + 1):
+        Ar = coefficients @ residual
+        numerator = np.dot(residual, residual)
+        denominator = np.dot(residual, Ar)
+        if denominator == precision(0.0):
+            break
+        alpha = numerator / denominator
+        solution = solution + alpha * residual
+        residual = residual - alpha * Ar
+        residual_norm = np.linalg.norm(residual)
+        if residual_norm <= tol_value:
+            converged = True
+            break
+
+    return solution, converged, iteration
+
+
 __all__ = [
     "Array",
     "DriverEvaluator",
@@ -146,4 +214,5 @@ __all__ = [
     "StepResult",
     "_encode_solver_status",
     "_ensure_array",
+    "krylov_solve",
 ]

@@ -8,7 +8,6 @@ from .algorithms import (
     erk_step,
     explicit_euler_step,
     get_ref_step_factory,
-    get_ref_step_function,
     get_ref_stepper,
     rosenbrock_step,
 )
@@ -32,7 +31,6 @@ __all__ = [
     "erk_step",
     "explicit_euler_step",
     "get_ref_step_factory",
-    "get_ref_step_function",
     "get_ref_stepper",
     "rosenbrock_step",
     "run_reference_loop",

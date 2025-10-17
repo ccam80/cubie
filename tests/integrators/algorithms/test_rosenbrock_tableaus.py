@@ -8,7 +8,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     ROS3P_TABLEAU,
     ROSENBROCK_TABLEAUS,
 )
-from tests.integrators.cpu_reference import get_ref_step_function
+from tests.integrators.cpu_reference import CPUODESystem, get_ref_stepper
 
 
 def test_rosenbrock_registry_contains_expected_tableaus():
@@ -20,11 +20,24 @@ def test_rosenbrock_registry_contains_expected_tableaus():
     assert DEFAULT_ROSENBROCK_TABLEAU is ROS3P_TABLEAU
 
 
-def test_rosenbrock_step_function_accepts_registry_key():
+def test_rosenbrock_step_function_accepts_registry_key(
+    cpu_system: CPUODESystem,
+    cpu_driver_evaluator,
+):
     """CPU reference stepper should resolve registry keys."""
 
-    stepper = get_ref_step_function("rosenbrock", tableau="ros3p")
-    assert stepper.keywords["tableau"] is ROSENBROCK_TABLEAUS["ros3p"]
+    stepper = get_ref_stepper(
+        cpu_system,
+        cpu_driver_evaluator,
+        "rosenbrock",
+        newton_tol=1e-10,
+        newton_max_iters=25,
+        linear_tol=1e-10,
+        linear_max_iters=cpu_system.system.sizes.states,
+        tableau="ros3p",
+    )
+    assert hasattr(stepper, "tableau")
+    assert stepper.tableau is ROSENBROCK_TABLEAUS["ros3p"]
 
 @pytest.mark.parametrize(
     "solver_settings_override, system_override",

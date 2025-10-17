@@ -93,6 +93,10 @@ def run_reference_loop(
         evaluator,
         driver_evaluator,
         solver_settings["algorithm"],
+        newton_tol=solver_settings["newton_tolerance"],
+        newton_max_iters=solver_settings["max_newton_iters"],
+        linear_tol=solver_settings["krylov_tolerance"],
+        linear_max_iters=solver_settings["max_linear_iters"],
         tableau=tableau,
     )
 
@@ -134,7 +138,6 @@ def run_reference_loop(
         time_history = [t]
 
     end_time = precision(warmup + duration)
-    max_iters = solver_settings["max_newton_iters"]
     fixed_steps_per_save = int(np.ceil(dt_save / controller.dt))
     fixed_step_count = 0
     equality_breaker = (
@@ -162,8 +165,6 @@ def run_reference_loop(
             state=state,
             params=params,
             dt=dt,
-            tol=solver_settings["newton_tolerance"],
-            max_iters=max_iters,
             time=precision(t),
         )
 

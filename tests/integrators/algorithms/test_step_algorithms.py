@@ -668,7 +668,14 @@ def test_cpu_reference_resolves_tableau_alias(
 ):
     """CPU reference helpers should resolve alias tableaus consistently."""
     factory = get_ref_step_factory(alias_key)
-    bound_step = factory(cpu_system, cpu_driver_evaluator)
+    bound_step = factory(
+        cpu_system,
+        cpu_driver_evaluator,
+        newton_tol=1e-10,
+        newton_max_iters=25,
+        linear_tol=1e-10,
+        linear_max_iters=cpu_system.system.sizes.states,
+    )
     default_tableaus = {
         CPUERKStep: DEFAULT_ERK_TABLEAU,
         CPUDIRKStep: DEFAULT_DIRK_TABLEAU,
@@ -833,6 +840,7 @@ def device_step_results(
         driver_function(precision(0.0), driver_coefficients, drivers_vec)
         observables_function(state, params_vec, drivers_vec, observables_vec,
                              precision(0.0))
+        shared[:] = precision(0.0)
         result = step_function(
             state_vec,
             proposed_vec,
@@ -901,6 +909,10 @@ def cpu_step_results(
         cpu_system,
         driver_evaluator,
         solver_settings["algorithm"],
+        newton_tol=solver_settings["newton_tolerance"],
+        newton_max_iters=solver_settings["max_newton_iters"],
+        linear_tol=solver_settings["krylov_tolerance"],
+        linear_max_iters=solver_settings["max_linear_iters"],
         tableau=tableau,
     )
 
@@ -908,7 +920,6 @@ def cpu_step_results(
         state=state,
         params=params,
         dt=dt,
-        tol=solver_settings['newton_tolerance'],
         time=0.0,
     )
 

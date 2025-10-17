@@ -594,6 +594,10 @@ def run_reference_loop_with_history(
         evaluator,
         driver_fn,
         solver_settings["algorithm"],
+        newton_tol=implicit_step_settings["newton_tolerance"],
+        newton_max_iters=implicit_step_settings["max_newton_iters"],
+        linear_tol=implicit_step_settings["krylov_tolerance"],
+        linear_max_iters=implicit_step_settings["max_linear_iters"],
         tableau=tableau,
     )
 
@@ -627,7 +631,6 @@ def run_reference_loop_with_history(
         time_history.append(float(t))
 
     end_time = precision(warmup + duration)
-    max_iters = implicit_step_settings["max_newton_iters"]
     timesave=0
     equality_breaker = (
         precision(1e-7) if precision is np.float32 else precision(1e-14)
@@ -656,8 +659,6 @@ def run_reference_loop_with_history(
             state=state,
             params=params,
             dt=dt,
-            tol=implicit_step_settings["newton_tolerance"],
-            max_iters=max_iters,
             time=precision(t),
         )
 

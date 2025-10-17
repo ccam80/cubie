@@ -1,7 +1,6 @@
 """CPU reference implementations for integrator step algorithms."""
 
-from functools import partial
-from typing import Callable, Optional, Sequence, Union
+from typing import Callable, Optional, Sequence, Union, Any
 
 import numpy as np
 
@@ -18,7 +17,6 @@ from cubie.integrators.algorithms import (
 )
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 from cubie.integrators.algorithms.generic_dirk_tableaus import (
-    DEFAULT_DIRK_TABLEAU,
     DIRKTableau,
 )
 from cubie.integrators.algorithms.generic_erk_tableaus import (
@@ -36,6 +34,7 @@ from .cpu_utils import (
     DriverEvaluator,
     StepResult,
     _encode_solver_status,
+    krylov_solve,
 )
 
 StepCallable = Callable[..., StepResult]
@@ -48,12 +47,94 @@ class CPUStep:
         self,
         evaluator: CPUODESystem,
         driver_evaluator: DriverEvaluator,
+        *,
+        newton_tol: float,
+        newton_max_iters: int,
+        linear_tol: float,
+        linear_max_iters: int,
+        tableau: Optional[ButcherTableau] = None,
     ) -> None:
         self.evaluator = evaluator
         self.driver_evaluator = driver_evaluator
         self.precision = evaluator.precision
         self._state_size = evaluator.system.sizes.states
         self._identity = np.eye(self._state_size, dtype=self.precision)
+        self._newton_tol = self.precision(newton_tol)
+        self._newton_max_iters = int(newton_max_iters)
+        self._linear_tol = self.precision(linear_tol)
+        self._linear_max_iters = int(linear_max_iters)
+        self.tableau = tableau
+
+    def _tableau_rows(
+        self, values: Optional[Sequence[Sequence[float]]]
+    ) -> Optional[Array]:
+        """Return ``values`` typed to the step precision when available."""
+
+        if values is None or self.tableau is None:
+            return None
+        typed_rows = self.tableau.typed_rows(values, self.precision)
+        return np.asarray(typed_rows, dtype=self.precision)
+
+    def _tableau_vector(
+        self, values: Optional[Sequence[float]]
+    ) -> Optional[Array]:
+        """Return ``values`` typed to the step precision when available."""
+
+        if values is None or self.tableau is None:
+            return None
+        typed_values = self.tableau.typed_vector(values, self.precision)
+        return np.asarray(typed_values, dtype=self.precision)
+
+    @property
+    def stage_count(self) -> Optional[int]:
+        """Return the number of stages described by the tableau."""
+
+        if self.tableau is None:
+            return None
+        return getattr(self.tableau, "stage_count", None)
+
+    @property
+    def first_same_as_last(self) -> Optional[bool]:
+        """Return whether the tableau shares its first and last stage."""
+
+        if self.tableau is None:
+            return None
+        return getattr(self.tableau, "first_same_as_last", None)
+
+    @property
+    def a_matrix(self) -> Optional[Array]:
+        """Return the stage coupling coefficients."""
+
+        if self.tableau is None:
+            return None
+        return self._tableau_rows(getattr(self.tableau, "a", None))
+
+    @property
+    def b_weights(self) -> Optional[Array]:
+        """Return the weights for combining stage derivatives."""
+
+        if self.tableau is None:
+            return None
+        return self._tableau_vector(getattr(self.tableau, "b", None))
+
+    @property
+    def c_nodes(self) -> Optional[Array]:
+        """Return the substage time nodes."""
+
+        if self.tableau is None:
+            return None
+        return self._tableau_vector(getattr(self.tableau, "c", None))
+
+    @property
+    def error_weights(self) -> Optional[Array]:
+        """Return embedded error weights when available."""
+
+        if self.tableau is None:
+            return None
+        weights = self.tableau.error_weights(self.precision)
+        if weights is None:
+            return None
+        return np.asarray(weights, dtype=self.precision)
 
     def __call__(self, **kwargs: object) -> StepResult:
         return self.step(**kwargs)
@@ -80,6 +161,9 @@ class CPUStep:
 
     def drivers(self, time: np.floating) -> Array:
         return self.driver_evaluator(self.precision(time))
+
+    def mass_matrix_apply(self, vector: Array) -> Array:
+        return vector
 
     def observables(
         self,
@@ -129,29 +213,31 @@ class CPUStep:
         )
         return observables, jacobian
 
-    def newton_solve(
-        self,
-        initial_guess: Array,
-        tol: Optional[float],
-        max_iters: Optional[int],
-    ) -> tuple[Array, bool, int]:
-        tol_value = (
-            self.precision(1e-10) if tol is None else self.precision(tol)
-        )
-        max_iters_value = 25 if max_iters is None else int(max_iters)
+    def newton_solve(self, initial_guess: Array) -> tuple[Array, bool, int]:
         state = self.ensure_array(initial_guess, copy=True)
-        for iteration in range(max_iters_value):
+        for iteration in range(self._newton_max_iters):
             residual = self.residual(state)
             norm = np.linalg.norm(residual, ord=2)
-            if norm < tol_value:
+            if norm < self._newton_tol:
                 return state, True, iteration + 1
             jacobian = self.jacobian(state)
-            try:
-                delta = np.linalg.solve(jacobian, -residual)
-            except np.linalg.LinAlgError:
-                delta = np.linalg.lstsq(jacobian, -residual, rcond=None)[0]
+            delta, _, _ = self.linear_solve(jacobian, -residual)
             state = state + np.asarray(delta, dtype=self.precision)
-        return state, False, max_iters_value
+        return state, False, self._newton_max_iters
+
+    def linear_solve(
+        self,
+        matrix: Array,
+        rhs: Array,
+    ) -> tuple[Array, bool, int]:
+        solution, converged, niters = krylov_solve(
+            matrix,
+            rhs,
+            tolerance=self._linear_tol,
+            max_iterations=self._linear_max_iters,
+            precision=self.precision,
+        )
+        return np.asarray(solution, dtype=self.precision), converged, niters
 
     def residual(self, candidate: Array) -> Array:
         raise NotImplementedError
@@ -178,8 +264,6 @@ class CPUExplicitEulerStep(CPUStep):
         state: Optional[Array] = None,
         params: Optional[Array] = None,
         dt: Optional[float] = None,
-        tol: Optional[float] = None,
-        max_iters: Optional[int] = None,
         time: float = 0.0,
     ) -> StepResult:
         state_vector = self.ensure_array(state, copy=True)
@@ -223,29 +307,47 @@ class CPUBackwardEulerStep(CPUStep):
         self,
         evaluator: CPUODESystem,
         driver_evaluator: DriverEvaluator,
+        newton_tol: float,
+        newton_max_iters: int,
+        linear_tol: float,
+        linear_max_iters: int,
     ) -> None:
-        super().__init__(evaluator, driver_evaluator)
+        super().__init__(
+            evaluator,
+            driver_evaluator,
+            newton_tol=newton_tol,
+            newton_max_iters=newton_max_iters,
+            linear_tol=linear_tol,
+            linear_max_iters=linear_max_iters,
+        )
         self._be_state = np.zeros(self._state_size, dtype=self.precision)
         self._be_params = np.zeros(0, dtype=self.precision)
         self._be_drivers = np.zeros(0, dtype=self.precision)
         self._be_time = self.precision(0.0)
         self._be_dt = self.precision(0.0)
+        self._be_increment = np.zeros(self._state_size, dtype=self.precision)
 
     def residual(self, candidate: Array) -> Array:
+        base_state = self._be_state
+        increment = candidate - base_state
+        stage_state = base_state + increment
         observables = self.observables(
-            candidate,
+            stage_state,
             self._be_params,
             self._be_drivers,
             self._be_time,
         )
         derivative = self.rhs(
-            candidate,
+            stage_state,
             self._be_params,
             self._be_drivers,
             observables,
             self._be_time,
         )
-        return candidate - self._be_state - self._be_dt * derivative
+        beta = self.precision(1.0)
+        gamma = self.precision(1.0)
+        mass_term = self.mass_matrix_apply(increment)
+        return beta * mass_term - gamma * self._be_dt * derivative
 
     def jacobian(self, candidate: Array) -> Array:
         observables, jacobian = self.observables_and_jac(
@@ -262,9 +364,7 @@ class CPUBackwardEulerStep(CPUStep):
         state: Optional[Array] = None,
         params: Optional[Array] = None,
         dt: Optional[float] = None,
-        tol: Optional[float] = None,
         initial_guess: Optional[Array] = None,
-        max_iters: int = 25,
         time: float = 0.0,
     ) -> StepResult:
         state_vector = self.ensure_array(state, copy=True)
@@ -281,15 +381,12 @@ class CPUBackwardEulerStep(CPUStep):
         self._be_dt = dt_value
 
         if initial_guess is None:
-            guess = state_vector.copy()
+            guess = self._be_increment
         else:
             guess = self.ensure_array(initial_guess, copy=True)
 
-        next_state, converged, niters = self.newton_solve(
-            guess,
-            tol,
-            max_iters,
-        )
+        next_state, converged, niters = self.newton_solve(guess)
+
         observables = self.observables(
             next_state,
             params_array,
@@ -298,6 +395,7 @@ class CPUBackwardEulerStep(CPUStep):
         )
         error = np.zeros_like(next_state, dtype=self.precision)
         status = self._status(converged, niters)
+        self._be_increment = next_state - state_vector
         return StepResult(next_state, observables, error, status, niters)
 
 
@@ -309,9 +407,20 @@ class CPUCrankNicolsonStep(CPUStep):
         evaluator: CPUODESystem,
         driver_evaluator: DriverEvaluator,
         *,
+        newton_tol: float,
+        newton_max_iters: int,
+        linear_tol: float,
+        linear_max_iters: int,
         backward_step: Optional[CPUBackwardEulerStep] = None,
     ) -> None:
-        super().__init__(evaluator, driver_evaluator)
+        super().__init__(
+            evaluator,
+            driver_evaluator,
+            newton_tol=newton_tol,
+            newton_max_iters=newton_max_iters,
+            linear_tol=linear_tol,
+            linear_max_iters=linear_max_iters,
+        )
         self._cn_previous_state = np.zeros(
             self._state_size, dtype=self.precision
         )
@@ -322,30 +431,39 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_drivers_next = np.zeros(0, dtype=self.precision)
         self._cn_next_time = self.precision(0.0)
         self._cn_half_dt = self.precision(0.0)
+        self._cn_base_state = np.zeros(self._state_size, dtype=self.precision)
         if backward_step is None:
-            backward_step = CPUBackwardEulerStep(evaluator, driver_evaluator)
-        self._backward = backward_step
+            backward_step = CPUBackwardEulerStep(
+                evaluator,
+                driver_evaluator,
+                newton_tol=newton_tol,
+                newton_max_iters=newton_max_iters,
+                linear_tol=linear_tol,
+                linear_max_iters=linear_max_iters,
+            )
+            self._backward = backward_step
 
     def residual(self, candidate: Array) -> Array:
+        base_state = self._cn_base_state
+        increment = candidate - base_state
+        stage_state = base_state + increment
         observables = self.observables(
-            candidate,
+            stage_state,
             self._cn_params,
             self._cn_drivers_next,
             self._cn_next_time,
         )
         derivative = self.rhs(
-            candidate,
+            stage_state,
             self._cn_params,
             self._cn_drivers_next,
             observables,
             self._cn_next_time,
         )
-        return (
-            candidate
-            - self._cn_previous_state
-            - self._cn_half_dt
-            * (self._cn_previous_derivative + derivative)
-        )
+        beta = self.precision(1.0)
+        gamma = self.precision(1.0)
+        mass_term = self.mass_matrix_apply(increment)
+        return beta * mass_term - gamma * self._cn_half_dt * derivative
 
     def jacobian(self, candidate: Array) -> Array:
         observables, jacobian = self.observables_and_jac(
@@ -362,8 +480,6 @@ class CPUCrankNicolsonStep(CPUStep):
         state: Optional[Array] = None,
         params: Optional[Array] = None,
         dt: Optional[float] = None,
-        tol: Optional[float] = None,
-        max_iters: int = 25,
         time: float = 0.0,
     ) -> StepResult:
         state_vector = self.ensure_array(state, copy=True)
@@ -394,13 +510,13 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_drivers_next = drivers_next
         self._cn_next_time = next_time
         self._cn_half_dt = self.precision(0.5) * dt_value
+        self._cn_base_state = (
+            state_vector + self._cn_half_dt * derivative_now
+        )
 
         guess = state_vector.copy()
-        next_state, converged, niters = self.newton_solve(
-            guess,
-            tol,
-            max_iters,
-        )
+        next_state, converged, niters = self.newton_solve(guess)
+
         observables = self.observables(
             next_state,
             params_array,
@@ -411,9 +527,7 @@ class CPUCrankNicolsonStep(CPUStep):
             state=state_vector,
             params=params_array,
             dt=dt_value,
-            tol=tol,
             initial_guess=next_state,
-            max_iters=max_iters,
             time=current_time,
         )
         error = next_state - backward_result.state
@@ -424,35 +538,47 @@ class CPUCrankNicolsonStep(CPUStep):
 class CPUERKStep(CPUStep):
     """Explicit Runge--Kutta step implementation."""
 
+    def __init__(
+        self,
+        evaluator: CPUODESystem,
+        driver_evaluator: DriverEvaluator,
+        *,
+        newton_tol: float,
+        newton_max_iters: int,
+        linear_tol: float,
+        linear_max_iters: int,
+        tableau: Optional[ERKTableau] = None,
+    ) -> None:
+        resolved = DEFAULT_ERK_TABLEAU if tableau is None else tableau
+        super().__init__(
+            evaluator,
+            driver_evaluator,
+            newton_tol=newton_tol,
+            newton_max_iters=newton_max_iters,
+            linear_tol=linear_tol,
+            linear_max_iters=linear_max_iters,
+            tableau=resolved,
+        )
+
     def step(
         self,
         *,
         state: Optional[Array] = None,
         params: Optional[Array] = None,
         dt: Optional[float] = None,
-        tol: Optional[float] = None,
-        max_iters: Optional[int] = None,
         time: float = 0.0,
-        tableau: Optional[ERKTableau] = None,
     ) -> StepResult:
         state_vector = self.ensure_array(state, copy=True)
         params_array = self.ensure_array(params)
         dt_value = self.precision(dt)
         current_time = self.precision(time)
 
-        tableau_value = DEFAULT_ERK_TABLEAU if tableau is None else tableau
-        stage_count = tableau_value.stage_count
-        a_matrix = _tableau_matrix(
-            tableau_value.a,
-            stage_count,
-            self.precision,
-        )
-        b_weights = _tableau_vector(tableau_value.b, self.precision)
-        if tableau_value.d is None:
-            error_weights = np.zeros(stage_count, dtype=self.precision)
-        else:
-            error_weights = _tableau_vector(tableau_value.d, self.precision)
-        c_nodes = _tableau_vector(tableau_value.c, self.precision)
+        stage_count = self.stage_count
+        a_matrix = self.a_matrix
+        b_weights = self.b_weights
+        c_nodes = self.c_nodes
+        error_weights = self.error_weights
+
 
         stage_derivatives = np.zeros(
             (stage_count, state_vector.shape[0]),
@@ -491,12 +617,15 @@ class CPUERKStep(CPUStep):
             )
         new_state = state_vector + dt_value * state_update
 
-        error_update = np.zeros_like(state_vector)
-        for stage_index in range(stage_count):
-            error_update = error_update + (
-                error_weights[stage_index] * stage_derivatives[stage_index]
-            )
-        error = dt_value * error_update
+        error = np.zeros_like(state_vector)
+        if error_weights is not None:
+            error_update = np.zeros_like(state_vector)
+            for stage_index in range(stage_count):
+                error_update = error_update + (
+                    error_weights[stage_index]
+                    * stage_derivatives[stage_index]
+                )
+            error = dt_value * error_update
 
         end_time = current_time + dt_value
         drivers_next = self.drivers(end_time)
@@ -517,8 +646,22 @@ class CPUDIRKStep(CPUStep):
         self,
         evaluator: CPUODESystem,
         driver_evaluator: DriverEvaluator,
+        *,
+        newton_tol: float,
+        newton_max_iters: int,
+        linear_tol: float,
+        linear_max_iters: int,
+        tableau: Optional[DIRKTableau] = None,
     ) -> None:
-        super().__init__(evaluator, driver_evaluator)
+        super().__init__(
+            evaluator,
+            driver_evaluator,
+            newton_tol=newton_tol,
+            newton_max_iters=newton_max_iters,
+            linear_tol=linear_tol,
+            linear_max_iters=linear_max_iters,
+            tableau=tableau,
+        )
         self._dirk_reference = np.zeros(
             self._state_size, dtype=self.precision
         )
@@ -530,20 +673,25 @@ class CPUDIRKStep(CPUStep):
         self._dirk_increment = np.zeros(self._state_size, dtype=self.precision)
 
     def residual(self, candidate: Array) -> Array:
+        base_state = self._dirk_reference
+        increment = candidate - base_state
+        stage_state = base_state + increment
         observables = self.observables(
-            candidate,
+            stage_state,
             self._dirk_params,
             self._dirk_drivers,
             self._dirk_time,
         )
         derivative = self.rhs(
-            candidate,
+            stage_state,
             self._dirk_params,
             self._dirk_drivers,
             observables,
             self._dirk_time,
         )
-        return candidate - self._dirk_reference - self._dirk_dt_coeff * derivative
+        beta = self.precision(1.0)
+        mass_term = self.mass_matrix_apply(increment)
+        return beta * mass_term - self._dirk_dt_coeff * derivative
 
     def jacobian(self, candidate: Array) -> Array:
         observables, jacobian = self.observables_and_jac(
@@ -560,49 +708,32 @@ class CPUDIRKStep(CPUStep):
         state: Optional[Array] = None,
         params: Optional[Array] = None,
         dt: Optional[float] = None,
-        tol: Optional[float] = None,
-        max_iters: Optional[int] = None,
         time: float = 0.0,
-        tableau: DIRKTableau = DEFAULT_DIRK_TABLEAU,
     ) -> StepResult:
         state_vector = self.ensure_array(state, copy=True)
         params_array = self.ensure_array(params)
         dt_value = self.precision(dt)
         current_time = self.precision(time)
 
-        tableau_value = tableau
-        stage_count = tableau_value.stage_count
-        a_matrix = _tableau_matrix(
-            tableau_value.a,
-            stage_count,
-            self.precision,
-        )
-        b_weights = _tableau_vector(tableau_value.b, self.precision)
-        if tableau_value.d is None:
-            error_weights = np.zeros(stage_count, dtype=self.precision)
-        else:
-            error_weights = _tableau_vector(tableau_value.d, self.precision)
-        c_nodes = _tableau_vector(tableau_value.c, self.precision)
+        stage_count = self.stage_count
+        a_matrix = self.a_matrix
+        b_weights = self.b_weights
+        c_nodes = self.c_nodes
+        error_weights = self.error_weights
 
         stage_derivatives = np.zeros(
             (stage_count, state_vector.shape[0]),
             dtype=self.precision,
         )
 
-        tol_value = (
-            self.precision(1e-10)
-            if tol is None
-            else self.precision(tol)
-        )
-        max_iters_value = 25 if max_iters is None else int(max_iters)
         all_converged = True
         total_iters = 0
 
         for stage_index in range(stage_count):
             if stage_index == 0:
-                if tableau.first_same_as_last:
+                if self.tableau.first_same_as_last:
                     stage_derivatives[stage_index, :] = self._dirk_slope
-                elif tableau.can_reuse_accepted_start:
+                elif self.tableau.can_reuse_accepted_start:
                     observables = self.observables(
                             state,
                             params_array,
@@ -654,11 +785,7 @@ class CPUDIRKStep(CPUStep):
             self._dirk_dt_coeff = dt_value * diag_coeff
 
             guess = stage_state.copy()
-            solved_state, converged, niters = self.newton_solve(
-                guess,
-                tol_value,
-                max_iters_value,
-            )
+            solved_state, converged, niters = self.newton_solve(guess)
             all_converged = all_converged and converged
             total_iters += niters
             observables_stage = self.observables(
@@ -682,9 +809,11 @@ class CPUDIRKStep(CPUStep):
             state_accum = state_accum + (
                 b_weights[stage_index] * stage_derivatives[stage_index]
             )
-            error_accum = error_accum + (
-                error_weights[stage_index] * stage_derivatives[stage_index]
-            )
+            if error_weights is not None:
+                error_accum = error_accum + (
+                    error_weights[stage_index]
+                    * stage_derivatives[stage_index]
+                )
 
         new_state = state_vector + dt_value * state_accum
         end_time = current_time + dt_value
@@ -695,9 +824,8 @@ class CPUDIRKStep(CPUStep):
             drivers_next,
             end_time,
         )
-        if tableau.first_same_as_last:
+        if self.tableau.first_same_as_last:
             self._dirk_slope = stage_derivatives[-1, :].copy()
-
         status = self._status(all_converged, total_iters)
         return StepResult(
             new_state,
@@ -711,6 +839,49 @@ class CPUDIRKStep(CPUStep):
 class CPURosenbrockWStep(CPUStep):
     """Rosenbrock--W step implementation."""
 
+    def __init__(
+        self,
+        evaluator: CPUODESystem,
+        driver_evaluator: DriverEvaluator,
+        *,
+        newton_tol: float,
+        newton_max_iters: int,
+        linear_tol: float,
+        linear_max_iters: int,        tableau: Optional[RosenbrockTableau] = None,
+    ) -> None:
+        resolved = (
+            DEFAULT_ROSENBROCK_TABLEAU if tableau is None else tableau
+        )
+        super().__init__(
+            evaluator,
+            driver_evaluator,
+            newton_tol=newton_tol,
+            newton_max_iters=newton_max_iters,
+            linear_tol=linear_tol,
+            linear_max_iters=linear_max_iters,            tableau=resolved,
+        )
+    @property
+    def C_matrix(self) -> Optional[Array]:
+        """Return the Jacobian update coefficients."""
+
+        tableau = self.tableau
+        if tableau is None or not hasattr(tableau, "C"):
+            return None
+        C_values = getattr(tableau, "C")
+        if C_values is None:
+            return None
+        typed_rows = tableau.typed_rows(C_values, self.precision)
+        return np.asarray(typed_rows, dtype=self.precision)
+
+    @property
+    def gamma(self) -> Optional[np.floating[Any]]:
+        """Return the stage Jacobian shift."""
+
+        tableau = self.tableau
+        if tableau is None or not hasattr(tableau, "gamma"):
+            return None
+        return self.precision(getattr(tableau, "gamma"))
+
     def step(
         self,
         *,
@@ -720,7 +891,6 @@ class CPURosenbrockWStep(CPUStep):
         tol: Optional[float] = None,
         max_iters: Optional[int] = None,
         time: float = 0.0,
-        tableau: Optional[RosenbrockTableau] = None,
     ) -> StepResult:
         state_vector = self.ensure_array(state, copy=True)
         params_array = self.ensure_array(params)
@@ -728,25 +898,15 @@ class CPURosenbrockWStep(CPUStep):
         current_time = self.precision(time)
         end_time = current_time + dt_value
 
-        tableau_value = (
-            DEFAULT_ROSENBROCK_TABLEAU if tableau is None else tableau
-        )
-        stage_count = tableau_value.stage_count
-        a_matrix = _tableau_matrix(
-            tableau_value.a,
-            stage_count,
-            self.precision,
-        )
-        C_matrix = _tableau_matrix(
-            tableau_value.C,
-            stage_count,
-            self.precision,
-        )
-        b_weights = _tableau_vector(tableau_value.b, self.precision)
-        error_weights = _tableau_vector(tableau_value.d, self.precision)
-        c_nodes = _tableau_vector(tableau_value.c, self.precision)
-        gamma = self.precision(tableau_value.gamma)
         zero = self.precision(0.0)
+
+        stage_count = self.stage_count
+        a_matrix = self.a_matrix
+        b_weights = self.b_weights
+        c_nodes = self.c_nodes
+        error_weights = self.error_weights
+        C_matrix = self.C_matrix
+        gamma = self.gamma
 
         drivers_now = self.drivers(current_time)
         observables_now = self.observables(
@@ -805,18 +965,20 @@ class CPURosenbrockWStep(CPUStep):
                 )
 
             rhs[:] = dt_value * derivative_stage
-            if stage_index > 0 and np.any(C_matrix[stage_index, :stage_index]):
+            if stage_index > 0 and np.any(
+                C_matrix[stage_index, :stage_index]
+            ):
                 jac_term = jacobian_now @ jacobian_shifts[stage_index]
                 rhs[:] = rhs + dt_value * jac_term
 
-            stage_increment = np.linalg.solve(lhs, rhs)
-            stage_increment = np.asarray(stage_increment, dtype=self.precision)
+            stage_increment, _, _ = self.linear_solve(lhs, rhs)
             state_accum = state_accum + (
                 b_weights[stage_index] * stage_increment
             )
-            error_accum = error_accum + (
-                error_weights[stage_index] * stage_increment
-            )
+            if error_weights is not None:
+                error_accum = error_accum + (
+                    error_weights[stage_index] * stage_increment
+                )
 
             for successor in range(stage_index + 1, stage_count):
                 a_coeff = a_matrix[successor, stage_index]
@@ -850,11 +1012,29 @@ class CPUBackwardEulerPCStep(CPUStep):
         evaluator: CPUODESystem,
         driver_evaluator: DriverEvaluator,
         *,
+        newton_tol: float,
+        newton_max_iters: int,
+        linear_tol: float,
+        linear_max_iters: int,
         corrector: Optional[CPUBackwardEulerStep] = None,
     ) -> None:
-        super().__init__(evaluator, driver_evaluator)
+        super().__init__(
+            evaluator,
+            driver_evaluator,
+            newton_tol=newton_tol,
+            newton_max_iters=newton_max_iters,
+            linear_tol=linear_tol,
+            linear_max_iters=linear_max_iters,
+        )
         if corrector is None:
-            corrector = CPUBackwardEulerStep(evaluator, driver_evaluator)
+            corrector = CPUBackwardEulerStep(
+                    evaluator,
+                    driver_evaluator,
+                    newton_tol=newton_tol,
+                    newton_max_iters=newton_max_iters,
+                    linear_tol=linear_tol,
+                    linear_max_iters=linear_max_iters,
+            )
         self._corrector = corrector
 
     def step(
@@ -863,8 +1043,6 @@ class CPUBackwardEulerPCStep(CPUStep):
         state: Optional[Array] = None,
         params: Optional[Array] = None,
         dt: Optional[float] = None,
-        tol: Optional[float] = None,
-        max_iters: int = 25,
         time: float = 0.0,
     ) -> StepResult:
         state_vector = self.ensure_array(state, copy=True)
@@ -891,112 +1069,167 @@ class CPUBackwardEulerPCStep(CPUStep):
             state=state_vector,
             params=params_array,
             dt=dt_value,
-            tol=tol,
             initial_guess=predictor,
-            max_iters=max_iters,
             time=current_time,
         )
-
-
-def _tableau_matrix(
-    rows: Sequence[Sequence[float]],
-    stage_count: int,
-    dtype: np.dtype,
-) -> Array:
-    """Return a dense matrix created from ``rows`` padded with zeros."""
-
-    matrix = np.zeros((stage_count, stage_count), dtype=dtype)
-    for row_index, row in enumerate(rows[:stage_count]):
-        if not row:
-            continue
-        padded = np.asarray(row, dtype=dtype)
-        limit = min(stage_count, padded.shape[0])
-        matrix[row_index, :limit] = padded[:limit]
-    return matrix
-
-
-def _tableau_vector(entries: Sequence[float], dtype: np.dtype) -> Array:
-    """Return a one-dimensional array from ``entries`` using ``dtype``."""
-
-    return np.asarray(entries, dtype=dtype)
-
-
 def explicit_euler_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
+    newton_tol: float,
+    newton_max_iters: int,
+    linear_tol: float,
+    linear_max_iters: int,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single explicit Euler step."""
 
-    stepper = CPUExplicitEulerStep(evaluator, driver_evaluator)
+    stepper = CPUExplicitEulerStep(
+        evaluator,
+        driver_evaluator,
+        newton_tol=newton_tol,
+        newton_max_iters=newton_max_iters,
+        linear_tol=linear_tol,
+        linear_max_iters=linear_max_iters,
+    )
     return stepper(**kwargs)
 
 
 def backward_euler_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
+    *,
+    newton_tol: float,
+    newton_max_iters: int,
+    linear_tol: float,
+    linear_max_iters: int,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single backward Euler step."""
 
-    stepper = CPUBackwardEulerStep(evaluator, driver_evaluator)
+    stepper = CPUBackwardEulerStep(
+        evaluator,
+        driver_evaluator,
+        newton_tol=newton_tol,
+        newton_max_iters=newton_max_iters,
+        linear_tol=linear_tol,
+        linear_max_iters=linear_max_iters,
+    )
     return stepper(**kwargs)
 
 
 def crank_nicolson_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
+    *,
+    newton_tol: float,
+    newton_max_iters: int,
+    linear_tol: float,
+    linear_max_iters: int,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single Crank--Nicolson step."""
 
-    stepper = CPUCrankNicolsonStep(evaluator, driver_evaluator)
+    stepper = CPUCrankNicolsonStep(
+        evaluator,
+        driver_evaluator,
+        newton_tol=newton_tol,
+        newton_max_iters=newton_max_iters,
+        linear_tol=linear_tol,
+        linear_max_iters=linear_max_iters,
+    )
     return stepper(**kwargs)
 
 
 def erk_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
+    *,
+    newton_tol: float,
+    newton_max_iters: int,
+    linear_tol: float,
+    linear_max_iters: int,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single explicit Runge--Kutta step."""
 
-    stepper = CPUERKStep(evaluator, driver_evaluator)
+    stepper = CPUERKStep(
+        evaluator,
+        driver_evaluator,
+        newton_tol=newton_tol,
+        newton_max_iters=newton_max_iters,
+        linear_tol=linear_tol,
+        linear_max_iters=linear_max_iters,
+    )
     return stepper(**kwargs)
 
 
 def dirk_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
+    *,
+    newton_tol: float,
+    newton_max_iters: int,
+    linear_tol: float,
+    linear_max_iters: int,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single DIRK step."""
 
-    stepper = CPUDIRKStep(evaluator, driver_evaluator)
+    stepper = CPUDIRKStep(
+        evaluator,
+        driver_evaluator,
+        newton_tol=newton_tol,
+        newton_max_iters=newton_max_iters,
+        linear_tol=linear_tol,
+        linear_max_iters=linear_max_iters,
+    )
     return stepper(**kwargs)
 
 
 def rosenbrock_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
+    *,
+    newton_tol: float,
+    newton_max_iters: int,
+    linear_tol: float,
+    linear_max_iters: int,
     **kwargs: object,
 ) -> StepResult:
     """Execute a single Rosenbrock--W step."""
 
-    stepper = CPURosenbrockWStep(evaluator, driver_evaluator)
+    stepper = CPURosenbrockWStep(
+        evaluator,
+        driver_evaluator,
+        newton_tol=newton_tol,
+        newton_max_iters=newton_max_iters,
+        linear_tol=linear_tol,
+        linear_max_iters=linear_max_iters,
+    )
     return stepper(**kwargs)
 
 
 def backward_euler_predict_correct_step(
     evaluator: CPUODESystem,
     driver_evaluator: DriverEvaluator,
+    *,
+    newton_tol: float,
+    newton_max_iters: int,
+    linear_tol: float,
+    linear_max_iters: int,
     **kwargs: object,
 ) -> StepResult:
     """Execute a backward Euler predictor--corrector step."""
 
-    stepper = CPUBackwardEulerPCStep(evaluator, driver_evaluator)
+    stepper = CPUBackwardEulerPCStep(
+        evaluator,
+        driver_evaluator,
+        newton_tol=newton_tol,
+        newton_max_iters=newton_max_iters,
+        linear_tol=linear_tol,
+        linear_max_iters=linear_max_iters,
+    )
     return stepper(**kwargs)
-
 
 _STEP_CONSTRUCTOR_TO_CLASS = {
     ExplicitEulerStep: CPUExplicitEulerStep,
@@ -1006,6 +1239,16 @@ _STEP_CONSTRUCTOR_TO_CLASS = {
     ERKStep: CPUERKStep,
     DIRKStep: CPUDIRKStep,
     GenericRosenbrockWStep: CPURosenbrockWStep,
+}
+
+_STEP_CONSTRUCTOR_TO_FUNCTION = {
+    ExplicitEulerStep: explicit_euler_step,
+    BackwardsEulerStep: backward_euler_step,
+    BackwardsEulerPCStep: backward_euler_predict_correct_step,
+    CrankNicolsonStep: crank_nicolson_step,
+    ERKStep: erk_step,
+    DIRKStep: dirk_step,
+    GenericRosenbrockWStep: rosenbrock_step,
 }
 
 
@@ -1076,12 +1319,30 @@ def get_ref_step_factory(
     def factory(
         evaluator: CPUODESystem,
         driver_evaluator: DriverEvaluator,
-    ) -> StepCallable:
-        stepper = step_class(evaluator, driver_evaluator)
-        if tableau_value is not None:
-            return partial(stepper, tableau=tableau_value)
-
-        return stepper
+        *,
+        newton_tol: float,
+        newton_max_iters: int,
+        linear_tol: float,
+        linear_max_iters: int,
+    ) -> Callable:
+        if tableau_value is None:
+            return step_class(
+                evaluator,
+                driver_evaluator,
+                newton_tol=newton_tol,
+                newton_max_iters=newton_max_iters,
+                linear_tol=linear_tol,
+                linear_max_iters=linear_max_iters,
+            )
+        return step_class(
+            evaluator,
+            driver_evaluator,
+            newton_tol=newton_tol,
+            newton_max_iters=newton_max_iters,
+            linear_tol=linear_tol,
+            linear_max_iters=linear_max_iters,
+            tableau=tableau_value,
+        )
 
     return factory
 
@@ -1091,30 +1352,20 @@ def get_ref_stepper(
     driver_evaluator: DriverEvaluator,
     algorithm: str,
     *,
+    newton_tol: float,
+    newton_max_iters: int,
+    linear_tol: float,
+    linear_max_iters: int,
     tableau: Optional[Union[str, ButcherTableau]] = None,
 ) -> StepCallable:
     """Return a configured CPU reference stepper for ``algorithm``."""
 
     factory = get_ref_step_factory(algorithm, tableau=tableau)
-    return factory(evaluator, driver_evaluator)
-
-
-def get_ref_step_function(
-    evaluator: CPUODESystem,
-    driver_evaluator: DriverEvaluator,
-    step_constructor,
-    *,
-    tableau: Optional[ButcherTableau] = None,
-) -> StepCallable:
-    """Return the CPU stepper matching ``step_constructor``."""
-
-    try:
-        step_class = _STEP_CONSTRUCTOR_TO_CLASS[step_constructor]
-    except KeyError as exc:
-        raise ValueError(
-            "Requested step constructor has no CPU reference implementation."
-        ) from exc
-    stepper = step_class(evaluator, driver_evaluator)
-    if tableau is not None:
-        return partial(stepper, tableau=tableau)
-    return stepper
+    return factory(
+        evaluator,
+        driver_evaluator,
+        newton_tol=newton_tol,
+        newton_max_iters=newton_max_iters,
+        linear_tol=linear_tol,
+        linear_max_iters=linear_max_iters,
+    )

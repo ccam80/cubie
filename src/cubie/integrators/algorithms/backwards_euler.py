@@ -231,7 +231,6 @@ class BackwardsEulerStep(ODEImplicitStep):
                     proposed_drivers,
                 )
 
-
             status = solver_fn(
                 proposed_state,
                 parameters,
@@ -242,6 +241,10 @@ class BackwardsEulerStep(ODEImplicitStep):
                 solver_scratch,
             )
 
+            for i in range(n):
+                solver_scratch[i] = proposed_state[i]
+                proposed_state[i] += state[i]
+
             # calculate and save observables (wastes some compute)
             observables_function(
                 proposed_state,
@@ -251,9 +254,6 @@ class BackwardsEulerStep(ODEImplicitStep):
                 next_time,
             )
 
-            for i in range(n):
-                solver_scratch[i] = proposed_state[i]
-                proposed_state[i] += state[i]
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)

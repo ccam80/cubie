@@ -296,7 +296,6 @@ class DIRKStep(ODEImplicitStep):
                     stage_increment[idx] = shared[idx]
                     # Stage base[idx] is an alias to shared[idx], order matters
                     stage_base[idx] = state[idx]
-                    #TODO: zero shared mem at loop start - maybe done already
 
                 if has_driver_function:
                     driver_function(
