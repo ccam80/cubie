@@ -3,8 +3,8 @@ import pytest
 from numba import cuda, from_dtype
 
 from cubie.odesystems.symbolic.solver_helpers import (
-    generate_residual_end_state_code,
     generate_neumann_preconditioner_code,
+    generate_stage_residual_code,
 )
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
@@ -77,9 +77,9 @@ def system_setup(request, precision):
     neumann_factory = sym_system.gen_file.import_function(
         "neumann_preconditioner_factory", neumann_code
     )
-    code = generate_residual_end_state_code(sym_system.equations, sym_system.indices)
+    code = generate_stage_residual_code(sym_system.equations, sym_system.indices)
     res_factory = sym_system.gen_file.import_function(
-        "end_residual", code
+        "stage_residual", code
     )
     residual_func = res_factory(
         sym_system.constants.values_dict,
@@ -148,7 +148,7 @@ def system_setup(request, precision):
         "operator": operator,
         "residual": residual_func,
         "base_state": base_state,
-        "state_init": cuda.to_device(state_init_host),
+        "state_init": cuda.to_device(state_init_host - base_host),
         "preconditioner": make_precond,
         "mr_rhs": mr_rhs,
         "mr_expected": mr_expected,

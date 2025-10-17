@@ -135,13 +135,6 @@ class DIRKStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        # prepare_jacobian = get_fn(
-        #     "prepare_jac",
-        #     preconditioner_order=preconditioner_order,
-        # )
-        # self._cached_auxiliary_count = get_fn("cached_aux_count")
-        #TODO: evaluate if this is necessary; if we must also get a cached
-        # solver. WHEN CAN WE CACHE THE DANG JACOBIAN IN A SOLVER
         krylov_tolerance = config.krylov_tolerance
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
@@ -189,9 +182,13 @@ class DIRKStep(ODEImplicitStep):
         tableau = config.tableau
         nonlinear_solver = solver_fn
         stage_count = tableau.stage_count
+
+        # Compile-time toggles
         has_driver_function = driver_function is not None
         has_error = self.is_adaptive
-
+        multistage = stage_count > 1
+        first_same_as_last = self.first_same_as_last
+        can_reuse_accepted_start = self.can_reuse_accepted_start
 
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -203,15 +200,13 @@ class DIRKStep(ODEImplicitStep):
         diagonal_coeffs = tableau.diagonal(numba_precision)
         accumulator_length = max(stage_count - 1, 0) * n
         solver_shared_elements = self.solver_shared_elements
-        cached_auxiliary_count = self.cached_auxiliary_count
 
         # Shared memory indices
         acc_start = 0
         acc_end = accumulator_length
         solver_start = acc_end
         solver_end = acc_end + solver_shared_elements
-        cached_start = solver_end
-        cached_end = solver_end + cached_auxiliary_count
+
 
         # no cover: start
         @cuda.jit(
@@ -248,111 +243,60 @@ class DIRKStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            stage_base = cuda.local.array(n, numba_precision)
+            stage_increment = cuda.local.array(n, numba_precision)
 
             dt_value = dt_scalar
             current_time = time_scalar
             end_time = current_time + dt_value
 
+            # shared [:n] contains dxdt if first_same_as_last, else the
+            # previous stage's final increment for a starting guess
             stage_accumulator = shared[acc_start:acc_end]
             solver_scratch = shared[solver_start:solver_end]
             stage_rhs = solver_scratch[:n]
 
-
-
-            stage_state = stage_accumulator[:n]
+            #Alias stage base onto first stage accumulator - lifetimes disjoint
+            if multistage:
+                stage_base = stage_accumulator[:n]
+            else:
+                stage_base = cuda.local.array(n, numba_precision)
 
             for idx in range(n):
-                error[idx] = typed_zero
-                stage_base[idx] = state[idx]
-                stage_state[idx] = state[idx]
+                if has_error:
+                    error[idx] = typed_zero
+                # stage_base[idx] = state[idx]
                 proposed_state[idx] = state[idx]
 
-            for idx in range(accumulator_length - n):
-                stage_accumulator[idx+n] = typed_zero
-
             status_code = int32(0)
-
             # --------------------------------------------------------------- #
             #            Stage 0: operates out of supplied buffers            #
             # --------------------------------------------------------------- #
 
             stage_time = current_time + dt_value * stage_time_fractions[0]
             stage_drivers = proposed_drivers
+            if first_same_as_last:
+                for i in range(n):
+                    # Get stored dxdt
+                    stage_rhs[i] = shared[i]
 
-            # Not required if c[0] = 0.0
-            if has_driver_function:
-                driver_function(
-                    stage_time,
-                    driver_coeffs,
-                    stage_drivers,
+            elif can_reuse_accepted_start:
+                # recalculate dxdt from accepted state
+                dxdt_fn(
+                        state,
+                        parameters,
+                        drivers_buffer,
+                        observables,
+                        stage_rhs,
+                        stage_time,
                 )
 
-            status_code |= nonlinear_solver(
-                stage_state,
-                parameters,
-                stage_drivers,
-                dt_value,
-                diagonal_coeffs[0],
-                stage_base,
-                solver_scratch,
-            )
-
-            observables_function(
-                stage_state,
-                parameters,
-                stage_drivers,
-                proposed_observables,
-                stage_time,
-            )
-
-            dxdt_fn(
-                stage_state,
-                parameters,
-                stage_drivers,
-                proposed_observables,
-                stage_rhs,
-                stage_time,
-            )
-
-            solution_weight = solution_weights[0]
-            error_weight = error_weights[0]
-            for idx in range(n):
-                rhs_value = stage_rhs[idx]
-                increment = dt_value * rhs_value
-                proposed_state[idx] += solution_weight * increment
-                error[idx] += error_weight * increment
-
-            # --------------------------------------------------------------- #
-            #            Stages 1-s: must refresh obs/drivers                 #
-            # --------------------------------------------------------------- #
-
-            for stage_idx in range(1, stage_count):
-
-                # Fill accumulators with previous step's contributions
-                prev_idx = stage_idx - 1
-                successor_range = stage_count - stage_idx
-
-                # This loop order might look backwards, but it allows the
-                # aliasing of stage_increment and stage_accumulator. Shared
-                # memory buffers won't suffer from bad locality - if local
-                # buffers have spilled into global memory, then you're at
-                # worst-case locality anyhow, so this has no penalty.
+            else:
+                # start from scratch - reuse previous increment as guess
                 for idx in range(n):
-                    if prev_idx == 0:
-                        stage_accumulator[idx] = typed_zero
-                    for successor_offset in range(successor_range):
-                        successor_idx = stage_idx + successor_offset
-                        base = (successor_idx - 1) * n
-                        state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
-                        contribution = state_coeff * stage_rhs[idx]
-                        stage_accumulator[base + idx] += contribution
-
-                # Position in accumulator
-                stage_offset = (stage_idx - 1) * n
-                stage_time = (
-                    current_time + dt_value * stage_time_fractions[stage_idx]
-                )
+                    stage_increment[idx] = shared[idx]
+                    # Stage base[idx] is an alias to shared[idx], order matters
+                    stage_base[idx] = state[idx]
+                    #TODO: zero shared mem at loop start - maybe done already
 
                 if has_driver_function:
                     driver_function(
@@ -361,13 +305,81 @@ class DIRKStep(ODEImplicitStep):
                         stage_drivers,
                     )
 
-                stage_state = stage_accumulator[stage_offset:stage_offset + n]
+                status_code |= nonlinear_solver(
+                    stage_increment,
+                    parameters,
+                    stage_drivers,
+                    dt_value,
+                    diagonal_coeffs[0],
+                    stage_base,
+                    solver_scratch,
+                )
+
                 for idx in range(n):
-                    stage_state[idx] += state[idx]
-                    stage_base[idx] = stage_state[idx]
+                    stage_base[idx] = state[idx] + stage_increment[idx]
+
+                observables_function(
+                    stage_base,
+                    parameters,
+                    stage_drivers,
+                    proposed_observables,
+                    stage_time,
+                )
+
+                dxdt_fn(
+                    stage_base,
+                    parameters,
+                    stage_drivers,
+                    proposed_observables,
+                    stage_rhs,
+                    stage_time,
+                )
+
+            solution_weight = solution_weights[0]
+            error_weight = error_weights[0]
+            for idx in range(n):
+                rhs_value = stage_rhs[idx]
+                increment = dt_value * rhs_value
+                proposed_state[idx] += solution_weight * increment
+                if has_error:
+                    error[idx] += error_weight * increment
+
+            for idx in range(accumulator_length):
+                stage_accumulator[idx+multistage*n] = typed_zero
+
+            # --------------------------------------------------------------- #
+            #            Stages 1-s: must refresh obs/drivers                 #
+            # --------------------------------------------------------------- #
+
+            for stage_idx in range(1, stage_count):
+                prev_idx = stage_idx - 1
+                successor_range = stage_count - stage_idx
+                stage_offset = (stage_idx - 1) * n
+                stage_time = (
+                        current_time + dt_value * stage_time_fractions[stage_idx]
+                )
+
+                # Fill accumulators with previous step's contributions
+                for successor_offset in range(successor_range):
+                    successor_idx = stage_idx + successor_offset
+                    base = (successor_idx - 1) * n
+                    for idx in range(n):
+                        state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]
+                        contribution = state_coeff * stage_rhs[idx] * dt_value
+                        stage_accumulator[base + idx] += contribution
+
+                if has_driver_function:
+                    driver_function(
+                        stage_time,
+                        driver_coeffs,
+                        stage_drivers,
+                    )
+
+                # Just grab a view of the completed accumulator slice
+                stage_base = stage_accumulator[stage_idx * n:(stage_idx+1) * n]
 
                 status_code |= nonlinear_solver(
-                    stage_state,
+                    stage_increment,
                     parameters,
                     stage_drivers,
                     dt_value,
@@ -376,15 +388,19 @@ class DIRKStep(ODEImplicitStep):
                     solver_scratch,
                 )
 
+                for idx in range(n):
+                    stage_base[idx] = state[idx] + stage_increment[idx]
+
                 observables_function(
-                    stage_state,
+                    stage_increment,
                     parameters,
                     stage_drivers,
                     proposed_observables,
                     stage_time,
                 )
+
                 dxdt_fn(
-                    stage_state,
+                    stage_increment,
                     parameters,
                     stage_drivers,
                     proposed_observables,
@@ -398,7 +414,8 @@ class DIRKStep(ODEImplicitStep):
                     rhs_value = stage_rhs[idx]
                     increment = dt_value * rhs_value
                     proposed_state[idx] += solution_weight * increment
-                    error[idx] += error_weight * increment
+                    if has_error:
+                        error[idx] += error_weight * increment
 
             # --------------------------------------------------------------- #
             final_time = end_time
@@ -416,6 +433,15 @@ class DIRKStep(ODEImplicitStep):
                 proposed_observables,
                 final_time,
             )
+
+            #Cache end-step values as appropriate
+            if first_same_as_last:
+                for idx in range(n):
+                    shared[idx] = stage_rhs[idx]
+            elif not can_reuse_accepted_start:
+                for idx in range(n):
+                    shared[idx] = stage_increment[idx]
+
             return status_code
         # no cover: end
         return StepCache(step=step, nonlinear_solver=nonlinear_solver)
@@ -430,7 +456,6 @@ class DIRKStep(ODEImplicitStep):
     def is_adaptive(self) -> bool:
         """Return ``True`` because an embedded error estimate is produced."""
         return self.tableau.has_error_estimate
-
 
     @property
     def cached_auxiliary_count(self) -> int:

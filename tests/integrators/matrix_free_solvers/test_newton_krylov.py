@@ -19,7 +19,7 @@ def placeholder_system(precision):
 
     @cuda.jit(device=True)
     def residual(state, parameters, drivers, h, a_ij, base_state, out):
-        out[0] = state[0] - base_state[0] - h * state[0]
+        out[0] = state[0] - h * (base_state[0] + a_ij * state[0])
 
     @cuda.jit(device=True)
     def operator(state, parameters, drivers, h, vec, out):
@@ -56,17 +56,20 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
 
     h = precision(0.01)
-    expected = np.array([base_state.copy_to_host()[0] / (1.0 - h)], dtype=precision)
-    x0 = expected * precision(0.99)
+    base_val = base_state.copy_to_host()[0]
+    expected_final = precision(base_val / (1.0 - h))
+    expected_increment = np.array([expected_final - base_val], dtype=precision)
+    x0 = expected_increment * precision(0.99)
     x = cuda.to_device(x0)
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
 
     assert status_code == SolverRetCodes.SUCCESS
+    result_increment = x.copy_to_host()
     assert np.allclose(
-        x.copy_to_host(),
-        expected,
+        result_increment,
+        expected_increment,
         rtol=tolerance.rel_tight,
         atol=tolerance.abs_tight,
     )
@@ -123,6 +126,8 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         shared = cuda.shared.array(scratch_len, precision)
         flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
 
+    base_vals = system_setup["base_state"].copy_to_host()
+    expected_increment = expected - base_vals
     x = system_setup["state_init"]
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](x, base_state, out_flag, h)
@@ -136,7 +141,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         assert status_code == SolverRetCodes.SUCCESS
         assert np.allclose(
             x.copy_to_host(),
-            expected,
+            expected_increment,
             rtol=tolerance.rel_tight,
             atol=tolerance.abs_tight,
         )

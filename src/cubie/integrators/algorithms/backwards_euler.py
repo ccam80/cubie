@@ -173,7 +173,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             drivers_buffer,
             proposed_drivers,
             observables,
-            proposed_observables,  # unused here
+            proposed_observables,
             error,  # Non-adaptive algorithms receive a zero-length slice.
             dt_scalar,
             time_scalar,
@@ -218,9 +218,10 @@ class BackwardsEulerStep(ODEImplicitStep):
             int
                 Status code returned by the nonlinear solver.
             """
+            solver_scratch = shared[: solver_shared_elements]
 
             for i in range(n):
-                proposed_state[i] = state[i]
+                proposed_state[i] = solver_scratch[i]
 
             next_time = time_scalar + dt
             if has_driver_function:
@@ -230,7 +231,6 @@ class BackwardsEulerStep(ODEImplicitStep):
                     proposed_drivers,
                 )
 
-            solver_scratch = shared[: solver_shared_elements]
 
             status = solver_fn(
                 proposed_state,
@@ -250,6 +250,10 @@ class BackwardsEulerStep(ODEImplicitStep):
                 proposed_observables,
                 next_time,
             )
+
+            for i in range(n):
+                solver_scratch[i] = proposed_state[i]
+                proposed_state[i] += state[i]
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)

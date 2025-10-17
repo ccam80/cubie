@@ -10,7 +10,6 @@ from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache,
     StepControlDefaults,
-    ButcherTableau,
 )
 from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
@@ -176,6 +175,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         ) = solver_fn
 
         stage_count = tableau.stage_count
+        multistage = stage_count > 1
         has_driver_function = driver_function is not None
 
         has_error = self.is_adaptive
@@ -241,7 +241,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 2 * accumulator_length + cached_auxiliary_count
             ]
 
-            if accumulator_length >= n:
+            if multistage:
                 #First block of accumulator is consumed immediately - reuse
                 stage_increment = stage_accumulator[:n]
             else:
@@ -259,7 +259,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             for idx in range(n):
-                error[idx*has_error] = typed_zero
+                if has_error:
+                    error[idx] = typed_zero
                 proposed_state[idx] = state[idx]
                 stage_increment[idx] = typed_zero
 
@@ -279,7 +280,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
 
             for idx in range(n):
-                stage_rhs[idx] = dt_value * stage_rhs[idx]
+                stage_rhs[idx] = dt_value * stage_rhs[idx] # get full-step
+                # stage state increment
 
             status_code |= linear_solver(
                 state,
@@ -289,12 +291,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 dt_value,
                 stage_rhs,
                 stage_increment,
-            )
+            ) #
 
             for idx in range(n):
                 increment = stage_increment[idx]
                 proposed_state[idx] += solution_weights[0] * increment
-                error[idx*has_error] += error_weights[0] * increment
+                if has_error:
+                    error[idx] += error_weights[0] * increment
 
             cached_jvp(
                 state,
@@ -399,7 +402,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     increment = stage_increment[idx]
                     proposed_state[idx] += solution_weight * increment
-                    error[idx] += error_weight * increment
+                    if has_error:
+                        error[idx] += error_weight * increment
 
                 if stage_idx < stage_count - 1:
                     cached_jvp(

@@ -30,7 +30,6 @@ class ODECache:
     neumann_preconditioner_cached: Optional[Union[Callable, int]] = attrs.field(
         default=-1
     )
-    end_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
     stage_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
     observables: Optional[Union[Callable, int]] = attrs.field(default=-1)
     prepare_jac: Optional[Union[Callable, int]] = attrs.field(default=-1)

@@ -526,6 +526,8 @@ class CPUDIRKStep(CPUStep):
         self._dirk_drivers = np.zeros(0, dtype=self.precision)
         self._dirk_time = self.precision(0.0)
         self._dirk_dt_coeff = self.precision(0.0)
+        self._dirk_slope = np.zeros(self._state_size, dtype=self.precision)
+        self._dirk_increment = np.zeros(self._state_size, dtype=self.precision)
 
     def residual(self, candidate: Array) -> Array:
         observables = self.observables(
@@ -597,6 +599,25 @@ class CPUDIRKStep(CPUStep):
         total_iters = 0
 
         for stage_index in range(stage_count):
+            if stage_index == 0:
+                if tableau.first_same_as_last:
+                    stage_derivatives[stage_index, :] = self._dirk_slope
+                elif tableau.can_reuse_accepted_start:
+                    observables = self.observables(
+                            state,
+                            params_array,
+                            self.drivers(current_time),
+                            current_time,
+                    )
+                    stage_derivatives[stage_index, :] = self.rhs(
+                            state_vector,
+                            params_array,
+                            self.drivers(current_time),
+                            observables,
+                            current_time,
+                    )
+                    continue
+
             stage_state = state_vector.copy()
             for dependency in range(stage_index):
                 stage_state = stage_state + (
@@ -674,6 +695,9 @@ class CPUDIRKStep(CPUStep):
             drivers_next,
             end_time,
         )
+        if tableau.first_same_as_last:
+            self._dirk_slope = stage_derivatives[-1, :].copy()
+
         status = self._status(all_converged, total_iters)
         return StepResult(
             new_state,

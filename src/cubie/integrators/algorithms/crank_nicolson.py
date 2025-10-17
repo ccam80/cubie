@@ -151,7 +151,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             Container holding the compiled step function and solver.
         """
 
-        a_ij = numba_precision(1.0)
+        stage_coefficient = numba_precision(0.5)
+        be_coefficient = numba_precision(1.0)
         has_driver_function = driver_function is not None
         driver_function = driver_function
 
@@ -227,15 +228,17 @@ class CrankNicolsonStep(ODEImplicitStep):
             int
                 Status code returned by the nonlinear solver.
             """
-            # Initialize proposed state
+            typed_zero = numba_precision(0.0)
+
+            # Initialize increment buffer
             for i in range(n):
-                proposed_state[i] = state[i]
+                proposed_state[i] = typed_zero
 
             solver_scratch = shared[:solver_shared_elements]
             # Reuse solver scratch for the dx/dt evaluation buffer.
             dxdt = solver_scratch[:n]
-            # error buffer tracks the base-adjusted state during setup.
-            base_adjusted = error
+            # error buffer tracks the stage base during setup.
+            base_state = error
 
             # Evaluate f(state)
             dxdt_fn(
@@ -250,9 +253,9 @@ class CrankNicolsonStep(ODEImplicitStep):
             half_dt = dt_scalar * numba_precision(0.5)
             end_time = time_scalar + dt_scalar
 
-            # Form base-adjusted state for the Crank-Nicolson solve
+            # Form the Crank-Nicolson stage base
             for i in range(n):
-                base_adjusted[i] = state[i] + half_dt * dxdt[i]
+                base_state[i] = state[i] + half_dt * dxdt[i]
 
 
             # Solve Crank-Nicolson step (main solution)
@@ -267,31 +270,31 @@ class CrankNicolsonStep(ODEImplicitStep):
                 proposed_state,
                 parameters,
                 proposed_drivers,
-                half_dt,
-                a_ij,
-                base_adjusted,
+                dt_scalar,
+                stage_coefficient,
+                base_state,
                 solver_scratch,
             )
 
-            # Reuse the base-adjusted buffer for the backward Euler solution
-            # error buffer now holds the backward Euler state.
-            be_state = base_adjusted
             for i in range(n):
-                be_state[i] = proposed_state[i]
+                proposed_state[i] = state[i] + proposed_state[i]
+
+            for i in range(n):
+                base_state[i] = typed_zero
 
             status |= solver_fn(
-                be_state,
+                base_state,
                 parameters,
                 proposed_drivers,
                 dt_scalar,
-                a_ij,
+                be_coefficient,
                 state,
                 solver_scratch,
             ) & int32(0xFFFF)  # don't record Newton iterations for error check
 
             # Compute error as difference between Crank-Nicolson and Backward Euler
             for i in range(n):
-                error[i] = proposed_state[i] - error[i]
+                error[i] = proposed_state[i] - (state[i] + base_state[i])
 
             observables_function(
                 proposed_state,

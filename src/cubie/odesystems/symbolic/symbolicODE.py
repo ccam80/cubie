@@ -18,7 +18,6 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_prepare_jac_code,
     generate_cached_jvp_code,
     generate_operator_apply_code,
-    generate_residual_end_state_code,
     generate_stage_residual_code,
 )
 from cubie.odesystems.symbolic.parser import (
@@ -381,8 +380,8 @@ class SymbolicODE(BaseODE):
         func_type
             Helper identifier. Supported values are ``"linear_operator"``,
             ``"linear_operator_cached"``, ``"neumann_preconditioner"``,
-            ``"neumann_preconditioner_cached"``, ``"end_residual"`,
-            ``"stage_residual"``, ``"prepare_jac"``, ``"cached_aux_count"`` and
+            ``"neumann_preconditioner_cached"``, ``"stage_residual"`,
+            ``"prepare_jac"``, ``"cached_aux_count"`` and
             ``"calculate_cached_jvp"``.
         beta
             Shift parameter for the linear operator.
@@ -483,18 +482,6 @@ class SymbolicODE(BaseODE):
                 self.indices,
                 func_type,
                 jvp_exprs=self._get_jvp_exprs(),
-            )
-            factory_kwargs.update(
-                beta=beta,
-                gamma=gamma,
-                order=preconditioner_order,
-            )
-        elif func_type == "end_residual":
-            code = generate_residual_end_state_code(
-                self.equations,
-                self.indices,
-                M=mass,
-                func_name=func_type,
             )
             factory_kwargs.update(
                 beta=beta,

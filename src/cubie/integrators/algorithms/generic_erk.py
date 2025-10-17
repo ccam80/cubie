@@ -164,7 +164,8 @@ class ERKStep(ODEExplicitStep):
 
             for idx in range(n):
                 proposed_state[idx] = state[idx]
-                error[idx*has_error] = typed_zero
+                if has_error:
+                    error[idx] = typed_zero
 
             status_code = int32(0)
             # ----------------------------------------------------------- #
@@ -183,7 +184,8 @@ class ERKStep(ODEExplicitStep):
             for idx in range(n):
                 increment = dt_value * stage_rhs[idx]
                 proposed_state[idx] += solution_weights[0] * increment
-                error[idx*has_error] += error_weights[0] * increment
+                if has_error:
+                    error[idx] += error_weights[0] * increment
 
             # ----------------------------------------------------------- #
             #            Stages 1-s: refresh observables and drivers       #
@@ -251,9 +253,10 @@ class ERKStep(ODEExplicitStep):
                     proposed_state[idx] += (
                         solution_weights[stage_idx] * increment
                     )
-                    error[idx*has_error] += (
-                        error_weights[stage_idx] * increment
-                    )
+                    if has_error:
+                        error[idx] += (
+                            error_weights[stage_idx] * increment
+                        )
             # ----------------------------------------------------------- #
 
             final_time = end_time
@@ -263,9 +266,6 @@ class ERKStep(ODEExplicitStep):
                     driver_coeffs,
                     proposed_drivers,
                 )
-
-            for idx in range(n):
-                proposed_state[idx] = state[idx] + proposed_state[idx]
 
             observables_function(
                 proposed_state,

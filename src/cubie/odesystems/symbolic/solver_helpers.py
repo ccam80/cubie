@@ -755,10 +755,9 @@ RESIDUAL_TEMPLATE = (
     "def {func_name}(constants, precision,  beta=1.0, gamma=1.0, order=None):\n"
     '    """Auto-generated residual function for Newton-Krylov ODE integration.\n'
     "    \n"
-    "    Computes residual = beta * M @ v - gamma * h * (J @ eval_point)\n"
-    "    where eval_point depends on the residual mode:\n"
-    "    - Stage mode: eval_point = base_state + a_ij * u, residual uses M @ u\n"
-    "    - End-state mode: eval_point = u, residual uses M @ (u - base_state)\n"
+    "    Computes the stage-increment residual\n"
+    "    beta * M @ u - gamma * h * f(base_state + a_ij * u)\n"
+    "    where ``u`` is the increment solved for by Newton's method.\n"
     "    \n"
     "    Uses dx_ numbered symbols for derivatives and aux_ symbols for observables,\n"
     "    following the same pattern as JVP generation.\n"
@@ -785,10 +784,9 @@ def _build_residual_lines(
     equations: ParsedEquations,
     index_map: IndexedBases,
     M: sp.Matrix,
-    is_stage: bool,
     cse: bool = True,
 ) -> str:
-    """Construct CUDA code lines for the requested residual mode.
+    """Construct CUDA code lines for the stage-increment residual.
 
     Parameters
     ----------
@@ -798,8 +796,6 @@ def _build_residual_lines(
         Symbol indexing helpers produced by the parser.
     M
         Mass matrix to embed into the generated residual.
-    is_stage
-        Flag selecting stage or end-state residual evaluation.
     cse
         Apply common subexpression elimination before emission.
 
@@ -846,12 +842,7 @@ def _build_residual_lines(
     state_subs = {}
     state_symbols = list(index_map.states.index_map.keys())
     for i, state_sym in enumerate(state_symbols):
-        if is_stage:
-            # Stage mode: evaluation point is base + a_ij * u
-            eval_point = base[i] + aij_sym * u[i]
-        else:
-            # End-state mode: evaluation point is u
-            eval_point = u[i]
+        eval_point = base[i] + aij_sym * u[i]
         state_subs[state_sym] = eval_point
 
     # Apply state substitutions to the RHS of equations
@@ -881,12 +872,7 @@ def _build_residual_lines(
             entry = M[i, j]
             if entry == 0:
                 continue
-            if is_stage:
-                # Stage mode: M @ u
-                mv += entry * u[j]
-            else:
-                # End-state mode: M @ (u - base)
-                mv += entry * (u[j] - base[j])
+            mv += entry * u[j]
         
         # Get the dx symbol for this output
         dx_sym = sp.Symbol(f"dx_{i}")
@@ -907,11 +893,10 @@ def generate_residual_code(
     equations: ParsedEquations,
     index_map: IndexedBases,
     M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
-    is_stage: bool = True,
     func_name: str = "residual_factory",
     cse: bool = True,
 ) -> str:
-    """Emit the residual factory for Newton--Krylov integration.
+    """Emit the stage-increment residual factory for Newton--Krylov integration.
 
     Parameters
     ----------
@@ -922,9 +907,6 @@ def generate_residual_code(
     M
         Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
         identity matrix when omitted.
-    is_stage
-        Generate the stage residual when ``True``; otherwise emit the
-        end-state residual.
     func_name
         Name assigned to the emitted factory.
     cse
@@ -945,7 +927,6 @@ def generate_residual_code(
         equations=equations,
         index_map=index_map,
         M=M_mat,
-        is_stage=is_stage,
         cse=cse,
     )
     const_block = render_constant_assignments(index_map.constants.symbol_map)
@@ -955,44 +936,6 @@ def generate_residual_code(
             const_lines=const_block,
             res_lines=res_lines,
     )
-
-def generate_residual_end_state_code(
-    equations: ParsedEquations,
-    index_map: IndexedBases,
-    M: Optional[Union[sp.Matrix, Iterable[Iterable[sp.Expr]]]] = None,
-    func_name: str = "end_residual",
-    cse: bool = True,
-) -> str:
-    """Generate the end-state residual factory.
-
-    Parameters
-    ----------
-    equations
-        Parsed equations defining the system dynamics.
-    index_map
-        Symbol indexing helpers produced by the parser.
-    M
-        Mass matrix supplied as a SymPy matrix or nested iterable. Uses the
-        identity matrix when omitted.
-    func_name
-        Name assigned to the emitted factory.
-    cse
-        Apply common subexpression elimination before emission.
-
-    Returns
-    -------
-    str
-        Source code for the residual factory.
-    """
-    return generate_residual_code(
-        equations=equations,
-        index_map=index_map,
-        M=M,
-        is_stage=False,
-        func_name=func_name,
-        cse=cse,
-    )
-
 
 def generate_stage_residual_code(
     equations: ParsedEquations,
@@ -1023,10 +966,9 @@ def generate_stage_residual_code(
         Source code for the residual factory.
     """
     return generate_residual_code(
-            equations=equations,
-            index_map=index_map,
-            M=M,
-            is_stage=True,
-            func_name=func_name,
-            cse=cse,
+        equations=equations,
+        index_map=index_map,
+        M=M,
+        func_name=func_name,
+        cse=cse,
     )

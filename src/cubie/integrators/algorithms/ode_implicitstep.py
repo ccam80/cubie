@@ -251,22 +251,13 @@ class ODEImplicitStep(BaseAlgorithmStep):
                     mass=mass,
                     preconditioner_order=preconditioner_order
             )
-        if self.is_multistage:
-            residual = get_fn(
-                    'stage_residual',
-                    beta=beta,
-                    gamma=gamma,
-                    mass=mass,
-                    preconditioner_order=preconditioner_order
-            )
-        else:
-            residual = get_fn(
-                    'end_residual',
-                    beta=beta,
-                    gamma=gamma,
-                    mass=mass,
-                    preconditioner_order=preconditioner_order,
-            )
+        residual = get_fn(
+            'stage_residual',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order
+        )
         operator = get_fn(
                 'linear_operator',
                 beta=beta,

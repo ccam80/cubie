@@ -1119,8 +1119,7 @@ def test_algorithm(
     }
     assert device_step_results.status == cpu_step_results.status, \
         "status matches"
-    assert device_step_results.niters == cpu_step_results.niters, \
-        "niters match"
+
     assert_allclose(
         device_step_results.state,
         cpu_step_results.state,
@@ -1142,3 +1141,5 @@ def test_algorithm(
         ), "error matches"
 
 
+    assert device_step_results.niters == cpu_step_results.niters, \
+        "niters match"

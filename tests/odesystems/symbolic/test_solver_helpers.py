@@ -11,7 +11,6 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_neumann_preconditioner_code,
     generate_prepare_jac_code,
     generate_stage_residual_code,
-    generate_residual_end_state_code,
 )
 
 
@@ -697,28 +696,6 @@ def residual_system():
 
 
 @pytest.fixture(scope="function")
-def end_residual_factory(residual_system, precision):
-    def factory(beta, gamma, M):
-        base = cuda.to_device(np.array([0.5, -0.5], dtype=precision))
-        fname = f"residual_end_factory_{abs(hash(M.tobytes()))}"
-        code = generate_residual_end_state_code(
-            residual_system.equations,
-            residual_system.indices,
-            M=M,
-            func_name=fname,
-        )
-        res_fac = residual_system.gen_file.import_function(fname, code)
-        return res_fac(
-            residual_system.constants.values_dict,
-            from_dtype(residual_system.precision),
-            beta=beta,
-            gamma=gamma,
-        )
-
-    return factory
-
-
-@pytest.fixture(scope="function")
 def stage_residual_factory(residual_system, precision):
     def factory(beta, gamma, a_ii, M):
         base = cuda.to_device(np.array([0.25, -0.25], dtype=precision))
@@ -754,41 +731,6 @@ def residual_kernel(precision):
         return kernel
 
     return make_kernel
-
-
-@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
-@pytest.mark.parametrize(
-    "beta,gamma,h,M",
-    [
-        (1.0, 1.0, 1.0, np.eye(2)),
-        (1.0, 1.0, 1.0, np.diag([2.0, 3.0])),
-        (0.5, 2.0, 1.0, np.array([[1.0, 0.5], [0.5, 2.0]])),
-    ],
-)
-def test_residual_end_state(
-    beta,
-    gamma,
-    h,
-    M,
-    end_residual_factory,
-    residual_kernel,
-    precision,
-    tolerance,
-):
-    residual = end_residual_factory(beta, gamma, M)
-    kernel = residual_kernel(residual)
-    state = np.array([1.0, -1.0], dtype=precision)
-    base = np.array([0.5, -0.5], dtype=precision)
-    out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(h), precision(1.0), state, base, out)
-    J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
-    expected = beta * M @ (state - base) - gamma * h * (J @ state)
-    assert np.allclose(
-        out,
-        expected,
-        atol=tolerance.abs_tight,
-        rtol=tolerance.rel_tight,
-    )
 
 
 @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
