@@ -231,9 +231,15 @@ class CPUStep:
         matrix: Array,
         rhs: Array,
     ) -> tuple[Array, bool, int]:
+        coefficients = np.asarray(matrix, dtype=self.precision)
+        vector = np.asarray(rhs, dtype=self.precision)
+
+        def operator_apply(candidate: Array) -> Array:
+            return coefficients @ candidate
+
         solution, converged, niters = krylov_solve(
-            matrix,
-            rhs,
+            vector,
+            operator_apply=operator_apply,
             tolerance=self._linear_tol,
             max_iterations=self._linear_max_iters,
             precision=self.precision,

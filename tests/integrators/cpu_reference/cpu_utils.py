@@ -2,7 +2,7 @@
 
 import math
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 from numpy.typing import NDArray
@@ -21,6 +21,35 @@ def _ensure_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
     if array.ndim != 1:
         raise ValueError("Expected a one-dimensional array of samples.")
     return array
+
+
+def _neumann_preconditioner_matrix(
+    operator_apply: Callable[[Array], Array],
+    dimension: int,
+    precision: np.dtype,
+    order: int,
+) -> Array:
+    """Return the truncated Neumann series for ``operator_apply``."""
+
+    identity = np.eye(dimension, dtype=precision)
+    operator_matrix = np.zeros_like(identity)
+    for column in range(dimension):
+        basis = identity[:, column].copy()
+        operator_matrix[:, column] = np.asarray(
+            operator_apply(basis),
+            dtype=precision,
+        )
+
+    neumann = identity.copy()
+    if order <= 0:
+        return neumann
+
+    residual = identity - operator_matrix
+    power = identity.copy()
+    for _ in range(order):
+        power = power @ residual
+        neumann = neumann + power
+    return neumann
 
 
 @dataclass
@@ -140,27 +169,43 @@ class DriverEvaluator:
 
 
 def krylov_solve(
-    matrix: Array,
     rhs: Array,
     *,
+    operator_apply: Callable[[Array], Array],
     tolerance: np.floating,
     max_iterations: int,
     precision: np.dtype,
+    preconditioner: Optional[Callable[[Array], Array]] = None,
+    neumann_order: int = 2,
+    correction_type: str = "minimal_residual",
+    initial_guess: Optional[Array] = None,
 ) -> tuple[Array, bool, int]:
-    """Solve ``matrix @ x = rhs`` using steepest descent iterations.
+    """Solve ``operator_apply(x) = rhs`` using matrix-free Krylov iterations.
 
     Parameters
     ----------
-    matrix
-        Square system matrix.
     rhs
         Right-hand side vector.
+    operator_apply
+        Callable returning the operator applied to its argument.
     tolerance
         Convergence tolerance on the residual norm.
     max_iterations
-        Maximum iteration count for the descent loop.
+        Maximum iteration count for the descent loop. Zero is permitted.
     precision
         Floating-point precision to use for the iteration.
+    preconditioner
+        Optional callable returning a preconditioned residual direction. If
+        ``None`` the truncated Neumann series of order ``neumann_order`` is
+        used.
+    neumann_order
+        Order of the truncated Neumann series used when ``preconditioner`` is
+        ``None``.
+    correction_type
+        Descent update to apply. ``"steepest_descent"`` or
+        ``"minimal_residual"``.
+    initial_guess
+        Optional starting iterate for the solve. Defaults to the zero vector.
 
     Returns
     -------
@@ -168,39 +213,74 @@ def krylov_solve(
         Solution vector, convergence flag, and iteration count.
     """
 
-    coefficients = np.asarray(matrix, dtype=precision)
+    if correction_type not in ("steepest_descent", "minimal_residual"):
+        raise ValueError(
+            "Correction type must be 'steepest_descent' or 'minimal_residual'."
+        )
+
     vector = np.asarray(rhs, dtype=precision)
 
-    if (
-        coefficients.ndim != 2
-        or coefficients.shape[0] != coefficients.shape[1]
-    ):
-        raise ValueError("System matrix must be square.")
-    if vector.ndim != 1 or vector.shape[0] != coefficients.shape[0]:
-        raise ValueError("Right-hand side must match the system dimension.")
+    if initial_guess is None:
+        solution = np.zeros_like(vector)
+    else:
+        solution = np.asarray(initial_guess, dtype=precision)
 
     tol_value = precision(tolerance)
-    iteration_limit = max(1, int(max_iterations))
+    tol_squared = tol_value * tol_value
+    iteration_limit = int(max_iterations)
+    if iteration_limit < 0:
+        raise ValueError("Maximum iterations must be non-negative.")
 
-    solution = np.zeros_like(vector)
-    residual = vector - coefficients @ solution
-    residual_norm = np.linalg.norm(residual)
-    if residual_norm <= tol_value:
+    applied = np.asarray(operator_apply(solution), dtype=precision)
+    residual = vector - applied
+    residual_squared = float(np.dot(residual, residual))
+    if residual_squared <= tol_squared:
         return solution, True, 0
+
+    if preconditioner is None:
+        neumann_matrix = _neumann_preconditioner_matrix(
+            operator_apply,
+            vector.shape[0],
+            precision,
+            int(neumann_order),
+        )
+
+        def default_preconditioner(vector: Array) -> Array:
+            return neumann_matrix @ vector
+
+        preconditioner_fn = default_preconditioner
+    else:
+        preconditioner_fn = preconditioner
 
     converged = False
     iteration = 0
-    for iteration in range(1, iteration_limit + 1):
-        Ar = coefficients @ residual
-        numerator = np.dot(residual, residual)
-        denominator = np.dot(residual, Ar)
-        if denominator == precision(0.0):
-            break
-        alpha = numerator / denominator
-        solution = solution + alpha * residual
-        residual = residual - alpha * Ar
-        residual_norm = np.linalg.norm(residual)
-        if residual_norm <= tol_value:
+    while iteration < iteration_limit:
+        iteration += 1
+        direction = np.asarray(preconditioner_fn(residual), dtype=precision)
+
+        operator_direction = np.asarray(
+            operator_apply(direction),
+            dtype=precision,
+        )
+
+        if correction_type == "steepest_descent":
+            numerator = float(np.dot(residual, direction))
+            denominator = float(np.dot(operator_direction, direction))
+        else:
+            numerator = float(np.dot(operator_direction, residual))
+            denominator = float(np.dot(operator_direction, operator_direction))
+
+        if denominator == 0.0:
+            return solution, False, iteration
+
+        alpha = precision(numerator / denominator)
+        if converged:
+            alpha = precision(0.0)
+
+        solution = solution + alpha * direction
+        residual = residual - alpha * operator_direction
+        residual_squared = float(np.dot(residual, residual))
+        if residual_squared <= tol_squared:
             converged = True
             break
 
