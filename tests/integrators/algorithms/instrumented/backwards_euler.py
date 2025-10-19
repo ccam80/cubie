@@ -267,6 +267,12 @@ class BackwardsEulerStep(ODEImplicitStep):
         return 0
 
     @property
+    def stage_count(self) -> int:
+        """Backward Euler advances a single implicit stage."""
+
+        return 1
+
+    @property
     def is_adaptive(self) -> bool:
         """Return ``False`` because backward Euler is fixed step."""
 

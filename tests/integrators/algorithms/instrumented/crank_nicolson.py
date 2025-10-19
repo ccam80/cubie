@@ -307,6 +307,12 @@ class CrankNicolsonStep(ODEImplicitStep):
         return 0
 
     @property
+    def stage_count(self) -> int:
+        """Crank–Nicolson evaluates a single implicit stage."""
+
+        return 1
+
+    @property
     def is_adaptive(self) -> bool:
         """Return ``True`` because the embedded error estimate enables adaptivity."""
 

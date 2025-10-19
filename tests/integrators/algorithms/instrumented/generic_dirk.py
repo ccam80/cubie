@@ -418,10 +418,7 @@ class DIRKStep(ODEImplicitStep):
                 if instrument:
                     for idx in range(n):
                         stage_derivatives[0, idx] = stage_rhs[idx]
-                        residuals[0, idx] = (
-                            stage_increment[idx]
-                            - dt_value * diagonal_coeffs[0] * stage_rhs[idx]
-                        )
+                        residuals[0, idx] = solver_scratch[idx + n]
 
             solution_weight = solution_weights[0]
             error_weight = error_weights[0]
@@ -525,12 +522,7 @@ class DIRKStep(ODEImplicitStep):
                 if instrument:
                     for idx in range(n):
                         stage_derivatives[stage_idx, idx] = stage_rhs[idx]
-                        residuals[stage_idx, idx] = (
-                            stage_increment[idx]
-                            - dt_value
-                            * diagonal_coeffs[stage_idx]
-                            * stage_rhs[idx]
-                        )
+                        residuals[stage_idx, idx] = solver_scratch[idx + n]
 
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]

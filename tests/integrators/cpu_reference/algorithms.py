@@ -1252,7 +1252,7 @@ class CPUDIRKStep(CPUStep):
                 error_accum = error_accum + (
                     error_weights[stage_index]
                     * stage_derivatives[stage_index]
-                )
+                ) * dt_value
 
         new_state = state_vector + dt_value * state_accum
         end_time = current_time + dt_value

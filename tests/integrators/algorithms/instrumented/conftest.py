@@ -1,3 +1,4 @@
+import inspect
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable
 
@@ -5,14 +6,28 @@ import numpy as np
 import pytest
 from numba import cuda, from_dtype
 
-from tests.integrators.algorithms.instrumented.generic_dirk import (
-    DIRKStep as InstrumentedDIRKStep,
+from .backwards_euler import (
+    BackwardsEulerStep as InstrumentedBackwardsEulerStep,
 )
+from .backwards_euler_predict_correct import (
+    BackwardsEulerPCStep as InstrumentedBackwardsEulerPCStep,
+)
+from .crank_nicolson import (
+    CrankNicolsonStep as InstrumentedCrankNicolsonStep,
+)
+from .explicit_euler import (
+    ExplicitEulerStep as InstrumentedExplicitEulerStep,
+)
+from .generic_dirk import DIRKStep as InstrumentedDIRKStep
 from tests.integrators.cpu_reference import (
     CPUODESystem,
     InstrumentedStepResult,
     STATUS_MASK,
     get_ref_stepper,
+)
+from .generic_erk import ERKStep as InstrumentedERKStep
+from .generic_rosenbrock_w import (
+    GenericRosenbrockWStep as InstrumentedRosenbrockStep,
 )
 
 
@@ -67,7 +82,27 @@ class DeviceInstrumentedResult:
 
 
 INSTRUMENTED_STEP_CLASSES: Dict[str, Callable[..., object]] = {
+    "euler": InstrumentedExplicitEulerStep,
+    "erk": InstrumentedERKStep,
+    "dormand-prince-54": InstrumentedERKStep,
+    "dopri54": InstrumentedERKStep,
+    "cash-karp-54": InstrumentedERKStep,
+    "fehlberg-45": InstrumentedERKStep,
+    "bogacki-shampine-32": InstrumentedERKStep,
+    "heun-21": InstrumentedERKStep,
+    "ralston-33": InstrumentedERKStep,
+    "classical-rk4": InstrumentedERKStep,
+    "backwards_euler": InstrumentedBackwardsEulerStep,
+    "backwards_euler_pc": InstrumentedBackwardsEulerPCStep,
+    "crank_nicolson": InstrumentedCrankNicolsonStep,
     "dirk": InstrumentedDIRKStep,
+    "implicit_midpoint": InstrumentedDIRKStep,
+    "trapezoidal_dirk": InstrumentedDIRKStep,
+    "sdirk_2_2": InstrumentedDIRKStep,
+    "lobatto_iiic_3": InstrumentedDIRKStep,
+    "rosenbrock": InstrumentedRosenbrockStep,
+    "ros3p": InstrumentedRosenbrockStep,
+    "rosenbrock_w6s4os": InstrumentedRosenbrockStep,
 }
 
 
@@ -117,7 +152,20 @@ def instrumented_step_object(
     }
     if "tableau" in solver_settings:
         step_kwargs["tableau"] = solver_settings["tableau"]
-    return instrumented_step_class(**step_kwargs)
+
+    signature = inspect.signature(instrumented_step_class)
+    filtered_kwargs = {}
+    for name, parameter in signature.parameters.items():
+        if name == "self":
+            continue
+        if name in step_kwargs:
+            filtered_kwargs[name] = step_kwargs[name]
+        elif parameter.default is inspect._empty:
+            raise TypeError(
+                f"Missing required argument '{name}' for "
+                f"{instrumented_step_class.__name__}."
+            )
+    return instrumented_step_class(**filtered_kwargs)
 
 
 @pytest.fixture(scope="session")
@@ -235,11 +283,14 @@ def instrumented_step_results(
     numba_precision = instrumented_step_kernel.numba_precision
     n_states = system.sizes.states
     n_observables = system.sizes.observables
-    stage_count = getattr(
+    stage_count_attr = getattr(
         getattr(instrumented_step_object, "tableau", None),
         "stage_count",
-        0,
+        None,
     )
+    if stage_count_attr is None:
+        stage_count_attr = getattr(instrumented_step_object, "stage_count", 0)
+    stage_count = int(stage_count_attr or 0)
 
     state = np.asarray(step_inputs["state"], dtype=precision)
     params = np.asarray(step_inputs["parameters"], dtype=precision)

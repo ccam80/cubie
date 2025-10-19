@@ -2,12 +2,15 @@
 
 import pytest
 
+from tests.integrators.algorithms.test_step_algorithms import STEP_CASES
+
 from .conftest import print_comparison
 
 
+
 @pytest.mark.parametrize(
-    "solver_settings_override",
-    [pytest.param({"algorithm": "dirk"}, id="dirk")],
+    "solver_settings_override, system_override",
+    STEP_CASES,
     indirect=True,
 )
 def test_instrumented_gpu_vs_cpu(
