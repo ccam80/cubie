@@ -900,7 +900,7 @@ def test_algorithm(
     assert callable(step_object.step_function), "step_function_builds"
 
     # test getters
-    algorithm = solver_settings["algorithm"]
+    algorithm = solver_settings[("algorithm")]
     properties = expected_step_properties.get(algorithm)
     if properties is not None:
         assert step_object.is_implicit is properties["is_implicit"], \

@@ -35,6 +35,7 @@ from .cpu_utils import (
     Array,
     DriverEvaluator,
     StepResultLike,
+    euclidean_norm,
     make_step_result,
     _encode_solver_status,
     krylov_solve,
@@ -278,7 +279,7 @@ class CPUStep:
         state = self.ensure_array(initial_guess, copy=True)
         for iteration in range(self._newton_max_iters):
             residual = self.residual(state)
-            norm = np.linalg.norm(residual, ord=2)
+            norm = euclidean_norm(residual, precision=self.precision)
             if norm < self._newton_tol:
                 return state, True, iteration + 1
             jacobian = self.jacobian(state)
@@ -666,7 +667,7 @@ class CPUCrankNicolsonStep(CPUStep):
             self._cn_next_time,
         )
         beta = self.precision(1.0)
-        gamma = self.precision(1.0)
+        gamma = self.precision(.5)
         mass_term = self.mass_matrix_apply(increment)
         return beta * mass_term - gamma * self._cn_dt * derivative
 

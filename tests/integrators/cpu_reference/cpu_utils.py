@@ -23,6 +23,35 @@ def _ensure_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
     return array
 
 
+def dot_product(
+    left: Sequence[float] | Array,
+    right: Sequence[float] | Array,
+    *,
+    precision: np.dtype,
+) -> np.floating:
+    """Return the dot product of ``left`` and ``right`` in ``precision``."""
+
+    left_vector = np.asarray(left, dtype=precision)
+    right_vector = np.asarray(right, dtype=precision)
+    product = np.multiply(left_vector, right_vector, dtype=precision)
+    return product.sum(dtype=precision)
+
+
+def squared_norm(vector: Sequence[float] | Array, *, precision: np.dtype) -> np.floating:
+    """Return the squared Euclidean norm of ``vector`` in ``precision``."""
+
+    typed = np.asarray(vector, dtype=precision)
+    squared = np.multiply(typed, typed, dtype=precision)
+    return squared.sum(dtype=precision)
+
+
+def euclidean_norm(vector: Sequence[float] | Array, *, precision: np.dtype) -> np.floating:
+    """Return the Euclidean norm of ``vector`` in ``precision``."""
+
+    squared = squared_norm(vector, precision=precision)
+    return np.sqrt(squared, dtype=precision)
+
+
 def _neumann_preconditioner_matrix(
     operator_apply: Callable[[Array], Array],
     dimension: int,
@@ -288,7 +317,7 @@ class DriverEvaluator:
         if self._width == 0 or self._segments == 0 or self.dt == 0.0:
             return self._zero.copy()
 
-        inv_res = 1.0 / self.dt
+        inv_res = precision(precision(1.0) / self.dt)
         scaled = (time - self._evaluation_start) * inv_res
         scaled_floor = math.floor(scaled)
         idx = int(scaled_floor)
@@ -401,7 +430,7 @@ def krylov_solve(
 
     applied = np.asarray(operator_apply(solution), dtype=precision)
     residual = vector - applied
-    residual_squared = precision(np.dot(residual, residual))
+    residual_squared = dot_product(residual, residual, precision=precision)
     if residual_squared <= tol_squared:
         return solution, True, 0
 
@@ -432,11 +461,27 @@ def krylov_solve(
         )
 
         if correction_type == "steepest_descent":
-            numerator = precision(np.dot(residual, direction))
-            denominator = precision(np.dot(operator_direction, direction))
+            numerator = dot_product(
+                residual,
+                direction,
+                precision=precision,
+            )
+            denominator = dot_product(
+                operator_direction,
+                direction,
+                precision=precision,
+            )
         else:
-            numerator = precision(np.dot(operator_direction, residual))
-            denominator = precision(np.dot(operator_direction, operator_direction))
+            numerator = dot_product(
+                operator_direction,
+                residual,
+                precision=precision,
+            )
+            denominator = dot_product(
+                operator_direction,
+                operator_direction,
+                precision=precision,
+            )
 
         if denominator == 0.0:
             return solution, False, iteration
@@ -447,7 +492,11 @@ def krylov_solve(
 
         solution = solution + alpha * direction
         residual = residual - alpha * operator_direction
-        residual_squared = precision(np.dot(residual, residual))
+        residual_squared = dot_product(
+            residual,
+            residual,
+            precision=precision,
+        )
         if residual_squared <= tol_squared:
             converged = True
             break
@@ -459,8 +508,11 @@ __all__ = [
     "Array",
     "DriverEvaluator",
     "STATUS_MASK",
+    "dot_product",
+    "euclidean_norm",
     "StepResult",
     "_encode_solver_status",
     "_ensure_array",
+    "squared_norm",
     "krylov_solve",
 ]
