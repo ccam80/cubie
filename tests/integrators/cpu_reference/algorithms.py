@@ -475,7 +475,7 @@ class CPUBackwardEulerStep(CPUStep):
 
     def residual(self, candidate: Array) -> Array:
         base_state = self._be_state
-        increment = candidate - base_state
+        increment = candidate
         stage_state = base_state + increment
         observables = self.observables(
             stage_state,
@@ -496,8 +496,9 @@ class CPUBackwardEulerStep(CPUStep):
         return beta * mass_term - gamma * self._be_dt * derivative
 
     def jacobian(self, candidate: Array) -> Array:
-        observables, jacobian = self.observables_and_jac(
-            candidate,
+        stage_state = self._be_state + candidate
+        _, jacobian = self.observables_and_jac(
+            stage_state,
             self._be_params,
             self._be_drivers,
             self._be_time,
@@ -531,7 +532,8 @@ class CPUBackwardEulerStep(CPUStep):
         else:
             guess = self.ensure_array(initial_guess, copy=True)
 
-        next_state, converged, niters = self.newton_solve(guess)
+        increment, converged, niters = self.newton_solve(guess)
+        next_state = state_vector + increment
 
         observables = self.observables(
             next_state,
@@ -541,7 +543,7 @@ class CPUBackwardEulerStep(CPUStep):
         )
         error = np.zeros_like(next_state, dtype=self.precision)
         status = self._status(converged, niters)
-        self._be_increment = next_state - state_vector
+        self._be_increment = increment
         residuals = None
         jacobian_updates = None
         stage_states = None
@@ -552,7 +554,7 @@ class CPUBackwardEulerStep(CPUStep):
         solver_iterations = None
         solver_status = None
         if self.instrument:
-            residual_vector = self.residual(next_state)
+            residual_vector = self.residual(increment)
             residuals = residual_vector[np.newaxis, :]
             jacobian_updates = np.zeros_like(residuals)
             stage_states = next_state[np.newaxis, :]
@@ -565,7 +567,7 @@ class CPUBackwardEulerStep(CPUStep):
             )[np.newaxis, :]
             stage_observables = observables[np.newaxis, :]
             solver_initial_guesses = self.ensure_array(guess)[np.newaxis, :]
-            solver_solutions = next_state[np.newaxis, :]
+            solver_solutions = increment[np.newaxis, :]
             solver_iterations = np.array([niters], dtype=np.int64)
             solver_status = np.array(
                 [
@@ -635,6 +637,7 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_next_time = self.precision(0.0)
         self._cn_dt = self.precision(0.0)
         self._cn_base_state = np.zeros(self._state_size, dtype=self.precision)
+        self._cn_increment = np.zeros(self._state_size, dtype=self.precision)
         if backward_step is None:
             backward_step = CPUBackwardEulerStep(
                 evaluator,
@@ -651,7 +654,7 @@ class CPUCrankNicolsonStep(CPUStep):
 
     def residual(self, candidate: Array) -> Array:
         base_state = self._cn_base_state
-        increment = candidate - base_state
+        increment = candidate
         stage_state = base_state + increment
         observables = self.observables(
             stage_state,
@@ -667,13 +670,14 @@ class CPUCrankNicolsonStep(CPUStep):
             self._cn_next_time,
         )
         beta = self.precision(1.0)
-        gamma = self.precision(.5)
+        gamma = self.precision(0.5)
         mass_term = self.mass_matrix_apply(increment)
         return beta * mass_term - gamma * self._cn_dt * derivative
 
     def jacobian(self, candidate: Array) -> Array:
-        observables, jacobian = self.observables_and_jac(
-            candidate,
+        stage_state = self._cn_base_state + candidate
+        _, jacobian = self.observables_and_jac(
+            stage_state,
             self._cn_params,
             self._cn_drivers_next,
             self._cn_next_time,
@@ -716,12 +720,11 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_drivers_next = drivers_next
         self._cn_next_time = next_time
         self._cn_dt = dt_value
-        self._cn_base_state = (
-                state_vector + self._cn_dt * derivative_now
-        )
+        self._cn_base_state = state_vector + self._cn_dt * derivative_now
 
-        guess = state_vector.copy()
-        next_state, converged, niters = self.newton_solve(guess)
+        guess = self._cn_increment
+        increment, converged, niters = self.newton_solve(guess)
+        next_state = self._cn_base_state + increment
 
         observables = self.observables(
             next_state,
@@ -733,11 +736,12 @@ class CPUCrankNicolsonStep(CPUStep):
             state=state_vector,
             params=params_array,
             dt=dt_value,
-            initial_guess=next_state,
+            initial_guess=increment,
             time=current_time,
         )
         error = next_state - backward_result.state
         status = self._status(converged, niters)
+        self._cn_increment = increment
         residuals = None
         jacobian_updates = None
         stage_states = None
@@ -748,7 +752,7 @@ class CPUCrankNicolsonStep(CPUStep):
         solver_iterations = None
         solver_status = None
         if self.instrument:
-            residual_vector = self.residual(next_state)
+            residual_vector = self.residual(increment)
             residuals = residual_vector[np.newaxis, :]
             jacobian_updates = np.zeros_like(residuals)
             stage_states = next_state[np.newaxis, :]
@@ -760,11 +764,10 @@ class CPUCrankNicolsonStep(CPUStep):
                 next_time,
             )[np.newaxis, :]
             stage_observables = observables[np.newaxis, :]
-            solver_initial_guesses = np.asarray(guess, dtype=self.precision)[
-                np.newaxis,
-                :,
-            ]
-            solver_solutions = next_state[np.newaxis, :]
+            solver_initial_guesses = np.asarray(
+                guess, dtype=self.precision
+            )[np.newaxis, :]
+            solver_solutions = increment[np.newaxis, :]
             solver_iterations = np.array([niters], dtype=np.int64)
             solver_status = np.array(
                 [
@@ -1019,7 +1022,7 @@ class CPUDIRKStep(CPUStep):
 
     def residual(self, candidate: Array) -> Array:
         base_state = self._dirk_reference
-        increment = candidate - base_state
+        increment = candidate
         stage_state = base_state + increment
         observables = self.observables(
             stage_state,
@@ -1039,8 +1042,9 @@ class CPUDIRKStep(CPUStep):
         return beta * mass_term - self._dirk_dt_coeff * derivative
 
     def jacobian(self, candidate: Array) -> Array:
-        observables, jacobian = self.observables_and_jac(
-            candidate,
+        stage_state = self._dirk_reference + candidate
+        _, jacobian = self.observables_and_jac(
+            stage_state,
             self._dirk_params,
             self._dirk_drivers,
             self._dirk_time,
@@ -1192,15 +1196,16 @@ class CPUDIRKStep(CPUStep):
             self._dirk_time = stage_time
             self._dirk_dt_coeff = dt_value * diag_coeff
 
-            guess = base_state.copy()
+            guess = np.zeros_like(base_state)
             if (
                 stage_index == 0
                 and not self.tableau.first_same_as_last
                 and not self.tableau.can_reuse_accepted_start
                 and self._dirk_has_increment
             ):
-                guess = base_state + self._dirk_increment
-            solved_state, converged, niters = self.newton_solve(guess)
+                guess = self._dirk_increment
+            increment, converged, niters = self.newton_solve(guess)
+            solved_state = base_state + increment
             all_converged = all_converged and converged
             total_iters += niters
             observables_stage = self.observables(
@@ -1219,11 +1224,11 @@ class CPUDIRKStep(CPUStep):
             stage_derivatives[stage_index, :] = derivative
             if self.instrument:
                 stage_states[stage_index, :] = solved_state
-                residuals[stage_index, :] = self.residual(solved_state)
-                jacobian_updates[stage_index, :] = solved_state - base_state
+                residuals[stage_index, :] = self.residual(increment)
+                jacobian_updates[stage_index, :] = increment
                 stage_observables[stage_index, :] = observables_stage
                 solver_initial_guesses[stage_index, :] = guess
-                solver_solutions[stage_index, :] = solved_state
+                solver_solutions[stage_index, :] = increment
                 solver_iterations[stage_index] = niters
                 solver_status[stage_index] = int(
                     IntegratorReturnCodes.SUCCESS
@@ -1234,7 +1239,7 @@ class CPUDIRKStep(CPUStep):
                 stage_index == stage_count - 1
                 and not self.tableau.can_reuse_accepted_start
             ):
-                self._dirk_increment = solved_state - base_state
+                self._dirk_increment = increment
                 self._dirk_has_increment = True
 
         state_accum = np.zeros_like(state_vector)
