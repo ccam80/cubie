@@ -349,7 +349,7 @@ class DIRKStep(ODEImplicitStep):
                     error[idx] += error_weight * increment
 
             for idx in range(accumulator_length):
-                stage_accumulator[idx+multistage*n] = typed_zero
+                stage_accumulator[idx] = typed_zero
 
             # --------------------------------------------------------------- #
             #            Stages 1-s: must refresh obs/drivers                 #
@@ -380,7 +380,7 @@ class DIRKStep(ODEImplicitStep):
                     )
 
                 # Just grab a view of the completed accumulator slice
-                stage_base = stage_accumulator[stage_idx * n:(stage_idx+1) * n]
+                stage_base = stage_accumulator[(stage_idx-1) * n:stage_idx * n]
 
                 status_code |= nonlinear_solver(
                     stage_increment,
@@ -396,7 +396,7 @@ class DIRKStep(ODEImplicitStep):
                     stage_base[idx] = state[idx] + stage_increment[idx]
 
                 observables_function(
-                    stage_increment,
+                    stage_base,
                     parameters,
                     stage_drivers,
                     proposed_observables,
@@ -404,7 +404,7 @@ class DIRKStep(ODEImplicitStep):
                 )
 
                 dxdt_fn(
-                    stage_increment,
+                    stage_base,
                     parameters,
                     stage_drivers,
                     proposed_observables,
