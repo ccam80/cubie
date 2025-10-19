@@ -115,7 +115,7 @@ SDIRK_2_2_TABLEAU = DIRKTableau(
 """Two-stage, second-order SDIRK tableau by Alexander.
 
 The tableau is L-stable and singly diagonally implicit with diagonal
-coefficient :math:`1 - \tfrac{1}{\sqrt{2}}`. The embedded weights provide
+coefficient :math:`1 - \\tfrac{1}{\\sqrt{2}}`. The embedded weights provide
 an error estimate suitable for adaptive step controllers.
 
 References

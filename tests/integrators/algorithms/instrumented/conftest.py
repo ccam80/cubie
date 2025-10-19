@@ -1,0 +1,521 @@
+from dataclasses import dataclass, field
+from typing import Callable, Dict, Iterable
+
+import numpy as np
+import pytest
+from numba import cuda, from_dtype
+
+from tests.integrators.algorithms.instrumented.generic_dirk import (
+    DIRKStep as InstrumentedDIRKStep,
+)
+from tests.integrators.cpu_reference import (
+    CPUODESystem,
+    InstrumentedStepResult,
+    STATUS_MASK,
+    get_ref_stepper,
+)
+
+
+@dataclass
+class InstrumentedKernel:
+    """CUDA kernel wrapper and launch metadata for instrumented steps."""
+
+    function: Callable
+    shared_bytes: int
+    persistent_len: int
+    numba_precision: type
+
+@pytest.fixture(scope="session")
+def step_inputs(
+    system,
+    precision,
+    initial_state,
+    solver_settings,
+    cpu_driver_evaluator,
+) -> dict:
+    """State, parameters, and drivers for a single step execution."""
+    width = system.num_drivers
+    driver_coefficients = np.array(
+        cpu_driver_evaluator.coefficients, dtype=precision, copy=True
+    )
+    return {
+        "state": initial_state,
+        "parameters": system.parameters.values_array.astype(precision),
+        "drivers": np.zeros(width, dtype=precision),
+        "driver_coefficients": driver_coefficients,
+    }
+
+@dataclass
+class DeviceInstrumentedResult:
+    """Host-side copies of the arrays produced by the CUDA step."""
+
+    state: np.ndarray
+    observables: np.ndarray
+    error: np.ndarray
+    residuals: np.ndarray
+    jacobian_updates: np.ndarray
+    stage_states: np.ndarray
+    stage_derivatives: np.ndarray
+    stage_observables: np.ndarray
+    solver_initial_guesses: np.ndarray
+    solver_solutions: np.ndarray
+    solver_iterations: np.ndarray
+    solver_status: np.ndarray
+    status: int
+    niters: int
+    extra_vectors: Dict[str, np.ndarray] = field(default_factory=dict)
+
+
+INSTRUMENTED_STEP_CLASSES: Dict[str, Callable[..., object]] = {
+    "dirk": InstrumentedDIRKStep,
+}
+
+
+@pytest.fixture(scope="session")
+def instrumented_step_class(
+    solver_settings,
+) -> Callable[..., object]:
+    """Resolve the instrumented step class for the configured algorithm."""
+
+    try:
+        return INSTRUMENTED_STEP_CLASSES[solver_settings["algorithm"]]
+    except KeyError as error:
+        raise ValueError(
+            f"Unknown instrumented algorithm '{solver_settings['algorithm']}'."
+        ) from error
+
+
+@pytest.fixture(scope="session")
+def instrumented_step_object(
+    instrumented_step_class: Callable[..., object],
+    system,
+    solver_settings,
+    precision: np.dtype,
+    driver_array,
+):
+    """Instantiate the configured instrumented step implementation."""
+
+    driver_function = (
+        None if driver_array is None else driver_array.evaluation_function
+    )
+    step_kwargs: Dict[str, object] = {
+        "precision": precision,
+        "n": system.sizes.states,
+        "dt": solver_settings["dt"],
+        "dxdt_function": system.dxdt_function,
+        "observables_function": system.observables_function,
+        "driver_function": driver_function,
+        "get_solver_helper_fn": system.get_solver_helper,
+        "preconditioner_order": solver_settings["preconditioner_order"],
+        "krylov_tolerance": solver_settings["krylov_tolerance"],
+        "max_linear_iters": solver_settings["max_linear_iters"],
+        "linear_correction_type": solver_settings["correction_type"],
+        "newton_tolerance": solver_settings["newton_tolerance"],
+        "max_newton_iters": solver_settings["max_newton_iters"],
+        "newton_damping": solver_settings["newton_damping"],
+        "newton_max_backtracks": solver_settings["newton_max_backtracks"],
+    }
+    if "tableau" in solver_settings:
+        step_kwargs["tableau"] = solver_settings["tableau"]
+    return instrumented_step_class(**step_kwargs)
+
+
+@pytest.fixture(scope="session")
+def instrumented_step_kernel(
+    instrumented_step_object,
+    system,
+    solver_settings,
+    precision: np.dtype,
+    driver_array,
+    step_inputs,
+) -> InstrumentedKernel:
+    """Compile a CUDA kernel that executes the instrumented step."""
+
+    step_function = instrumented_step_object.step_function
+    numba_precision = from_dtype(precision)
+    shared_elems = instrumented_step_object.shared_memory_required
+    shared_bytes = precision(0).itemsize * shared_elems
+    persistent_len = max(1, instrumented_step_object.persistent_local_required)
+    driver_function = (
+        None if driver_array is None else driver_array.evaluation_function
+    )
+    observables_function = system.observables_function
+    state = np.asarray(step_inputs["state"], dtype=precision)
+    params = np.asarray(step_inputs["parameters"], dtype=precision)
+    driver_coefficients = np.asarray(
+        step_inputs["driver_coefficients"], dtype=precision
+    )
+
+    @cuda.jit
+    def kernel(
+        state_vec,
+        proposed_vec,
+        params_vec,
+        driver_coeffs_vec,
+        drivers_vec,
+        proposed_drivers_vec,
+        observables_vec,
+        proposed_observables_vec,
+        error_vec,
+        residuals_mat,
+        jacobian_updates_mat,
+        stage_states_mat,
+        stage_derivatives_mat,
+        stage_observables_mat,
+        solver_initial_guesses_mat,
+        solver_solutions_mat,
+        solver_iterations_vec,
+        solver_status_vec,
+        dt_scalar,
+        time_scalar,
+        status_vec,
+    ) -> None:
+        idx = cuda.grid(1)
+        if idx > 0:
+            return
+        shared = cuda.shared.array(0, dtype=numba_precision)
+        persistent = cuda.local.array(persistent_len, dtype=numba_precision)
+        if driver_function is not None:
+            driver_function(precision(0.0), driver_coefficients, drivers_vec)
+        observables_function(
+            state,
+            params_vec,
+            drivers_vec,
+            observables_vec,
+            precision(0.0),
+        )
+        shared[:] = precision(0.0)
+        result = step_function(
+            state_vec,
+            proposed_vec,
+            params_vec,
+            driver_coeffs_vec,
+            drivers_vec,
+            proposed_drivers_vec,
+            observables_vec,
+            proposed_observables_vec,
+            error_vec,
+            residuals_mat,
+            jacobian_updates_mat,
+            stage_states_mat,
+            stage_derivatives_mat,
+            stage_observables_mat,
+            solver_initial_guesses_mat,
+            solver_solutions_mat,
+            solver_iterations_vec,
+            solver_status_vec,
+            dt_scalar,
+            time_scalar,
+            shared,
+            persistent,
+        )
+        status_vec[0] = result
+
+    return InstrumentedKernel(
+        kernel,
+        shared_bytes,
+        persistent_len,
+        numba_precision,
+    )
+
+
+@pytest.fixture(scope="session")
+def instrumented_step_results(
+    instrumented_step_kernel: InstrumentedKernel,
+    instrumented_step_object,
+    step_inputs,
+    solver_settings,
+    system,
+    precision: np.dtype,
+) -> DeviceInstrumentedResult:
+    """Execute the instrumented CUDA step and collect host-side arrays."""
+
+    kernel = instrumented_step_kernel.function
+    shared_bytes = instrumented_step_kernel.shared_bytes
+    numba_precision = instrumented_step_kernel.numba_precision
+    n_states = system.sizes.states
+    n_observables = system.sizes.observables
+    stage_count = getattr(
+        getattr(instrumented_step_object, "tableau", None),
+        "stage_count",
+        0,
+    )
+
+    state = np.asarray(step_inputs["state"], dtype=precision)
+    params = np.asarray(step_inputs["parameters"], dtype=precision)
+    driver_coefficients = np.asarray(
+        step_inputs["driver_coefficients"], dtype=precision
+    )
+    drivers = np.asarray(step_inputs["drivers"], dtype=precision)
+    proposed_state = np.zeros_like(state)
+    proposed_drivers = np.zeros_like(drivers)
+    error = np.zeros(n_states, dtype=precision)
+    observables = np.zeros(n_observables, dtype=precision)
+    proposed_observables = np.zeros_like(observables)
+    residuals = np.zeros((stage_count, n_states), dtype=precision)
+    jacobian_updates = np.zeros_like(residuals)
+    stage_states = np.zeros_like(residuals)
+    stage_derivatives = np.zeros_like(residuals)
+    stage_observables = np.zeros(
+        (stage_count, n_observables), dtype=precision
+    )
+    solver_initial_guesses = np.zeros_like(residuals)
+    solver_solutions = np.zeros_like(residuals)
+    solver_iterations = np.zeros(stage_count, dtype=np.int32)
+    solver_status = np.zeros(stage_count, dtype=np.int32)
+    status = np.zeros(1, dtype=np.int32)
+
+    d_state = cuda.to_device(state)
+    d_proposed = cuda.to_device(proposed_state)
+    d_params = cuda.to_device(params)
+    d_driver_coeffs = cuda.to_device(driver_coefficients)
+    d_drivers = cuda.to_device(drivers)
+    d_proposed_drivers = cuda.to_device(proposed_drivers)
+    d_observables = cuda.to_device(observables)
+    d_proposed_observables = cuda.to_device(proposed_observables)
+    d_error = cuda.to_device(error)
+    d_residuals = cuda.to_device(residuals)
+    d_jacobian_updates = cuda.to_device(jacobian_updates)
+    d_stage_states = cuda.to_device(stage_states)
+    d_stage_derivatives = cuda.to_device(stage_derivatives)
+    d_stage_observables = cuda.to_device(stage_observables)
+    d_solver_initial_guesses = cuda.to_device(solver_initial_guesses)
+    d_solver_solutions = cuda.to_device(solver_solutions)
+    d_solver_iterations = cuda.to_device(solver_iterations)
+    d_solver_status = cuda.to_device(solver_status)
+    d_status = cuda.to_device(status)
+
+    dt_value = solver_settings["dt"]
+
+    kernel[1, 1, 0, shared_bytes](
+        d_state,
+        d_proposed,
+        d_params,
+        d_driver_coeffs,
+        d_drivers,
+        d_proposed_drivers,
+        d_observables,
+        d_proposed_observables,
+        d_error,
+        d_residuals,
+        d_jacobian_updates,
+        d_stage_states,
+        d_stage_derivatives,
+        d_stage_observables,
+        d_solver_initial_guesses,
+        d_solver_solutions,
+        d_solver_iterations,
+        d_solver_status,
+        dt_value,
+        numba_precision(0.0),
+        d_status,
+    )
+    cuda.synchronize()
+
+    status_value = int(d_status.copy_to_host()[0])
+    return DeviceInstrumentedResult(
+        state=d_proposed.copy_to_host(),
+        observables=d_proposed_observables.copy_to_host(),
+        error=d_error.copy_to_host(),
+        residuals=d_residuals.copy_to_host(),
+        jacobian_updates=d_jacobian_updates.copy_to_host(),
+        stage_states=d_stage_states.copy_to_host(),
+        stage_derivatives=d_stage_derivatives.copy_to_host(),
+        stage_observables=d_stage_observables.copy_to_host(),
+        solver_initial_guesses=d_solver_initial_guesses.copy_to_host(),
+        solver_solutions=d_solver_solutions.copy_to_host(),
+        solver_iterations=d_solver_iterations.copy_to_host().astype(
+            np.int64
+        ),
+        solver_status=d_solver_status.copy_to_host().astype(np.int64),
+        status=status_value & STATUS_MASK,
+        niters=(status_value >> 16) & STATUS_MASK,
+    )
+
+
+@pytest.fixture(scope="session")
+def instrumented_cpu_step_results(
+    solver_settings,
+    cpu_system: CPUODESystem,
+    step_inputs,
+    cpu_driver_evaluator,
+    instrumented_step_object,
+) -> InstrumentedStepResult:
+    """Execute the CPU reference step with instrumentation enabled."""
+
+    tableau = getattr(instrumented_step_object, "tableau", None)
+    state = np.asarray(
+        step_inputs["state"], dtype=cpu_system.precision
+    )
+    params = np.asarray(
+        step_inputs["parameters"], dtype=cpu_system.precision
+    )
+    if cpu_system.system.num_drivers > 0:
+        driver_coefficients = step_inputs["driver_coefficients"]
+        driver_evaluator = cpu_driver_evaluator.with_coefficients(
+            driver_coefficients
+        )
+    else:
+        driver_evaluator = cpu_driver_evaluator
+
+    stepper = get_ref_stepper(
+        cpu_system,
+        driver_evaluator,
+        solver_settings["algorithm"],
+        newton_tol=solver_settings["newton_tolerance"],
+        newton_max_iters=solver_settings["max_newton_iters"],
+        linear_tol=solver_settings["krylov_tolerance"],
+        linear_max_iters=solver_settings["max_linear_iters"],
+        linear_correction_type=solver_settings["correction_type"],
+        preconditioner_order=solver_settings["preconditioner_order"],
+        tableau=tableau,
+        instrument=True,
+    )
+
+    result = stepper(
+        state=state,
+        params=params,
+        dt=solver_settings["dt"],
+        time=0.0,
+    )
+    if not isinstance(result, InstrumentedStepResult):
+        raise TypeError(
+            "Expected InstrumentedStepResult from CPU reference step."
+        )
+    return result
+
+
+def _format_array(values: np.ndarray) -> str:
+    """Return ``values`` formatted for console comparison output."""
+
+    return np.array2string(
+        values,
+        precision=8,
+        floatmode="fixed",
+        suppress_small=False,
+        max_line_width=79,
+    )
+
+
+def _numeric_delta(
+    cpu_values: np.ndarray,
+    gpu_values: np.ndarray,
+) -> np.ndarray:
+    """Return the difference ``gpu_values - cpu_values`` in GPU precision."""
+
+    gpu_array = np.asarray(gpu_values)
+    cpu_array = np.asarray(cpu_values)
+    if gpu_array.dtype != cpu_array.dtype:
+        cpu_array = cpu_array.astype(gpu_array.dtype, copy=False)
+    return gpu_array - cpu_array
+
+
+def _print_section(
+    name: str,
+    cpu_values: np.ndarray,
+    gpu_values: np.ndarray,
+) -> None:
+    """Print CPU, GPU, and delta arrays for ``name``."""
+
+    delta = _numeric_delta(cpu_values, gpu_values)
+    print(f"{name} cpu:\n{_format_array(cpu_values)}")
+    print(f"{name} gpu:\n{_format_array(gpu_values)}")
+    print(f"{name} delta:\n{_format_array(delta)}")
+    print("")
+
+
+def print_comparison(
+    cpu_result: InstrumentedStepResult,
+    gpu_result: DeviceInstrumentedResult,
+) -> None:
+    """Print side-by-side comparisons for CPU and CUDA instrumented outputs."""
+
+    comparisons: Iterable[tuple[str, np.ndarray, np.ndarray]] = [
+        ("state", cpu_result.state, gpu_result.state),
+        ("observables", cpu_result.observables, gpu_result.observables),
+        ("error", cpu_result.error, gpu_result.error),
+        ("residuals", cpu_result.residuals, gpu_result.residuals),
+        (
+            "jacobian_updates",
+            cpu_result.jacobian_updates,
+            gpu_result.jacobian_updates,
+        ),
+        (
+            "stage_states",
+            cpu_result.stage_states,
+            gpu_result.stage_states,
+        ),
+        (
+            "stage_derivatives",
+            cpu_result.stage_derivatives,
+            gpu_result.stage_derivatives,
+        ),
+        (
+            "stage_observables",
+            cpu_result.stage_observables,
+            gpu_result.stage_observables,
+        ),
+        (
+            "solver_initial_guesses",
+            cpu_result.solver_initial_guesses,
+            gpu_result.solver_initial_guesses,
+        ),
+        (
+            "solver_solutions",
+            cpu_result.solver_solutions,
+            gpu_result.solver_solutions,
+        ),
+        (
+            "solver_iterations",
+            cpu_result.solver_iterations,
+            gpu_result.solver_iterations,
+        ),
+        (
+            "solver_status",
+            cpu_result.solver_status,
+            gpu_result.solver_status,
+        ),
+    ]
+
+    for name, cpu_values, gpu_values in comparisons:
+        _print_section(name, np.asarray(cpu_values), np.asarray(gpu_values))
+
+    extra_names = sorted(
+        set(cpu_result.extra_vectors.keys())
+        | set(gpu_result.extra_vectors.keys())
+    )
+    for name in extra_names:
+        cpu_values = cpu_result.extra_vectors.get(name)
+        gpu_values = gpu_result.extra_vectors.get(name)
+        if cpu_values is None and gpu_values is None:
+            continue
+        if cpu_values is None and gpu_values is not None:
+            cpu_values = np.zeros_like(gpu_values)
+        if gpu_values is None and cpu_values is not None:
+            gpu_values = np.zeros_like(cpu_values)
+        if cpu_values is None or gpu_values is None:
+            continue
+        _print_section(f"extra[{name}]", cpu_values, gpu_values)
+
+    status_delta = gpu_result.status - cpu_result.status
+    niters_delta = gpu_result.niters - cpu_result.niters
+    print(
+        "status cpu={:d} gpu={:d} delta={:d}".format(
+            int(cpu_result.status),
+            int(gpu_result.status),
+            int(status_delta),
+        )
+    )
+    print(
+        "niters cpu={:d} gpu={:d} delta={:d}".format(
+            int(cpu_result.niters),
+            int(gpu_result.niters),
+            int(niters_delta),
+        )
+    )
+    print(
+        "stage_count cpu={:d} gpu={:d}".format(
+            int(cpu_result.stage_count),
+            int(gpu_result.residuals.shape[0]),
+        )
+    )
