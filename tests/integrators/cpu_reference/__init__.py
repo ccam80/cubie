@@ -12,7 +12,15 @@ from .algorithms import (
     rosenbrock_step,
 )
 from .cpu_ode_system import CPUODESystem
-from .cpu_utils import Array, DriverEvaluator, STATUS_MASK, StepResult
+from .cpu_utils import (
+    Array,
+    DriverEvaluator,
+    InstrumentedStepResult,
+    STATUS_MASK,
+    StepResult,
+    StepResultLike,
+    make_step_result,
+)
 from .loops import _collect_saved_outputs, run_reference_loop
 from .step_controllers import CPUAdaptiveController
 
@@ -21,8 +29,11 @@ __all__ = [
     "CPUAdaptiveController",
     "CPUODESystem",
     "DriverEvaluator",
+    "InstrumentedStepResult",
     "STATUS_MASK",
     "StepResult",
+    "StepResultLike",
+    "make_step_result",
     "_collect_saved_outputs",
     "backward_euler_predict_correct_step",
     "backward_euler_step",
