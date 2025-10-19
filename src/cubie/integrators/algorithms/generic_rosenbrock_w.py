@@ -247,14 +247,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_cache = jacobian_product_accumulator[:n]
 
             if multistage:
-                #First block of accumulator is consumed immediately - reuse
+                # Alias "increment" array over first stage accumulator -
+                # their lifetimes are disjoint.
                 stage_increment = stage_accumulator[:n]
             else:
                 stage_increment = cuda.local.array(n, numba_precision)
 
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
-
 
             prepare_jacobian(
                 state,
@@ -274,8 +274,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #            Stage 0: operates out of supplied buffers            #
             # --------------------------------------------------------------- #
-            #TODO: find one extra cache vector slot to store stage_increment
-            # and RHS
             values_in_cache = False
             if first_same_as_last:
                 for cache_idx in range(n):
@@ -397,9 +395,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs,
                     stage_time,
                 )
-                if stage_idx == stage_count - 1 and first_same_as_last:
-                    for idx in range(n):
-                        stage_cache[idx] = stage_rhs[idx]
 
                 for idx in range(n):
                     rhs_value = stage_rhs[idx]
@@ -407,7 +402,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         stage_offset + idx
                     ]
                     if first_same_as_last and stage_idx == stage_count - 1:
-                        stage_cache[idx] = stage_rhs[idx] #overwrites start
+                        stage_cache[idx] = rhs_value #overwrites start
                         # of jacobian accumulator
                     stage_increment[idx] = typed_zero
                     stage_rhs[idx] = dt_value * (rhs_value + jacobian_term)
