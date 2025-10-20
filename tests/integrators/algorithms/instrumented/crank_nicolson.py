@@ -13,6 +13,11 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 )
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
+from .matrix_free_solvers import (
+    linear_solver_factory,
+    newton_krylov_solver_factory,
+)
+
 
 ALGO_CONSTANTS = {
     "beta": 1.0,
@@ -83,6 +88,61 @@ class CrankNicolsonStep(ODEImplicitStep):
         )
         super().__init__(config, CN_DEFAULTS)
 
+    def build_implicit_helpers(self) -> Callable:
+        """Return the instrumented nonlinear solver for Crank–Nicolson."""
+
+        config = self.compile_settings
+        beta = config.beta
+        gamma = config.gamma
+        mass = config.M
+        preconditioner_order = config.preconditioner_order
+        n = config.n
+        get_fn = config.get_solver_helper_fn
+
+        preconditioner = get_fn(
+            "neumann_preconditioner",
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+        residual = get_fn(
+            "stage_residual",
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+        operator = get_fn(
+            "linear_operator",
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+
+        linear_solver = linear_solver_factory(
+            operator,
+            n=n,
+            preconditioner=preconditioner,
+            correction_type=config.linear_correction_type,
+            tolerance=config.krylov_tolerance,
+            max_iters=config.max_linear_iters,
+            precision=config.precision,
+        )
+
+        nonlinear_solver = newton_krylov_solver_factory(
+            residual_function=residual,
+            linear_solver=linear_solver,
+            n=n,
+            tolerance=config.newton_tolerance,
+            max_iters=config.max_newton_iters,
+            damping=config.newton_damping,
+            max_backtracks=config.newton_max_backtracks,
+            precision=config.precision,
+        )
+        return nonlinear_solver
+
     def build_step(
         self,
         solver_fn: Callable,
@@ -120,6 +180,14 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -149,6 +217,14 @@ class CrankNicolsonStep(ODEImplicitStep):
             stage_increments,
             solver_initial_guesses,
             solver_solutions,
+            solver_iteration_guesses,
+            solver_residuals,
+            solver_residual_norms,
+            solver_operator_outputs,
+            solver_preconditioned_vectors,
+            solver_iteration_end_x,
+            solver_iteration_end_rhs,
+            solver_iteration_scale,
             solver_iterations,
             solver_status,
             dt_scalar,
@@ -223,6 +299,16 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_coefficient,
                 base_state,
                 solver_scratch,
+                int32(0),
+                solver_initial_guesses,
+                solver_iteration_guesses,
+                solver_residuals,
+                solver_residual_norms,
+                solver_operator_outputs,
+                solver_preconditioned_vectors,
+                solver_iteration_end_x,
+                solver_iteration_end_rhs,
+                solver_iteration_scale,
             )
 
             if instrument:
@@ -232,7 +318,9 @@ class CrankNicolsonStep(ODEImplicitStep):
             for idx in range(n):
                 increment_value = proposed_state[idx]
                 residual_value = solver_scratch[idx + n]
-                final_state = base_state[idx] + stage_coefficient * increment_value
+                final_state = base_state[idx] + (
+                    stage_coefficient * increment_value
+                )
                 trapezoidal_increment = final_state - state[idx]
                 proposed_state[idx] = final_state
                 base_state[idx] = increment_value
@@ -251,6 +339,16 @@ class CrankNicolsonStep(ODEImplicitStep):
                 be_coefficient,
                 state,
                 solver_scratch,
+                int32(0),
+                solver_initial_guesses,
+                solver_iteration_guesses,
+                solver_residuals,
+                solver_residual_norms,
+                solver_operator_outputs,
+                solver_preconditioned_vectors,
+                solver_iteration_end_x,
+                solver_iteration_end_rhs,
+                solver_iteration_scale,
             )
             status |= be_status & status_mask
 
@@ -258,7 +356,9 @@ class CrankNicolsonStep(ODEImplicitStep):
                 solver_status[0] = status & status_mask
 
             for idx in range(n):
-                error[idx] = proposed_state[idx] - (state[idx] + base_state[idx])
+                error[idx] = (
+                    proposed_state[idx] - (state[idx] + base_state[idx])
+                )
 
             observables_function(
                 proposed_state,
@@ -270,7 +370,9 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             if instrument:
                 for obs_idx in range(observable_count):
-                    stage_observables[0, obs_idx] = proposed_observables[obs_idx]
+                    stage_observables[0, obs_idx] = (
+                        proposed_observables[obs_idx]
+                    )
 
                 dxdt_fn(
                     proposed_state,
@@ -328,7 +430,7 @@ class CrankNicolsonStep(ODEImplicitStep):
 
     @property
     def is_adaptive(self) -> bool:
-        """Return ``True`` because the embedded error estimate enables adaptivity."""
+        """Return True; the embedded error estimate enables adaptivity."""
 
         return True
 

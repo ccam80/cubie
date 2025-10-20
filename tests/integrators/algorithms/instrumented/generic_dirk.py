@@ -19,7 +19,7 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
-from cubie.integrators.matrix_free_solvers import (
+from .matrix_free_solvers import (
     linear_solver_factory,
     newton_krylov_solver_factory,
 )
@@ -229,6 +229,14 @@ class DIRKStep(ODEImplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -258,6 +266,14 @@ class DIRKStep(ODEImplicitStep):
             stage_increments,
             solver_initial_guesses,
             solver_solutions,
+            solver_iteration_guesses,
+            solver_residuals,
+            solver_residual_norms,
+            solver_operator_outputs,
+            solver_preconditioned_vectors,
+            solver_iteration_end_x,
+            solver_iteration_end_rhs,
+            solver_iteration_scale,
             solver_iterations,
             solver_status,
             dt_scalar,
@@ -324,7 +340,9 @@ class DIRKStep(ODEImplicitStep):
                     for obs_idx in range(observable_count):
                         stage_observables[0, obs_idx] = observables[obs_idx]
                     for driver_idx in range(stage_drivers_out.shape[1]):
-                        stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
+                        stage_drivers_out[0, driver_idx] = (
+                            drivers_buffer[driver_idx]
+                        )
                     solver_iterations[0] = typed_int_zero
                     solver_status[0] = typed_int_zero
 
@@ -351,7 +369,9 @@ class DIRKStep(ODEImplicitStep):
                     for obs_idx in range(observable_count):
                         stage_observables[0, obs_idx] = observables[obs_idx]
                     for driver_idx in range(stage_drivers_out.shape[1]):
-                        stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
+                        stage_drivers_out[0, driver_idx] = (
+                            drivers_buffer[driver_idx]
+                        )
                     solver_iterations[0] = typed_int_zero
                     solver_status[0] = typed_int_zero
 
@@ -381,7 +401,9 @@ class DIRKStep(ODEImplicitStep):
                     )
                 if instrument:
                     for driver_idx in range(stage_drivers_out.shape[1]):
-                        stage_drivers_out[0, driver_idx] = stage_drivers[driver_idx]
+                        stage_drivers_out[0, driver_idx] = (
+                            stage_drivers[driver_idx]
+                        )
 
                 solver_ret = nonlinear_solver(
                     stage_increment,
@@ -391,6 +413,16 @@ class DIRKStep(ODEImplicitStep):
                     diagonal_coeffs[0],
                     stage_base,
                     solver_scratch,
+                    int32(0),
+                    solver_initial_guesses,
+                    solver_iteration_guesses,
+                    solver_residuals,
+                    solver_residual_norms,
+                    solver_operator_outputs,
+                    solver_preconditioned_vectors,
+                    solver_iteration_end_x,
+                    solver_iteration_end_rhs,
+                    solver_iteration_scale,
                 )
                 status_code |= solver_ret
 
@@ -462,7 +494,8 @@ class DIRKStep(ODEImplicitStep):
                 successor_range = stage_count - stage_idx
                 stage_offset = (stage_idx - 1) * n
                 stage_time = (
-                        current_time + dt_value * stage_time_fractions[stage_idx]
+                    current_time
+                    + dt_value * stage_time_fractions[stage_idx]
                 )
 
                 # Fill accumulators with previous step's contributions
@@ -509,6 +542,16 @@ class DIRKStep(ODEImplicitStep):
                     diagonal_coeffs[stage_idx],
                     stage_base,
                     solver_scratch,
+                    int32(stage_idx),
+                    solver_initial_guesses,
+                    solver_iteration_guesses,
+                    solver_residuals,
+                    solver_residual_norms,
+                    solver_operator_outputs,
+                    solver_preconditioned_vectors,
+                    solver_iteration_end_x,
+                    solver_iteration_end_rhs,
+                    solver_iteration_scale,
                 )
                 status_code |= solver_ret
 

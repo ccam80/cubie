@@ -48,6 +48,14 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -77,6 +85,14 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             stage_increments,
             solver_initial_guesses,
             solver_solutions,
+            solver_iteration_guesses,
+            solver_residuals,
+            solver_residual_norms,
+            solver_operator_outputs,
+            solver_preconditioned_vectors,
+            solver_iteration_end_x,
+            solver_iteration_end_rhs,
+            solver_iteration_scale,
             solver_iterations,
             solver_status,
             dt_scalar,
@@ -145,6 +161,16 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 a_ij,
                 state,
                 solver_scratch,
+                int32(0),
+                solver_initial_guesses,
+                solver_iteration_guesses,
+                solver_residuals,
+                solver_residual_norms,
+                solver_operator_outputs,
+                solver_preconditioned_vectors,
+                solver_iteration_end_x,
+                solver_iteration_end_rhs,
+                solver_iteration_scale,
             )
 
             if instrument:
@@ -172,7 +198,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
             if instrument:
                 for obs_idx in range(observable_count):
-                    stage_observables[0, obs_idx] = proposed_observables[obs_idx]
+                    stage_observables[0, obs_idx] = (
+                        proposed_observables[obs_idx]
+                    )
 
                 dxdt_fn(
                     proposed_state,

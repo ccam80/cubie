@@ -113,59 +113,19 @@ class InstrumentedStepResult:
     solver_solutions: Array | None = None
     solver_iterations: NDArray[np.int_] | None = None
     solver_status: NDArray[np.int_] | None = None
+    newton_initial_guesses: Array | None = None
+    newton_iteration_guesses: Array | None = None
+    newton_residuals: Array | None = None
+    newton_squared_norms: Array | None = None
+    linear_initial_guesses: Array | None = None
+    linear_iteration_guesses: Array | None = None
+    linear_residuals: Array | None = None
+    linear_squared_norms: Array | None = None
+    linear_preconditioned_vectors: Array | None = None
     extra_vectors: dict[str, Array] = field(default_factory=dict)
 
 
 StepResultLike = StepResult | InstrumentedStepResult
-
-
-def _coerce_stage_array(
-    data: Optional[Array],
-    stage_count: int,
-    vector_dim: int,
-    dtype: np.dtype,
-) -> Array:
-    """Return ``data`` as a per-stage array matching ``stage_count``."""
-
-    if stage_count <= 0:
-        if data is None:
-            return np.zeros((0, vector_dim), dtype=dtype)
-        shaped = np.asarray(data, dtype=dtype)
-        if shaped.shape != (0, vector_dim):
-            raise ValueError(
-                "Per-stage arrays must have shape (stage_count, state_dim)."
-            )
-        return shaped
-    if data is None:
-        return np.zeros((stage_count, vector_dim), dtype=dtype)
-    shaped = np.asarray(data, dtype=dtype)
-    if shaped.shape != (stage_count, vector_dim):
-        raise ValueError(
-            "Per-stage arrays must have shape (stage_count, state_dim)."
-        )
-    return shaped
-
-
-def _coerce_stage_vector(
-    data: Optional[Sequence[int] | NDArray[np.int_]],
-    stage_count: int,
-    dtype: np.dtype,
-) -> NDArray[np.int_]:
-    """Return a per-stage integer vector with length ``stage_count``."""
-
-    if stage_count <= 0:
-        if data is None:
-            return np.zeros(0, dtype=dtype)
-        shaped = np.asarray(data, dtype=dtype)
-        if shaped.shape != (0,):
-            raise ValueError("Per-stage vectors must have length stage_count.")
-        return shaped
-    if data is None:
-        return np.zeros(stage_count, dtype=dtype)
-    shaped = np.asarray(data, dtype=dtype)
-    if shaped.shape != (stage_count,):
-        raise ValueError("Per-stage vectors must have length stage_count.")
-    return shaped
 
 
 def make_step_result(
@@ -188,6 +148,15 @@ def make_step_result(
     solver_solutions: Optional[Array] = None,
     solver_iterations: Optional[Sequence[int] | NDArray[np.int_]] = None,
     solver_status: Optional[Sequence[int] | NDArray[np.int_]] = None,
+    newton_initial_guesses: Optional[Array] = None,
+    newton_iteration_guesses: Optional[Array] = None,
+    newton_residuals: Optional[Array] = None,
+    newton_squared_norms: Optional[Array] = None,
+    linear_initial_guesses: Optional[Array] = None,
+    linear_iteration_guesses: Optional[Array] = None,
+    linear_residuals: Optional[Array] = None,
+    linear_squared_norms: Optional[Array] = None,
+    linear_preconditioned_vectors: Optional[Array] = None,
     extra_vectors: Optional[dict[str, Array]] = None,
 ) -> StepResultLike:
     """Return a step result container with optional instrumentation."""
@@ -196,83 +165,35 @@ def make_step_result(
         return StepResult(state, observables, error, status, niters)
 
     resolved_stage_count = int(stage_count or 0)
-    if resolved_stage_count < 0:
-        raise ValueError("Stage count must be non-negative when instrumenting.")
-    state_dim = int(state.shape[0])
-    observable_dim = int(observables.shape[0])
-    dtype = state.dtype
-
-    residual_array = _coerce_stage_array(
-        residuals, resolved_stage_count, state_dim, dtype
-    )
-    jacobian_array = _coerce_stage_array(
-        jacobian_updates, resolved_stage_count, state_dim, dtype
-    )
-    stage_state_array = _coerce_stage_array(
-        stage_states, resolved_stage_count, state_dim, dtype
-    )
-    stage_derivative_array = _coerce_stage_array(
-        stage_derivatives, resolved_stage_count, state_dim, dtype
-    )
-    stage_observable_array = _coerce_stage_array(
-        stage_observables,
-        resolved_stage_count,
-        observable_dim,
-        observables.dtype,
-    )
-    driver_dim = (
-        int(stage_drivers.shape[1])
-        if stage_drivers is not None and stage_drivers.ndim == 2
-        else 0
-    )
-    stage_driver_array = _coerce_stage_array(
-        stage_drivers, resolved_stage_count, driver_dim, dtype
-    )
-    stage_increment_array = _coerce_stage_array(
-        stage_increments, resolved_stage_count, state_dim, dtype
-    )
-    solver_guess_array = _coerce_stage_array(
-        solver_initial_guesses, resolved_stage_count, state_dim, dtype
-    )
-    solver_solution_array = _coerce_stage_array(
-        solver_solutions, resolved_stage_count, state_dim, dtype
-    )
-    solver_iteration_array = _coerce_stage_vector(
-        solver_iterations,
-        resolved_stage_count,
-        np.dtype(np.int64),
-    )
-    solver_status_array = _coerce_stage_vector(
-        solver_status,
-        resolved_stage_count,
-        np.dtype(np.int64),
-    )
-
-    extras: dict[str, Array] = {}
-    if extra_vectors is not None:
-        for name, values in extra_vectors.items():
-            extras[name] = _coerce_stage_array(
-                values, resolved_stage_count, state_dim, dtype
-            )
+    extras = {} if extra_vectors is None else dict(extra_vectors)
 
     return InstrumentedStepResult(
         state=state,
         observables=observables,
         error=error,
-        residuals=residual_array,
-        jacobian_updates=jacobian_array,
-        stage_drivers=stage_driver_array,
-        stage_increments=stage_increment_array,
+        residuals=residuals,
+        jacobian_updates=jacobian_updates,
+        stage_drivers=stage_drivers,
+        stage_increments=stage_increments,
         status=status,
         niters=niters,
         stage_count=resolved_stage_count,
-        stage_states=stage_state_array,
-        stage_derivatives=stage_derivative_array,
-        stage_observables=stage_observable_array,
-        solver_initial_guesses=solver_guess_array,
-        solver_solutions=solver_solution_array,
-        solver_iterations=solver_iteration_array,
-        solver_status=solver_status_array,
+        stage_states=stage_states,
+        stage_derivatives=stage_derivatives,
+        stage_observables=stage_observables,
+        solver_initial_guesses=solver_initial_guesses,
+        solver_solutions=solver_solutions,
+        solver_iterations=solver_iterations,
+        solver_status=solver_status,
+        newton_initial_guesses=newton_initial_guesses,
+        newton_iteration_guesses=newton_iteration_guesses,
+        newton_residuals=newton_residuals,
+        newton_squared_norms=newton_squared_norms,
+        linear_initial_guesses=linear_initial_guesses,
+        linear_iteration_guesses=linear_iteration_guesses,
+        linear_residuals=linear_residuals,
+        linear_squared_norms=linear_squared_norms,
+        linear_preconditioned_vectors=linear_preconditioned_vectors,
         extra_vectors=extras,
     )
 
@@ -393,6 +314,13 @@ def krylov_solve(
     neumann_order: int = 2,
     correction_type: str = "minimal_residual",
     initial_guess: Optional[Array] = None,
+    instrumented: bool = False,
+    logging_initial_guess: Optional[Array] = None,
+    logging_iteration_guesses: Optional[Array] = None,
+    logging_residuals: Optional[Array] = None,
+    logging_squared_norms: Optional[Array] = None,
+    logging_preconditioned_vectors: Optional[Array] = None,
+    stage_index: int = 0,
 ) -> tuple[Array, bool, int]:
     """Solve ``operator_apply(x) = rhs`` using matrix-free Krylov iterations.
 
@@ -420,6 +348,26 @@ def krylov_solve(
         ``"minimal_residual"``.
     initial_guess
         Optional starting iterate for the solve. Defaults to the zero vector.
+    logging_initial_guess
+        Optional array recording the starting iterate. Expected shape is
+        ``(stage_slots, n)`` where ``n`` matches ``rhs``.
+    logging_iteration_guesses
+        Optional tensor recording per-iteration iterates. Expected shape is
+        ``(stage_slots, max_iterations, n)``.
+    logging_residuals
+        Optional tensor recording per-iteration residual vectors. Expected
+        shape is ``(stage_slots, max_iterations, n)``.
+    logging_squared_norms
+        Optional matrix recording per-iteration squared residual norms with
+        shape ``(stage_slots, max_iterations)``.
+    logging_preconditioned_vectors
+        Optional tensor recording preconditioned residual directions. Expected
+        shape is ``(stage_slots, max_iterations, n)``.
+    instrumented
+        When ``True`` the logging arrays are populated on each iteration.
+    stage_index
+        Stage slot identifying the row in the logging arrays that should be
+        updated when ``instrumented`` is ``True``.
 
     Returns
     -------
@@ -438,6 +386,10 @@ def krylov_solve(
         solution = np.zeros_like(vector)
     else:
         solution = np.asarray(initial_guess, dtype=precision)
+
+    state_dim = vector.shape[0]
+    if instrumented and logging_initial_guess is not None:
+        logging_initial_guess[stage_index, :] = solution
 
     tol_value = precision(tolerance)
     tol_squared = tol_value * tol_value
@@ -466,6 +418,30 @@ def krylov_solve(
 
     converged = False
     iteration = 0
+
+    def _log_iteration(
+        index: int,
+        iterate: Array,
+        residual_vec: Array,
+        squared_norm: np.floating,
+        preconditioned_vec: Array,
+    ) -> None:
+        if not instrumented or index < 0:
+            return
+        if logging_iteration_guesses is not None and index < logging_iteration_guesses.shape[1]:
+            logging_iteration_guesses[stage_index, index, :] = iterate
+        if logging_residuals is not None and index < logging_residuals.shape[1]:
+            logging_residuals[stage_index, index, :] = residual_vec
+        if logging_squared_norms is not None and index < logging_squared_norms.shape[1]:
+            logging_squared_norms[stage_index, index] = squared_norm
+        if (
+            logging_preconditioned_vectors is not None
+            and index < logging_preconditioned_vectors.shape[1]
+        ):
+            logging_preconditioned_vectors[stage_index, index, :] = (
+                preconditioned_vec
+            )
+
     while iteration < iteration_limit:
         iteration += 1
         direction = np.asarray(preconditioner_fn(residual), dtype=precision)
@@ -511,6 +487,13 @@ def krylov_solve(
             residual,
             residual,
             precision=precision,
+        )
+        _log_iteration(
+            iteration - 1,
+            solution,
+            residual,
+            residual_squared,
+            direction,
         )
         if residual_squared <= tol_squared:
             converged = True

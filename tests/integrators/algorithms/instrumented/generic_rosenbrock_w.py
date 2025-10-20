@@ -20,7 +20,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     ROSENBROCK_W6S4OS_TABLEAU,
     RosenbrockTableau,
 )
-from cubie.integrators.matrix_free_solvers import linear_solver_cached_factory
+from .matrix_free_solvers import linear_solver_cached_factory
 
 
 ROSENBROCK_DEFAULTS = StepControlDefaults(
@@ -42,7 +42,9 @@ ROSENBROCK_DEFAULTS = StepControlDefaults(
 class RosenbrockWStepConfig(ImplicitStepConfig):
     """Configuration describing the Rosenbrock-W integrator."""
 
-    tableau: RosenbrockTableau = attrs.field(default=DEFAULT_ROSENBROCK_TABLEAU)
+    tableau: RosenbrockTableau = attrs.field(
+        default=DEFAULT_ROSENBROCK_TABLEAU,
+    )
 
 
 class GenericRosenbrockWStep(ODEImplicitStep):
@@ -150,6 +152,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             correction_type=correction_type,
             tolerance=krylov_tolerance,
             max_iters=max_linear_iters,
+            precision=config.precision,
         )
 
         return linear_solver, prepare_jacobian, cached_jvp
@@ -220,6 +223,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -249,6 +260,14 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_increments,
             solver_initial_guesses,
             solver_solutions,
+            solver_iteration_guesses,
+            solver_residuals,
+            solver_residual_norms,
+            solver_operator_outputs,
+            solver_preconditioned_vectors,
+            solver_iteration_end_x,
+            solver_iteration_end_rhs,
+            solver_iteration_scale,
             solver_iterations,
             solver_status,
             dt_scalar,
@@ -338,7 +357,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     residuals[0, idx] = stage_rhs[idx]
                 for driver_idx in range(stage_drivers_out.shape[1]):
-                    stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
+                    stage_drivers_out[0, driver_idx] = (
+                        drivers_buffer[driver_idx]
+                    )
 
             solver_ret = linear_solver(
                 state,
@@ -348,6 +369,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 dt_value,
                 stage_rhs,
                 stage_increment,
+                int32(0),
+                int32(0),
+                solver_iteration_guesses,
+                solver_residuals,
+                solver_residual_norms,
+                solver_operator_outputs,
+                solver_preconditioned_vectors,
+                solver_iteration_end_x,
+                solver_iteration_end_rhs,
             )
             status_code |= solver_ret
 
@@ -476,7 +506,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 if instrument:
                     for idx in range(n):
-                        solver_initial_guesses[stage_idx, idx] = stage_increment[idx]
+                        solver_initial_guesses[stage_idx, idx] = (
+                            stage_increment[idx]
+                        )
                         residuals[stage_idx, idx] = stage_rhs[idx]
 
                 solver_ret = linear_solver(
@@ -487,6 +519,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     dt_value,
                     stage_rhs,
                     stage_increment,
+                    int32(stage_idx),
+                    int32(0),
+                    solver_iteration_guesses,
+                    solver_residuals,
+                    solver_residual_norms,
+                    solver_operator_outputs,
+                    solver_preconditioned_vectors,
+                    solver_iteration_end_x,
+                    solver_iteration_end_rhs,
                 )
                 status_code |= solver_ret
 

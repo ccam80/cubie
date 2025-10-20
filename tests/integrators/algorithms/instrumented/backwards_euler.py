@@ -1,4 +1,4 @@
-"""Backward Euler step implementation using Newton–Krylov with instrumentation."""
+"""Backward Euler step with instrumented Newton–Krylov solver."""
 
 from typing import Callable, Optional
 
@@ -12,6 +12,11 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     StepControlDefaults,
 )
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
+
+from .matrix_free_solvers import (
+    linear_solver_factory,
+    newton_krylov_solver_factory,
+)
 
 
 ALGO_CONSTANTS = {
@@ -79,6 +84,61 @@ class BackwardsEulerStep(ODEImplicitStep):
         )
         super().__init__(config, BE_DEFAULTS.copy())
 
+    def build_implicit_helpers(self) -> Callable:
+        """Return the instrumented nonlinear solver for backward Euler."""
+
+        config = self.compile_settings
+        beta = config.beta
+        gamma = config.gamma
+        mass = config.M
+        preconditioner_order = config.preconditioner_order
+        n = config.n
+        get_fn = config.get_solver_helper_fn
+
+        preconditioner = get_fn(
+            "neumann_preconditioner",
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+        residual = get_fn(
+            "stage_residual",
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+        operator = get_fn(
+            "linear_operator",
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order,
+        )
+
+        linear_solver = linear_solver_factory(
+            operator,
+            n=n,
+            preconditioner=preconditioner,
+            correction_type=config.linear_correction_type,
+            tolerance=config.krylov_tolerance,
+            max_iters=config.max_linear_iters,
+            precision=config.precision,
+        )
+
+        nonlinear_solver = newton_krylov_solver_factory(
+            residual_function=residual,
+            linear_solver=linear_solver,
+            n=n,
+            tolerance=config.newton_tolerance,
+            max_iters=config.max_newton_iters,
+            damping=config.newton_damping,
+            max_backtracks=config.newton_max_backtracks,
+            precision=config.precision,
+        )
+        return nonlinear_solver
+
     def build_step(
         self,
         solver_fn: Callable,
@@ -115,6 +175,14 @@ class BackwardsEulerStep(ODEImplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -144,6 +212,14 @@ class BackwardsEulerStep(ODEImplicitStep):
             stage_increments,
             solver_initial_guesses,
             solver_solutions,
+            solver_iteration_guesses,
+            solver_residuals,
+            solver_residual_norms,
+            solver_operator_outputs,
+            solver_preconditioned_vectors,
+            solver_iteration_end_x,
+            solver_iteration_end_rhs,
+            solver_iteration_scale,
             solver_iterations,
             solver_status,
             dt_scalar,
@@ -201,6 +277,16 @@ class BackwardsEulerStep(ODEImplicitStep):
                 a_ij,
                 state,
                 solver_scratch,
+                int32(0),
+                solver_initial_guesses,
+                solver_iteration_guesses,
+                solver_residuals,
+                solver_residual_norms,
+                solver_operator_outputs,
+                solver_preconditioned_vectors,
+                solver_iteration_end_x,
+                solver_iteration_end_rhs,
+                solver_iteration_scale,
             )
 
             if instrument:
@@ -227,7 +313,9 @@ class BackwardsEulerStep(ODEImplicitStep):
 
             if instrument:
                 for obs_idx in range(observable_count):
-                    stage_observables[0, obs_idx] = proposed_observables[obs_idx]
+                    stage_observables[0, obs_idx] = (
+                        proposed_observables[obs_idx]
+                    )
 
                 dxdt_fn(
                     proposed_state,

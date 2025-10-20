@@ -1,6 +1,6 @@
 import inspect
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Iterable, Optional, Union
+from typing import Callable, Dict, Optional, Union
 
 import numpy as np
 import pytest
@@ -99,10 +99,27 @@ class DeviceInstrumentedResult:
     stage_increments: np.ndarray
     solver_initial_guesses: np.ndarray
     solver_solutions: np.ndarray
+    solver_iteration_guesses: np.ndarray
+    solver_residuals: np.ndarray
+    solver_residual_norms: np.ndarray
+    solver_operator_outputs: np.ndarray
+    solver_preconditioned_vectors: np.ndarray
+    solver_iteration_end_x: np.ndarray
+    solver_iteration_end_rhs: np.ndarray
+    solver_iteration_scale: np.ndarray
     solver_iterations: np.ndarray
     solver_status: np.ndarray
-    status: int
-    niters: int
+    newton_initial_guesses: Optional[np.ndarray] = None
+    newton_iteration_guesses: Optional[np.ndarray] = None
+    newton_residuals: Optional[np.ndarray] = None
+    newton_squared_norms: Optional[np.ndarray] = None
+    linear_initial_guesses: Optional[np.ndarray] = None
+    linear_iteration_guesses: Optional[np.ndarray] = None
+    linear_residuals: Optional[np.ndarray] = None
+    linear_squared_norms: Optional[np.ndarray] = None
+    linear_preconditioned_vectors: Optional[np.ndarray] = None
+    status: Optional[int] = None
+    niters: Optional[int] = None
     extra_vectors: Dict[str, np.ndarray] = field(default_factory=dict)
 
 @dataclass(frozen=True)
@@ -129,7 +146,9 @@ def _resolve_instrumented_step_configuration(
     tableau_value = resolved_tableau
     if isinstance(tableau, str):
         try:
-            override_constructor, tableau_override = resolve_alias(tableau.lower())
+            override_constructor, tableau_override = resolve_alias(
+            tableau.lower()
+        )
         except KeyError as error:
             raise ValueError(
                 f"Unknown {step_constructor.__name__} tableau '{tableau}'."
@@ -144,7 +163,9 @@ def _resolve_instrumented_step_configuration(
             )
         tableau_value = tableau_override
     elif isinstance(tableau, ButcherTableau):
-        override_constructor, tableau_override = resolve_supplied_tableau(tableau)
+        override_constructor, tableau_override = resolve_supplied_tableau(
+            tableau
+        )
         if override_constructor is not step_constructor:
             raise ValueError(
                 "Tableau instance does not match the requested algorithm type."
@@ -163,7 +184,10 @@ def _resolve_instrumented_step_configuration(
             f"No instrumented implementation registered for {algorithm}."
         ) from error
 
-    return ResolvedInstrumentedStep(step_class=step_class, tableau=tableau_value)
+    return ResolvedInstrumentedStep(
+        step_class=step_class,
+        tableau=tableau_value,
+    )
 
 
 @pytest.fixture(scope="session")
@@ -201,7 +225,7 @@ def instrumented_step_object(
     driver_function = (
         None if driver_array is None else driver_array.evaluation_function
     )
-    step_kwargs: Dict[str, object] = {
+    step_kwargs = {
         "precision": precision,
         "n": system.sizes.states,
         "dt": solver_settings["dt"],
@@ -283,6 +307,14 @@ def instrumented_step_kernel(
         stage_increments_mat,
         solver_initial_guesses_mat,
         solver_solutions_mat,
+        solver_iteration_guesses,
+        solver_residuals,
+        solver_residual_norms,
+        solver_operator_outputs,
+        solver_preconditioned_vectors,
+        solver_iteration_end_x,
+        solver_iteration_end_rhs,
+        solver_iteration_scale,
         solver_iterations_vec,
         solver_status_vec,
         dt_scalar,
@@ -323,6 +355,14 @@ def instrumented_step_kernel(
             stage_increments_mat,
             solver_initial_guesses_mat,
             solver_solutions_mat,
+            solver_iteration_guesses,
+            solver_residuals,
+            solver_residual_norms,
+            solver_operator_outputs,
+            solver_preconditioned_vectors,
+            solver_iteration_end_x,
+            solver_iteration_end_rhs,
+            solver_iteration_scale,
             solver_iterations_vec,
             solver_status_vec,
             dt_scalar,
@@ -364,6 +404,7 @@ def instrumented_step_results(
     if stage_count_attr is None:
         stage_count_attr = getattr(instrumented_step_object, "stage_count", 0)
     stage_count = int(stage_count_attr or 0)
+    max_newton_iters = int(solver_settings["max_newton_iters"])
 
     state = np.asarray(step_inputs["state"], dtype=precision)
     params = np.asarray(step_inputs["parameters"], dtype=precision)
@@ -387,6 +428,19 @@ def instrumented_step_results(
     stage_increments = np.zeros_like(residuals)
     solver_initial_guesses = np.zeros_like(residuals)
     solver_solutions = np.zeros_like(residuals)
+    solver_iteration_guesses = np.zeros(
+        (stage_count, max_newton_iters, n_states),
+        dtype=precision,
+    )
+    solver_residuals = np.zeros_like(solver_iteration_guesses)
+    solver_residual_norms = np.zeros_like(solver_iteration_guesses)
+    solver_operator_outputs = np.zeros_like(solver_iteration_guesses)
+    solver_preconditioned_vectors = np.zeros_like(solver_iteration_guesses)
+    solver_iteration_end_x = np.zeros_like(solver_iteration_guesses)
+    solver_iteration_end_rhs = np.zeros_like(solver_iteration_guesses)
+    solver_iteration_scale = np.zeros(
+        (stage_count, max_newton_iters), dtype=precision
+    )
     solver_iterations = np.zeros(stage_count, dtype=np.int32)
     solver_status = np.zeros(stage_count, dtype=np.int32)
     status = np.zeros(1, dtype=np.int32)
@@ -409,6 +463,16 @@ def instrumented_step_results(
     d_stage_increments = cuda.to_device(stage_increments)
     d_solver_initial_guesses = cuda.to_device(solver_initial_guesses)
     d_solver_solutions = cuda.to_device(solver_solutions)
+    d_solver_iteration_guesses = cuda.to_device(solver_iteration_guesses)
+    d_solver_residuals = cuda.to_device(solver_residuals)
+    d_solver_residual_norms = cuda.to_device(solver_residual_norms)
+    d_solver_operator_outputs = cuda.to_device(solver_operator_outputs)
+    d_solver_preconditioned_vectors = cuda.to_device(
+        solver_preconditioned_vectors
+    )
+    d_solver_iteration_end_x = cuda.to_device(solver_iteration_end_x)
+    d_solver_iteration_end_rhs = cuda.to_device(solver_iteration_end_rhs)
+    d_solver_iteration_scale = cuda.to_device(solver_iteration_scale)
     d_solver_iterations = cuda.to_device(solver_iterations)
     d_solver_status = cuda.to_device(solver_status)
     d_status = cuda.to_device(status)
@@ -434,6 +498,14 @@ def instrumented_step_results(
         d_stage_increments,
         d_solver_initial_guesses,
         d_solver_solutions,
+        d_solver_iteration_guesses,
+        d_solver_residuals,
+        d_solver_residual_norms,
+        d_solver_operator_outputs,
+        d_solver_preconditioned_vectors,
+        d_solver_iteration_end_x,
+        d_solver_iteration_end_rhs,
+        d_solver_iteration_scale,
         d_solver_iterations,
         d_solver_status,
         dt_value,
@@ -443,6 +515,18 @@ def instrumented_step_results(
     cuda.synchronize()
 
     status_value = int(d_status.copy_to_host()[0])
+    solver_iteration_guesses_host = (
+        d_solver_iteration_guesses.copy_to_host()
+    )
+    solver_residuals_host = d_solver_residuals.copy_to_host()
+    solver_residual_norms_host = d_solver_residual_norms.copy_to_host()
+    solver_operator_outputs_host = d_solver_operator_outputs.copy_to_host()
+    solver_preconditioned_vectors_host = (
+        d_solver_preconditioned_vectors.copy_to_host()
+    )
+    solver_iteration_end_x_host = d_solver_iteration_end_x.copy_to_host()
+    solver_iteration_end_rhs_host = d_solver_iteration_end_rhs.copy_to_host()
+    solver_iteration_scale_host = d_solver_iteration_scale.copy_to_host()
     return DeviceInstrumentedResult(
         state=d_proposed.copy_to_host(),
         observables=d_proposed_observables.copy_to_host(),
@@ -456,12 +540,32 @@ def instrumented_step_results(
         stage_increments=d_stage_increments.copy_to_host(),
         solver_initial_guesses=d_solver_initial_guesses.copy_to_host(),
         solver_solutions=d_solver_solutions.copy_to_host(),
+        solver_iteration_guesses=solver_iteration_guesses_host,
+        solver_residuals=solver_residuals_host,
+        solver_residual_norms=solver_residual_norms_host,
+        solver_operator_outputs=solver_operator_outputs_host,
+        solver_preconditioned_vectors=solver_preconditioned_vectors_host,
+        solver_iteration_end_x=solver_iteration_end_x_host,
+        solver_iteration_end_rhs=solver_iteration_end_rhs_host,
+        solver_iteration_scale=solver_iteration_scale_host,
         solver_iterations=d_solver_iterations.copy_to_host().astype(
             np.int64
         ),
         solver_status=d_solver_status.copy_to_host().astype(np.int64),
         status=status_value & STATUS_MASK,
         niters=(status_value >> 16) & STATUS_MASK,
+        extra_vectors={
+            "solver_iteration_guesses": solver_iteration_guesses_host,
+            "solver_residuals": solver_residuals_host,
+            "solver_residual_norms": solver_residual_norms_host,
+            "solver_operator_outputs": solver_operator_outputs_host,
+            "solver_preconditioned_vectors": (
+                solver_preconditioned_vectors_host
+            ),
+            "solver_iteration_end_x": solver_iteration_end_x_host,
+            "solver_iteration_end_rhs": solver_iteration_end_rhs_host,
+            "solver_iteration_scale": solver_iteration_scale_host,
+        },
     )
 
 
@@ -517,6 +621,25 @@ def instrumented_cpu_step_results(
         raise TypeError(
             "Expected InstrumentedStepResult from CPU reference step."
         )
+    stage_count = int(result.stage_count)
+    max_newton_iters = int(solver_settings["max_newton_iters"])
+    state_dim = int(result.state.shape[0]) if result.state.ndim == 1 else 0
+    shape = (stage_count, max_newton_iters, state_dim)
+    zeros = np.zeros(shape, dtype=result.state.dtype)
+    vector_defaults = {
+        "solver_iteration_guesses": zeros,
+        "solver_residuals": zeros,
+        "solver_residual_norms": zeros,
+        "solver_operator_outputs": zeros,
+        "solver_preconditioned_vectors": zeros,
+        "solver_iteration_end_x": zeros,
+        "solver_iteration_end_rhs": zeros,
+    }
+    for name, default in vector_defaults.items():
+        result.extra_vectors.setdefault(name, default)
+    scale_shape = (stage_count, max_newton_iters)
+    scale_zeros = np.zeros(scale_shape, dtype=result.state.dtype)
+    result.extra_vectors.setdefault("solver_iteration_scale", scale_zeros)
     return result
 
 
@@ -575,9 +698,7 @@ def print_comparison(
             return None
         return np.asarray(value)
 
-    comparisons: Iterable[
-        tuple[str, np.ndarray, np.ndarray, Optional[np.ndarray]]
-    ] = [
+    comparisons = [
         (
             "state",
             cpu_result.state,
@@ -663,6 +784,59 @@ def print_comparison(
             None,
         ),
     ]
+
+    optional_pairs = (
+        (
+            "newton_initial_guesses",
+            cpu_result.newton_initial_guesses,
+            gpu_result.newton_initial_guesses,
+        ),
+        (
+            "newton_iteration_guesses",
+            cpu_result.newton_iteration_guesses,
+            gpu_result.newton_iteration_guesses,
+        ),
+        (
+            "newton_residuals",
+            cpu_result.newton_residuals,
+            gpu_result.newton_residuals,
+        ),
+        (
+            "newton_squared_norms",
+            cpu_result.newton_squared_norms,
+            gpu_result.newton_squared_norms,
+        ),
+        (
+            "linear_initial_guesses",
+            cpu_result.linear_initial_guesses,
+            gpu_result.linear_initial_guesses,
+        ),
+        (
+            "linear_iteration_guesses",
+            cpu_result.linear_iteration_guesses,
+            gpu_result.linear_iteration_guesses,
+        ),
+        (
+            "linear_residuals",
+            cpu_result.linear_residuals,
+            gpu_result.linear_residuals,
+        ),
+        (
+            "linear_squared_norms",
+            cpu_result.linear_squared_norms,
+            gpu_result.linear_squared_norms,
+        ),
+        (
+            "linear_preconditioned_vectors",
+            cpu_result.linear_preconditioned_vectors,
+            gpu_result.linear_preconditioned_vectors,
+        ),
+    )
+
+    for name, cpu_values, gpu_values in optional_pairs:
+        if cpu_values is None or gpu_values is None:
+            continue
+        comparisons.append((name, cpu_values, gpu_values, None))
 
     for name, cpu_values, gpu_values, device_values in comparisons:
         device_array = (

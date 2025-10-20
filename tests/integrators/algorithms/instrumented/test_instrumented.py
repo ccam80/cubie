@@ -10,7 +10,13 @@ from tests.integrators.algorithms.test_step_algorithms import (
 from .conftest import print_comparison
 
 
-
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [{'max_linear_iters': 4,
+      'max_newton_iters': 4}],
+    ids=["4iters"],
+    indirect=True,
+)
 @pytest.mark.parametrize(
     "solver_settings_override, system_override",
     STEP_CASES,
