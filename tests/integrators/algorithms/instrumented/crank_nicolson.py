@@ -232,14 +232,16 @@ class CrankNicolsonStep(ODEImplicitStep):
             for idx in range(n):
                 increment_value = proposed_state[idx]
                 residual_value = solver_scratch[idx + n]
+                final_state = base_state[idx] + stage_coefficient * increment_value
+                trapezoidal_increment = final_state - state[idx]
+                proposed_state[idx] = final_state
                 base_state[idx] = increment_value
-                cn_increment[idx] = increment_value
-                proposed_state[idx] = state[idx] + increment_value
+                cn_increment[idx] = trapezoidal_increment
                 if instrument:
-                    solver_solutions[0, idx] = increment_value
-                    stage_increments[0, idx] = increment_value
+                    solver_solutions[0, idx] = trapezoidal_increment
+                    stage_increments[0, idx] = trapezoidal_increment
                     residuals[0, idx] = residual_value
-                    stage_states[0, idx] = proposed_state[idx]
+                    stage_states[0, idx] = final_state
 
             be_status = solver_fn(
                 base_state,

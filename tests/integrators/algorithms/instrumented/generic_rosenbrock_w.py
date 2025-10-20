@@ -316,8 +316,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     stage_rhs[idx] = stage_cache[idx]
             else:
-                for idx in range(n):
-                    stage_increment[idx] = stage_cache[idx]
                 dxdt_fn(
                     state,
                     parameters,
@@ -331,7 +329,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 for idx in range(n):
                     stage_derivatives[0, idx] = stage_rhs[idx]
                     solver_initial_guesses[0, idx] = stage_increment[idx]
-                    stage_increments[0, idx] = stage_increment[idx]
                     stage_states[0, idx] = state[idx]
 
             for idx in range(n):
@@ -357,6 +354,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             if instrument:
                 solver_iterations[0] = typed_int_zero
                 solver_status[0] = solver_ret
+                stage_increments[0, idx] = stage_increment[idx]
+
                 for idx in range(n):
                     jacobian_updates[0, idx] = stage_increment[idx]
                     solver_solutions[0, idx] = stage_increment[idx]

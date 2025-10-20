@@ -3,7 +3,8 @@
 import pytest
 
 from tests.integrators.algorithms.test_step_algorithms import (
-    STEP_CASES
+    STEP_CASES,
+    device_step_results # noqa
 )
 
 from .conftest import print_comparison

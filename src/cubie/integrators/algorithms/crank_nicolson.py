@@ -277,8 +277,9 @@ class CrankNicolsonStep(ODEImplicitStep):
             )
 
             for i in range(n):
-                base_state[i] = proposed_state[i]
-                proposed_state[i] = state[i] + proposed_state[i]
+                increment = proposed_state[i]
+                proposed_state[i] = base_state[i] + stage_coefficient * increment
+                base_state[i] = increment
 
             status |= solver_fn(
                 base_state,

@@ -244,12 +244,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_accumulator = shared[acc_start:acc_end]
             jacobian_product_accumulator = shared[jac_start:jac_end]
             cached_auxiliaries = shared[aux_start:aux_end]
-            stage_cache = jacobian_product_accumulator[:n]
 
             if multistage:
                 # Alias "increment" array over first stage accumulator -
                 # their lifetimes are disjoint.
-                stage_increment = stage_accumulator[:n]
+                stage_increment = jacobian_product_accumulator[:n]
             else:
                 stage_increment = cuda.local.array(n, numba_precision)
 
@@ -267,7 +266,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 if has_error:
                     error[idx] = typed_zero
                 proposed_state[idx] = state[idx]
-                stage_increment[idx] = typed_zero
 
             status_code = int32(0)
 
@@ -277,15 +275,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             values_in_cache = False
             if first_same_as_last:
                 for cache_idx in range(n):
-                    if shared[cache_idx] != typed_zero:
+                    if stage_increment[cache_idx] != typed_zero:
                         values_in_cache = True
                         
             if first_same_as_last and values_in_cache:
-                for idx in range(n):
-                    stage_rhs[idx] = stage_cache[idx]
+                # stage_increment is ready to use after last step
+                pass
+
             else:
-                for idx in range(n):
-                    stage_increment[idx] = stage_cache[idx]
+                # Get dxdt at time=0 and use that to calculate gradient
                 dxdt_fn(
                     state,
                     parameters,
@@ -294,18 +292,31 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs,
                     current_time,
                 )
-            for idx in range(n):
-                stage_rhs[idx] = dt_value * stage_rhs[idx]
 
-            status_code |= linear_solver(
-                state,
-                parameters,
-                drivers_buffer,
-                cached_auxiliaries,
-                dt_value,
-                stage_rhs,
-                stage_increment,
-            ) #
+                if can_reuse_accepted_start:
+                    for idx in range(n):
+                        stage_increment[idx] = dt_value * stage_rhs[idx]
+
+                else:
+                    # We're not at time = 0, recalculate stage_increment
+                    if has_driver_function:
+                        driver_function(
+                            current_time,
+                            driver_coeffs,
+                        )
+
+                    for idx in range(n):
+                        stage_rhs[idx] = dt_value * stage_rhs[idx]
+
+                    status_code |= linear_solver(
+                        state,
+                        parameters,
+                        drivers_buffer,
+                        cached_auxiliaries,
+                        dt_value,
+                        stage_rhs,
+                        stage_increment,
+                    )
 
             for idx in range(n):
                 increment = stage_increment[idx]
@@ -401,9 +412,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     jacobian_term = jacobian_product_accumulator[
                         stage_offset + idx
                     ]
-                    if first_same_as_last and stage_idx == stage_count - 1:
-                        stage_cache[idx] = rhs_value #overwrites start
-                        # of jacobian accumulator
                     stage_increment[idx] = typed_zero
                     stage_rhs[idx] = dt_value * (rhs_value + jacobian_term)
 
@@ -450,9 +458,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 proposed_observables,
                 final_time,
             )
-            if not first_same_as_last:
-                for idx in range(n):
-                    stage_cache[idx] = stage_increment[idx]
+
             return status_code
         # no cover: end
         return StepCache(step=step)
