@@ -1267,10 +1267,7 @@ class CPUDIRKStep(CPUStep):
                 )
 
             stage_time = current_time + c_nodes[stage_index] * dt_value
-            if stage_index == 0:
-                drivers_stage = drivers_now
-            else:
-                drivers_stage = self.drivers(stage_time)
+            drivers_stage = self.drivers(stage_time)
             diag_coeff = a_matrix[stage_index, stage_index]
 
             if np.isclose(diag_coeff, self.precision(0.0)):

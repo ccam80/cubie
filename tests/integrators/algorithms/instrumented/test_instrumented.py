@@ -3,9 +3,7 @@
 import pytest
 
 from tests.integrators.algorithms.test_step_algorithms import (
-    STEP_CASES,
-    device_step_results,
-    step_inputs
+    STEP_CASES
 )
 
 from .conftest import print_comparison
@@ -17,6 +15,7 @@ from .conftest import print_comparison
     STEP_CASES,
     indirect=True,
 )
+@pytest.mark.specific_algos
 def test_instrumented_gpu_vs_cpu(
     instrumented_cpu_step_results,
     instrumented_step_results,
