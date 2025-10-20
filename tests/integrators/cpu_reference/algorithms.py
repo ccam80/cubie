@@ -691,6 +691,7 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_drivers_next = np.zeros(0, dtype=self.precision)
         self._cn_next_time = self.precision(0.0)
         self._cn_dt = self.precision(0.0)
+        self._cn_stage_coefficient = self.precision(0.0)
         self._cn_base_state = np.zeros(self._state_size, dtype=self.precision)
         self._cn_increment = np.zeros(self._state_size, dtype=self.precision)
         if backward_step is None:
@@ -710,9 +711,13 @@ class CPUCrankNicolsonStep(CPUStep):
             self._backward = backward_step
 
     def residual(self, candidate: Array) -> Array:
-        base_state = self._cn_base_state
         increment = candidate
-        stage_state = base_state + increment
+        base_increment = self._cn_dt * self._cn_stage_coefficient
+        stage_state = (
+            self._cn_base_state
+            + increment
+            - base_increment * self._cn_previous_derivative
+        )
         observables = self.observables(
             stage_state,
             self._cn_params,
@@ -728,19 +733,26 @@ class CPUCrankNicolsonStep(CPUStep):
         )
         beta = self.precision(1.0)
         gamma = self.precision(1.0)
-        mass_term = self.mass_matrix_apply(
-                increment)
-        return beta * mass_term - gamma * self._cn_dt * derivative
+        mass_term = self.mass_matrix_apply(increment)
+        trapezoid_rhs = self._cn_previous_derivative + derivative
+        scale = self._cn_dt * self._cn_stage_coefficient
+        return beta * mass_term - gamma * scale * trapezoid_rhs
 
     def jacobian(self, candidate: Array) -> Array:
-        stage_state = self._cn_base_state + candidate
+        base_increment = self._cn_dt * self._cn_stage_coefficient
+        stage_state = (
+            self._cn_base_state
+            + candidate
+            - base_increment * self._cn_previous_derivative
+        )
         _, jacobian = self.observables_and_jac(
             stage_state,
             self._cn_params,
             self._cn_drivers_next,
             self._cn_next_time,
         )
-        return self._identity - self._cn_dt * jacobian
+        scale = self._cn_dt * self._cn_stage_coefficient
+        return self._identity - scale * jacobian
 
     def step(
         self,
@@ -777,12 +789,15 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_params = params_array
         self._cn_drivers_next = drivers_next
         self._cn_next_time = next_time
-        self._cn_dt = dt_value * self.precision(0.5)
-        self._cn_base_state = state_vector + self._cn_dt * derivative_now
+        self._cn_dt = dt_value
+        self._cn_stage_coefficient = self.precision(0.5)
+        base_increment = self._cn_dt * self._cn_stage_coefficient
+        self._cn_base_state = state_vector + base_increment * derivative_now
 
         guess = self._cn_increment
         increment, converged, niters = self.newton_solve(guess)
-        next_state = self._cn_base_state + increment
+        next_state = self._cn_previous_state + increment
+        final_increment = next_state - self._cn_previous_state
 
         observables = self.observables(
             next_state,
@@ -794,12 +809,12 @@ class CPUCrankNicolsonStep(CPUStep):
             state=state_vector,
             params=params_array,
             dt=dt_value,
-            initial_guess=increment,
+            initial_guess=final_increment,
             time=current_time,
         )
         error = next_state - backward_result.state
         status = self._status(converged, niters)
-        self._cn_increment = increment
+        self._cn_increment = final_increment
         residuals = None
         jacobian_updates = None
         stage_states = None
@@ -827,7 +842,7 @@ class CPUCrankNicolsonStep(CPUStep):
             solver_initial_guesses = np.asarray(
                 guess, dtype=self.precision
             )[np.newaxis, :]
-            solver_solutions = increment[np.newaxis, :]
+            solver_solutions = final_increment[np.newaxis, :]
             solver_iterations = np.array([niters], dtype=np.int64)
             solver_status = np.array(
                 [
@@ -840,7 +855,7 @@ class CPUCrankNicolsonStep(CPUStep):
                 dtype=np.int64,
             )
             stage_drivers = drivers_next[np.newaxis, :]
-            stage_increments = increment[np.newaxis, :]
+            stage_increments = final_increment[np.newaxis, :]
         return self._make_result(
             state=next_state,
             observables=observables,

@@ -362,14 +362,15 @@ class DIRKStep(ODEImplicitStep):
                     # Stage base[idx] is an alias to shared[idx], order matters
                     stage_base[idx] = state[idx]
 
+                diagonal_coeff = diagonal_coeffs[0]
                 if instrument:
                     for idx in range(n):
                         base_state_snapshot[idx] = stage_base[idx]
                     for idx in range(n):
-                        initial_guess = (
-                            base_state_snapshot[idx] + stage_increment[idx]
+                        scaled_guess = (
+                            diagonal_coeff * stage_increment[idx]
                         )
-                        solver_initial_guesses[0, idx] = initial_guess
+                        solver_initial_guesses[0, idx] = scaled_guess
                         stage_increments[0, idx] = typed_zero
 
                 if has_driver_function:
@@ -398,13 +399,18 @@ class DIRKStep(ODEImplicitStep):
                     solver_status[0] = solver_ret & status_mask
 
                 for idx in range(n):
-                    stage_base[idx] = state[idx] + stage_increment[idx]
+                    base_value = stage_base[idx]
+                    scaled_increment = diagonal_coeff * stage_increment[idx]
+                    stage_base[idx] = base_value + scaled_increment
 
                 if instrument:
                     for idx in range(n):
                         stage_states[0, idx] = stage_base[idx]
-                        solver_solutions[0, idx] = stage_increment[idx]
-                        stage_increments[0, idx] = stage_increment[idx]
+                        scaled_increment = (
+                            diagonal_coeff * stage_increment[idx]
+                        )
+                        solver_solutions[0, idx] = scaled_increment
+                        stage_increments[0, idx] = scaled_increment
                         jacobian_updates[0, idx] = typed_zero
 
                 observables_function(
@@ -481,15 +487,18 @@ class DIRKStep(ODEImplicitStep):
                         )
                 # Just grab a view of the completed accumulator slice
                 stage_base = stage_accumulator[(stage_idx-1) * n:stage_idx * n]
+                for idx in range(n):
+                    stage_base[idx] += state[idx]
 
+                diagonal_coeff = diagonal_coeffs[stage_idx]
                 if instrument:
                     for idx in range(n):
                         base_state_snapshot[idx] = stage_base[idx]
                     for idx in range(n):
-                        initial_guess = (
-                            base_state_snapshot[idx] + stage_increment[idx]
+                        scaled_guess = (
+                            diagonal_coeff * stage_increment[idx]
                         )
-                        solver_initial_guesses[stage_idx, idx] = initial_guess
+                        solver_initial_guesses[stage_idx, idx] = scaled_guess
                         stage_increments[stage_idx, idx] = typed_zero
 
                 solver_ret = nonlinear_solver(
@@ -508,13 +517,18 @@ class DIRKStep(ODEImplicitStep):
                     solver_status[stage_idx] = solver_ret & status_mask
 
                 for idx in range(n):
-                    stage_base[idx] = state[idx] + stage_increment[idx]
+                    base_value = stage_base[idx]
+                    scaled_increment = diagonal_coeff * stage_increment[idx]
+                    stage_base[idx] = base_value + scaled_increment
 
                 if instrument:
                     for idx in range(n):
                         stage_states[stage_idx, idx] = stage_base[idx]
-                        solver_solutions[stage_idx, idx] = stage_increment[idx]
-                        stage_increments[stage_idx, idx] = stage_increment[idx]
+                        scaled_increment = (
+                            diagonal_coeff * stage_increment[idx]
+                        )
+                        solver_solutions[stage_idx, idx] = scaled_increment
+                        stage_increments[stage_idx, idx] = scaled_increment
                         jacobian_updates[stage_idx, idx] = typed_zero
 
                 observables_function(

@@ -319,8 +319,11 @@ class DIRKStep(ODEImplicitStep):
                     solver_scratch,
                 )
 
+                diagonal_coeff = diagonal_coeffs[0]
                 for idx in range(n):
-                    stage_base[idx] = state[idx] + stage_increment[idx]
+                    base_value = stage_base[idx]
+                    scaled_increment = diagonal_coeff * stage_increment[idx]
+                    stage_base[idx] = base_value + scaled_increment
 
                 observables_function(
                     stage_base,
@@ -381,6 +384,8 @@ class DIRKStep(ODEImplicitStep):
 
                 # Just grab a view of the completed accumulator slice
                 stage_base = stage_accumulator[(stage_idx-1) * n:stage_idx * n]
+                for idx in range(n):
+                    stage_base[idx] += state[idx]
 
                 status_code |= nonlinear_solver(
                     stage_increment,
@@ -392,8 +397,11 @@ class DIRKStep(ODEImplicitStep):
                     solver_scratch,
                 )
 
+                diagonal_coeff = diagonal_coeffs[stage_idx]
                 for idx in range(n):
-                    stage_base[idx] = state[idx] + stage_increment[idx]
+                    base_value = stage_base[idx]
+                    scaled_increment = diagonal_coeff * stage_increment[idx]
+                    stage_base[idx] = base_value + scaled_increment
 
                 observables_function(
                     stage_base,
