@@ -227,6 +227,8 @@ class DIRKStep(ODEImplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -252,6 +254,8 @@ class DIRKStep(ODEImplicitStep):
             stage_states,
             stage_derivatives,
             stage_observables,
+            stage_drivers_out,
+            stage_increments,
             solver_initial_guesses,
             solver_solutions,
             solver_iterations,
@@ -316,8 +320,11 @@ class DIRKStep(ODEImplicitStep):
                         solver_solutions[0, idx] = state[idx]
                         residuals[0, idx] = typed_zero
                         jacobian_updates[0, idx] = typed_zero
+                        stage_increments[0, idx] = typed_zero
                     for obs_idx in range(observable_count):
                         stage_observables[0, obs_idx] = observables[obs_idx]
+                    for driver_idx in range(stage_drivers_out.shape[1]):
+                        stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
                     solver_iterations[0] = typed_int_zero
                     solver_status[0] = typed_int_zero
 
@@ -340,8 +347,11 @@ class DIRKStep(ODEImplicitStep):
                         solver_solutions[0, idx] = state[idx]
                         residuals[0, idx] = typed_zero
                         jacobian_updates[0, idx] = typed_zero
+                        stage_increments[0, idx] = typed_zero
                     for obs_idx in range(observable_count):
                         stage_observables[0, obs_idx] = observables[obs_idx]
+                    for driver_idx in range(stage_drivers_out.shape[1]):
+                        stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
                     solver_iterations[0] = typed_int_zero
                     solver_status[0] = typed_int_zero
 
@@ -360,6 +370,7 @@ class DIRKStep(ODEImplicitStep):
                             base_state_snapshot[idx] + stage_increment[idx]
                         )
                         solver_initial_guesses[0, idx] = initial_guess
+                        stage_increments[0, idx] = typed_zero
 
                 if has_driver_function:
                     driver_function(
@@ -367,6 +378,9 @@ class DIRKStep(ODEImplicitStep):
                         driver_coeffs,
                         stage_drivers,
                     )
+                if instrument:
+                    for driver_idx in range(stage_drivers_out.shape[1]):
+                        stage_drivers_out[0, driver_idx] = stage_drivers[driver_idx]
 
                 solver_ret = nonlinear_solver(
                     stage_increment,
@@ -389,8 +403,9 @@ class DIRKStep(ODEImplicitStep):
                 if instrument:
                     for idx in range(n):
                         stage_states[0, idx] = stage_base[idx]
-                        solver_solutions[0, idx] = stage_base[idx]
-                        jacobian_updates[0, idx] = stage_increment[idx]
+                        solver_solutions[0, idx] = stage_increment[idx]
+                        stage_increments[0, idx] = stage_increment[idx]
+                        jacobian_updates[0, idx] = typed_zero
 
                 observables_function(
                     stage_base,
@@ -459,7 +474,11 @@ class DIRKStep(ODEImplicitStep):
                         driver_coeffs,
                         stage_drivers,
                     )
-
+                if instrument:
+                    for driver_idx in range(stage_drivers_out.shape[1]):
+                        stage_drivers_out[stage_idx, driver_idx] = (
+                            stage_drivers[driver_idx]
+                        )
                 # Just grab a view of the completed accumulator slice
                 stage_base = stage_accumulator[(stage_idx-1) * n:stage_idx * n]
 
@@ -471,6 +490,7 @@ class DIRKStep(ODEImplicitStep):
                             base_state_snapshot[idx] + stage_increment[idx]
                         )
                         solver_initial_guesses[stage_idx, idx] = initial_guess
+                        stage_increments[stage_idx, idx] = typed_zero
 
                 solver_ret = nonlinear_solver(
                     stage_increment,
@@ -493,8 +513,9 @@ class DIRKStep(ODEImplicitStep):
                 if instrument:
                     for idx in range(n):
                         stage_states[stage_idx, idx] = stage_base[idx]
-                        solver_solutions[stage_idx, idx] = stage_base[idx]
-                        jacobian_updates[stage_idx, idx] = stage_increment[idx]
+                        solver_solutions[stage_idx, idx] = stage_increment[idx]
+                        stage_increments[stage_idx, idx] = stage_increment[idx]
+                        jacobian_updates[stage_idx, idx] = typed_zero
 
                 observables_function(
                     stage_base,

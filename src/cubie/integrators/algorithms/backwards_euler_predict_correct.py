@@ -5,8 +5,7 @@ from typing import Callable, Optional
 from numba import cuda
 
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
-from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
-    StepControlDefaults
+from cubie.integrators.algorithms.base_algorithm_step import StepCache
 
 
 class BackwardsEulerPCStep(BackwardsEulerStep):
@@ -159,6 +158,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 solver_scratch,
             )
 
+            for i in range(n):
+                proposed_state[i] += state[i]
+
             observables_function(
                 proposed_state,
                 parameters,
@@ -167,8 +169,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 next_time,
             )
 
-            for i in range(n):
-                proposed_state[i] += state[i]
 
             return status
 

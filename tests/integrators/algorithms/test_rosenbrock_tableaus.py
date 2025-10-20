@@ -37,6 +37,8 @@ def test_rosenbrock_step_function_accepts_registry_key(
         linear_correction_type="minimal_residual",
         preconditioner_order=2,
         tableau="ros3p",
+        newton_damping=0.5,
+        newton_max_backtracks=8,
     )
     assert hasattr(stepper, "tableau")
     assert stepper.tableau is ROSENBROCK_TABLEAUS["ros3p"]

@@ -129,6 +129,8 @@ class ERKStep(ODEExplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -154,6 +156,8 @@ class ERKStep(ODEExplicitStep):
             stage_states,
             stage_derivatives,
             stage_observables,
+            stage_drivers_out,
+            stage_increments,
             solver_initial_guesses,
             solver_solutions,
             solver_iterations,
@@ -188,8 +192,11 @@ class ERKStep(ODEExplicitStep):
                     solver_solutions[0, idx] = state[idx]
                     residuals[0, idx] = typed_zero
                     jacobian_updates[0, idx] = typed_zero
+                    stage_increments[0, idx] = typed_zero
                 for obs_idx in range(observable_count):
                     stage_observables[0, obs_idx] = observables[obs_idx]
+                for driver_idx in range(stage_drivers_out.shape[1]):
+                    stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
                 solver_iterations[0] = typed_int_zero
                 solver_status[0] = typed_int_zero
 
@@ -219,6 +226,7 @@ class ERKStep(ODEExplicitStep):
             if instrument:
                 for idx in range(n):
                     stage_derivatives[0, idx] = stage_rhs[idx]
+                    stage_increments[0, idx] = dt_value * stage_rhs[idx]
 
             for idx in range(n):
                 increment = dt_value * stage_rhs[idx]
@@ -271,19 +279,25 @@ class ERKStep(ODEExplicitStep):
                         solver_solutions[stage_idx, idx] = stage_state[idx]
                         residuals[stage_idx, idx] = typed_zero
                         jacobian_updates[stage_idx, idx] = typed_zero
+                        stage_increments[stage_idx, idx] = typed_zero
 
-                stage_drivers = proposed_drivers
+                stage_driver_values = proposed_drivers
                 if has_driver_function:
                     driver_function(
                         stage_time,
                         driver_coeffs,
-                        stage_drivers,
+                        stage_driver_values,
                     )
+                if instrument:
+                    for driver_idx in range(stage_drivers_out.shape[1]):
+                        stage_drivers_out[stage_idx, driver_idx] = (
+                            stage_driver_values[driver_idx]
+                        )
 
                 observables_function(
                     stage_state,
                     parameters,
-                    stage_drivers,
+                    stage_driver_values,
                     proposed_observables,
                     stage_time,
                 )
@@ -297,7 +311,7 @@ class ERKStep(ODEExplicitStep):
                 dxdt_fn(
                     stage_state,
                     parameters,
-                    stage_drivers,
+                    stage_driver_values,
                     proposed_observables,
                     stage_rhs,
                     stage_time,
@@ -306,6 +320,9 @@ class ERKStep(ODEExplicitStep):
                 if instrument:
                     for idx in range(n):
                         stage_derivatives[stage_idx, idx] = stage_rhs[idx]
+                        stage_increments[stage_idx, idx] = (
+                            dt_value * stage_rhs[idx]
+                        )
 
                 for idx in range(n):
                     # 1x duplicated FMUL to avoid a memory save/load - nice

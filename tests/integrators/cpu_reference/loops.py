@@ -100,6 +100,8 @@ def run_reference_loop(
         linear_correction_type=solver_settings["correction_type"],
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
+        newton_damping=solver_settings["newton_damping"],
+        newton_max_backtracks=solver_settings["newton_max_backtracks"],
     )
 
     saved_state_indices = _ensure_array(

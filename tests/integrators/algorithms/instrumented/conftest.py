@@ -1,10 +1,23 @@
 import inspect
 from dataclasses import dataclass, field
-from typing import Callable, Dict, Iterable
+from typing import Callable, Dict, Iterable, Optional, Union
 
 import numpy as np
 import pytest
 from numba import cuda, from_dtype
+
+from cubie.integrators.algorithms import (
+    BackwardsEulerPCStep,
+    BackwardsEulerStep,
+    ButcherTableau,
+    CrankNicolsonStep,
+    DIRKStep,
+    ERKStep,
+    ExplicitEulerStep,
+    GenericRosenbrockWStep,
+    resolve_alias,
+    resolve_supplied_tableau,
+)
 
 from .backwards_euler import (
     BackwardsEulerStep as InstrumentedBackwardsEulerStep,
@@ -29,6 +42,16 @@ from .generic_erk import ERKStep as InstrumentedERKStep
 from .generic_rosenbrock_w import (
     GenericRosenbrockWStep as InstrumentedRosenbrockStep,
 )
+
+STEP_CONSTRUCTOR_TO_INSTRUMENTED: Dict[type, Callable[..., object]] = {
+    ExplicitEulerStep: InstrumentedExplicitEulerStep,
+    BackwardsEulerStep: InstrumentedBackwardsEulerStep,
+    BackwardsEulerPCStep: InstrumentedBackwardsEulerPCStep,
+    CrankNicolsonStep: InstrumentedCrankNicolsonStep,
+    ERKStep: InstrumentedERKStep,
+    DIRKStep: InstrumentedDIRKStep,
+    GenericRosenbrockWStep: InstrumentedRosenbrockStep,
+}
 
 
 @dataclass
@@ -72,6 +95,8 @@ class DeviceInstrumentedResult:
     stage_states: np.ndarray
     stage_derivatives: np.ndarray
     stage_observables: np.ndarray
+    stage_drivers: np.ndarray
+    stage_increments: np.ndarray
     solver_initial_guesses: np.ndarray
     solver_solutions: np.ndarray
     solver_iterations: np.ndarray
@@ -80,44 +105,86 @@ class DeviceInstrumentedResult:
     niters: int
     extra_vectors: Dict[str, np.ndarray] = field(default_factory=dict)
 
+@dataclass(frozen=True)
+class ResolvedInstrumentedStep:
+    """Instrumented step constructor and tableau resolved from settings."""
 
-INSTRUMENTED_STEP_CLASSES: Dict[str, Callable[..., object]] = {
-    "euler": InstrumentedExplicitEulerStep,
-    "erk": InstrumentedERKStep,
-    "dormand-prince-54": InstrumentedERKStep,
-    "dopri54": InstrumentedERKStep,
-    "cash-karp-54": InstrumentedERKStep,
-    "fehlberg-45": InstrumentedERKStep,
-    "bogacki-shampine-32": InstrumentedERKStep,
-    "heun-21": InstrumentedERKStep,
-    "ralston-33": InstrumentedERKStep,
-    "classical-rk4": InstrumentedERKStep,
-    "backwards_euler": InstrumentedBackwardsEulerStep,
-    "backwards_euler_pc": InstrumentedBackwardsEulerPCStep,
-    "crank_nicolson": InstrumentedCrankNicolsonStep,
-    "dirk": InstrumentedDIRKStep,
-    "implicit_midpoint": InstrumentedDIRKStep,
-    "trapezoidal_dirk": InstrumentedDIRKStep,
-    "sdirk_2_2": InstrumentedDIRKStep,
-    "lobatto_iiic_3": InstrumentedDIRKStep,
-    "rosenbrock": InstrumentedRosenbrockStep,
-    "ros3p": InstrumentedRosenbrockStep,
-    "rosenbrock_w6s4os": InstrumentedRosenbrockStep,
-}
+    step_class: Callable[..., object]
+    tableau: Optional[ButcherTableau]
+
+
+def _resolve_instrumented_step_configuration(
+    algorithm: str,
+    tableau: Optional[Union[str, ButcherTableau]],
+) -> ResolvedInstrumentedStep:
+    """Return the instrumented constructor and tableau for ``algorithm``."""
+
+    try:
+        step_constructor, resolved_tableau = resolve_alias(algorithm.lower())
+    except KeyError as error:
+        raise ValueError(
+            f"Unknown instrumented algorithm '{algorithm}'."
+        ) from error
+
+    tableau_value = resolved_tableau
+    if isinstance(tableau, str):
+        try:
+            override_constructor, tableau_override = resolve_alias(tableau.lower())
+        except KeyError as error:
+            raise ValueError(
+                f"Unknown {step_constructor.__name__} tableau '{tableau}'."
+            ) from error
+        if tableau_override is None:
+            raise ValueError(
+                f"Alias '{tableau}' does not reference a tableau."
+            )
+        if override_constructor is not step_constructor:
+            raise ValueError(
+                "Tableau alias does not match the requested algorithm type."
+            )
+        tableau_value = tableau_override
+    elif isinstance(tableau, ButcherTableau):
+        override_constructor, tableau_override = resolve_supplied_tableau(tableau)
+        if override_constructor is not step_constructor:
+            raise ValueError(
+                "Tableau instance does not match the requested algorithm type."
+            )
+        tableau_value = tableau_override
+    elif tableau is not None:
+        raise TypeError(
+            "Expected tableau alias or ButcherTableau instance, "
+            f"received {type(tableau).__name__}."
+        )
+
+    try:
+        step_class = STEP_CONSTRUCTOR_TO_INSTRUMENTED[step_constructor]
+    except KeyError as error:
+        raise ValueError(
+            f"No instrumented implementation registered for {algorithm}."
+        ) from error
+
+    return ResolvedInstrumentedStep(step_class=step_class, tableau=tableau_value)
+
+
+@pytest.fixture(scope="session")
+def instrumented_step_configuration(
+    solver_settings,
+) -> ResolvedInstrumentedStep:
+    """Resolve the instrumented step constructor and tableau."""
+
+    return _resolve_instrumented_step_configuration(
+        solver_settings["algorithm"],
+        solver_settings.get("tableau"),
+    )
 
 
 @pytest.fixture(scope="session")
 def instrumented_step_class(
-    solver_settings,
+    instrumented_step_configuration: ResolvedInstrumentedStep,
 ) -> Callable[..., object]:
-    """Resolve the instrumented step class for the configured algorithm."""
+    """Return the instrumented step class resolved for the algorithm."""
 
-    try:
-        return INSTRUMENTED_STEP_CLASSES[solver_settings["algorithm"]]
-    except KeyError as error:
-        raise ValueError(
-            f"Unknown instrumented algorithm '{solver_settings['algorithm']}'."
-        ) from error
+    return instrumented_step_configuration.step_class
 
 
 @pytest.fixture(scope="session")
@@ -127,6 +194,7 @@ def instrumented_step_object(
     solver_settings,
     precision: np.dtype,
     driver_array,
+    instrumented_step_configuration: ResolvedInstrumentedStep,
 ):
     """Instantiate the configured instrumented step implementation."""
 
@@ -150,8 +218,9 @@ def instrumented_step_object(
         "newton_damping": solver_settings["newton_damping"],
         "newton_max_backtracks": solver_settings["newton_max_backtracks"],
     }
-    if "tableau" in solver_settings:
-        step_kwargs["tableau"] = solver_settings["tableau"]
+    tableau = instrumented_step_configuration.tableau
+    if tableau is not None:
+        step_kwargs["tableau"] = tableau
 
     signature = inspect.signature(instrumented_step_class)
     filtered_kwargs = {}
@@ -210,6 +279,8 @@ def instrumented_step_kernel(
         stage_states_mat,
         stage_derivatives_mat,
         stage_observables_mat,
+        stage_drivers_mat,
+        stage_increments_mat,
         solver_initial_guesses_mat,
         solver_solutions_mat,
         solver_iterations_vec,
@@ -248,6 +319,8 @@ def instrumented_step_kernel(
             stage_states_mat,
             stage_derivatives_mat,
             stage_observables_mat,
+            stage_drivers_mat,
+            stage_increments_mat,
             solver_initial_guesses_mat,
             solver_solutions_mat,
             solver_iterations_vec,
@@ -310,6 +383,8 @@ def instrumented_step_results(
     stage_observables = np.zeros(
         (stage_count, n_observables), dtype=precision
     )
+    stage_drivers = np.zeros((stage_count, drivers.shape[0]), dtype=precision)
+    stage_increments = np.zeros_like(residuals)
     solver_initial_guesses = np.zeros_like(residuals)
     solver_solutions = np.zeros_like(residuals)
     solver_iterations = np.zeros(stage_count, dtype=np.int32)
@@ -330,6 +405,8 @@ def instrumented_step_results(
     d_stage_states = cuda.to_device(stage_states)
     d_stage_derivatives = cuda.to_device(stage_derivatives)
     d_stage_observables = cuda.to_device(stage_observables)
+    d_stage_drivers = cuda.to_device(stage_drivers)
+    d_stage_increments = cuda.to_device(stage_increments)
     d_solver_initial_guesses = cuda.to_device(solver_initial_guesses)
     d_solver_solutions = cuda.to_device(solver_solutions)
     d_solver_iterations = cuda.to_device(solver_iterations)
@@ -353,6 +430,8 @@ def instrumented_step_results(
         d_stage_states,
         d_stage_derivatives,
         d_stage_observables,
+        d_stage_drivers,
+        d_stage_increments,
         d_solver_initial_guesses,
         d_solver_solutions,
         d_solver_iterations,
@@ -373,6 +452,8 @@ def instrumented_step_results(
         stage_states=d_stage_states.copy_to_host(),
         stage_derivatives=d_stage_derivatives.copy_to_host(),
         stage_observables=d_stage_observables.copy_to_host(),
+        stage_drivers=d_stage_drivers.copy_to_host(),
+        stage_increments=d_stage_increments.copy_to_host(),
         solver_initial_guesses=d_solver_initial_guesses.copy_to_host(),
         solver_solutions=d_solver_solutions.copy_to_host(),
         solver_iterations=d_solver_iterations.copy_to_host().astype(
@@ -391,10 +472,11 @@ def instrumented_cpu_step_results(
     step_inputs,
     cpu_driver_evaluator,
     instrumented_step_object,
+    instrumented_step_configuration: ResolvedInstrumentedStep,
 ) -> InstrumentedStepResult:
     """Execute the CPU reference step with instrumentation enabled."""
 
-    tableau = getattr(instrumented_step_object, "tableau", None)
+    tableau = instrumented_step_configuration.tableau
     state = np.asarray(
         step_inputs["state"], dtype=cpu_system.precision
     )
@@ -421,6 +503,8 @@ def instrumented_cpu_step_results(
         preconditioner_order=solver_settings["preconditioner_order"],
         tableau=tableau,
         instrument=True,
+        newton_damping=solver_settings["newton_damping"],
+        newton_max_backtracks=solver_settings["newton_max_backtracks"],
     )
 
     result = stepper(
@@ -465,12 +549,15 @@ def _print_section(
     name: str,
     cpu_values: np.ndarray,
     gpu_values: np.ndarray,
+    device_values: Optional[np.ndarray],
 ) -> None:
     """Print CPU, GPU, and delta arrays for ``name``."""
 
     delta = _numeric_delta(cpu_values, gpu_values)
     print(f"{name} cpu:\n{_format_array(cpu_values)}")
     print(f"{name} gpu:\n{_format_array(gpu_values)}")
+    if device_values is not None:
+        print(f"{name} device:\n{_format_array(device_values)}")
     print(f"{name} delta:\n{_format_array(delta)}")
     print("")
 
@@ -478,58 +565,117 @@ def _print_section(
 def print_comparison(
     cpu_result: InstrumentedStepResult,
     gpu_result: DeviceInstrumentedResult,
+    device_result,
 ) -> None:
     """Print side-by-side comparisons for CPU and CUDA instrumented outputs."""
 
-    comparisons: Iterable[tuple[str, np.ndarray, np.ndarray]] = [
-        ("state", cpu_result.state, gpu_result.state),
-        ("observables", cpu_result.observables, gpu_result.observables),
-        ("error", cpu_result.error, gpu_result.error),
-        ("residuals", cpu_result.residuals, gpu_result.residuals),
+    def _device_array(name: str) -> Optional[np.ndarray]:
+        value = getattr(device_result, name, None)
+        if value is None:
+            return None
+        return np.asarray(value)
+
+    comparisons: Iterable[
+        tuple[str, np.ndarray, np.ndarray, Optional[np.ndarray]]
+    ] = [
+        (
+            "state",
+            cpu_result.state,
+            gpu_result.state,
+            _device_array("state"),
+        ),
+        (
+            "observables",
+            cpu_result.observables,
+            gpu_result.observables,
+            _device_array("observables"),
+        ),
+        (
+            "error",
+            cpu_result.error,
+            gpu_result.error,
+            _device_array("error"),
+        ),
+        (
+            "residuals",
+            cpu_result.residuals,
+            gpu_result.residuals,
+            None,
+        ),
         (
             "jacobian_updates",
             cpu_result.jacobian_updates,
             gpu_result.jacobian_updates,
+            None,
         ),
         (
             "stage_states",
             cpu_result.stage_states,
             gpu_result.stage_states,
+            None,
         ),
         (
             "stage_derivatives",
             cpu_result.stage_derivatives,
             gpu_result.stage_derivatives,
+            None,
         ),
         (
             "stage_observables",
             cpu_result.stage_observables,
             gpu_result.stage_observables,
+            None,
+        ),
+        (
+            "stage_drivers",
+            cpu_result.stage_drivers,
+            gpu_result.stage_drivers,
+            None,
+        ),
+        (
+            "stage_increments",
+            cpu_result.stage_increments,
+            gpu_result.stage_increments,
+            None,
         ),
         (
             "solver_initial_guesses",
             cpu_result.solver_initial_guesses,
             gpu_result.solver_initial_guesses,
+            None,
         ),
         (
             "solver_solutions",
             cpu_result.solver_solutions,
             gpu_result.solver_solutions,
+            None,
         ),
         (
             "solver_iterations",
             cpu_result.solver_iterations,
             gpu_result.solver_iterations,
+            None,
         ),
         (
             "solver_status",
             cpu_result.solver_status,
             gpu_result.solver_status,
+            None,
         ),
     ]
 
-    for name, cpu_values, gpu_values in comparisons:
-        _print_section(name, np.asarray(cpu_values), np.asarray(gpu_values))
+    for name, cpu_values, gpu_values, device_values in comparisons:
+        device_array = (
+            np.asarray(device_values)
+            if device_values is not None
+            else None
+        )
+        _print_section(
+            name,
+            np.asarray(cpu_values),
+            np.asarray(gpu_values),
+            device_array,
+        )
 
     extra_names = sorted(
         set(cpu_result.extra_vectors.keys())
@@ -546,7 +692,12 @@ def print_comparison(
             gpu_values = np.zeros_like(cpu_values)
         if cpu_values is None or gpu_values is None:
             continue
-        _print_section(f"extra[{name}]", cpu_values, gpu_values)
+        _print_section(
+            f"extra[{name}]",
+            np.asarray(cpu_values),
+            np.asarray(gpu_values),
+            None,
+        )
 
     status_delta = gpu_result.status - cpu_result.status
     niters_delta = gpu_result.niters - cpu_result.niters

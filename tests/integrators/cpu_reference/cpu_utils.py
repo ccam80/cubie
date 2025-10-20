@@ -101,6 +101,8 @@ class InstrumentedStepResult:
     error: Array
     residuals: Array
     jacobian_updates: Array
+    stage_drivers: Array
+    stage_increments: Array
     status: int = 0
     niters: int = 0
     stage_count: int = 0
@@ -180,6 +182,8 @@ def make_step_result(
     stage_states: Optional[Array] = None,
     stage_derivatives: Optional[Array] = None,
     stage_observables: Optional[Array] = None,
+    stage_drivers: Optional[Array] = None,
+    stage_increments: Optional[Array] = None,
     solver_initial_guesses: Optional[Array] = None,
     solver_solutions: Optional[Array] = None,
     solver_iterations: Optional[Sequence[int] | NDArray[np.int_]] = None,
@@ -216,6 +220,17 @@ def make_step_result(
         observable_dim,
         observables.dtype,
     )
+    driver_dim = (
+        int(stage_drivers.shape[1])
+        if stage_drivers is not None and stage_drivers.ndim == 2
+        else 0
+    )
+    stage_driver_array = _coerce_stage_array(
+        stage_drivers, resolved_stage_count, driver_dim, dtype
+    )
+    stage_increment_array = _coerce_stage_array(
+        stage_increments, resolved_stage_count, state_dim, dtype
+    )
     solver_guess_array = _coerce_stage_array(
         solver_initial_guesses, resolved_stage_count, state_dim, dtype
     )
@@ -246,6 +261,8 @@ def make_step_result(
         error=error,
         residuals=residual_array,
         jacobian_updates=jacobian_array,
+        stage_drivers=stage_driver_array,
+        stage_increments=stage_increment_array,
         status=status,
         niters=niters,
         stage_count=resolved_stage_count,
@@ -425,8 +442,6 @@ def krylov_solve(
     tol_value = precision(tolerance)
     tol_squared = tol_value * tol_value
     iteration_limit = int(max_iterations)
-    if iteration_limit < 0:
-        raise ValueError("Maximum iterations must be non-negative.")
 
     applied = np.asarray(operator_apply(solution), dtype=precision)
     residual = vector - applied

@@ -118,6 +118,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -143,6 +145,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             stage_states,
             stage_derivatives,
             stage_observables,
+            stage_drivers,
+            stage_increments,
             solver_initial_guesses,
             solver_solutions,
             solver_iterations,
@@ -171,10 +175,13 @@ class CrankNicolsonStep(ODEImplicitStep):
                     jacobian_updates[0, idx] = typed_zero
                     stage_states[0, idx] = typed_zero
                     stage_derivatives[0, idx] = typed_zero
+                    stage_increments[0, idx] = typed_zero
 
             if instrument:
                 for obs_idx in range(observable_count):
                     stage_observables[0, obs_idx] = typed_zero
+                for driver_idx in range(stage_drivers.shape[1]):
+                    stage_drivers[0, driver_idx] = typed_zero
                 solver_iterations[0] = typed_int_zero
                 solver_status[0] = typed_int_zero
 
@@ -204,6 +211,9 @@ class CrankNicolsonStep(ODEImplicitStep):
                     driver_coefficients,
                     proposed_drivers,
                 )
+            if instrument:
+                for driver_idx in range(stage_drivers.shape[1]):
+                    stage_drivers[0, driver_idx] = proposed_drivers[driver_idx]
 
             status = solver_fn(
                 proposed_state,
@@ -221,11 +231,14 @@ class CrankNicolsonStep(ODEImplicitStep):
 
             for idx in range(n):
                 increment_value = proposed_state[idx]
+                residual_value = solver_scratch[idx + n]
                 base_state[idx] = increment_value
                 cn_increment[idx] = increment_value
                 proposed_state[idx] = state[idx] + increment_value
                 if instrument:
                     solver_solutions[0, idx] = increment_value
+                    stage_increments[0, idx] = increment_value
+                    residuals[0, idx] = residual_value
                     stage_states[0, idx] = proposed_state[idx]
 
             be_status = solver_fn(
@@ -269,7 +282,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 for idx in range(n):
                     rhs_value = stage_rhs[idx]
                     stage_derivatives[0, idx] = rhs_value
-                    residuals[0, idx] = cn_increment[idx] - fixed_dt * stage_coefficient * rhs_value
                     jacobian_updates[0, idx] = typed_zero
 
             return status

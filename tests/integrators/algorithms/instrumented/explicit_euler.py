@@ -84,6 +84,8 @@ class ExplicitEulerStep(ODEExplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -109,6 +111,8 @@ class ExplicitEulerStep(ODEExplicitStep):
             stage_states,
             stage_derivatives,
             stage_observables,
+            stage_drivers,
+            stage_increments,
             solver_initial_guesses,
             solver_solutions,
             solver_iterations,
@@ -132,6 +136,10 @@ class ExplicitEulerStep(ODEExplicitStep):
                     stage_states[0, idx] = state[idx]
                 for obs_idx in range(proposed_observables.shape[0]):
                     stage_observables[0, obs_idx] = observables[obs_idx]
+                for driver_idx in range(stage_drivers.shape[1]):
+                    stage_drivers[0, driver_idx] = drivers_buffer[driver_idx]
+                for idx in range(n):
+                    stage_increments[0, idx] = typed_zero
                 solver_iterations[0] = typed_int_zero
                 solver_status[0] = typed_int_zero
 
@@ -147,6 +155,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             if instrument:
                 for idx in range(n):
                     stage_derivatives[0, idx] = proposed_state[idx]
+                    stage_increments[0, idx] = step_size * proposed_state[idx]
 
             for idx in range(n):
                 proposed_state[idx] = (

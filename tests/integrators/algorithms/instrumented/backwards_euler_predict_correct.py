@@ -46,6 +46,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
                 int32[:],
                 int32[:],
                 numba_precision,
@@ -71,6 +73,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             stage_states,
             stage_derivatives,
             stage_observables,
+            stage_drivers,
+            stage_increments,
             solver_initial_guesses,
             solver_solutions,
             solver_iterations,
@@ -109,10 +113,13 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                     jacobian_updates[0, idx] = typed_zero
                     stage_states[0, idx] = typed_zero
                     stage_derivatives[0, idx] = typed_zero
+                    stage_increments[0, idx] = typed_zero
 
             if instrument:
                 for obs_idx in range(observable_count):
                     stage_observables[0, obs_idx] = typed_zero
+                for driver_idx in range(stage_drivers.shape[1]):
+                    stage_drivers[0, driver_idx] = typed_zero
                 solver_iterations[0] = typed_int_zero
                 solver_status[0] = typed_int_zero
 
@@ -124,6 +131,9 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                     driver_coefficients,
                     proposed_drivers,
                 )
+            if instrument:
+                for driver_idx in range(stage_drivers.shape[1]):
+                    stage_drivers[0, driver_idx] = proposed_drivers[driver_idx]
 
             solver_scratch = shared[:solver_shared_elements]
 
@@ -141,7 +151,16 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 solver_iterations[0] = status >> 16
                 solver_status[0] = status & status_mask
                 for idx in range(n):
-                    solver_solutions[0, idx] = proposed_state[idx]
+                    increment_value = proposed_state[idx]
+                    solver_solutions[0, idx] = increment_value
+                    stage_increments[0, idx] = increment_value
+                    residuals[0, idx] = solver_scratch[idx + n]
+
+
+            for idx in range(n):
+                proposed_state[idx] += state[idx]
+                if instrument:
+                    stage_states[0, idx] = proposed_state[idx]
 
             observables_function(
                 proposed_state,
@@ -150,11 +169,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 proposed_observables,
                 next_time,
             )
-
-            for idx in range(n):
-                proposed_state[idx] += state[idx]
-                if instrument:
-                    stage_states[0, idx] = proposed_state[idx]
 
             if instrument:
                 for obs_idx in range(observable_count):
@@ -172,7 +186,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 for idx in range(n):
                     rhs_value = stage_rhs[idx]
                     stage_derivatives[0, idx] = rhs_value
-                    residuals[0, idx] = solver_solutions[0, idx] - fixed_dt * rhs_value
                     jacobian_updates[0, idx] = typed_zero
 
             return status
