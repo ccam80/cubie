@@ -123,14 +123,16 @@ class ExplicitEulerStep(ODEExplicitStep):
             stage_increments,
             solver_initial_guesses,
             solver_solutions,
-            solver_iteration_guesses,
-            solver_residuals,
-            solver_residual_norms,
-            solver_operator_outputs,
-            solver_preconditioned_vectors,
-            solver_iteration_end_x,
-            solver_iteration_end_rhs,
-            solver_iteration_scale,
+            newton_initial_guesses,
+            newton_iteration_guesses,
+            newton_residuals,
+            newton_squared_norms,
+            newton_iteration_scale,
+            linear_initial_guesses,
+            linear_iteration_guesses,
+            linear_residuals,
+            linear_squared_norms,
+            linear_preconditioned_vectors,
             solver_iterations,
             solver_status,
             dt_scalar,
@@ -138,26 +140,23 @@ class ExplicitEulerStep(ODEExplicitStep):
             shared,
             persistent_local,
         ):
-            instrument = stage_states.shape[0] > 0
             typed_zero = numba_precision(0.0)
             typed_int_zero = int32(0)
             step_size = cached_dt
 
-            if instrument:
-                for idx in range(n):
-                    residuals[0, idx] = typed_zero
-                    jacobian_updates[0, idx] = typed_zero
-                    solver_initial_guesses[0, idx] = typed_zero
-                    solver_solutions[0, idx] = state[idx]
-                    stage_states[0, idx] = state[idx]
-                for obs_idx in range(proposed_observables.shape[0]):
-                    stage_observables[0, obs_idx] = observables[obs_idx]
-                for driver_idx in range(stage_drivers.shape[1]):
-                    stage_drivers[0, driver_idx] = drivers_buffer[driver_idx]
-                for idx in range(n):
-                    stage_increments[0, idx] = typed_zero
-                solver_iterations[0] = typed_int_zero
-                solver_status[0] = typed_int_zero
+            for idx in range(n):
+                residuals[0, idx] = typed_zero
+                jacobian_updates[0, idx] = typed_zero
+                solver_initial_guesses[0, idx] = typed_zero
+                solver_solutions[0, idx] = state[idx]
+                stage_states[0, idx] = state[idx]
+                stage_increments[0, idx] = typed_zero
+            for obs_idx in range(proposed_observables.shape[0]):
+                stage_observables[0, obs_idx] = observables[obs_idx]
+            for driver_idx in range(stage_drivers.shape[1]):
+                stage_drivers[0, driver_idx] = drivers_buffer[driver_idx]
+            solver_iterations[0] = typed_int_zero
+            solver_status[0] = typed_int_zero
 
             dxdt_function(
                 state,
@@ -168,10 +167,9 @@ class ExplicitEulerStep(ODEExplicitStep):
                 time_scalar,
             )
 
-            if instrument:
-                for idx in range(n):
-                    stage_derivatives[0, idx] = proposed_state[idx]
-                    stage_increments[0, idx] = step_size * proposed_state[idx]
+            for idx in range(n):
+                stage_derivatives[0, idx] = proposed_state[idx]
+                stage_increments[0, idx] = step_size * proposed_state[idx]
 
             for idx in range(n):
                 proposed_state[idx] = (

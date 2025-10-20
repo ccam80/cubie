@@ -12,8 +12,9 @@ from .conftest import print_comparison
 
 @pytest.mark.parametrize(
     "solver_settings_override2",
-    [{'max_linear_iters': 4,
-      'max_newton_iters': 4}],
+    [{'max_linear_iters': 3,
+      'max_newton_iters': 3,
+      'newton_max_backtracks': 3}],
     ids=["4iters"],
     indirect=True,
 )

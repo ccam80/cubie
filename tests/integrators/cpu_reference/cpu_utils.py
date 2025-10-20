@@ -117,6 +117,7 @@ class InstrumentedStepResult:
     newton_iteration_guesses: Array | None = None
     newton_residuals: Array | None = None
     newton_squared_norms: Array | None = None
+    newton_iteration_scale: Array | None = None
     linear_initial_guesses: Array | None = None
     linear_iteration_guesses: Array | None = None
     linear_residuals: Array | None = None
@@ -152,6 +153,7 @@ def make_step_result(
     newton_iteration_guesses: Optional[Array] = None,
     newton_residuals: Optional[Array] = None,
     newton_squared_norms: Optional[Array] = None,
+    newton_iteration_scale: Optional[Array] = None,
     linear_initial_guesses: Optional[Array] = None,
     linear_iteration_guesses: Optional[Array] = None,
     linear_residuals: Optional[Array] = None,
@@ -189,6 +191,7 @@ def make_step_result(
         newton_iteration_guesses=newton_iteration_guesses,
         newton_residuals=newton_residuals,
         newton_squared_norms=newton_squared_norms,
+        newton_iteration_scale=newton_iteration_scale,
         linear_initial_guesses=linear_initial_guesses,
         linear_iteration_guesses=linear_iteration_guesses,
         linear_residuals=linear_residuals,

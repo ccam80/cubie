@@ -217,14 +217,16 @@ class CrankNicolsonStep(ODEImplicitStep):
             stage_increments,
             solver_initial_guesses,
             solver_solutions,
-            solver_iteration_guesses,
-            solver_residuals,
-            solver_residual_norms,
-            solver_operator_outputs,
-            solver_preconditioned_vectors,
-            solver_iteration_end_x,
-            solver_iteration_end_rhs,
-            solver_iteration_scale,
+            newton_initial_guesses,
+            newton_iteration_guesses,
+            newton_residuals,
+            newton_squared_norms,
+            newton_iteration_scale,
+            linear_initial_guesses,
+            linear_iteration_guesses,
+            linear_residuals,
+            linear_squared_norms,
+            linear_preconditioned_vectors,
             solver_iterations,
             solver_status,
             dt_scalar,
@@ -238,28 +240,25 @@ class CrankNicolsonStep(ODEImplicitStep):
             stage_rhs = cuda.local.array(n, numba_precision)
             cn_increment = cuda.local.array(n, numba_precision)
 
-            instrument = stage_states.shape[0] > 0
             observable_count = proposed_observables.shape[0]
 
             for idx in range(n):
                 proposed_state[idx] = typed_zero
                 cn_increment[idx] = typed_zero
-                if instrument:
-                    solver_initial_guesses[0, idx] = typed_zero
-                    solver_solutions[0, idx] = typed_zero
-                    residuals[0, idx] = typed_zero
-                    jacobian_updates[0, idx] = typed_zero
-                    stage_states[0, idx] = typed_zero
-                    stage_derivatives[0, idx] = typed_zero
-                    stage_increments[0, idx] = typed_zero
+                solver_initial_guesses[0, idx] = typed_zero
+                solver_solutions[0, idx] = typed_zero
+                residuals[0, idx] = typed_zero
+                jacobian_updates[0, idx] = typed_zero
+                stage_states[0, idx] = typed_zero
+                stage_derivatives[0, idx] = typed_zero
+                stage_increments[0, idx] = typed_zero
 
-            if instrument:
-                for obs_idx in range(observable_count):
-                    stage_observables[0, obs_idx] = typed_zero
-                for driver_idx in range(stage_drivers.shape[1]):
-                    stage_drivers[0, driver_idx] = typed_zero
-                solver_iterations[0] = typed_int_zero
-                solver_status[0] = typed_int_zero
+            for obs_idx in range(observable_count):
+                stage_observables[0, obs_idx] = typed_zero
+            for driver_idx in range(stage_drivers.shape[1]):
+                stage_drivers[0, driver_idx] = typed_zero
+            solver_iterations[0] = typed_int_zero
+            solver_status[0] = typed_int_zero
 
             solver_scratch = shared[:solver_shared_elements]
             dxdt_buffer = solver_scratch[:n]
@@ -287,9 +286,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                     driver_coefficients,
                     proposed_drivers,
                 )
-            if instrument:
-                for driver_idx in range(stage_drivers.shape[1]):
-                    stage_drivers[0, driver_idx] = proposed_drivers[driver_idx]
+            for driver_idx in range(stage_drivers.shape[1]):
+                stage_drivers[0, driver_idx] = proposed_drivers[driver_idx]
 
             status = solver_fn(
                 proposed_state,
@@ -301,19 +299,20 @@ class CrankNicolsonStep(ODEImplicitStep):
                 solver_scratch,
                 int32(0),
                 solver_initial_guesses,
-                solver_iteration_guesses,
-                solver_residuals,
-                solver_residual_norms,
-                solver_operator_outputs,
-                solver_preconditioned_vectors,
-                solver_iteration_end_x,
-                solver_iteration_end_rhs,
-                solver_iteration_scale,
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
 
-            if instrument:
-                solver_iterations[0] = status >> 16
-                solver_status[0] = status & status_mask
+            solver_iterations[0] = status >> 16
+            solver_status[0] = status & status_mask
 
             for idx in range(n):
                 increment_value = proposed_state[idx]
@@ -325,11 +324,10 @@ class CrankNicolsonStep(ODEImplicitStep):
                 proposed_state[idx] = final_state
                 base_state[idx] = increment_value
                 cn_increment[idx] = trapezoidal_increment
-                if instrument:
-                    solver_solutions[0, idx] = trapezoidal_increment
-                    stage_increments[0, idx] = trapezoidal_increment
-                    residuals[0, idx] = residual_value
-                    stage_states[0, idx] = final_state
+                solver_solutions[0, idx] = trapezoidal_increment
+                stage_increments[0, idx] = trapezoidal_increment
+                residuals[0, idx] = residual_value
+                stage_states[0, idx] = final_state
 
             be_status = solver_fn(
                 base_state,
@@ -341,19 +339,20 @@ class CrankNicolsonStep(ODEImplicitStep):
                 solver_scratch,
                 int32(0),
                 solver_initial_guesses,
-                solver_iteration_guesses,
-                solver_residuals,
-                solver_residual_norms,
-                solver_operator_outputs,
-                solver_preconditioned_vectors,
-                solver_iteration_end_x,
-                solver_iteration_end_rhs,
-                solver_iteration_scale,
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
             status |= be_status & status_mask
 
-            if instrument:
-                solver_status[0] = status & status_mask
+            solver_status[0] = status & status_mask
 
             for idx in range(n):
                 error[idx] = (
@@ -368,25 +367,22 @@ class CrankNicolsonStep(ODEImplicitStep):
                 end_time,
             )
 
-            if instrument:
-                for obs_idx in range(observable_count):
-                    stage_observables[0, obs_idx] = (
-                        proposed_observables[obs_idx]
-                    )
+            for obs_idx in range(observable_count):
+                stage_observables[0, obs_idx] = proposed_observables[obs_idx]
 
-                dxdt_fn(
-                    proposed_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_rhs,
-                    end_time,
-                )
+            dxdt_fn(
+                proposed_state,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                stage_rhs,
+                end_time,
+            )
 
-                for idx in range(n):
-                    rhs_value = stage_rhs[idx]
-                    stage_derivatives[0, idx] = rhs_value
-                    jacobian_updates[0, idx] = typed_zero
+            for idx in range(n):
+                rhs_value = stage_rhs[idx]
+                stage_derivatives[0, idx] = rhs_value
+                jacobian_updates[0, idx] = typed_zero
 
             return status
 

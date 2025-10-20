@@ -76,14 +76,16 @@ INSTRUMENTATION_DEVICE_FIELDS = (
     "stage_increments",
     "solver_initial_guesses",
     "solver_solutions",
-    "solver_iteration_guesses",
-    "solver_residuals",
-    "solver_residual_norms",
-    "solver_operator_outputs",
-    "solver_preconditioned_vectors",
-    "solver_iteration_end_x",
-    "solver_iteration_end_rhs",
-    "solver_iteration_scale",
+    "newton_initial_guesses",
+    "newton_iteration_guesses",
+    "newton_residuals",
+    "newton_squared_norms",
+    "newton_iteration_scale",
+    "linear_initial_guesses",
+    "linear_iteration_guesses",
+    "linear_residuals",
+    "linear_squared_norms",
+    "linear_preconditioned_vectors",
     "solver_iterations",
     "solver_status",
 )
@@ -124,20 +126,13 @@ class DeviceInstrumentedResult:
     stage_increments: np.ndarray
     solver_initial_guesses: np.ndarray
     solver_solutions: np.ndarray
-    solver_iteration_guesses: np.ndarray
-    solver_residuals: np.ndarray
-    solver_residual_norms: np.ndarray
-    solver_operator_outputs: np.ndarray
-    solver_preconditioned_vectors: np.ndarray
-    solver_iteration_end_x: np.ndarray
-    solver_iteration_end_rhs: np.ndarray
-    solver_iteration_scale: np.ndarray
     solver_iterations: np.ndarray
     solver_status: np.ndarray
     newton_initial_guesses: Optional[np.ndarray] = None
     newton_iteration_guesses: Optional[np.ndarray] = None
     newton_residuals: Optional[np.ndarray] = None
     newton_squared_norms: Optional[np.ndarray] = None
+    newton_iteration_scale: Optional[np.ndarray] = None
     linear_initial_guesses: Optional[np.ndarray] = None
     linear_iteration_guesses: Optional[np.ndarray] = None
     linear_residuals: Optional[np.ndarray] = None
@@ -332,14 +327,16 @@ def instrumented_step_kernel(
         stage_increments_mat,
         solver_initial_guesses_mat,
         solver_solutions_mat,
-        solver_iteration_guesses,
-        solver_residuals,
-        solver_residual_norms,
-        solver_operator_outputs,
-        solver_preconditioned_vectors,
-        solver_iteration_end_x,
-        solver_iteration_end_rhs,
-        solver_iteration_scale,
+        newton_initial_guesses,
+        newton_iteration_guesses,
+        newton_residuals,
+        newton_squared_norms,
+        newton_iteration_scale,
+        linear_initial_guesses,
+        linear_iteration_guesses,
+        linear_residuals,
+        linear_squared_norms,
+        linear_preconditioned_vectors,
         solver_iterations_vec,
         solver_status_vec,
         dt_scalar,
@@ -380,14 +377,16 @@ def instrumented_step_kernel(
             stage_increments_mat,
             solver_initial_guesses_mat,
             solver_solutions_mat,
-            solver_iteration_guesses,
-            solver_residuals,
-            solver_residual_norms,
-            solver_operator_outputs,
-            solver_preconditioned_vectors,
-            solver_iteration_end_x,
-            solver_iteration_end_rhs,
-            solver_iteration_scale,
+            newton_initial_guesses,
+            newton_iteration_guesses,
+            newton_residuals,
+            newton_squared_norms,
+            newton_iteration_scale,
+            linear_initial_guesses,
+            linear_iteration_guesses,
+            linear_residuals,
+            linear_squared_norms,
+            linear_preconditioned_vectors,
             solver_iterations_vec,
             solver_status_vec,
             dt_scalar,
@@ -493,14 +492,16 @@ def instrumented_step_results(
         device_buffers["stage_increments"],
         device_buffers["solver_initial_guesses"],
         device_buffers["solver_solutions"],
-        device_buffers["solver_iteration_guesses"],
-        device_buffers["solver_residuals"],
-        device_buffers["solver_residual_norms"],
-        device_buffers["solver_operator_outputs"],
-        device_buffers["solver_preconditioned_vectors"],
-        device_buffers["solver_iteration_end_x"],
-        device_buffers["solver_iteration_end_rhs"],
-        device_buffers["solver_iteration_scale"],
+        device_buffers["newton_initial_guesses"],
+        device_buffers["newton_iteration_guesses"],
+        device_buffers["newton_residuals"],
+        device_buffers["newton_squared_norms"],
+        device_buffers["newton_iteration_scale"],
+        device_buffers["linear_initial_guesses"],
+        device_buffers["linear_iteration_guesses"],
+        device_buffers["linear_residuals"],
+        device_buffers["linear_squared_norms"],
+        device_buffers["linear_preconditioned_vectors"],
         device_buffers["solver_iterations"],
         device_buffers["solver_status"],
         dt_value,
@@ -515,16 +516,18 @@ def instrumented_step_results(
         host_array = getattr(host_buffers, name)
         host_results[name] = device_array.copy_to_host(host_array)
 
-    solver_iteration_guesses_host = host_results["solver_iteration_guesses"]
-    solver_residuals_host = host_results["solver_residuals"]
-    solver_residual_norms_host = host_results["solver_residual_norms"]
-    solver_operator_outputs_host = host_results["solver_operator_outputs"]
-    solver_preconditioned_vectors_host = host_results[
-        "solver_preconditioned_vectors"
+    newton_initial_guesses_host = host_results["newton_initial_guesses"]
+    newton_iteration_guesses_host = host_results["newton_iteration_guesses"]
+    newton_residuals_host = host_results["newton_residuals"]
+    newton_squared_norms_host = host_results["newton_squared_norms"]
+    newton_iteration_scale_host = host_results["newton_iteration_scale"]
+    linear_initial_guesses_host = host_results["linear_initial_guesses"]
+    linear_iteration_guesses_host = host_results["linear_iteration_guesses"]
+    linear_residuals_host = host_results["linear_residuals"]
+    linear_squared_norms_host = host_results["linear_squared_norms"]
+    linear_preconditioned_vectors_host = host_results[
+        "linear_preconditioned_vectors"
     ]
-    solver_iteration_end_x_host = host_results["solver_iteration_end_x"]
-    solver_iteration_end_rhs_host = host_results["solver_iteration_end_rhs"]
-    solver_iteration_scale_host = host_results["solver_iteration_scale"]
     solver_iterations_host = host_results["solver_iterations"].astype(np.int64)
     solver_status_host = host_results["solver_status"].astype(np.int64)
     return DeviceInstrumentedResult(
@@ -540,30 +543,21 @@ def instrumented_step_results(
         stage_increments=host_results["stage_increments"].copy(),
         solver_initial_guesses=host_results["solver_initial_guesses"].copy(),
         solver_solutions=host_results["solver_solutions"].copy(),
-        solver_iteration_guesses=solver_iteration_guesses_host,
-        solver_residuals=solver_residuals_host,
-        solver_residual_norms=solver_residual_norms_host,
-        solver_operator_outputs=solver_operator_outputs_host,
-        solver_preconditioned_vectors=solver_preconditioned_vectors_host,
-        solver_iteration_end_x=solver_iteration_end_x_host,
-        solver_iteration_end_rhs=solver_iteration_end_rhs_host,
-        solver_iteration_scale=solver_iteration_scale_host,
+        newton_initial_guesses=newton_initial_guesses_host,
+        newton_iteration_guesses=newton_iteration_guesses_host,
+        newton_residuals=newton_residuals_host,
+        newton_squared_norms=newton_squared_norms_host,
+        newton_iteration_scale=newton_iteration_scale_host,
+        linear_initial_guesses=linear_initial_guesses_host,
+        linear_iteration_guesses=linear_iteration_guesses_host,
+        linear_residuals=linear_residuals_host,
+        linear_squared_norms=linear_squared_norms_host,
+        linear_preconditioned_vectors=linear_preconditioned_vectors_host,
         solver_iterations=solver_iterations_host,
         solver_status=solver_status_host,
         status=status_value & STATUS_MASK,
         niters=(status_value >> 16) & STATUS_MASK,
-        extra_vectors={
-            "solver_iteration_guesses": solver_iteration_guesses_host,
-            "solver_residuals": solver_residuals_host,
-            "solver_residual_norms": solver_residual_norms_host,
-            "solver_operator_outputs": solver_operator_outputs_host,
-            "solver_preconditioned_vectors": (
-                solver_preconditioned_vectors_host
-            ),
-            "solver_iteration_end_x": solver_iteration_end_x_host,
-            "solver_iteration_end_rhs": solver_iteration_end_rhs_host,
-            "solver_iteration_scale": solver_iteration_scale_host,
-        },
+        extra_vectors={},
     )
 
 
@@ -619,25 +613,6 @@ def instrumented_cpu_step_results(
         raise TypeError(
             "Expected InstrumentedStepResult from CPU reference step."
         )
-    stage_count = int(result.stage_count)
-    max_newton_iters = int(solver_settings["max_newton_iters"])
-    state_dim = int(result.state.shape[0]) if result.state.ndim == 1 else 0
-    shape = (stage_count, max_newton_iters, state_dim)
-    zeros = np.zeros(shape, dtype=result.state.dtype)
-    vector_defaults = {
-        "solver_iteration_guesses": zeros,
-        "solver_residuals": zeros,
-        "solver_residual_norms": zeros,
-        "solver_operator_outputs": zeros,
-        "solver_preconditioned_vectors": zeros,
-        "solver_iteration_end_x": zeros,
-        "solver_iteration_end_rhs": zeros,
-    }
-    for name, default in vector_defaults.items():
-        result.extra_vectors.setdefault(name, default)
-    scale_shape = (stage_count, max_newton_iters)
-    scale_zeros = np.zeros(scale_shape, dtype=result.state.dtype)
-    result.extra_vectors.setdefault("solver_iteration_scale", scale_zeros)
     return result
 
 
@@ -803,6 +778,11 @@ def print_comparison(
             "newton_squared_norms",
             cpu_result.newton_squared_norms,
             gpu_result.newton_squared_norms,
+        ),
+        (
+            "newton_iteration_scale",
+            cpu_result.newton_iteration_scale,
+            gpu_result.newton_iteration_scale,
         ),
         (
             "linear_initial_guesses",

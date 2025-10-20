@@ -266,14 +266,16 @@ class DIRKStep(ODEImplicitStep):
             stage_increments,
             solver_initial_guesses,
             solver_solutions,
-            solver_iteration_guesses,
-            solver_residuals,
-            solver_residual_norms,
-            solver_operator_outputs,
-            solver_preconditioned_vectors,
-            solver_iteration_end_x,
-            solver_iteration_end_rhs,
-            solver_iteration_scale,
+            newton_initial_guesses,
+            newton_iteration_guesses,
+            newton_residuals,
+            newton_squared_norms,
+            newton_iteration_scale,
+            linear_initial_guesses,
+            linear_iteration_guesses,
+            linear_residuals,
+            linear_squared_norms,
+            linear_preconditioned_vectors,
             solver_iterations,
             solver_status,
             dt_scalar,
@@ -287,7 +289,6 @@ class DIRKStep(ODEImplicitStep):
             typed_int_zero = int32(0)
             status_mask = int32(0xFFFF)
             observable_count = proposed_observables.shape[0]
-            instrument = stage_states.shape[0] > 0
 
             dt_value = dt_scalar
             current_time = time_scalar
@@ -328,23 +329,20 @@ class DIRKStep(ODEImplicitStep):
                     # Get stored dxdt
                     stage_rhs[i] = shared[i]
 
-                if instrument:
-                    for idx in range(n):
-                        stage_derivatives[0, idx] = stage_rhs[idx]
-                        stage_states[0, idx] = state[idx]
-                        solver_initial_guesses[0, idx] = state[idx]
-                        solver_solutions[0, idx] = state[idx]
-                        residuals[0, idx] = typed_zero
-                        jacobian_updates[0, idx] = typed_zero
-                        stage_increments[0, idx] = typed_zero
-                    for obs_idx in range(observable_count):
-                        stage_observables[0, obs_idx] = observables[obs_idx]
-                    for driver_idx in range(stage_drivers_out.shape[1]):
-                        stage_drivers_out[0, driver_idx] = (
-                            drivers_buffer[driver_idx]
-                        )
-                    solver_iterations[0] = typed_int_zero
-                    solver_status[0] = typed_int_zero
+                for idx in range(n):
+                    stage_derivatives[0, idx] = stage_rhs[idx]
+                    stage_states[0, idx] = state[idx]
+                    solver_initial_guesses[0, idx] = state[idx]
+                    solver_solutions[0, idx] = state[idx]
+                    residuals[0, idx] = typed_zero
+                    jacobian_updates[0, idx] = typed_zero
+                    stage_increments[0, idx] = typed_zero
+                for obs_idx in range(observable_count):
+                    stage_observables[0, obs_idx] = observables[obs_idx]
+                for driver_idx in range(stage_drivers_out.shape[1]):
+                    stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
+                solver_iterations[0] = typed_int_zero
+                solver_status[0] = typed_int_zero
 
             elif can_reuse_accepted_start:
                 # recalculate dxdt from accepted state
@@ -357,23 +355,20 @@ class DIRKStep(ODEImplicitStep):
                         stage_time,
                 )
 
-                if instrument:
-                    for idx in range(n):
-                        stage_derivatives[0, idx] = stage_rhs[idx]
-                        stage_states[0, idx] = state[idx]
-                        solver_initial_guesses[0, idx] = state[idx]
-                        solver_solutions[0, idx] = state[idx]
-                        residuals[0, idx] = typed_zero
-                        jacobian_updates[0, idx] = typed_zero
-                        stage_increments[0, idx] = typed_zero
-                    for obs_idx in range(observable_count):
-                        stage_observables[0, obs_idx] = observables[obs_idx]
-                    for driver_idx in range(stage_drivers_out.shape[1]):
-                        stage_drivers_out[0, driver_idx] = (
-                            drivers_buffer[driver_idx]
-                        )
-                    solver_iterations[0] = typed_int_zero
-                    solver_status[0] = typed_int_zero
+                for idx in range(n):
+                    stage_derivatives[0, idx] = stage_rhs[idx]
+                    stage_states[0, idx] = state[idx]
+                    solver_initial_guesses[0, idx] = state[idx]
+                    solver_solutions[0, idx] = state[idx]
+                    residuals[0, idx] = typed_zero
+                    jacobian_updates[0, idx] = typed_zero
+                    stage_increments[0, idx] = typed_zero
+                for obs_idx in range(observable_count):
+                    stage_observables[0, obs_idx] = observables[obs_idx]
+                for driver_idx in range(stage_drivers_out.shape[1]):
+                    stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
+                solver_iterations[0] = typed_int_zero
+                solver_status[0] = typed_int_zero
 
             else:
                 # start from scratch - reuse previous increment as guess
@@ -383,15 +378,12 @@ class DIRKStep(ODEImplicitStep):
                     stage_base[idx] = state[idx]
 
                 diagonal_coeff = diagonal_coeffs[0]
-                if instrument:
-                    for idx in range(n):
-                        base_state_snapshot[idx] = stage_base[idx]
-                    for idx in range(n):
-                        scaled_guess = (
-                            diagonal_coeff * stage_increment[idx]
-                        )
-                        solver_initial_guesses[0, idx] = scaled_guess
-                        stage_increments[0, idx] = typed_zero
+                for idx in range(n):
+                    base_state_snapshot[idx] = stage_base[idx]
+                for idx in range(n):
+                    scaled_guess = diagonal_coeff * stage_increment[idx]
+                    solver_initial_guesses[0, idx] = scaled_guess
+                    stage_increments[0, idx] = typed_zero
 
                 if has_driver_function:
                     driver_function(
@@ -399,11 +391,8 @@ class DIRKStep(ODEImplicitStep):
                         driver_coeffs,
                         stage_drivers,
                     )
-                if instrument:
-                    for driver_idx in range(stage_drivers_out.shape[1]):
-                        stage_drivers_out[0, driver_idx] = (
-                            stage_drivers[driver_idx]
-                        )
+                for driver_idx in range(stage_drivers_out.shape[1]):
+                    stage_drivers_out[0, driver_idx] = stage_drivers[driver_idx]
 
                 solver_ret = nonlinear_solver(
                     stage_increment,
@@ -415,35 +404,33 @@ class DIRKStep(ODEImplicitStep):
                     solver_scratch,
                     int32(0),
                     solver_initial_guesses,
-                    solver_iteration_guesses,
-                    solver_residuals,
-                    solver_residual_norms,
-                    solver_operator_outputs,
-                    solver_preconditioned_vectors,
-                    solver_iteration_end_x,
-                    solver_iteration_end_rhs,
-                    solver_iteration_scale,
+                    newton_initial_guesses,
+                    newton_iteration_guesses,
+                    newton_residuals,
+                    newton_squared_norms,
+                    newton_iteration_scale,
+                    linear_initial_guesses,
+                    linear_iteration_guesses,
+                    linear_residuals,
+                    linear_squared_norms,
+                    linear_preconditioned_vectors,
                 )
                 status_code |= solver_ret
 
-                if instrument:
-                    solver_iterations[0] = solver_ret >> 16
-                    solver_status[0] = solver_ret & status_mask
+                solver_iterations[0] = solver_ret >> 16
+                solver_status[0] = solver_ret & status_mask
 
                 for idx in range(n):
                     base_value = stage_base[idx]
                     scaled_increment = diagonal_coeff * stage_increment[idx]
                     stage_base[idx] = base_value + scaled_increment
 
-                if instrument:
-                    for idx in range(n):
-                        stage_states[0, idx] = stage_base[idx]
-                        scaled_increment = (
-                            diagonal_coeff * stage_increment[idx]
-                        )
-                        solver_solutions[0, idx] = scaled_increment
-                        stage_increments[0, idx] = scaled_increment
-                        jacobian_updates[0, idx] = typed_zero
+                for idx in range(n):
+                    stage_states[0, idx] = stage_base[idx]
+                    scaled_increment = diagonal_coeff * stage_increment[idx]
+                    solver_solutions[0, idx] = scaled_increment
+                    stage_increments[0, idx] = scaled_increment
+                    jacobian_updates[0, idx] = typed_zero
 
                 observables_function(
                     stage_base,
@@ -453,11 +440,8 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                if instrument:
-                    for obs_idx in range(observable_count):
-                        stage_observables[0, obs_idx] = (
-                            proposed_observables[obs_idx]
-                        )
+                for obs_idx in range(observable_count):
+                    stage_observables[0, obs_idx] = proposed_observables[obs_idx]
 
                 dxdt_fn(
                     stage_base,
@@ -468,10 +452,9 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                if instrument:
-                    for idx in range(n):
-                        stage_derivatives[0, idx] = stage_rhs[idx]
-                        residuals[0, idx] = solver_scratch[idx + n]
+                for idx in range(n):
+                    stage_derivatives[0, idx] = stage_rhs[idx]
+                    residuals[0, idx] = solver_scratch[idx + n]
 
             solution_weight = solution_weights[0]
             error_weight = error_weights[0]
@@ -513,20 +496,16 @@ class DIRKStep(ODEImplicitStep):
                         driver_coeffs,
                         stage_drivers,
                     )
-                if instrument:
-                    for driver_idx in range(stage_drivers_out.shape[1]):
-                        stage_drivers_out[stage_idx, driver_idx] = (
-                            stage_drivers[driver_idx]
-                        )
+                for driver_idx in range(stage_drivers_out.shape[1]):
+                    stage_drivers_out[stage_idx, driver_idx] = stage_drivers[driver_idx]
                 # Just grab a view of the completed accumulator slice
                 stage_base = stage_accumulator[(stage_idx-1) * n:stage_idx * n]
                 for idx in range(n):
                     stage_base[idx] += state[idx]
 
                 diagonal_coeff = diagonal_coeffs[stage_idx]
-                if instrument:
-                    for idx in range(n):
-                        base_state_snapshot[idx] = stage_base[idx]
+                for idx in range(n):
+                    base_state_snapshot[idx] = stage_base[idx]
                     for idx in range(n):
                         scaled_guess = (
                             diagonal_coeff * stage_increment[idx]
@@ -544,35 +523,33 @@ class DIRKStep(ODEImplicitStep):
                     solver_scratch,
                     int32(stage_idx),
                     solver_initial_guesses,
-                    solver_iteration_guesses,
-                    solver_residuals,
-                    solver_residual_norms,
-                    solver_operator_outputs,
-                    solver_preconditioned_vectors,
-                    solver_iteration_end_x,
-                    solver_iteration_end_rhs,
-                    solver_iteration_scale,
+                    newton_initial_guesses,
+                    newton_iteration_guesses,
+                    newton_residuals,
+                    newton_squared_norms,
+                    newton_iteration_scale,
+                    linear_initial_guesses,
+                    linear_iteration_guesses,
+                    linear_residuals,
+                    linear_squared_norms,
+                    linear_preconditioned_vectors,
                 )
                 status_code |= solver_ret
 
-                if instrument:
-                    solver_iterations[stage_idx] = solver_ret >> 16
-                    solver_status[stage_idx] = solver_ret & status_mask
+                solver_iterations[stage_idx] = solver_ret >> 16
+                solver_status[stage_idx] = solver_ret & status_mask
 
                 for idx in range(n):
                     base_value = stage_base[idx]
                     scaled_increment = diagonal_coeff * stage_increment[idx]
                     stage_base[idx] = base_value + scaled_increment
 
-                if instrument:
-                    for idx in range(n):
-                        stage_states[stage_idx, idx] = stage_base[idx]
-                        scaled_increment = (
-                            diagonal_coeff * stage_increment[idx]
-                        )
-                        solver_solutions[stage_idx, idx] = scaled_increment
-                        stage_increments[stage_idx, idx] = scaled_increment
-                        jacobian_updates[stage_idx, idx] = typed_zero
+                for idx in range(n):
+                    stage_states[stage_idx, idx] = stage_base[idx]
+                    scaled_increment = diagonal_coeff * stage_increment[idx]
+                    solver_solutions[stage_idx, idx] = scaled_increment
+                    stage_increments[stage_idx, idx] = scaled_increment
+                    jacobian_updates[stage_idx, idx] = typed_zero
 
                 observables_function(
                     stage_base,
@@ -582,11 +559,8 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                if instrument:
-                    for obs_idx in range(observable_count):
-                        stage_observables[stage_idx, obs_idx] = (
-                            proposed_observables[obs_idx]
-                        )
+                for obs_idx in range(observable_count):
+                    stage_observables[stage_idx, obs_idx] = proposed_observables[obs_idx]
 
                 dxdt_fn(
                     stage_base,
@@ -597,10 +571,9 @@ class DIRKStep(ODEImplicitStep):
                     stage_time,
                 )
 
-                if instrument:
-                    for idx in range(n):
-                        stage_derivatives[stage_idx, idx] = stage_rhs[idx]
-                        residuals[stage_idx, idx] = solver_scratch[idx + n]
+                for idx in range(n):
+                    stage_derivatives[stage_idx, idx] = stage_rhs[idx]
+                    residuals[stage_idx, idx] = solver_scratch[idx + n]
 
                 solution_weight = solution_weights[stage_idx]
                 error_weight = error_weights[stage_idx]

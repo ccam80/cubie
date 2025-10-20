@@ -198,6 +198,7 @@ class CPUStep:
             "newton_iteration_guesses": logging.newton_iteration_guesses,
             "newton_residuals": logging.newton_residuals,
             "newton_squared_norms": logging.newton_squared_norms,
+            "newton_iteration_scale": logging.newton_iteration_scale,
             "linear_initial_guesses": logging.linear_initial_guesses,
             "linear_iteration_guesses": logging.linear_iteration_guesses,
             "linear_residuals": logging.linear_residuals,
@@ -232,6 +233,7 @@ class CPUStep:
             "newton_iteration_guesses": logging.newton_iteration_guesses,
             "newton_residuals": logging.newton_residuals,
             "newton_squared_norms": logging.newton_squared_norms,
+            "newton_iteration_scale": logging.newton_iteration_scale,
             "linear_initial_guesses": logging.linear_initial_guesses,
             "linear_iteration_guesses": logging.linear_iteration_guesses,
             "linear_residuals": logging.linear_residuals,
@@ -273,6 +275,7 @@ class CPUStep:
         newton_iteration_guesses: Optional[Array] = None,
         newton_residuals: Optional[Array] = None,
         newton_squared_norms: Optional[Array] = None,
+        newton_iteration_scale: Optional[Array] = None,
         linear_initial_guesses: Optional[Array] = None,
         linear_iteration_guesses: Optional[Array] = None,
         linear_residuals: Optional[Array] = None,
@@ -305,6 +308,7 @@ class CPUStep:
             newton_iteration_guesses=newton_iteration_guesses,
             newton_residuals=newton_residuals,
             newton_squared_norms=newton_squared_norms,
+            newton_iteration_scale=newton_iteration_scale,
             linear_initial_guesses=linear_initial_guesses,
             linear_iteration_guesses=linear_iteration_guesses,
             linear_residuals=linear_residuals,
@@ -392,6 +396,7 @@ class CPUStep:
         newton_iteration_guesses: Optional[Array] = None,
         newton_residuals: Optional[Array] = None,
         newton_squared_norms: Optional[Array] = None,
+        newton_iteration_scale: Optional[Array] = None,
         linear_initial_guesses: Optional[Array] = None,
         linear_iteration_guesses: Optional[Array] = None,
         linear_residuals: Optional[Array] = None,
@@ -486,6 +491,13 @@ class CPUStep:
 
             if not accepted:
                 return state, False, iteration + 1
+
+            if (
+                instrumented
+                and newton_iteration_scale is not None
+                and iteration < newton_iteration_scale.shape[1]
+            ):
+                newton_iteration_scale[stage_index, iteration] = scale
 
         return state, False, self._newton_max_iters
 

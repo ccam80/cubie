@@ -36,22 +36,6 @@ class InstrumentationHostBuffers:
         Iteration counts produced by the solver.
     solver_status:
         Solver exit status codes per stage.
-    solver_iteration_guesses:
-        Stored iteration guesses for Newton solves.
-    solver_residuals:
-        Residual vectors saved for each Newton iteration.
-    solver_residual_norms:
-        Residual norms per Newton iteration.
-    solver_operator_outputs:
-        Linear operator evaluations per iteration.
-    solver_preconditioned_vectors:
-        Preconditioned vectors saved from each iteration.
-    solver_iteration_end_x:
-        Newton state vectors at the end of each iteration.
-    solver_iteration_end_rhs:
-        Right-hand side vectors at the end of each iteration.
-    solver_iteration_scale:
-        Scalar scaling factors tracked per iteration.
     newton_initial_guesses:
         Initial Newton guesses prior to backtracking.
     newton_iteration_guesses:
@@ -60,6 +44,8 @@ class InstrumentationHostBuffers:
         Residual vectors captured during Newton backtracking.
     newton_squared_norms:
         Residual norms accumulated during Newton backtracking.
+    newton_iteration_scale:
+        Applied damping factors for each Newton iteration.
     linear_initial_guesses:
         Initial guesses for linear Krylov solves.
     linear_iteration_guesses:
@@ -84,18 +70,11 @@ class InstrumentationHostBuffers:
     solver_solutions: np.ndarray
     solver_iterations: np.ndarray
     solver_status: np.ndarray
-    solver_iteration_guesses: np.ndarray
-    solver_residuals: np.ndarray
-    solver_residual_norms: np.ndarray
-    solver_operator_outputs: np.ndarray
-    solver_preconditioned_vectors: np.ndarray
-    solver_iteration_end_x: np.ndarray
-    solver_iteration_end_rhs: np.ndarray
-    solver_iteration_scale: np.ndarray
     newton_initial_guesses: np.ndarray
     newton_iteration_guesses: np.ndarray
     newton_residuals: np.ndarray
     newton_squared_norms: np.ndarray
+    newton_iteration_scale: np.ndarray
     linear_initial_guesses: np.ndarray
     linear_iteration_guesses: np.ndarray
     linear_residuals: np.ndarray
@@ -144,14 +123,14 @@ def create_instrumentation_host_buffers(
         Buffer container with arrays ready for instrumentation writes.
     """
 
-    resolved_stage_count = max(int(stage_count), 1)
+    resolved_stage_count = int(stage_count)
     state_dim = int(state_size)
     observable_dim = int(observable_size)
     driver_dim = int(driver_size)
-    newton_iters = max(int(newton_max_iters), 1)
-    backtracks = max(int(newton_max_backtracks), 0)
+    newton_iters = int(newton_max_iters)
+    backtracks = int(newton_max_backtracks)
     newton_slots = newton_iters * (backtracks + 1) + 1
-    linear_iters = max(int(linear_max_iters), 1)
+    linear_iters = int(linear_max_iters)
     linear_slots = resolved_stage_count * newton_iters
     dtype = np.dtype(precision)
     solver_dtype = np.dtype(solver_iteration_dtype)
@@ -170,20 +149,6 @@ def create_instrumentation_host_buffers(
     solver_solutions = np.zeros_like(residuals)
     solver_iterations = np.zeros(resolved_stage_count, dtype=solver_dtype)
     solver_status = np.zeros(resolved_stage_count, dtype=solver_dtype)
-    solver_iteration_guesses = np.zeros(
-        (resolved_stage_count, newton_iters, state_dim),
-        dtype=dtype,
-    )
-    solver_residuals = np.zeros_like(solver_iteration_guesses)
-    solver_residual_norms = np.zeros_like(solver_iteration_guesses)
-    solver_operator_outputs = np.zeros_like(solver_iteration_guesses)
-    solver_preconditioned_vectors = np.zeros_like(solver_iteration_guesses)
-    solver_iteration_end_x = np.zeros_like(solver_iteration_guesses)
-    solver_iteration_end_rhs = np.zeros_like(solver_iteration_guesses)
-    solver_iteration_scale = np.zeros(
-        (resolved_stage_count, newton_iters),
-        dtype=dtype,
-    )
     newton_initial_guesses = np.zeros_like(residuals)
     newton_iteration_guesses = np.zeros(
         (resolved_stage_count, newton_slots, state_dim),
@@ -192,6 +157,10 @@ def create_instrumentation_host_buffers(
     newton_residuals = np.zeros_like(newton_iteration_guesses)
     newton_squared_norms = np.zeros(
         (resolved_stage_count, newton_slots),
+        dtype=dtype,
+    )
+    newton_iteration_scale = np.zeros(
+        (resolved_stage_count, newton_iters),
         dtype=dtype,
     )
     linear_initial_guesses = np.zeros((linear_slots, state_dim), dtype=dtype)
@@ -219,18 +188,11 @@ def create_instrumentation_host_buffers(
         solver_solutions=solver_solutions,
         solver_iterations=solver_iterations,
         solver_status=solver_status,
-        solver_iteration_guesses=solver_iteration_guesses,
-        solver_residuals=solver_residuals,
-        solver_residual_norms=solver_residual_norms,
-        solver_operator_outputs=solver_operator_outputs,
-        solver_preconditioned_vectors=solver_preconditioned_vectors,
-        solver_iteration_end_x=solver_iteration_end_x,
-        solver_iteration_end_rhs=solver_iteration_end_rhs,
-        solver_iteration_scale=solver_iteration_scale,
         newton_initial_guesses=newton_initial_guesses,
         newton_iteration_guesses=newton_iteration_guesses,
         newton_residuals=newton_residuals,
         newton_squared_norms=newton_squared_norms,
+        newton_iteration_scale=newton_iteration_scale,
         linear_initial_guesses=linear_initial_guesses,
         linear_iteration_guesses=linear_iteration_guesses,
         linear_residuals=linear_residuals,

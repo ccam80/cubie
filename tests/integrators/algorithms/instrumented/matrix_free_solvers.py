@@ -2,7 +2,6 @@
 
 from typing import Callable, Optional
 
-import math
 import numpy as np
 from numba import cuda, int32, from_dtype
 
@@ -43,16 +42,13 @@ def linear_solver_factory(
         h,
         rhs,
         x,
-        stage_index,
-        iteration_index,
-        solver_iteration_guesses,
-        solver_residuals,
-        solver_residual_norms,
-        solver_operator_outputs,
-        solver_preconditioned_vectors,
-        solver_iteration_end_x,
-        solver_iteration_end_rhs,
-     ):
+        slot_index,
+        linear_initial_guesses,
+        linear_iteration_guesses,
+        linear_residuals,
+        linear_squared_norms,
+        linear_preconditioned_vectors,
+    ):
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
@@ -65,8 +61,13 @@ def linear_solver_factory(
         mask = activemask()
         converged = acc <= tol_squared
 
+        log_slot = int32(slot_index)
+        for i in range(n):
+            linear_initial_guesses[log_slot, i] = x[i]
+
         status = int32(4)
-        for _ in range(max_iters):
+        iteration = int32(0)
+        while iteration < max_iters:
             if preconditioned:
                 preconditioner(
                     state,
@@ -117,17 +118,19 @@ def linear_solver_factory(
                 acc += residual_value * residual_value
             converged = converged or (acc <= tol_squared)
 
+            for i in range(n):
+                linear_iteration_guesses[log_slot, iteration, i] = x[i]
+                linear_residuals[log_slot, iteration, i] = rhs[i]
+                linear_preconditioned_vectors[log_slot, iteration, i] = (
+                    preconditioned_vec[i]
+                )
+            linear_squared_norms[log_slot, iteration] = acc
+
             if all_sync(mask, converged):
                 status = int32(0)
                 break
 
-        for i in range(n):
-            solver_operator_outputs[stage_index, iteration_index, i] = temp[i]
-            solver_preconditioned_vectors[stage_index, iteration_index, i] = (
-                preconditioned_vec[i]
-            )
-            solver_iteration_end_x[stage_index, iteration_index, i] = x[i]
-            solver_iteration_end_rhs[stage_index, iteration_index, i] = rhs[i]
+            iteration += int32(1)
 
         return status
 
@@ -169,15 +172,12 @@ def linear_solver_cached_factory(
         h,
         rhs,
         x,
-        stage_index,
-        iteration_index,
-        solver_iteration_guesses,
-        solver_residuals,
-        solver_residual_norms,
-        solver_operator_outputs,
-        solver_preconditioned_vectors,
-        solver_iteration_end_x,
-        solver_iteration_end_rhs,
+        slot_index,
+        linear_initial_guesses,
+        linear_iteration_guesses,
+        linear_residuals,
+        linear_squared_norms,
+        linear_preconditioned_vectors,
     ):
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
@@ -192,7 +192,12 @@ def linear_solver_cached_factory(
         converged = acc <= tol_squared
 
         status = int32(4)
-        for _ in range(max_iters):
+        log_slot = int32(slot_index)
+        for i in range(n):
+            linear_initial_guesses[log_slot, i] = x[i]
+
+        iteration = int32(0)
+        while iteration < max_iters:
             if preconditioned:
                 preconditioner(
                     state,
@@ -245,17 +250,19 @@ def linear_solver_cached_factory(
                 acc += residual_value * residual_value
             converged = converged or (acc <= tol_squared)
 
+            for i in range(n):
+                linear_iteration_guesses[log_slot, iteration, i] = x[i]
+                linear_residuals[log_slot, iteration, i] = rhs[i]
+                linear_preconditioned_vectors[log_slot, iteration, i] = (
+                    preconditioned_vec[i]
+                )
+            linear_squared_norms[log_slot, iteration] = acc
+
             if all_sync(mask, converged):
                 status = int32(0)
                 break
 
-        for i in range(n):
-            solver_operator_outputs[stage_index, iteration_index, i] = temp[i]
-            solver_preconditioned_vectors[stage_index, iteration_index, i] = (
-                preconditioned_vec[i]
-            )
-            solver_iteration_end_x[stage_index, iteration_index, i] = x[i]
-            solver_iteration_end_rhs[stage_index, iteration_index, i] = rhs[i]
+            iteration += int32(1)
 
         return status
 
@@ -297,14 +304,16 @@ def newton_krylov_solver_factory(
         shared_scratch,
         stage_index,
         solver_initial_guesses,
-        solver_iteration_guesses,
-        solver_residuals,
-        solver_residual_norms,
-        solver_operator_outputs,
-        solver_preconditioned_vectors,
-        solver_iteration_end_x,
-        solver_iteration_end_rhs,
-        solver_iteration_scale,
+        newton_initial_guesses,
+        newton_iteration_guesses,
+        newton_residuals,
+        newton_squared_norms,
+        newton_iteration_scale,
+        linear_initial_guesses,
+        linear_iteration_guesses,
+        linear_residuals,
+        linear_squared_norms,
+        linear_preconditioned_vectors,
     ):
         delta = shared_scratch[:n]
         residual = shared_scratch[n: 2 * n]
@@ -320,12 +329,23 @@ def newton_krylov_solver_factory(
         )
 
         norm2_prev = typed_zero
+        linear_slot_base = int32(stage_index * max_iters)
+        log_index = int32(0)
+        residual_copy = cuda.local.array(n, dtype)
         for i in range(n):
             residual_value = residual[i]
             norm2_prev += residual_value * residual_value
             delta[i] = typed_zero
             residual[i] = -residual_value
             solver_initial_guesses[stage_index, i] = state[i]
+            residual_copy[i] = residual_value
+            newton_initial_guesses[stage_index, i] = state[i]
+
+        for i in range(n):
+            newton_iteration_guesses[stage_index, log_index, i] = state[i]
+            newton_residuals[stage_index, log_index, i] = residual_copy[i]
+        newton_squared_norms[stage_index, log_index] = norm2_prev
+        log_index += int32(1)
 
         status = status_active
         if norm2_prev <= tol_squared:
@@ -335,7 +355,6 @@ def newton_krylov_solver_factory(
         mask = activemask()
         state_snapshot = cuda.local.array(n, dtype)
         residual_snapshot = cuda.local.array(n, dtype)
-        norm_snapshot = typed_zero
         snapshot_ready = False
 
         for _ in range(max_iters):
@@ -352,15 +371,12 @@ def newton_krylov_solver_factory(
                     h,
                     residual,
                     delta,
-                    stage_index,
-                    iter_slot,
-                    solver_iteration_guesses,
-                    solver_residuals,
-                    solver_residual_norms,
-                    solver_operator_outputs,
-                    solver_preconditioned_vectors,
-                    solver_iteration_end_x,
-                    solver_iteration_end_rhs,
+                    linear_slot_base + iter_slot,
+                    linear_initial_guesses,
+                    linear_iteration_guesses,
+                    linear_residuals,
+                    linear_squared_norms,
+                    linear_preconditioned_vectors,
                 )
                 if lin_return != int32(0):
                     status = int32(lin_return)
@@ -369,6 +385,7 @@ def newton_krylov_solver_factory(
             scale_applied = typed_zero
             found_step = False
             snapshot_ready = False
+            norm2_new = typed_zero
 
             for _ in range(max_backtracks + 1):
                 if status < 0:
@@ -393,7 +410,6 @@ def newton_krylov_solver_factory(
                         norm2_new += residual_value * residual_value
                         state_snapshot[i] = state[i]
                         residual_snapshot[i] = residual_value
-                    norm_snapshot = dtype(math.sqrt(float(norm2_new)))
                     snapshot_ready = True
 
                     if norm2_new <= tol_squared:
@@ -423,16 +439,15 @@ def newton_krylov_solver_factory(
             if iter_slot >= 0:
                 if snapshot_ready:
                     for i in range(n):
-                        solver_iteration_guesses[stage_index, iter_slot, i] = (
+                        newton_iteration_guesses[stage_index, log_index, i] = (
                             state_snapshot[i]
                         )
-                        solver_residuals[stage_index, iter_slot, i] = (
+                        newton_residuals[stage_index, log_index, i] = (
                             residual_snapshot[i]
                         )
-                        solver_residual_norms[
-                            stage_index, iter_slot, i
-                        ] = norm_snapshot
-                solver_iteration_scale[stage_index, iter_slot] = scale_applied
+                    newton_squared_norms[stage_index, log_index] = norm2_new
+                    log_index += int32(1)
+                newton_iteration_scale[stage_index, iter_slot] = scale_applied
 
         if status < 0:
             status = int32(2)

@@ -212,14 +212,16 @@ class BackwardsEulerStep(ODEImplicitStep):
             stage_increments,
             solver_initial_guesses,
             solver_solutions,
-            solver_iteration_guesses,
-            solver_residuals,
-            solver_residual_norms,
-            solver_operator_outputs,
-            solver_preconditioned_vectors,
-            solver_iteration_end_x,
-            solver_iteration_end_rhs,
-            solver_iteration_scale,
+            newton_initial_guesses,
+            newton_iteration_guesses,
+            newton_residuals,
+            newton_squared_norms,
+            newton_iteration_scale,
+            linear_initial_guesses,
+            linear_iteration_guesses,
+            linear_residuals,
+            linear_squared_norms,
+            linear_preconditioned_vectors,
             solver_iterations,
             solver_status,
             dt_scalar,
@@ -233,28 +235,25 @@ class BackwardsEulerStep(ODEImplicitStep):
             stage_rhs = cuda.local.array(n, numba_precision)
 
             solver_scratch = shared[:solver_shared_elements]
-            instrument = stage_states.shape[0] > 0
             observable_count = proposed_observables.shape[0]
 
             for idx in range(n):
                 guess_value = solver_scratch[idx]
                 proposed_state[idx] = guess_value
-                if instrument:
-                    solver_initial_guesses[0, idx] = guess_value
-                    residuals[0, idx] = typed_zero
-                    jacobian_updates[0, idx] = typed_zero
-                    solver_solutions[0, idx] = typed_zero
-                    stage_states[0, idx] = typed_zero
-                    stage_derivatives[0, idx] = typed_zero
-                    stage_increments[0, idx] = typed_zero
+                solver_initial_guesses[0, idx] = guess_value
+                residuals[0, idx] = typed_zero
+                jacobian_updates[0, idx] = typed_zero
+                solver_solutions[0, idx] = typed_zero
+                stage_states[0, idx] = typed_zero
+                stage_derivatives[0, idx] = typed_zero
+                stage_increments[0, idx] = typed_zero
 
-            if instrument:
-                for obs_idx in range(observable_count):
-                    stage_observables[0, obs_idx] = typed_zero
-                for driver_idx in range(stage_drivers.shape[1]):
-                    stage_drivers[0, driver_idx] = typed_zero
-                solver_iterations[0] = typed_int_zero
-                solver_status[0] = typed_int_zero
+            for obs_idx in range(observable_count):
+                stage_observables[0, obs_idx] = typed_zero
+            for driver_idx in range(stage_drivers.shape[1]):
+                stage_drivers[0, driver_idx] = typed_zero
+            solver_iterations[0] = typed_int_zero
+            solver_status[0] = typed_int_zero
 
             fixed_dt = dt if dt is not None else dt_scalar
             next_time = time_scalar + fixed_dt
@@ -265,9 +264,8 @@ class BackwardsEulerStep(ODEImplicitStep):
                     driver_coefficients,
                     proposed_drivers,
                 )
-            if instrument:
-                for driver_idx in range(stage_drivers.shape[1]):
-                    stage_drivers[0, driver_idx] = proposed_drivers[driver_idx]
+            for driver_idx in range(stage_drivers.shape[1]):
+                stage_drivers[0, driver_idx] = proposed_drivers[driver_idx]
 
             status = solver_fn(
                 proposed_state,
@@ -279,29 +277,29 @@ class BackwardsEulerStep(ODEImplicitStep):
                 solver_scratch,
                 int32(0),
                 solver_initial_guesses,
-                solver_iteration_guesses,
-                solver_residuals,
-                solver_residual_norms,
-                solver_operator_outputs,
-                solver_preconditioned_vectors,
-                solver_iteration_end_x,
-                solver_iteration_end_rhs,
-                solver_iteration_scale,
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
 
-            if instrument:
-                solver_iterations[0] = status >> 16
-                solver_status[0] = status & status_mask
+            solver_iterations[0] = status >> 16
+            solver_status[0] = status & status_mask
 
             for idx in range(n):
                 increment_value = proposed_state[idx]
                 residual_value = solver_scratch[idx + n]
                 proposed_state[idx] = increment_value + state[idx]
-                if instrument:
-                    solver_solutions[0, idx] = increment_value
-                    stage_increments[0, idx] = increment_value
-                    residuals[0, idx] = residual_value
-                    stage_states[0, idx] = proposed_state[idx]
+                solver_solutions[0, idx] = increment_value
+                stage_increments[0, idx] = increment_value
+                residuals[0, idx] = residual_value
+                stage_states[0, idx] = proposed_state[idx]
 
             observables_function(
                 proposed_state,
@@ -311,25 +309,22 @@ class BackwardsEulerStep(ODEImplicitStep):
                 next_time,
             )
 
-            if instrument:
-                for obs_idx in range(observable_count):
-                    stage_observables[0, obs_idx] = (
-                        proposed_observables[obs_idx]
-                    )
+            for obs_idx in range(observable_count):
+                stage_observables[0, obs_idx] = proposed_observables[obs_idx]
 
-                dxdt_fn(
-                    proposed_state,
-                    parameters,
-                    proposed_drivers,
-                    proposed_observables,
-                    stage_rhs,
-                    next_time,
-                )
+            dxdt_fn(
+                proposed_state,
+                parameters,
+                proposed_drivers,
+                proposed_observables,
+                stage_rhs,
+                next_time,
+            )
 
-                for idx in range(n):
-                    rhs_value = stage_rhs[idx]
-                    stage_derivatives[0, idx] = rhs_value
-                    jacobian_updates[0, idx] = typed_zero
+            for idx in range(n):
+                rhs_value = stage_rhs[idx]
+                stage_derivatives[0, idx] = rhs_value
+                jacobian_updates[0, idx] = typed_zero
 
             return status
 
