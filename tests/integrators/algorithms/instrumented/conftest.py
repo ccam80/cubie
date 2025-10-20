@@ -42,6 +42,9 @@ from .generic_erk import ERKStep as InstrumentedERKStep
 from .generic_rosenbrock_w import (
     GenericRosenbrockWStep as InstrumentedRosenbrockStep,
 )
+from tests.integrators.algorithms.instrumentation import (
+    create_instrumentation_host_buffers,
+)
 
 STEP_CONSTRUCTOR_TO_INSTRUMENTED: Dict[type, Callable[..., object]] = {
     ExplicitEulerStep: InstrumentedExplicitEulerStep,
@@ -62,6 +65,28 @@ class InstrumentedKernel:
     shared_bytes: int
     persistent_len: int
     numba_precision: type
+
+INSTRUMENTATION_DEVICE_FIELDS = (
+    "residuals",
+    "jacobian_updates",
+    "stage_states",
+    "stage_derivatives",
+    "stage_observables",
+    "stage_drivers",
+    "stage_increments",
+    "solver_initial_guesses",
+    "solver_solutions",
+    "solver_iteration_guesses",
+    "solver_residuals",
+    "solver_residual_norms",
+    "solver_operator_outputs",
+    "solver_preconditioned_vectors",
+    "solver_iteration_end_x",
+    "solver_iteration_end_rhs",
+    "solver_iteration_scale",
+    "solver_iterations",
+    "solver_status",
+)
 
 @pytest.fixture(scope="session")
 def step_inputs(
@@ -417,32 +442,19 @@ def instrumented_step_results(
     error = np.zeros(n_states, dtype=precision)
     observables = np.zeros(n_observables, dtype=precision)
     proposed_observables = np.zeros_like(observables)
-    residuals = np.zeros((stage_count, n_states), dtype=precision)
-    jacobian_updates = np.zeros_like(residuals)
-    stage_states = np.zeros_like(residuals)
-    stage_derivatives = np.zeros_like(residuals)
-    stage_observables = np.zeros(
-        (stage_count, n_observables), dtype=precision
+    max_newton_backtracks = int(solver_settings["newton_max_backtracks"])
+    linear_max_iters = int(solver_settings["max_linear_iters"])
+    host_buffers = create_instrumentation_host_buffers(
+        precision=precision,
+        stage_count=stage_count,
+        state_size=n_states,
+        observable_size=n_observables,
+        driver_size=drivers.shape[0],
+        newton_max_iters=max_newton_iters,
+        newton_max_backtracks=max_newton_backtracks,
+        linear_max_iters=linear_max_iters,
+        solver_iteration_dtype=np.int32,
     )
-    stage_drivers = np.zeros((stage_count, drivers.shape[0]), dtype=precision)
-    stage_increments = np.zeros_like(residuals)
-    solver_initial_guesses = np.zeros_like(residuals)
-    solver_solutions = np.zeros_like(residuals)
-    solver_iteration_guesses = np.zeros(
-        (stage_count, max_newton_iters, n_states),
-        dtype=precision,
-    )
-    solver_residuals = np.zeros_like(solver_iteration_guesses)
-    solver_residual_norms = np.zeros_like(solver_iteration_guesses)
-    solver_operator_outputs = np.zeros_like(solver_iteration_guesses)
-    solver_preconditioned_vectors = np.zeros_like(solver_iteration_guesses)
-    solver_iteration_end_x = np.zeros_like(solver_iteration_guesses)
-    solver_iteration_end_rhs = np.zeros_like(solver_iteration_guesses)
-    solver_iteration_scale = np.zeros(
-        (stage_count, max_newton_iters), dtype=precision
-    )
-    solver_iterations = np.zeros(stage_count, dtype=np.int32)
-    solver_status = np.zeros(stage_count, dtype=np.int32)
     status = np.zeros(1, dtype=np.int32)
 
     d_state = cuda.to_device(state)
@@ -454,27 +466,10 @@ def instrumented_step_results(
     d_observables = cuda.to_device(observables)
     d_proposed_observables = cuda.to_device(proposed_observables)
     d_error = cuda.to_device(error)
-    d_residuals = cuda.to_device(residuals)
-    d_jacobian_updates = cuda.to_device(jacobian_updates)
-    d_stage_states = cuda.to_device(stage_states)
-    d_stage_derivatives = cuda.to_device(stage_derivatives)
-    d_stage_observables = cuda.to_device(stage_observables)
-    d_stage_drivers = cuda.to_device(stage_drivers)
-    d_stage_increments = cuda.to_device(stage_increments)
-    d_solver_initial_guesses = cuda.to_device(solver_initial_guesses)
-    d_solver_solutions = cuda.to_device(solver_solutions)
-    d_solver_iteration_guesses = cuda.to_device(solver_iteration_guesses)
-    d_solver_residuals = cuda.to_device(solver_residuals)
-    d_solver_residual_norms = cuda.to_device(solver_residual_norms)
-    d_solver_operator_outputs = cuda.to_device(solver_operator_outputs)
-    d_solver_preconditioned_vectors = cuda.to_device(
-        solver_preconditioned_vectors
-    )
-    d_solver_iteration_end_x = cuda.to_device(solver_iteration_end_x)
-    d_solver_iteration_end_rhs = cuda.to_device(solver_iteration_end_rhs)
-    d_solver_iteration_scale = cuda.to_device(solver_iteration_scale)
-    d_solver_iterations = cuda.to_device(solver_iterations)
-    d_solver_status = cuda.to_device(solver_status)
+    device_buffers = {
+        name: cuda.to_device(getattr(host_buffers, name))
+        for name in INSTRUMENTATION_DEVICE_FIELDS
+    }
     d_status = cuda.to_device(status)
 
     dt_value = solver_settings["dt"]
@@ -489,25 +484,25 @@ def instrumented_step_results(
         d_observables,
         d_proposed_observables,
         d_error,
-        d_residuals,
-        d_jacobian_updates,
-        d_stage_states,
-        d_stage_derivatives,
-        d_stage_observables,
-        d_stage_drivers,
-        d_stage_increments,
-        d_solver_initial_guesses,
-        d_solver_solutions,
-        d_solver_iteration_guesses,
-        d_solver_residuals,
-        d_solver_residual_norms,
-        d_solver_operator_outputs,
-        d_solver_preconditioned_vectors,
-        d_solver_iteration_end_x,
-        d_solver_iteration_end_rhs,
-        d_solver_iteration_scale,
-        d_solver_iterations,
-        d_solver_status,
+        device_buffers["residuals"],
+        device_buffers["jacobian_updates"],
+        device_buffers["stage_states"],
+        device_buffers["stage_derivatives"],
+        device_buffers["stage_observables"],
+        device_buffers["stage_drivers"],
+        device_buffers["stage_increments"],
+        device_buffers["solver_initial_guesses"],
+        device_buffers["solver_solutions"],
+        device_buffers["solver_iteration_guesses"],
+        device_buffers["solver_residuals"],
+        device_buffers["solver_residual_norms"],
+        device_buffers["solver_operator_outputs"],
+        device_buffers["solver_preconditioned_vectors"],
+        device_buffers["solver_iteration_end_x"],
+        device_buffers["solver_iteration_end_rhs"],
+        device_buffers["solver_iteration_scale"],
+        device_buffers["solver_iterations"],
+        device_buffers["solver_status"],
         dt_value,
         numba_precision(0.0),
         d_status,
@@ -515,31 +510,36 @@ def instrumented_step_results(
     cuda.synchronize()
 
     status_value = int(d_status.copy_to_host()[0])
-    solver_iteration_guesses_host = (
-        d_solver_iteration_guesses.copy_to_host()
-    )
-    solver_residuals_host = d_solver_residuals.copy_to_host()
-    solver_residual_norms_host = d_solver_residual_norms.copy_to_host()
-    solver_operator_outputs_host = d_solver_operator_outputs.copy_to_host()
-    solver_preconditioned_vectors_host = (
-        d_solver_preconditioned_vectors.copy_to_host()
-    )
-    solver_iteration_end_x_host = d_solver_iteration_end_x.copy_to_host()
-    solver_iteration_end_rhs_host = d_solver_iteration_end_rhs.copy_to_host()
-    solver_iteration_scale_host = d_solver_iteration_scale.copy_to_host()
+    host_results = {}
+    for name, device_array in device_buffers.items():
+        host_array = getattr(host_buffers, name)
+        host_results[name] = device_array.copy_to_host(host_array)
+
+    solver_iteration_guesses_host = host_results["solver_iteration_guesses"]
+    solver_residuals_host = host_results["solver_residuals"]
+    solver_residual_norms_host = host_results["solver_residual_norms"]
+    solver_operator_outputs_host = host_results["solver_operator_outputs"]
+    solver_preconditioned_vectors_host = host_results[
+        "solver_preconditioned_vectors"
+    ]
+    solver_iteration_end_x_host = host_results["solver_iteration_end_x"]
+    solver_iteration_end_rhs_host = host_results["solver_iteration_end_rhs"]
+    solver_iteration_scale_host = host_results["solver_iteration_scale"]
+    solver_iterations_host = host_results["solver_iterations"].astype(np.int64)
+    solver_status_host = host_results["solver_status"].astype(np.int64)
     return DeviceInstrumentedResult(
         state=d_proposed.copy_to_host(),
         observables=d_proposed_observables.copy_to_host(),
         error=d_error.copy_to_host(),
-        residuals=d_residuals.copy_to_host(),
-        jacobian_updates=d_jacobian_updates.copy_to_host(),
-        stage_states=d_stage_states.copy_to_host(),
-        stage_derivatives=d_stage_derivatives.copy_to_host(),
-        stage_observables=d_stage_observables.copy_to_host(),
-        stage_drivers=d_stage_drivers.copy_to_host(),
-        stage_increments=d_stage_increments.copy_to_host(),
-        solver_initial_guesses=d_solver_initial_guesses.copy_to_host(),
-        solver_solutions=d_solver_solutions.copy_to_host(),
+        residuals=host_results["residuals"].copy(),
+        jacobian_updates=host_results["jacobian_updates"].copy(),
+        stage_states=host_results["stage_states"].copy(),
+        stage_derivatives=host_results["stage_derivatives"].copy(),
+        stage_observables=host_results["stage_observables"].copy(),
+        stage_drivers=host_results["stage_drivers"].copy(),
+        stage_increments=host_results["stage_increments"].copy(),
+        solver_initial_guesses=host_results["solver_initial_guesses"].copy(),
+        solver_solutions=host_results["solver_solutions"].copy(),
         solver_iteration_guesses=solver_iteration_guesses_host,
         solver_residuals=solver_residuals_host,
         solver_residual_norms=solver_residual_norms_host,
@@ -548,10 +548,8 @@ def instrumented_step_results(
         solver_iteration_end_x=solver_iteration_end_x_host,
         solver_iteration_end_rhs=solver_iteration_end_rhs_host,
         solver_iteration_scale=solver_iteration_scale_host,
-        solver_iterations=d_solver_iterations.copy_to_host().astype(
-            np.int64
-        ),
-        solver_status=d_solver_status.copy_to_host().astype(np.int64),
+        solver_iterations=solver_iterations_host,
+        solver_status=solver_status_host,
         status=status_value & STATUS_MASK,
         niters=(status_value >> 16) & STATUS_MASK,
         extra_vectors={

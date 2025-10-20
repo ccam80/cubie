@@ -249,11 +249,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 # Alias "increment" array over first stage accumulator -
                 # their lifetimes are disjoint.
                 stage_increment = jacobian_product_accumulator[:n]
+                # Alias inter-step rhs cache over first stage accumulator
+                rhs_cache = stage_increment[:n]
             else:
                 stage_increment = cuda.local.array(n, numba_precision)
 
-            for idx in range(accumulator_length):
-                stage_accumulator[idx] = typed_zero
+
 
             prepare_jacobian(
                 state,
@@ -272,57 +273,58 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #            Stage 0: operates out of supplied buffers            #
             # --------------------------------------------------------------- #
-            values_in_cache = False
-            if first_same_as_last:
-                for cache_idx in range(n):
-                    if stage_increment[cache_idx] != typed_zero:
-                        values_in_cache = True
-                        
-            if first_same_as_last and values_in_cache:
-                # stage_increment is ready to use after last step
-                pass
+            if multistage:
+                values_in_cache = False
+                if first_same_as_last:
+                    for cache_idx in range(n):
+                        if rhs_cache[cache_idx] != typed_zero:
+                            cached_rhs = True
 
-            else:
-                # Get dxdt at time=0 and use that to calculate gradient
-                dxdt_fn(
-                    state,
-                    parameters,
-                    drivers_buffer,
-                    observables,
-                    stage_rhs,
-                    current_time,
-                )
-
-                if can_reuse_accepted_start:
+                if first_same_as_last and values_in_cache:
                     for idx in range(n):
-                        stage_increment[idx] = dt_value * stage_rhs[idx]
+                        stage_rhs[idx] = rhs_cache[idx] * dt_value
 
                 else:
-                    # We're not at time = 0, recalculate stage_increment
-                    if has_driver_function:
-                        driver_function(
-                            current_time,
-                            driver_coeffs,
-                        )
-
-                    for idx in range(n):
-                        stage_rhs[idx] = dt_value * stage_rhs[idx]
-
-                    status_code |= linear_solver(
+                    # Get dxdt at time=0 and use that to calculate gradient
+                    dxdt_fn(
                         state,
                         parameters,
                         drivers_buffer,
-                        cached_auxiliaries,
-                        dt_value,
+                        observables,
                         stage_rhs,
-                        stage_increment,
+                        current_time,
                     )
 
-            for idx in range(n):
-                increment = stage_increment[idx]
-                proposed_state[idx] += solution_weights[0] * increment
-                if has_error:
-                    error[idx] += error_weights[0] * increment
+                    if can_reuse_accepted_start:
+                        for idx in range(n):
+                            stage_increment[idx] = dt_value * stage_rhs[idx]
+
+                    else:
+                        # We're not at time = 0, recalculate stage_increment
+                        if has_driver_function:
+                            driver_function(
+                                current_time,
+                                driver_coeffs,
+                            )
+
+                        for idx in range(n):
+                            stage_rhs[idx] = dt_value * stage_rhs[idx]
+
+                        status_code |= linear_solver(
+                            state,
+                            parameters,
+                            drivers_buffer,
+                            cached_auxiliaries,
+                            dt_value,
+                            stage_rhs,
+                            stage_increment,
+                        )
+
+                for idx in range(n):
+                    increment = stage_increment[idx]
+                    proposed_state[idx] += solution_weights[0] * increment
+                    if has_error:
+                        error[idx] += error_weights[0] * increment
 
             cached_jvp(
                 state,
@@ -333,7 +335,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 jacobian_stage_product,
             )
 
-            for idx in range(accumulator_length):
+            for idx in range(n, accumulator_length):
+                # zero non-cache-aliased accumulator entries
+                stage_accumulator[idx] = typed_zero
                 jacobian_product_accumulator[idx] = typed_zero
 
             # --------------------------------------------------------------- #
@@ -355,7 +359,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     increment_value = stage_increment[idx]
                     jacobian_value = jacobian_stage_product[idx]
                     if prev_idx == 0:
+                        # Zero first-stage cache portions of accumulators
                         stage_accumulator[idx] = typed_zero
+                        jacobian_product_accumulator[idx] = typed_zero
                     for successor_offset in range(successor_range):
                         successor_idx = stage_idx + successor_offset
                         state_coeff = stage_rhs_coeffs[successor_idx][prev_idx]

@@ -1,10 +1,8 @@
 """CPU reference implementations for integrator step algorithms."""
 
-from dataclasses import dataclass
 from typing import Any, Callable, Optional, Sequence, Union
 
 import numpy as np
-from numpy.typing import NDArray
 
 from cubie.integrators import IntegratorReturnCodes
 from cubie.integrators.algorithms import (
@@ -32,6 +30,11 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     RosenbrockTableau,
 )
 
+from tests.integrators.algorithms.instrumentation import (
+    InstrumentationHostBuffers,
+    create_instrumentation_host_buffers,
+)
+
 from .cpu_ode_system import CPUODESystem
 from .cpu_utils import (
     Array,
@@ -45,32 +48,7 @@ from .cpu_utils import (
 
 StepCallable = Callable[..., StepResultLike]
 
-
-@dataclass(slots=True)
-class LoggingBuffers:
-    """Collection of zero-initialised arrays used for instrumentation."""
-
-    stage_count: int
-    residuals: Array
-    jacobian_updates: Array
-    stage_states: Array
-    stage_derivatives: Array
-    stage_observables: Array
-    stage_drivers: Array
-    stage_increments: Array
-    solver_initial_guesses: Array
-    solver_solutions: Array
-    solver_iterations: NDArray[np.int_]
-    solver_status: NDArray[np.int_]
-    newton_initial_guesses: Array
-    newton_iteration_guesses: Array
-    newton_residuals: Array
-    newton_squared_norms: Array
-    linear_initial_guesses: Array
-    linear_iteration_guesses: Array
-    linear_residuals: Array
-    linear_squared_norms: Array
-    linear_preconditioned_vectors: Array
+LoggingBuffers = InstrumentationHostBuffers
 
 
 class CPUStep:
@@ -192,78 +170,15 @@ class CPUStep:
     def _create_logging_buffers(self, stage_count: int) -> LoggingBuffers:
         """Return logging buffers sized for ``stage_count`` stages."""
 
-        resolved_count = max(stage_count, 1)
-        state_dim = self._state_size
-        observable_dim = self.evaluator.system.sizes.observables
-        driver_dim = self.evaluator.system.sizes.drivers
-        newton_slots = (
-            self._newton_max_iters * (self._newton_max_backtracks + 1)
-            + 1
-        )
-        linear_slots = resolved_count * max(self._newton_max_iters, 1)
-        linear_iters = max(self._linear_max_iters, 1)
-
-        residuals = np.zeros((resolved_count, state_dim), dtype=self.precision)
-        jacobian_updates = np.zeros_like(residuals)
-        stage_states = np.zeros_like(residuals)
-        stage_derivatives = np.zeros_like(residuals)
-        stage_observables = np.zeros(
-            (resolved_count, observable_dim),
-            dtype=self.precision,
-        )
-        stage_drivers = np.zeros((resolved_count, driver_dim), dtype=self.precision)
-        stage_increments = np.zeros_like(residuals)
-        solver_initial_guesses = np.zeros_like(residuals)
-        solver_solutions = np.zeros_like(residuals)
-        solver_iterations = np.zeros(resolved_count, dtype=np.int64)
-        solver_status = np.zeros(resolved_count, dtype=np.int64)
-        newton_initial_guesses = np.zeros_like(residuals)
-        newton_iteration_guesses = np.zeros(
-            (resolved_count, newton_slots, state_dim),
-            dtype=self.precision,
-        )
-        newton_residuals = np.zeros_like(newton_iteration_guesses)
-        newton_squared_norms = np.zeros(
-            (resolved_count, newton_slots),
-            dtype=self.precision,
-        )
-        linear_initial_guesses = np.zeros(
-            (linear_slots, state_dim),
-            dtype=self.precision,
-        )
-        linear_iteration_guesses = np.zeros(
-            (linear_slots, linear_iters, state_dim),
-            dtype=self.precision,
-        )
-        linear_residuals = np.zeros_like(linear_iteration_guesses)
-        linear_squared_norms = np.zeros(
-            (linear_slots, linear_iters),
-            dtype=self.precision,
-        )
-        linear_preconditioned_vectors = np.zeros_like(linear_iteration_guesses)
-
-        return LoggingBuffers(
-            stage_count=resolved_count,
-            residuals=residuals,
-            jacobian_updates=jacobian_updates,
-            stage_states=stage_states,
-            stage_derivatives=stage_derivatives,
-            stage_observables=stage_observables,
-            stage_drivers=stage_drivers,
-            stage_increments=stage_increments,
-            solver_initial_guesses=solver_initial_guesses,
-            solver_solutions=solver_solutions,
-            solver_iterations=solver_iterations,
-            solver_status=solver_status,
-            newton_initial_guesses=newton_initial_guesses,
-            newton_iteration_guesses=newton_iteration_guesses,
-            newton_residuals=newton_residuals,
-            newton_squared_norms=newton_squared_norms,
-            linear_initial_guesses=linear_initial_guesses,
-            linear_iteration_guesses=linear_iteration_guesses,
-            linear_residuals=linear_residuals,
-            linear_squared_norms=linear_squared_norms,
-            linear_preconditioned_vectors=linear_preconditioned_vectors,
+        return create_instrumentation_host_buffers(
+            precision=self.precision,
+            stage_count=stage_count,
+            state_size=self._state_size,
+            observable_size=self.evaluator.system.sizes.observables,
+            driver_size=self.evaluator.system.sizes.drivers,
+            newton_max_iters=self._newton_max_iters,
+            newton_max_backtracks=self._newton_max_backtracks,
+            linear_max_iters=self._linear_max_iters,
         )
 
     def _build_newton_logging_kwargs(
