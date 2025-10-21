@@ -300,7 +300,6 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 if has_error:
                     error[idx] = typed_zero
-                proposed_state[idx] = state[idx]
                 stage_increment[idx] = increment_cache[idx] # cache spent
 
 
@@ -325,6 +324,7 @@ class DIRKStep(ODEImplicitStep):
 
             for idx in range(n):
                 stage_base[idx] = state[idx]
+                proposed_state[idx] = state[idx]
 
             # Only caching achievable is reusing rhs for FSAL
             if first_same_as_last and use_cached_rhs:

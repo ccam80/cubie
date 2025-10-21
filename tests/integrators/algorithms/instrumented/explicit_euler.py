@@ -182,7 +182,7 @@ class ExplicitEulerStep(ODEExplicitStep):
             for idx in range(error.shape[0]):
                 error[idx] = typed_zero
 
-            return typed_int_zero
+            return int32(0)
 
         return StepCache(step=step, nonlinear_solver=None)
 
