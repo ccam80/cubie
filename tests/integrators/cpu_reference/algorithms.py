@@ -966,7 +966,6 @@ class CPUCrankNicolsonStep(CPUStep):
 
         increment, converged, niters = self.newton_solve(guess, **newton_kwargs)
         next_state = self._cn_previous_state + increment
-        final_increment = next_state - self._cn_previous_state
 
         observables = self.observables(
             next_state,
@@ -978,12 +977,12 @@ class CPUCrankNicolsonStep(CPUStep):
             state=state_vector,
             params=params_array,
             dt=dt_value,
-            initial_guess=final_increment,
+            initial_guess=increment,
             time=current_time,
         )
         error = next_state - backward_result.state
         status = self._status(converged, niters)
-        self._cn_increment = final_increment
+        self._cn_increment = increment
         if logging:
             residual_vector = self.residual(increment)
             logging.residuals[0, :] = residual_vector
@@ -1000,7 +999,7 @@ class CPUCrankNicolsonStep(CPUStep):
                 guess,
                 dtype=self.precision,
             )
-            logging.solver_solutions[0, :] = final_increment
+            logging.solver_solutions[0, :] = increment
             logging.solver_iterations[0] = niters
             logging.solver_status[0] = int(
                 IntegratorReturnCodes.SUCCESS
@@ -1008,7 +1007,7 @@ class CPUCrankNicolsonStep(CPUStep):
                 else IntegratorReturnCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
             )
             logging.stage_drivers[0, :] = drivers_next
-            logging.stage_increments[0, :] = final_increment
+            logging.stage_increments[0, :] = increment
         result_kwargs = self._logging_result_kwargs(logging)
         result_kwargs["stage_derivatives"] = (
             logging.stage_derivatives if logging else None
@@ -1727,208 +1726,6 @@ class CPUBackwardEulerPCStep(CPUStep):
             time=current_time,
         )
 
-def explicit_euler_step(
-    evaluator: CPUODESystem,
-    driver_evaluator: DriverEvaluator,
-    newton_tol: float,
-    newton_max_iters: int,
-    linear_tol: float,
-    linear_max_iters: int,
-    *,
-    linear_correction_type: str = "minimal_residual",
-    preconditioner_order: int = 2,
-    instrument: bool = False,
-    **kwargs: object,
-) -> StepResultLike:
-    """Execute a single explicit Euler step."""
-
-    stepper = CPUExplicitEulerStep(
-        evaluator,
-        driver_evaluator,
-        newton_tol=newton_tol,
-        newton_max_iters=newton_max_iters,
-        linear_tol=linear_tol,
-        linear_max_iters=linear_max_iters,
-        linear_correction_type=linear_correction_type,
-        preconditioner_order=preconditioner_order,
-        instrument=instrument,
-    )
-    return stepper(**kwargs)
-
-
-def backward_euler_step(
-    evaluator: CPUODESystem,
-    driver_evaluator: DriverEvaluator,
-    *,
-    newton_tol: float,
-    newton_max_iters: int,
-    linear_tol: float,
-    linear_max_iters: int,
-    linear_correction_type: str = "minimal_residual",
-    preconditioner_order: int = 2,
-    instrument: bool = False,
-    **kwargs: object,
-) -> StepResultLike:
-    """Execute a single backward Euler step."""
-
-    stepper = CPUBackwardEulerStep(
-        evaluator,
-        driver_evaluator,
-        newton_tol=newton_tol,
-        newton_max_iters=newton_max_iters,
-        linear_tol=linear_tol,
-        linear_max_iters=linear_max_iters,
-        linear_correction_type=linear_correction_type,
-        preconditioner_order=preconditioner_order,
-        instrument=instrument,
-    )
-    return stepper(**kwargs)
-
-
-def crank_nicolson_step(
-    evaluator: CPUODESystem,
-    driver_evaluator: DriverEvaluator,
-    *,
-    newton_tol: float,
-    newton_max_iters: int,
-    linear_tol: float,
-    linear_max_iters: int,
-    linear_correction_type: str = "minimal_residual",
-    preconditioner_order: int = 2,
-    instrument: bool = False,
-    **kwargs: object,
-) -> StepResultLike:
-    """Execute a single Crank--Nicolson step."""
-
-    stepper = CPUCrankNicolsonStep(
-        evaluator,
-        driver_evaluator,
-        newton_tol=newton_tol,
-        newton_max_iters=newton_max_iters,
-        linear_tol=linear_tol,
-        linear_max_iters=linear_max_iters,
-        linear_correction_type=linear_correction_type,
-        preconditioner_order=preconditioner_order,
-        instrument=instrument,
-    )
-    return stepper(**kwargs)
-
-
-def erk_step(
-    evaluator: CPUODESystem,
-    driver_evaluator: DriverEvaluator,
-    *,
-    newton_tol: float,
-    newton_max_iters: int,
-    linear_tol: float,
-    linear_max_iters: int,
-    linear_correction_type: str = "minimal_residual",
-    preconditioner_order: int = 2,
-    instrument: bool = False,
-    **kwargs: object,
-) -> StepResultLike:
-    """Execute a single explicit Runge--Kutta step."""
-
-    stepper = CPUERKStep(
-        evaluator,
-        driver_evaluator,
-        newton_tol=newton_tol,
-        newton_max_iters=newton_max_iters,
-        linear_tol=linear_tol,
-        linear_max_iters=linear_max_iters,
-        linear_correction_type=linear_correction_type,
-        preconditioner_order=preconditioner_order,
-        instrument=instrument,
-    )
-    return stepper(**kwargs)
-
-
-def dirk_step(
-    evaluator: CPUODESystem,
-    driver_evaluator: DriverEvaluator,
-    *,
-    newton_tol: float,
-    newton_max_iters: int,
-    linear_tol: float,
-    linear_max_iters: int,
-    linear_correction_type: str = "minimal_residual",
-    preconditioner_order: int = 2,
-    instrument: bool = False,
-    **kwargs: object,
-) -> StepResultLike:
-    """Execute a single DIRK step."""
-
-    stepper = CPUDIRKStep(
-        evaluator,
-        driver_evaluator,
-        newton_tol=newton_tol,
-        newton_max_iters=newton_max_iters,
-        linear_tol=linear_tol,
-        linear_max_iters=linear_max_iters,
-        linear_correction_type=linear_correction_type,
-        preconditioner_order=preconditioner_order,
-        instrument=instrument,
-    )
-    return stepper(**kwargs)
-
-
-def rosenbrock_step(
-    evaluator: CPUODESystem,
-    driver_evaluator: DriverEvaluator,
-    *,
-    newton_tol: float,
-    newton_max_iters: int,
-    linear_tol: float,
-    linear_max_iters: int,
-    linear_correction_type: str = "minimal_residual",
-    preconditioner_order: int = 2,
-    instrument: bool = False,
-    **kwargs: object,
-) -> StepResultLike:
-    """Execute a single Rosenbrock--W step."""
-
-    stepper = CPURosenbrockWStep(
-        evaluator,
-        driver_evaluator,
-        newton_tol=newton_tol,
-        newton_max_iters=newton_max_iters,
-        linear_tol=linear_tol,
-        linear_max_iters=linear_max_iters,
-        linear_correction_type=linear_correction_type,
-        preconditioner_order=preconditioner_order,
-        instrument=instrument,
-    )
-    return stepper(**kwargs)
-
-
-def backward_euler_predict_correct_step(
-    evaluator: CPUODESystem,
-    driver_evaluator: DriverEvaluator,
-    *,
-    newton_tol: float,
-    newton_max_iters: int,
-    linear_tol: float,
-    linear_max_iters: int,
-    linear_correction_type: str = "minimal_residual",
-    preconditioner_order: int = 2,
-    instrument: bool = False,
-    **kwargs: object,
-) -> StepResultLike:
-    """Execute a backward Euler predictor--corrector step."""
-
-    stepper = CPUBackwardEulerPCStep(
-        evaluator,
-        driver_evaluator,
-        newton_tol=newton_tol,
-        newton_max_iters=newton_max_iters,
-        linear_tol=linear_tol,
-        linear_max_iters=linear_max_iters,
-        linear_correction_type=linear_correction_type,
-        preconditioner_order=preconditioner_order,
-        instrument=instrument,
-    )
-    return stepper(**kwargs)
-
 _STEP_CONSTRUCTOR_TO_CLASS = {
     ExplicitEulerStep: CPUExplicitEulerStep,
     BackwardsEulerStep: CPUBackwardEulerStep,
@@ -1938,17 +1735,6 @@ _STEP_CONSTRUCTOR_TO_CLASS = {
     DIRKStep: CPUDIRKStep,
     GenericRosenbrockWStep: CPURosenbrockWStep,
 }
-
-_STEP_CONSTRUCTOR_TO_FUNCTION = {
-    ExplicitEulerStep: explicit_euler_step,
-    BackwardsEulerStep: backward_euler_step,
-    BackwardsEulerPCStep: backward_euler_predict_correct_step,
-    CrankNicolsonStep: crank_nicolson_step,
-    ERKStep: erk_step,
-    DIRKStep: dirk_step,
-    GenericRosenbrockWStep: rosenbrock_step,
-}
-
 
 def _resolve_step_configuration(
     algorithm: str,
@@ -2000,7 +1786,7 @@ def get_ref_step_factory(
     algorithm: str,
     *,
     tableau: Optional[Union[str, ButcherTableau]] = None,
-) -> Callable[[CPUODESystem, DriverEvaluator], StepCallable]:
+) -> Callable:
     """Return a factory binding the CPU stepper for ``algorithm``."""
 
     step_constructor, tableau_value = _resolve_step_configuration(
