@@ -225,10 +225,6 @@ class CPUStep:
             "stage_observables": logging.stage_observables,
             "stage_drivers": logging.stage_drivers,
             "stage_increments": logging.stage_increments,
-            "solver_initial_guesses": logging.solver_initial_guesses,
-            "solver_solutions": logging.solver_solutions,
-            "solver_iterations": logging.solver_iterations,
-            "solver_status": logging.solver_status,
             "newton_initial_guesses": logging.newton_initial_guesses,
             "newton_iteration_guesses": logging.newton_iteration_guesses,
             "newton_residuals": logging.newton_residuals,
@@ -267,10 +263,6 @@ class CPUStep:
         stage_observables: Optional[Array] = None,
         stage_drivers: Optional[Array] = None,
         stage_increments: Optional[Array] = None,
-        solver_initial_guesses: Optional[Array] = None,
-        solver_solutions: Optional[Array] = None,
-        solver_iterations: Optional[Sequence[int] | np.ndarray] = None,
-        solver_status: Optional[Sequence[int] | np.ndarray] = None,
         newton_initial_guesses: Optional[Array] = None,
         newton_iteration_guesses: Optional[Array] = None,
         newton_residuals: Optional[Array] = None,
@@ -300,10 +292,6 @@ class CPUStep:
             stage_observables=stage_observables,
             stage_drivers=stage_drivers,
             stage_increments=stage_increments,
-            solver_initial_guesses=solver_initial_guesses,
-            solver_solutions=solver_solutions,
-            solver_iterations=solver_iterations,
-            solver_status=solver_status,
             newton_initial_guesses=newton_initial_guesses,
             newton_iteration_guesses=newton_iteration_guesses,
             newton_residuals=newton_residuals,
@@ -640,8 +628,6 @@ class CPUExplicitEulerStep(CPUStep):
             logging.stage_states[0, :] = state_vector
             logging.stage_derivatives[0, :] = derivative
             logging.stage_observables[0, :] = observables_now
-            logging.solver_solutions[0, :] = state_vector
-            logging.solver_status[0] = int(IntegratorReturnCodes.SUCCESS)
             logging.stage_drivers[0, :] = drivers_now
             logging.stage_increments[0, :] = dt_value * derivative
         result_kwargs = self._logging_result_kwargs(logging)
@@ -786,14 +772,6 @@ class CPUBackwardEulerStep(CPUStep):
                 next_time,
             )
             logging.stage_observables[0, :] = observables
-            logging.solver_initial_guesses[0, :] = self.ensure_array(guess)
-            logging.solver_solutions[0, :] = increment
-            logging.solver_iterations[0] = niters
-            logging.solver_status[0] = int(
-                IntegratorReturnCodes.SUCCESS
-                if converged
-                else IntegratorReturnCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
-            )
             logging.stage_drivers[0, :] = drivers_next
             logging.stage_increments[0, :] = increment
         result_kwargs = self._logging_result_kwargs(logging)
@@ -995,17 +973,6 @@ class CPUCrankNicolsonStep(CPUStep):
                 next_time,
             )
             logging.stage_observables[0, :] = observables
-            logging.solver_initial_guesses[0, :] = np.asarray(
-                guess,
-                dtype=self.precision,
-            )
-            logging.solver_solutions[0, :] = increment
-            logging.solver_iterations[0] = niters
-            logging.solver_status[0] = int(
-                IntegratorReturnCodes.SUCCESS
-                if converged
-                else IntegratorReturnCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
-            )
             logging.stage_drivers[0, :] = drivers_next
             logging.stage_increments[0, :] = increment
         result_kwargs = self._logging_result_kwargs(logging)
@@ -1085,9 +1052,6 @@ class CPUERKStep(CPUStep):
         logging = None
         if self.instrument:
             logging = self._create_logging_buffers(stage_count=stage_count)
-            logging.solver_status.fill(
-                int(IntegratorReturnCodes.SUCCESS)
-            )
 
         for stage_index in range(stage_count):
             stage_state = state_vector.copy()
@@ -1118,8 +1082,6 @@ class CPUERKStep(CPUStep):
             stage_derivatives[stage_index, :] = derivative
             if logging:
                 logging.stage_observables[stage_index, :] = observables_stage
-                logging.solver_initial_guesses[stage_index, :] = stage_state
-                logging.solver_solutions[stage_index, :] = stage_state
                 logging.stage_increments[stage_index, :] = dt_value * derivative
 
         state_update = np.zeros_like(state_vector)
@@ -1263,9 +1225,6 @@ class CPUDIRKStep(CPUStep):
         logging = None
         if self.instrument:
             logging = self._create_logging_buffers(stage_count=stage_count)
-            logging.solver_status.fill(
-                int(IntegratorReturnCodes.SUCCESS)
-            )
 
         all_converged = True
         total_iters = 0
@@ -1305,8 +1264,6 @@ class CPUDIRKStep(CPUStep):
                         observables_stage
                     )
                     logging.stage_drivers[stage_index, :] = drivers_stage
-                    logging.solver_solutions[stage_index,
-                    :] = self.precision(0.0)
                 if stage_index == stage_count - 1:
                     self._dirk_has_increment = False
                 continue
@@ -1319,7 +1276,7 @@ class CPUDIRKStep(CPUStep):
             self._dirk_dt_coeff = dt_value * diag_coeff
 
             if logging:
-                logging.solver_initial_guesses[stage_index, :] = guess
+                logging.stage_states[stage_index, :] = stage_state
 
             newton_kwargs = self._build_newton_logging_kwargs(
                 stage_index=stage_index,
@@ -1354,14 +1311,6 @@ class CPUDIRKStep(CPUStep):
                 logging.stage_increments[stage_index, :] = increment
                 logging.stage_observables[stage_index, :] = observables_stage
                 logging.stage_drivers[stage_index, :] = drivers_stage
-                logging.solver_initial_guesses[stage_index, :] = guess
-                logging.solver_solutions[stage_index, :] = increment
-                logging.solver_iterations[stage_index] = niters
-                logging.solver_status[stage_index] = int(
-                    IntegratorReturnCodes.SUCCESS
-                    if converged
-                    else IntegratorReturnCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
-                )
             self._dirk_increment = increment
 
         state_accum = np.zeros_like(state_vector)
@@ -1519,9 +1468,6 @@ class CPURosenbrockWStep(CPUStep):
         logging = None
         if self.instrument:
             logging = self._create_logging_buffers(stage_count=stage_count)
-            logging.solver_status.fill(
-                int(IntegratorReturnCodes.SUCCESS)
-            )
 
         drivers_stage = drivers_now
         last_stage_derivative = derivative_now
@@ -1598,13 +1544,6 @@ class CPURosenbrockWStep(CPUStep):
             if logging:
                 logging.jacobian_updates[stage_index, :] = stage_increment
                 logging.stage_increments[stage_index, :] = stage_increment
-                logging.solver_solutions[stage_index, :] = stage_increment
-                logging.solver_iterations[stage_index] = linear_iters
-                logging.solver_status[stage_index] = int(
-                    IntegratorReturnCodes.SUCCESS
-                    if linear_converged
-                    else IntegratorReturnCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
-                )
 
             for successor in range(stage_index + 1, stage_count):
                 a_coeff = a_matrix[successor, stage_index]

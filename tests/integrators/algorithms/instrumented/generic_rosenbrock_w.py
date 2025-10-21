@@ -222,17 +222,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :],
-                int32[:],
-                int32[:],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -258,8 +256,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_observables,
             stage_drivers_out,
             stage_increments,
-            solver_initial_guesses,
-            solver_solutions,
             newton_initial_guesses,
             newton_iteration_guesses,
             newton_residuals,
@@ -270,8 +266,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             linear_residuals,
             linear_squared_norms,
             linear_preconditioned_vectors,
-            solver_iterations,
-            solver_status,
             dt_scalar,
             time_scalar,
             shared,
@@ -280,7 +274,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             stage_rhs = cuda.local.array(n, numba_precision)
             jacobian_stage_product = stage_rhs # lifetimes are disjoint - reuse
 
-            typed_int_zero = int32(0)
             observable_count = proposed_observables.shape[0]
 
             dt_value = dt_scalar
@@ -389,7 +382,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 stage_derivatives[0, idx] = stage_rhs[idx]
-                solver_initial_guesses[0, idx] = stage_increment[idx]
                 stage_states[0, idx] = state[idx]
                 stage_rhs[idx] = dt_value * stage_rhs[idx]
                 proposed_state[idx] = typed_zero
@@ -416,12 +408,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             )
             status_code |= solver_ret
 
-            solver_iterations[0] = typed_int_zero
-            solver_status[0] = solver_ret
             for idx in range(n):
                 stage_increments[0, idx] = stage_increment[idx]
                 jacobian_updates[0, idx] = stage_increment[idx]
-                solver_solutions[0, idx] = stage_increment[idx]
 
             for idx in range(n):
                 increment = stage_increment[idx]
@@ -540,7 +529,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         rhs_cache[idx] = stage_rhs[idx]
 
                 for idx in range(n):
-                    solver_initial_guesses[stage_idx, idx] = stage_increment[idx]
                     residuals[stage_idx, idx] = stage_rhs[idx]
 
                 stage_linear_slot = int32(stage_idx)
@@ -562,11 +550,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 )
                 status_code |= solver_ret
 
-                solver_iterations[stage_idx] = typed_int_zero
-                solver_status[stage_idx] = solver_ret
                 for idx in range(n):
                     jacobian_updates[stage_idx, idx] = stage_increment[idx]
-                    solver_solutions[stage_idx, idx] = stage_increment[idx]
                     stage_increments[stage_idx, idx] = stage_increment[idx]
 
                 solution_weight = solution_weights[stage_idx]

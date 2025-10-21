@@ -56,8 +56,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :],
-                int32[:],
-                int32[:],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -83,8 +81,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             stage_observables,
             stage_drivers,
             stage_increments,
-            solver_initial_guesses,
-            solver_solutions,
             newton_initial_guesses,
             newton_iteration_guesses,
             newton_residuals,
@@ -95,16 +91,12 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             linear_residuals,
             linear_squared_norms,
             linear_preconditioned_vectors,
-            solver_iterations,
-            solver_status,
             dt_scalar,
             time_scalar,
             shared,
             persistent_local,
         ):
             typed_zero = numba_precision(0.0)
-            typed_int_zero = int32(0)
-            status_mask = int32(0xFFFF)
             stage_rhs = cuda.local.array(n, numba_precision)
 
             observable_count = proposed_observables.shape[0]
@@ -123,8 +115,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             for idx in range(n):
                 increment_guess = fixed_dt * predictor[idx]
                 proposed_state[idx] = increment_guess
-                solver_initial_guesses[0, idx] = increment_guess
-                solver_solutions[0, idx] = typed_zero
                 residuals[0, idx] = typed_zero
                 jacobian_updates[0, idx] = typed_zero
                 stage_states[0, idx] = typed_zero
@@ -135,8 +125,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 stage_observables[0, obs_idx] = typed_zero
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = typed_zero
-            solver_iterations[0] = typed_int_zero
-            solver_status[0] = typed_int_zero
 
             next_time = time_scalar + fixed_dt
 
@@ -161,7 +149,6 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 state,
                 solver_scratch,
                 int32(0),
-                solver_initial_guesses,
                 newton_initial_guesses,
                 newton_iteration_guesses,
                 newton_residuals,
@@ -174,11 +161,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 linear_preconditioned_vectors,
             )
 
-            solver_iterations[0] = status >> 16
-            solver_status[0] = status & status_mask
             for idx in range(n):
                 increment_value = proposed_state[idx]
-                solver_solutions[0, idx] = increment_value
                 stage_increments[0, idx] = increment_value
                 residuals[0, idx] = solver_scratch[idx + n]
 

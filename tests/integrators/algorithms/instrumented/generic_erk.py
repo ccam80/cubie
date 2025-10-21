@@ -130,7 +130,6 @@ class ERKStep(ODEExplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
-                numba_precision[:, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :, :],
@@ -139,8 +138,6 @@ class ERKStep(ODEExplicitStep):
                 numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :],
-                int32[:],
-                int32[:],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -166,8 +163,6 @@ class ERKStep(ODEExplicitStep):
             stage_observables,
             stage_drivers_out,
             stage_increments,
-            solver_initial_guesses,
-            solver_solutions,
             newton_initial_guesses,
             newton_iteration_guesses,
             newton_residuals,
@@ -178,8 +173,6 @@ class ERKStep(ODEExplicitStep):
             linear_residuals,
             linear_squared_norms,
             linear_preconditioned_vectors,
-            solver_iterations,
-            solver_status,
             dt_scalar,
             time_scalar,
             shared,
@@ -187,7 +180,6 @@ class ERKStep(ODEExplicitStep):
         ):
             stage_rhs = cuda.local.array(n, numba_precision)
 
-            typed_int_zero = int32(0)
             observable_count = proposed_observables.shape[0]
 
             dt_value = dt_scalar
@@ -204,8 +196,6 @@ class ERKStep(ODEExplicitStep):
 
             for idx in range(n):
                 stage_states[0, idx] = state[idx]
-                solver_initial_guesses[0, idx] = state[idx]
-                solver_solutions[0, idx] = state[idx]
                 residuals[0, idx] = typed_zero
                 jacobian_updates[0, idx] = typed_zero
                 stage_increments[0, idx] = typed_zero
@@ -213,8 +203,6 @@ class ERKStep(ODEExplicitStep):
                 stage_observables[0, obs_idx] = observables[obs_idx]
             for driver_idx in range(stage_drivers_out.shape[1]):
                 stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
-            solver_iterations[0] = typed_int_zero
-            solver_status[0] = typed_int_zero
 
             status_code = int32(0)
             # ----------------------------------------------------------- #
@@ -289,8 +277,6 @@ class ERKStep(ODEExplicitStep):
 
                 for idx in range(n):
                     stage_states[stage_idx, idx] = stage_state[idx]
-                    solver_initial_guesses[stage_idx, idx] = stage_state[idx]
-                    solver_solutions[stage_idx, idx] = stage_state[idx]
                     residuals[stage_idx, idx] = typed_zero
                     jacobian_updates[stage_idx, idx] = typed_zero
                     stage_increments[stage_idx, idx] = typed_zero
@@ -340,8 +326,6 @@ class ERKStep(ODEExplicitStep):
                             error_weights[stage_idx] * increment
                         )
 
-                solver_iterations[stage_idx] = typed_int_zero
-                solver_status[stage_idx] = typed_int_zero
 
             # ----------------------------------------------------------- #
 

@@ -208,8 +208,6 @@ class DIRKStep(ODEImplicitStep):
         acc_end = accumulator_length
         solver_start = acc_end
         solver_end = acc_end + solver_shared_elements
-        typed_int_zero = int32(0)
-        status_mask = int32(0xFFFF)
 
         # no cover: start
         @cuda.jit(
@@ -231,17 +229,15 @@ class DIRKStep(ODEImplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :],
-                int32[:],
-                int32[:],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -267,8 +263,6 @@ class DIRKStep(ODEImplicitStep):
             stage_observables,
             proposed_drivers_out,
             stage_increments,
-            solver_initial_guesses,
-            solver_solutions,
             newton_initial_guesses,
             newton_iteration_guesses,
             newton_residuals,
@@ -279,8 +273,6 @@ class DIRKStep(ODEImplicitStep):
             linear_residuals,
             linear_squared_norms,
             linear_preconditioned_vectors,
-            solver_iterations,
-            solver_status,
             dt_scalar,
             time_scalar,
             shared,
@@ -310,7 +302,6 @@ class DIRKStep(ODEImplicitStep):
                     error[idx] = typed_zero
                 proposed_state[idx] = state[idx]
                 stage_increment[idx] = increment_cache[idx] # cache spent
-                solver_initial_guesses[0, idx] = stage_increment[idx]
 
 
             status_code = int32(0)
@@ -364,7 +355,6 @@ class DIRKStep(ODEImplicitStep):
                             stage_base,
                             solver_scratch,
                             int32(0),
-                            solver_initial_guesses,
                             newton_initial_guesses,
                             newton_iteration_guesses,
                             newton_residuals,
@@ -401,8 +391,6 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 stage_derivatives[0, idx] = stage_rhs[idx]
                 stage_states[0, idx] = stage_base[idx]
-                solver_solutions[0, idx] = diagonal_coeff * stage_increment[
-                    idx]
                 residuals[0, idx] = typed_zero
                 jacobian_updates[0, idx] = typed_zero
                 stage_increments[0, idx] = typed_zero
@@ -410,8 +398,6 @@ class DIRKStep(ODEImplicitStep):
                 stage_observables[0, obs_idx] = observables[obs_idx]
             for driver_idx in range(proposed_drivers_out.shape[1]):
                 proposed_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
-            solver_iterations[0] = typed_int_zero
-            solver_status[0] = typed_int_zero
 
 
             solution_weight = solution_weights[0]
@@ -466,9 +452,6 @@ class DIRKStep(ODEImplicitStep):
 
                 for idx in range(n):
                     base_state_snapshot[idx] = stage_base[idx]
-                    for idx in range(n):
-                        solver_initial_guesses[stage_idx, idx] = (
-                            stage_increment[idx])
 
                 if stage_implicit[stage_idx]:
                     solver_ret = nonlinear_solver(
@@ -481,7 +464,6 @@ class DIRKStep(ODEImplicitStep):
                         stage_base,
                         solver_scratch,
                         int32(stage_idx),
-                        solver_initial_guesses,
                         newton_initial_guesses,
                         newton_iteration_guesses,
                         newton_residuals,
@@ -495,16 +477,12 @@ class DIRKStep(ODEImplicitStep):
                     )
                     status_code |= solver_ret
 
-                    solver_iterations[stage_idx] = solver_ret >> 16
-                    solver_status[stage_idx] = solver_ret & status_mask
-
                     for idx in range(n):
                         stage_base[idx] += diagonal_coeff * stage_increment[idx]
 
                 for idx in range(n):
                     stage_states[stage_idx, idx] = stage_base[idx]
                     scaled_increment = diagonal_coeff * stage_increment[idx]
-                    solver_solutions[stage_idx, idx] = scaled_increment
                     stage_increments[stage_idx, idx] = scaled_increment
                     jacobian_updates[stage_idx, idx] = typed_zero
 

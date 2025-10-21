@@ -179,17 +179,15 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:, :],
                 numba_precision[:, :],
                 numba_precision[:, :],
-                numba_precision[:, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
-                numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :],
-                int32[:],
-                int32[:],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
                 numba_precision,
                 numba_precision,
                 numba_precision[:],
@@ -215,8 +213,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             stage_observables,
             stage_drivers,
             stage_increments,
-            solver_initial_guesses,
-            solver_solutions,
             newton_initial_guesses,
             newton_iteration_guesses,
             newton_residuals,
@@ -227,15 +223,12 @@ class CrankNicolsonStep(ODEImplicitStep):
             linear_residuals,
             linear_squared_norms,
             linear_preconditioned_vectors,
-            solver_iterations,
-            solver_status,
             dt_scalar,
             time_scalar,
             shared,
             persistent_local,
         ):
             typed_zero = numba_precision(0.0)
-            typed_int_zero = int32(0)
             status_mask = int32(0xFFFF)
             stage_rhs = cuda.local.array(n, numba_precision)
             cn_increment = cuda.local.array(n, numba_precision)
@@ -245,8 +238,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             for idx in range(n):
                 proposed_state[idx] = typed_zero
                 cn_increment[idx] = typed_zero
-                solver_initial_guesses[0, idx] = typed_zero
-                solver_solutions[0, idx] = typed_zero
                 residuals[0, idx] = typed_zero
                 jacobian_updates[0, idx] = typed_zero
                 stage_states[0, idx] = typed_zero
@@ -257,9 +248,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 stage_observables[0, obs_idx] = typed_zero
             for driver_idx in range(stage_drivers.shape[1]):
                 stage_drivers[0, driver_idx] = typed_zero
-            solver_iterations[0] = typed_int_zero
-            solver_status[0] = typed_int_zero
-
             solver_scratch = shared[:solver_shared_elements]
             dxdt_buffer = solver_scratch[:n]
             base_state = error
@@ -299,7 +287,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 base_state,
                 solver_scratch,
                 int32(0),
-                solver_initial_guesses,
                 newton_initial_guesses,
                 newton_iteration_guesses,
                 newton_residuals,
@@ -312,9 +299,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 linear_preconditioned_vectors,
             )
 
-            solver_iterations[0] = status >> 16
-            solver_status[0] = status & status_mask
-
             for idx in range(n):
                 increment_value = proposed_state[idx]
                 residual_value = solver_scratch[idx + n]
@@ -325,7 +309,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 proposed_state[idx] = final_state
                 base_state[idx] = increment_value
                 cn_increment[idx] = trapezoidal_increment
-                solver_solutions[0, idx] = trapezoidal_increment
                 stage_increments[0, idx] = trapezoidal_increment
                 residuals[0, idx] = residual_value
                 stage_states[0, idx] = final_state
@@ -340,7 +323,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 state,
                 solver_scratch,
                 int32(0),
-                solver_initial_guesses,
                 newton_initial_guesses,
                 newton_iteration_guesses,
                 newton_residuals,
@@ -353,8 +335,6 @@ class CrankNicolsonStep(ODEImplicitStep):
                 linear_preconditioned_vectors,
             )
             status |= be_status & status_mask
-
-            solver_status[0] = status & status_mask
 
             for idx in range(n):
                 error[idx] = (

@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 
 import numpy as np
-from numpy.typing import DTypeLike
 
 
 @dataclass(slots=True)
@@ -28,14 +27,6 @@ class InstrumentationHostBuffers:
         Driver samples recorded per stage.
     stage_increments:
         Stage-wise state increments.
-    solver_initial_guesses:
-        Initial guesses supplied to the Newton solver.
-    solver_solutions:
-        Final Newton solutions per stage.
-    solver_iterations:
-        Iteration counts produced by the solver.
-    solver_status:
-        Solver exit status codes per stage.
     newton_initial_guesses:
         Initial Newton guesses prior to backtracking.
     newton_iteration_guesses:
@@ -66,10 +57,6 @@ class InstrumentationHostBuffers:
     stage_observables: np.ndarray
     stage_drivers: np.ndarray
     stage_increments: np.ndarray
-    solver_initial_guesses: np.ndarray
-    solver_solutions: np.ndarray
-    solver_iterations: np.ndarray
-    solver_status: np.ndarray
     newton_initial_guesses: np.ndarray
     newton_iteration_guesses: np.ndarray
     newton_residuals: np.ndarray
@@ -92,7 +79,6 @@ def create_instrumentation_host_buffers(
     newton_max_iters: int,
     newton_max_backtracks: int,
     linear_max_iters: int,
-    solver_iteration_dtype: DTypeLike = np.int_,
 ) -> InstrumentationHostBuffers:
     """Return zeroed buffers sized for instrumentation diagnostics.
 
@@ -114,8 +100,6 @@ def create_instrumentation_host_buffers(
         Maximum number of backtracking attempts per Newton iteration.
     linear_max_iters:
         Maximum iterations permitted for Krylov solves.
-    solver_iteration_dtype:
-        Integer dtype used for iteration counters and solver status values.
 
     Returns
     -------
@@ -133,7 +117,6 @@ def create_instrumentation_host_buffers(
     linear_iters = int(linear_max_iters)
     linear_slots = resolved_stage_count * newton_iters
     dtype = np.dtype(precision)
-    solver_dtype = np.dtype(solver_iteration_dtype)
 
     residuals = np.zeros((resolved_stage_count, state_dim), dtype=dtype)
     jacobian_updates = np.zeros_like(residuals)
@@ -145,10 +128,6 @@ def create_instrumentation_host_buffers(
     )
     stage_drivers = np.zeros((resolved_stage_count, driver_dim), dtype=dtype)
     stage_increments = np.zeros_like(residuals)
-    solver_initial_guesses = np.zeros_like(residuals)
-    solver_solutions = np.zeros_like(residuals)
-    solver_iterations = np.zeros(resolved_stage_count, dtype=solver_dtype)
-    solver_status = np.zeros(resolved_stage_count, dtype=solver_dtype)
     newton_initial_guesses = np.zeros_like(residuals)
     newton_iteration_guesses = np.zeros(
         (resolved_stage_count, newton_slots, state_dim),
@@ -184,10 +163,6 @@ def create_instrumentation_host_buffers(
         stage_observables=stage_observables,
         stage_drivers=stage_drivers,
         stage_increments=stage_increments,
-        solver_initial_guesses=solver_initial_guesses,
-        solver_solutions=solver_solutions,
-        solver_iterations=solver_iterations,
-        solver_status=solver_status,
         newton_initial_guesses=newton_initial_guesses,
         newton_iteration_guesses=newton_iteration_guesses,
         newton_residuals=newton_residuals,

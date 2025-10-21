@@ -310,7 +310,6 @@ def newton_krylov_solver_factory(
         base_state,
         shared_scratch,
         stage_index,
-        solver_initial_guesses,
         newton_initial_guesses,
         newton_iteration_guesses,
         newton_residuals,
@@ -345,7 +344,6 @@ def newton_krylov_solver_factory(
             norm2_prev += residual_value * residual_value
             delta[i] = typed_zero
             residual[i] = -residual_value
-            solver_initial_guesses[stage_index, i] = state[i]
             residual_copy[i] = residual_value
             newton_initial_guesses[stage_index, i] = state[i]
 

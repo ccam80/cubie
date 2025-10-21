@@ -109,10 +109,6 @@ class InstrumentedStepResult:
     stage_states: Array | None = None
     stage_derivatives: Array | None = None
     stage_observables: Array | None = None
-    solver_initial_guesses: Array | None = None
-    solver_solutions: Array | None = None
-    solver_iterations: NDArray[np.int_] | None = None
-    solver_status: NDArray[np.int_] | None = None
     newton_initial_guesses: Array | None = None
     newton_iteration_guesses: Array | None = None
     newton_residuals: Array | None = None
@@ -145,10 +141,6 @@ def make_step_result(
     stage_observables: Optional[Array] = None,
     stage_drivers: Optional[Array] = None,
     stage_increments: Optional[Array] = None,
-    solver_initial_guesses: Optional[Array] = None,
-    solver_solutions: Optional[Array] = None,
-    solver_iterations: Optional[Sequence[int] | NDArray[np.int_]] = None,
-    solver_status: Optional[Sequence[int] | NDArray[np.int_]] = None,
     newton_initial_guesses: Optional[Array] = None,
     newton_iteration_guesses: Optional[Array] = None,
     newton_residuals: Optional[Array] = None,
@@ -183,10 +175,6 @@ def make_step_result(
         stage_states=stage_states,
         stage_derivatives=stage_derivatives,
         stage_observables=stage_observables,
-        solver_initial_guesses=solver_initial_guesses,
-        solver_solutions=solver_solutions,
-        solver_iterations=solver_iterations,
-        solver_status=solver_status,
         newton_initial_guesses=newton_initial_guesses,
         newton_iteration_guesses=newton_iteration_guesses,
         newton_residuals=newton_residuals,
