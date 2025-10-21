@@ -265,7 +265,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             for idx in range(n):
                 if has_error:
                     error[idx] = typed_zero
-                proposed_state[idx] = state[idx]
 
             status_code = int32(0)
 
@@ -343,6 +342,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 for idx in range(n):
                     stage_rhs[idx] = dt_value * stage_rhs[idx]
+                    proposed_state[idx] = state[idx]
 
                 status_code |= linear_solver(
                     state,
