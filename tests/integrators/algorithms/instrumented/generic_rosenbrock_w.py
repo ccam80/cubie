@@ -311,7 +311,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             for idx in range(n):
                 if has_error:
                     error[idx] = typed_zero
-                proposed_state[idx] = state[idx]
 
             for idx in range(n):
                 stage_states[0, idx] = state[idx]
@@ -392,11 +391,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_derivatives[0, idx] = stage_rhs[idx]
                 solver_initial_guesses[0, idx] = stage_increment[idx]
                 stage_states[0, idx] = state[idx]
-
-            for idx in range(n):
                 stage_rhs[idx] = dt_value * stage_rhs[idx]
-
-            for idx in range(n):
+                proposed_state[idx] = typed_zero
                 residuals[0, idx] = stage_rhs[idx]
             for driver_idx in range(stage_drivers_out.shape[1]):
                 stage_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
@@ -429,7 +425,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
             for idx in range(n):
                 increment = stage_increment[idx]
-                proposed_state[idx] += solution_weights[0] * increment
+                # It's janky, but we're going to stash the increment
+                # here until the stage accumulator frees up again.
+                proposed_state[idx] = increment
                 if has_error:
                     error[idx] += error_weights[0] * increment
 
@@ -527,10 +525,19 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     jacobian_term = jacobian_product_accumulator[
                         stage_offset + idx
                     ]
+                    stage_rhs[idx] = dt_value * (rhs_value + jacobian_term)
+
+                    if prev_idx == 0:
+                        # Reclaim stage increment as a solver guess.
+                        # the lower n elements of stage accumulator are
+                        # only used for stage increment after stage 1
+                        stage_increment[idx] = proposed_state[idx]
+                        # Belatedly adjust solution with weight from tableau,
+                        # add state back in.
+                        proposed_state[idx] *= solution_weights[0]
+                        proposed_state[idx] += state[idx]
                     if first_same_as_last and stage_idx == stage_count - 1:
                         rhs_cache[idx] = stage_rhs[idx]
-                    stage_increment[idx] = typed_zero
-                    stage_rhs[idx] = dt_value * (rhs_value + jacobian_term)
 
                 for idx in range(n):
                     solver_initial_guesses[stage_idx, idx] = stage_increment[idx]

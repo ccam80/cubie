@@ -342,7 +342,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 for idx in range(n):
                     stage_rhs[idx] = dt_value * stage_rhs[idx]
-                    proposed_state[idx] = state[idx]
+                    proposed_state[idx] = typed_zero
 
                 status_code |= linear_solver(
                     state,
@@ -357,9 +357,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 for idx in range(n):
                     increment = stage_increment[idx]
-                    proposed_state[idx] += solution_weights[0] * increment
+                    # It's janky, but we're going to stash the increment
+                    # here until the stage accumulator frees up again.
+                    proposed_state[idx] = increment
                     if has_error:
-                        error[idx] += error_weights[0] * increment
+                        error[idx] += increment * error_weights[0]
 
             cached_jvp(
                 state,
@@ -447,9 +449,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     jacobian_term = jacobian_product_accumulator[
                         stage_offset + idx
                     ]
-                    stage_increment[idx] = typed_zero
                     stage_rhs[idx] = dt_value * (rhs_value + jacobian_term)
                     #Cache slope before we overwrite it on last stage.
+                    if prev_idx == 0:
+                        # Reclaim stage increment as a solver guess.
+                        # the lower n elements of stage accumulator are
+                        # only used for stage increment after stage 1
+                        stage_increment[idx] = proposed_state[idx]
+                        # Belatedly adjust solution with weight from tableau,
+                        # add state back in.
+                        proposed_state[idx] *= solution_weights[0]
+                        proposed_state[idx] += state[idx]
                     if first_same_as_last and stage_idx == stage_count - 1:
                         rhs_cache[idx] = rhs_value
 
