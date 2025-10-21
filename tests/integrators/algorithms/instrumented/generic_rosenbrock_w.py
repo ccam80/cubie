@@ -327,13 +327,17 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             if multistage:
                 values_in_cache = False
+                prev_state_accepted = True
                 if first_same_as_last:
                     for cache_idx in range(n):
-                        if shared[cache_idx] != typed_zero:
+                        if rhs_cache[cache_idx] != typed_zero:
                             values_in_cache = True
+                        if state[cache_idx] != proposed_state[cache_idx]:
+                            prev_state_accepted = False
+                use_cached_rhs = values_in_cache and prev_state_accepted
 
                 if first_same_as_last:
-                    if values_in_cache:
+                    if use_cached_rhs:
                         for idx in range(n):
                             stage_rhs[idx] = rhs_cache[idx]  # cache spent
                     else:

@@ -274,10 +274,14 @@ class DIRKStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
 
             values_in_cache = False
+            prev_state_accepted = True
             if first_same_as_last:
                 for cache_idx in range(n):
                     if stage_rhs[cache_idx] != typed_zero:
                         values_in_cache = True
+                    if state[cache_idx] != proposed_state[cache_idx]:
+                        prev_state_accepted = False
+            use_cached_rhs = values_in_cache and prev_state_accepted
 
             stage_time = current_time + dt_value * stage_time_fractions[0]
             diagonal_coeff = diagonal_coeffs[0]
@@ -286,7 +290,7 @@ class DIRKStep(ODEImplicitStep):
                 stage_base[idx] = state[idx]
 
             # Only caching achievable is reusing rhs for FSAL
-            if first_same_as_last and values_in_cache:
+            if first_same_as_last and use_cached_rhs:
                 # RHS is aliased onto solver scratch cache at step-end
                 pass
 
