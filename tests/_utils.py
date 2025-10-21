@@ -429,7 +429,9 @@ def run_device_loop(
             return
 
         shared = cuda.shared.array(0, dtype=numba_precision)
+        shared[:] = numba_precision(0.0)
         local = cuda.local.array(localmem_required, dtype=numba_precision)
+        local[:] = numba_precision(0.0)
         status_arr[0] = loop_fn(
             init_vec,
             params_vec,

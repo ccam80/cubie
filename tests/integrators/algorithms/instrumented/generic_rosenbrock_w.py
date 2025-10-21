@@ -304,6 +304,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 state,
                 parameters,
                 drivers_buffer,
+                current_time,
                 cached_auxiliaries,
             )
 
@@ -318,6 +319,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_observables[0, obs_idx] = observables[obs_idx]
 
             status_code = int32(0)
+
+            stage_time = current_time + dt_value * stage_time_fractions[0]
 
             # --------------------------------------------------------------- #
             #            Stage 0: may use cached values                       #
@@ -400,6 +403,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 parameters,
                 drivers_buffer,
                 cached_auxiliaries,
+                stage_time,
                 dt_value,
                 stage_rhs,
                 stage_increment,
@@ -430,6 +434,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 parameters,
                 drivers_buffer,
                 cached_auxiliaries,
+                stage_time,
                 stage_increment,
                 jacobian_stage_product,
             )
@@ -533,6 +538,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     parameters,
                     drivers_buffer,
                     cached_auxiliaries,
+                    stage_time,
                     dt_value,
                     stage_rhs,
                     stage_increment,
@@ -566,6 +572,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         parameters,
                         drivers_buffer,
                         cached_auxiliaries,
+                        stage_time,
                         stage_increment,
                         jacobian_stage_product,
                     )

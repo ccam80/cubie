@@ -42,7 +42,7 @@ from .generic_erk import ERKStep as InstrumentedERKStep
 from .generic_rosenbrock_w import (
     GenericRosenbrockWStep as InstrumentedRosenbrockStep,
 )
-from tests.integrators.algorithms.instrumentation import (
+from tests.integrators.algorithms.instrumented import (
     create_instrumentation_host_buffers,
 )
 

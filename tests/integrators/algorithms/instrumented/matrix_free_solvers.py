@@ -39,6 +39,7 @@ def linear_solver_factory(
         state,
         parameters,
         drivers,
+        t,
         h,
         rhs,
         x,
@@ -52,7 +53,7 @@ def linear_solver_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, h, x, temp)
+        operator_apply(state, parameters, drivers, t, h, x, temp)
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -73,6 +74,7 @@ def linear_solver_factory(
                     state,
                     parameters,
                     drivers,
+                    t,
                     h,
                     rhs,
                     preconditioned_vec,
@@ -86,6 +88,7 @@ def linear_solver_factory(
                 state,
                 parameters,
                 drivers,
+                t,
                 h,
                 preconditioned_vec,
                 temp,
@@ -169,6 +172,7 @@ def linear_solver_cached_factory(
         parameters,
         drivers,
         cached_aux,
+        t,
         h,
         rhs,
         x,
@@ -182,7 +186,7 @@ def linear_solver_cached_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, cached_aux, h, x, temp)
+        operator_apply(state, parameters, drivers, cached_aux, t, h, x, temp)
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -204,6 +208,7 @@ def linear_solver_cached_factory(
                     parameters,
                     drivers,
                     cached_aux,
+                    t,
                     h,
                     rhs,
                     preconditioned_vec,
@@ -218,6 +223,7 @@ def linear_solver_cached_factory(
                 parameters,
                 drivers,
                 cached_aux,
+                t,
                 h,
                 preconditioned_vec,
                 temp,
@@ -298,6 +304,7 @@ def newton_krylov_solver_factory(
         state,
         parameters,
         drivers,
+        t,
         h,
         a_ij,
         base_state,
@@ -322,6 +329,7 @@ def newton_krylov_solver_factory(
             state,
             parameters,
             drivers,
+            t,
             h,
             a_ij,
             base_state,
@@ -368,6 +376,7 @@ def newton_krylov_solver_factory(
                     state,
                     parameters,
                     drivers,
+                    t,
                     h,
                     residual,
                     delta,
@@ -398,6 +407,7 @@ def newton_krylov_solver_factory(
                         state,
                         parameters,
                         drivers,
+                        t,
                         h,
                         a_ij,
                         base_state,

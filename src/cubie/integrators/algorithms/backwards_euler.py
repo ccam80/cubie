@@ -245,7 +245,6 @@ class BackwardsEulerStep(ODEImplicitStep):
                 solver_scratch[i] = proposed_state[i]
                 proposed_state[i] += state[i]
 
-            # calculate and save observables (wastes some compute)
             observables_function(
                 proposed_state,
                 parameters,

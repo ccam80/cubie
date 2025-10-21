@@ -34,7 +34,7 @@ def linear_solver_factory(
         Length of the one-dimensional residual and search-direction vectors.
     preconditioner
         Approximate inverse preconditioner invoked as ``(state, parameters,
-        drivers, h, residual, z, scratch)``. ``scratch`` can be overwritten.
+        drivers, t, h, residual, z, scratch)``. ``scratch`` can be overwritten.
         If ``None`` the identity preconditioner is used.
     correction_type
         Line-search strategy. Must be ``"steepest_descent"`` or
@@ -80,6 +80,7 @@ def linear_solver_factory(
         state,
         parameters,
         drivers,
+        t,
         h,
         rhs,
         x,
@@ -94,6 +95,8 @@ def linear_solver_factory(
             Model parameters forwarded to the operator and preconditioner.
         drivers
             External drivers forwarded to the operator and preconditioner.
+        t
+            Stage time forwarded to the operator and preconditioner.
         h
             Step size used by the operator evaluation.
         rhs
@@ -121,7 +124,7 @@ def linear_solver_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, h, x, temp)
+        operator_apply(state, parameters, drivers, t, h, x, temp)
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -136,6 +139,7 @@ def linear_solver_factory(
                     state,
                     parameters,
                     drivers,
+                    t,
                     h,
                     rhs,
                     preconditioned_vec,
@@ -145,7 +149,15 @@ def linear_solver_factory(
                 for i in range(n):
                     preconditioned_vec[i] = rhs[i]
 
-            operator_apply(state, parameters, drivers, h, preconditioned_vec, temp)
+            operator_apply(
+                state,
+                parameters,
+                drivers,
+                t,
+                h,
+                preconditioned_vec,
+                temp,
+            )
             numerator = typed_zero
             denominator = typed_zero
             if sd_flag:
@@ -213,6 +225,7 @@ def linear_solver_cached_factory(
         parameters,
         drivers,
         cached_aux,
+        t,
         h,
         rhs,
         x,
@@ -222,7 +235,7 @@ def linear_solver_cached_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, cached_aux, h, x, temp)
+        operator_apply(state, parameters, drivers, cached_aux, t, h, x, temp)
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -238,6 +251,7 @@ def linear_solver_cached_factory(
                     parameters,
                     drivers,
                     cached_aux,
+                    t,
                     h,
                     rhs,
                     preconditioned_vec,
@@ -252,6 +266,7 @@ def linear_solver_cached_factory(
                 parameters,
                 drivers,
                 cached_aux,
+                t,
                 h,
                 preconditioned_vec,
                 temp,

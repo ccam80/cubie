@@ -198,6 +198,8 @@ class DIRKStep(ODEImplicitStep):
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
         diagonal_coeffs = tableau.diagonal(numba_precision)
+        stage_implicit = tuple(coeff != numba_precision(0.0)
+                          for coeff in diagonal_coeffs)
         accumulator_length = max(stage_count - 1, 0) * n
         solver_shared_elements = self.solver_shared_elements
 
@@ -249,11 +251,10 @@ class DIRKStep(ODEImplicitStep):
             current_time = time_scalar
             end_time = current_time + dt_value
 
-            # shared [:n] contains dxdt if first_same_as_last, else the
-            # previous stage's final increment for a starting guess
             stage_accumulator = shared[acc_start:acc_end]
             solver_scratch = shared[solver_start:solver_end]
             stage_rhs = solver_scratch[:n]
+            increment_cache = solver_scratch[n:2*n]
 
             #Alias stage base onto first stage accumulator - lifetimes disjoint
             if multistage:
@@ -264,71 +265,66 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 if has_error:
                     error[idx] = typed_zero
+                stage_increment[idx] = increment_cache[idx] # cache spent
                 proposed_state[idx] = state[idx]
 
             status_code = int32(0)
             # --------------------------------------------------------------- #
-            #            Stage 0: operates out of supplied buffers            #
+            #            Stage 0: may reuse cached values                     #
             # --------------------------------------------------------------- #
 
-            stage_time = current_time + dt_value * stage_time_fractions[0]
-            stage_drivers = proposed_drivers
             values_in_cache = False
             if first_same_as_last:
                 for cache_idx in range(n):
-                    if shared[cache_idx] != typed_zero:
+                    if stage_rhs[cache_idx] != typed_zero:
                         values_in_cache = True
 
-            if first_same_as_last and values_in_cache:
-                for i in range(n):
-                    # Get stored dxdt
-                    stage_rhs[i] = shared[i]
+            stage_time = current_time + dt_value * stage_time_fractions[0]
+            diagonal_coeff = diagonal_coeffs[0]
 
-            elif can_reuse_accepted_start:
-                # recalculate dxdt from accepted state
-                dxdt_fn(
-                        state,
-                        parameters,
-                        drivers_buffer,
-                        observables,
-                        stage_rhs,
-                        stage_time,
-                )
+            for idx in range(n):
+                stage_base[idx] = state[idx]
+
+            # Only caching achievable is reusing rhs for FSAL
+            if first_same_as_last and values_in_cache:
+                # RHS is aliased onto solver scratch cache at step-end
+                pass
 
             else:
-                # start from scratch - reuse previous increment as guess
-                for idx in range(n):
-                    stage_increment[idx] = shared[idx]
-                    # Stage base[idx] is an alias to shared[idx], order matters
-                    stage_base[idx] = state[idx]
+                if can_reuse_accepted_start:
+                    for idx in range(drivers_buffer.shape[0]):
+                        # Use step-start driver values
+                        proposed_drivers[idx] = drivers_buffer[idx]
 
-                if has_driver_function:
-                    driver_function(
+                else:
+                    if has_driver_function:
+                        driver_function(
+                            stage_time,
+                            driver_coeffs,
+                            proposed_drivers,
+                        )
+
+                if stage_implicit[0]:
+                    status_code |= nonlinear_solver(
+                        stage_increment,
+                        parameters,
+                        proposed_drivers,
                         stage_time,
-                        driver_coeffs,
-                        stage_drivers,
+                        dt_value,
+                        diagonal_coeffs[0],
+                        stage_base,
+                        solver_scratch,
                     )
+                    for idx in range(n):
+                        stage_base[idx] += (
+                            diagonal_coeff * stage_increment[idx]
+                        )
 
-                status_code |= nonlinear_solver(
-                    stage_increment,
-                    parameters,
-                    stage_drivers,
-                    dt_value,
-                    diagonal_coeffs[0],
-                    stage_base,
-                    solver_scratch,
-                )
-
-                diagonal_coeff = diagonal_coeffs[0]
-                for idx in range(n):
-                    base_value = stage_base[idx]
-                    scaled_increment = diagonal_coeff * stage_increment[idx]
-                    stage_base[idx] = base_value + scaled_increment
-
+                # Get obs->dxdt from stage_base
                 observables_function(
                     stage_base,
                     parameters,
-                    stage_drivers,
+                    proposed_drivers,
                     proposed_observables,
                     stage_time,
                 )
@@ -336,7 +332,7 @@ class DIRKStep(ODEImplicitStep):
                 dxdt_fn(
                     stage_base,
                     parameters,
-                    stage_drivers,
+                    proposed_drivers,
                     proposed_observables,
                     stage_rhs,
                     stage_time,
@@ -355,13 +351,12 @@ class DIRKStep(ODEImplicitStep):
                 stage_accumulator[idx] = typed_zero
 
             # --------------------------------------------------------------- #
-            #            Stages 1-s: must refresh obs/drivers                 #
+            #            Stages 1-s: must refresh all qtys                    #
             # --------------------------------------------------------------- #
 
             for stage_idx in range(1, stage_count):
                 prev_idx = stage_idx - 1
                 successor_range = stage_count - stage_idx
-                stage_offset = (stage_idx - 1) * n
                 stage_time = (
                         current_time + dt_value * stage_time_fractions[stage_idx]
                 )
@@ -379,34 +374,34 @@ class DIRKStep(ODEImplicitStep):
                     driver_function(
                         stage_time,
                         driver_coeffs,
-                        stage_drivers,
+                        proposed_drivers,
                     )
 
-                # Just grab a view of the completed accumulator slice
+                # Grab a view of the completed accumulator slice, add state
                 stage_base = stage_accumulator[(stage_idx-1) * n:stage_idx * n]
                 for idx in range(n):
                     stage_base[idx] += state[idx]
 
-                status_code |= nonlinear_solver(
-                    stage_increment,
-                    parameters,
-                    stage_drivers,
-                    dt_value,
-                    diagonal_coeffs[stage_idx],
-                    stage_base,
-                    solver_scratch,
-                )
+                if stage_implicit[stage_idx]:
+                    status_code |= nonlinear_solver(
+                        stage_increment,
+                        parameters,
+                        proposed_drivers,
+                        stage_time,
+                        dt_value,
+                        diagonal_coeffs[stage_idx],
+                        stage_base,
+                        solver_scratch,
+                    )
 
-                diagonal_coeff = diagonal_coeffs[stage_idx]
-                for idx in range(n):
-                    base_value = stage_base[idx]
-                    scaled_increment = diagonal_coeff * stage_increment[idx]
-                    stage_base[idx] = base_value + scaled_increment
+                    diagonal_coeff = diagonal_coeffs[stage_idx]
+                    for idx in range(n):
+                        stage_base[idx] += diagonal_coeff * stage_increment[idx]
 
                 observables_function(
                     stage_base,
                     parameters,
-                    stage_drivers,
+                    proposed_drivers,
                     proposed_observables,
                     stage_time,
                 )
@@ -414,7 +409,7 @@ class DIRKStep(ODEImplicitStep):
                 dxdt_fn(
                     stage_base,
                     parameters,
-                    stage_drivers,
+                    proposed_drivers,
                     proposed_observables,
                     stage_rhs,
                     stage_time,
@@ -446,13 +441,9 @@ class DIRKStep(ODEImplicitStep):
                 final_time,
             )
 
-            #Cache end-step values as appropriate
-            if first_same_as_last:
-                for idx in range(n):
-                    shared[idx] = stage_rhs[idx]
-            elif not can_reuse_accepted_start:
-                for idx in range(n):
-                    shared[idx] = stage_increment[idx]
+            # RHS auto-cached through aliasing to solver scratch
+            for idx in range(n):
+                increment_cache[idx] = stage_increment[idx]
 
             return status_code
         # no cover: end

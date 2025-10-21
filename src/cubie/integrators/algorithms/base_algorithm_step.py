@@ -150,7 +150,9 @@ class ButcherTableau:
     def first_same_as_last(self) -> bool:
         """Return ``True`` when the first and last stages align."""
 
-        return bool(self.c and self.c[0] == 0.0 and self.c[-1] == 1.0)
+        return bool(self.c
+                    and self.c[0] == 0.0 and self.c[-1] == 1.0
+                    and self.a[0][0] == 0.0)
 
     @property
     def can_reuse_accepted_start(self) -> bool:
@@ -200,6 +202,7 @@ class BaseStepConfig(ABC):
         converter=precision_converter,
         validator=precision_validator,
     )
+
     n: int = attrs.field(default=1, validator=getype_validator(int, 1))
     dt: Optional[float] = attrs.field(
         default=None,

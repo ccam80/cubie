@@ -30,7 +30,7 @@ def newton_krylov_solver_factory(
     ----------
     residual_function
         Matrix-free residual evaluator with signature
-        ``(state, parameters, drivers, h, a_ij, base_state, residual)``.
+        ``(state, parameters, drivers, t, h, a_ij, base_state, residual)``.
     linear_solver
         Matrix-free linear solver created by :func:`linear_solver_factory`.
     n
@@ -80,6 +80,7 @@ def newton_krylov_solver_factory(
         state,
         parameters,
         drivers,
+        t,
         h,
         a_ij,
         base_state,
@@ -95,6 +96,8 @@ def newton_krylov_solver_factory(
             Model parameters forwarded to the residual evaluation.
         drivers
             External drivers forwarded to the residual evaluation.
+        t
+            Stage time forwarded to the residual and linear solver.
         h
             Timestep scaling factor supplied by the outer integrator.
         a_ij
@@ -130,6 +133,7 @@ def newton_krylov_solver_factory(
             state,
             parameters,
             drivers,
+            t,
             h,
             a_ij,
             base_state,
@@ -158,6 +162,7 @@ def newton_krylov_solver_factory(
                     state,
                     parameters,
                     drivers,
+                    t,
                     h,
                     residual,
                     delta,
@@ -180,6 +185,7 @@ def newton_krylov_solver_factory(
                         state,
                         parameters,
                         drivers,
+                        t,
                         h,
                         a_ij,
                         base_state,

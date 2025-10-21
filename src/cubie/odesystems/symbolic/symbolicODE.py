@@ -404,6 +404,14 @@ class SymbolicODE(BaseODE):
             Raised when ``func_type`` does not correspond to a supported
             helper.
         """
+        solver_updates = {
+            "beta": beta,
+            "gamma": gamma,
+            "preconditioner_order": preconditioner_order,
+            "mass": mass,
+        }
+        self.update(solver_updates, silent=True)
+
         try:
             return self.get_cached_output(func_type)
         except NotImplementedError:
