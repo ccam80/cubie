@@ -102,7 +102,7 @@ LOOP_CASES = [
     pytest.param(
         _loop_override(
             algorithm="rosenbrock",
-            step_controller="pi",
+            step_controller="pid",
             atol=1e-5,
             rtol=1e-5,
             dt_min=1e-6,
@@ -113,7 +113,7 @@ LOOP_CASES = [
     pytest.param(
         _loop_override(
             algorithm="erk",
-            step_controller="pi",
+            step_controller="pid",
             atol=1e-6,
             rtol=1e-6,
             dt_min=1e-6,
@@ -123,7 +123,7 @@ LOOP_CASES = [
     pytest.param(
         _loop_override(
             algorithm="dirk",
-            step_controller="pi",
+            step_controller="pid",
             atol=1e-6,
             rtol=1e-6,
             dt_min=1e-6,
@@ -135,7 +135,7 @@ LOOP_CASES = [
     pytest.param(
         _loop_override(
             algorithm="ros3p",
-            step_controller="pi",
+            step_controller="pid",
             atol=1e-4,
             rtol=1e-4,
             dt_min=1e-6,

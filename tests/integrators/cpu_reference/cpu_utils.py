@@ -233,48 +233,57 @@ class DriverEvaluator:
         self._segments = coeffs.shape[0]
         self._width = coeffs.shape[1]
         self._zero = np.zeros(self._width, dtype=precision)
-        pad_clamped = (not self.wrap) and (
+        self._zero_value = precision(0.0)
+        self._pad_clamped = (not self.wrap) and (
             self.boundary_condition == "clamped"
         )
-        self._evaluation_start = self.t0 - (self.dt if pad_clamped else 0.0)
+        self._inv_dt = precision(precision(1.0) / self.dt)
+        offset = self.dt if self._pad_clamped else self._zero_value
+        self._evaluation_start = precision(self.t0 - offset)
 
     def evaluate(self, time: float) -> Array:
         """Return driver values interpolated at ``time``."""
 
         precision = self.precision
 
-        if self._width == 0 or self._segments == 0 or self.dt == 0.0:
-            return self._zero.copy()
-
-        inv_res = precision(precision(1.0) / self.dt)
-        scaled = (time - self._evaluation_start) * inv_res
-        scaled_floor = math.floor(scaled)
+        time_value = precision(time)
+        scaled = precision(
+            (time_value - self._evaluation_start) * self._inv_dt
+        )
+        scaled_floor = math.floor(float(scaled))
         idx = int(scaled_floor)
 
-        if self.wrap and self._segments > 0:
-            segment = idx % self.coefficients.shape[0]
+        if self.wrap:
+            segment = idx % self._segments
             if segment < 0:
-                segment += self.coefficients.shape[0]
-            tau = scaled - scaled_floor
+                segment += self._segments
+            tau = precision(scaled - precision(scaled_floor))
             in_range = True
         else:
-            in_range = 0.0 <= scaled <= precision(self.coefficients.shape[0])
-            segment = idx if idx >= 0 else 0
-            if segment >= self.coefficients.shape[0]:
-                segment = self.coefficients.shape[0] - 1
-            tau = scaled - precision(segment)
+            max_segment = self._segments - 1
+            in_range = (
+                scaled >= self._zero_value
+                and scaled <= precision(self._segments)
+            )
+            if idx < 0:
+                segment = 0
+            elif idx >= self._segments:
+                segment = max_segment
+            else:
+                segment = idx
+            tau = precision(scaled - precision(segment))
 
         values = self._zero.copy()
         for driver_idx in range(self._width):
             segment_coeffs = self.coefficients[segment, driver_idx]
-            acc = precision(0.0)
+            acc = self._zero_value
             for coeff in reversed(segment_coeffs):
                 acc = acc * tau + precision(coeff)
-            if self.wrap or in_range:
-                values[driver_idx] = acc
-            else:
-                values = self._zero.copy()
-        return values
+            values[driver_idx] = acc
+
+        if self.wrap or in_range:
+            return values
+        return self._zero.copy()
 
     def __call__(self, time: float) -> Array:
         """Alias for :meth:`evaluate` so instances are callable."""
