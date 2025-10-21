@@ -99,6 +99,8 @@ class ERKStep(ODEExplicitStep):
         stage_count = tableau.stage_count
         has_driver_function = driver_function is not None
 
+        stage_count = tableau.stage_count
+        multistage = stage_count > 1
         has_error = self.is_adaptive
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
@@ -152,7 +154,8 @@ class ERKStep(ODEExplicitStep):
             end_time = current_time + dt_value
 
             stage_accumulator = shared[:accumulator_length]
-            stage_cache = stage_accumulator[:n]
+            if multistage:
+                stage_cache = stage_accumulator[:n]
 
             for idx in range(n):
                 proposed_state[idx] = state[idx]
@@ -161,17 +164,27 @@ class ERKStep(ODEExplicitStep):
 
             status_code = int32(0)
             # ----------------------------------------------------------- #
-            #            Stage 0: operates out of supplied buffers          #
+            #            Stage 0: may use cached values                   #
             # ----------------------------------------------------------- #
             values_in_cache = False
-            if first_same_as_last:
-                for cache_idx in range(n):
-                    if shared[cache_idx] != typed_zero:
-                        values_in_cache = True
+            if multistage:
+                if first_same_as_last:
+                    for cache_idx in range(n):
+                        if stage_cache[cache_idx] != typed_zero:
+                            values_in_cache = True
 
-            if first_same_as_last and values_in_cache:
-                for idx in range(n):
-                    stage_rhs[idx] = stage_cache[idx]
+                if first_same_as_last and values_in_cache:
+                    for idx in range(n):
+                        stage_rhs[idx] = stage_cache[idx]
+                else:
+                    dxdt_fn(
+                        state,
+                        parameters,
+                        drivers_buffer,
+                        observables,
+                        stage_rhs,
+                        current_time,
+                    )
             else:
                 dxdt_fn(
                     state,
