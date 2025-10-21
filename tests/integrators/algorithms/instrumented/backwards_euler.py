@@ -271,6 +271,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 proposed_state,
                 parameters,
                 proposed_drivers,
+                next_time,
                 fixed_dt,
                 a_ij,
                 state,

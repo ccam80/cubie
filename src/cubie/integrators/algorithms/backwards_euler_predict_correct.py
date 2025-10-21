@@ -152,6 +152,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 proposed_state,
                 parameters,
                 proposed_drivers,
+                next_time,
                 dt,
                 a_ij,
                 state,
