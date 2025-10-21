@@ -448,7 +448,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs[idx] = dt_value * (rhs_value + jacobian_term)
                     #Cache slope before we overwrite it on last stage.
                     if first_same_as_last and stage_idx == stage_count - 1:
-                        rhs_cache[idx] = stage_rhs[idx]
+                        rhs_cache[idx] = rhs_value
 
                 status_code |= linear_solver(
                     state,
