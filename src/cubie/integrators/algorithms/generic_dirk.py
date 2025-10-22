@@ -249,6 +249,40 @@ class DIRKStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
+            # ----------------------------------------------------------- #
+            # Shared and local buffer guide:
+            # stage_accumulator: size (stage_count-1) * n, shared memory.
+            #   Default behaviour:
+            #       - Stores accumulated explicit contributions for successors.
+            #       - Slice k feeds the base state for stage k+1.
+            #   Reuse:
+            #       - stage_base: first slice (size n)
+            #           - Holds the working state during the current stage.
+            #           - New data lands only after the prior stage has finished.
+            # solver_scratch: size solver_shared_elements, shared memory.
+            #   Default behaviour:
+            #       - Provides workspace for the Newton iteration helpers.
+            #   Reuse:
+            #       - stage_rhs: first slice (size n)
+            #           - Carries the Newton residual and then the stage rhs.
+            #           - Once a stage closes we reuse it for the next residual,
+            #             so no live data remains.
+            #       - increment_cache: second slice (size n)
+            #           - Receives the accepted increment at step end for FSAL.
+            #           - Solver stops touching it once convergence is reached.
+            # stage_increment: size n, per-thread local memory.
+            #   Default behaviour:
+            #       - Starts as the Newton guess and finishes as the step.
+            #       - Copied into increment_cache once the stage closes.
+            # proposed_state: size n, global memory.
+            #   Default behaviour:
+            #       - Carries the running solution with each stage update.
+            #       - Only updated after a stage converges, keeping data stable.
+            # proposed_drivers / proposed_observables: size n each, global.
+            #   Default behaviour:
+            #       - Refresh to the stage time before rhs or residual work.
+            #       - Later stages reuse only the newest values, so no clashes.
+            # ----------------------------------------------------------- #
             stage_increment = cuda.local.array(n, numba_precision)
 
             dt_value = dt_scalar

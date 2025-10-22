@@ -238,6 +238,38 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
+            # ----------------------------------------------------------- #
+            # Shared and local buffer guide:
+            # stage_accumulator: size (stage_count-1) * n, shared memory.
+            #   Default behaviour:
+            #       - Holds each stage rhs * dt until future stages need it.
+            #       - Slice k stores the contribution consumed by stage k+1.
+            #   Reuse:
+            #       - rhs_cache: first slice (size n)
+            #           - Saves the FSAL rhs across steps when allowed.
+            #           - Cache lives after the loop, so live slices stay safe.
+            # jacobian_accumulator: size (stage_count-1) * n, shared memory.
+            #   Default behaviour:
+            #       - Stores saved J*v products for later stage corrections.
+            #       - Each slice pairs with the future diagonal solve it feeds.
+            #   Reuse:
+            #       - stage_increment: first slice (size n)
+            #           - Keeps the accepted increment for the current stage.
+            #           - During stage-0 solve we park it in proposed_state
+            #             while stage 1 reuses the accumulator slice.
+            # cached_auxiliaries: size cached_auxiliary_count, shared memory.
+            #   Default behaviour:
+            #       - Provides Jacobian helper data prepared before the loop.
+            #       - Remains read-only for the entire stage loop.
+            # stage_rhs: size n, per-thread local memory.
+            #   Default behaviour:
+            #       - Starts as the stage rhs and later holds the J*v product.
+            #       - Lifetimes are disjoint, so reuse stays safe.
+            # proposed_state / proposed_drivers: size n each, global memory.
+            #   Default behaviour:
+            #       - Track the running solution and drivers after each stage.
+            #       - Updated only once a stage accepts, so nothing clashes.
+            # ----------------------------------------------------------- #
             stage_rhs = cuda.local.array(n, numba_precision)
             jacobian_stage_product = stage_rhs # lifetimes are disjoint - reuse
 

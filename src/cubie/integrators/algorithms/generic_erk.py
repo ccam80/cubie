@@ -151,6 +151,35 @@ class ERKStep(ODEExplicitStep):
             shared,
             persistent_local,
         ):
+            # ----------------------------------------------------------- #
+            # Shared and local buffer guide:
+            # stage_accumulator: size (stage_count-1) * n, shared memory.
+            #   Default behaviour:
+            #       - Holds finished stage rhs * dt for later stage sums.
+            #       - Slice k stores contributions streamed into stage k+1.
+            #   Reuse:
+            #       - stage_cache: first slice (size n)
+            #           - Saves the FSAL rhs when the tableau supports it.
+            #           - Cache survives after the loop so no live slice is hit.
+            # proposed_state: size n, global memory.
+            #   Default behaviour:
+            #       - Starts as the accepted state and gathers stage updates.
+            #       - Each stage applies its weighted increment before moving on.
+            # proposed_drivers / proposed_observables: size n each, global.
+            #   Default behaviour:
+            #       - Refresh to the current stage time before rhs evaluation.
+            #       - Later stages only read the newest values, so nothing lingers.
+            # stage_rhs: size n, per-thread local memory.
+            #   Default behaviour:
+            #       - Holds the current stage rhs before scaling by dt.
+            #   Reuse:
+            #       - When FSAL hits we copy cached rhs here before touching
+            #         shared memory, keeping lifetimes separate.
+            # error: size n, global memory (adaptive runs only).
+            #   Default behaviour:
+            #       - Accumulates weighted stage increments during the loop.
+            #       - Cleared at loop entry so prior steps cannot leak in.
+            # ----------------------------------------------------------- #
             stage_rhs = cuda.local.array(n, numba_precision)
 
             dt_value = dt_scalar
