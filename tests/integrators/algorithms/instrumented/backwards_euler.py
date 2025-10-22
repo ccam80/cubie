@@ -284,6 +284,7 @@ class BackwardsEulerStep(ODEImplicitStep):
             for idx in range(n):
                 increment_value = proposed_state[idx]
                 residual_value = solver_scratch[idx + n]
+                solver_scratch[idx] = increment_value
                 proposed_state[idx] = increment_value + state[idx]
                 stage_increments[0, idx] = increment_value
                 residuals[0, idx] = residual_value

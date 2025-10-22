@@ -72,7 +72,7 @@ class InstrumentedKernel:
 def num_steps() -> int:
     """Number of consecutive step executions for instrumentation."""
 
-    return 10
+    return 11
 
 INSTRUMENTATION_DEVICE_FIELDS = (
     "residuals",

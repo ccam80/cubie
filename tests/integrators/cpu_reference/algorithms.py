@@ -1420,6 +1420,7 @@ class CPURosenbrockWStep(CPUStep):
         state_vector = self.ensure_array(state, copy=True)
         params_array = self.ensure_array(params)
         dt_value = self.precision(dt)
+        idt = self.precision(1.0 / dt_value)
         current_time = self.precision(time)
         end_time = current_time + dt_value
 
@@ -1555,7 +1556,8 @@ class CPURosenbrockWStep(CPUStep):
                 C_coeff = C_matrix[successor, stage_index]
                 if C_coeff != zero:
                     jacobian_shifts[successor] = (
-                        jacobian_shifts[successor] + C_coeff * stage_increment
+                        jacobian_shifts[successor] + C_coeff *
+                        stage_increment
                     )
 
         new_state = state_vector + state_accum

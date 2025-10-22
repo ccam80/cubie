@@ -154,11 +154,17 @@ class CrankNicolsonStep(ODEImplicitStep):
         dt: Optional[float],
     ) -> StepCache:  # pragma: no cover - cuda code
         """Build the device function for the Crank–Nicolson step."""
-
+        config = self.compile_settings
         stage_coefficient = numba_precision(0.5)
         be_coefficient = numba_precision(1.0)
         has_driver_function = driver_function is not None
         solver_shared_elements = self.solver_shared_elements
+        stage_count = self.stage_count
+        newton_iters = int(config.max_newton_iters)
+        newton_backtracks = int(config.newton_max_backtracks)
+        newton_slots = newton_iters * (newton_backtracks + 1) + 1
+        linear_iters = int(config.max_linear_iters)
+        linear_slots = max(1, stage_count * newton_iters)
 
         @cuda.jit(
             (
@@ -236,6 +242,46 @@ class CrankNicolsonStep(ODEImplicitStep):
             status_mask = int32(0xFFFF)
             stage_rhs = cuda.local.array(n, numba_precision)
             cn_increment = cuda.local.array(n, numba_precision)
+            dummy_newton_initial_guesses = cuda.local.array(
+                (stage_count, n),
+                numba_precision,
+            )
+            dummy_newton_iteration_guesses = cuda.local.array(
+                (stage_count, newton_slots, n),
+                numba_precision,
+            )
+            dummy_newton_residuals = cuda.local.array(
+                (stage_count, newton_slots, n),
+                numba_precision,
+            )
+            dummy_newton_squared_norms = cuda.local.array(
+                (stage_count, newton_slots),
+                numba_precision,
+            )
+            dummy_newton_iteration_scale = cuda.local.array(
+                (stage_count, newton_iters),
+                numba_precision,
+            )
+            dummy_linear_initial_guesses = cuda.local.array(
+                (linear_slots, n),
+                numba_precision,
+            )
+            dummy_linear_iteration_guesses = cuda.local.array(
+                (linear_slots, linear_iters, n),
+                numba_precision,
+            )
+            dummy_linear_residuals = cuda.local.array(
+                (linear_slots, linear_iters, n),
+                numba_precision,
+            )
+            dummy_linear_squared_norms = cuda.local.array(
+                (linear_slots, linear_iters),
+                numba_precision,
+            )
+            dummy_linear_preconditioned_vectors = cuda.local.array(
+                (linear_slots, linear_iters, n),
+                numba_precision,
+            )
 
             observable_count = proposed_observables.shape[0]
 
@@ -327,16 +373,16 @@ class CrankNicolsonStep(ODEImplicitStep):
                 state,
                 solver_scratch,
                 int32(0),
-                newton_initial_guesses,
-                newton_iteration_guesses,
-                newton_residuals,
-                newton_squared_norms,
-                newton_iteration_scale,
-                linear_initial_guesses,
-                linear_iteration_guesses,
-                linear_residuals,
-                linear_squared_norms,
-                linear_preconditioned_vectors,
+                dummy_newton_initial_guesses,
+                dummy_newton_iteration_guesses,
+                dummy_newton_residuals,
+                dummy_newton_squared_norms,
+                dummy_newton_iteration_scale,
+                dummy_linear_initial_guesses,
+                dummy_linear_iteration_guesses,
+                dummy_linear_residuals,
+                dummy_linear_squared_norms,
+                dummy_linear_preconditioned_vectors,
             )
             status |= be_status & status_mask
 

@@ -288,12 +288,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             jacobian_product_accumulator = shared[jac_start:jac_end]
             cached_auxiliaries = shared[aux_start:aux_end]
 
+            idt = numba_precision(1.0) / dt_value
+
             if multistage:
                 # Alias "increment" array over first stage accumulator -
                 # their lifetimes are disjoint.
                 stage_increment = jacobian_product_accumulator[:n]
-                # Alias inter-step rhs cache over first stage accumulator
-                rhs_cache = stage_increment[:n]
             else:
                 stage_increment = cuda.local.array(n, numba_precision)
 
@@ -321,66 +321,43 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #            Stage 0: may use cached values                       #
             # --------------------------------------------------------------- #
-            if multistage:
-                first_step = first_step_flag != int16(0)
-                prev_state_accepted = accepted_flag != int16(0)
-                use_cached_rhs = (
-                    first_same_as_last
-                    and not first_step
-                    and prev_state_accepted
+            if can_reuse_accepted_start:
+                # Get dxdt at time=0 and use that to calculate gradient
+                dxdt_fn(
+                        state,
+                        parameters,
+                        drivers_buffer,
+                        observables,
+                        stage_rhs,
+                        current_time,
                 )
 
-                if first_same_as_last:
-                    if use_cached_rhs:
-                        for idx in range(n):
-                            stage_rhs[idx] = rhs_cache[idx]  # cache spent
-                    else:
-                        dxdt_fn(
-                            state,
-                            parameters,
-                            drivers_buffer,
-                            observables,
-                            stage_rhs,
-                            current_time,
-                        )
+            else:
+                # We're not at time = 0, recalculate rhs
+                stage_time = (
+                    current_time + dt_value * stage_time_fractions[0]
+                )
+                if has_driver_function:
+                    driver_function(
+                        current_time,
+                        driver_coeffs,
+                    )
+                observables_function(
+                        state,
+                        parameters,
+                        proposed_drivers,
+                        proposed_observables,
+                        stage_time,
+                )
 
-                elif can_reuse_accepted_start:
-                    # Get dxdt at time=0 and use that to calculate gradient
-                    dxdt_fn(
-                            state,
-                            parameters,
-                            drivers_buffer,
-                            observables,
-                            stage_rhs,
-                            current_time,
-                    )
-
-                else:
-                    # We're not at time = 0, recalculate rhs
-                    stage_time = (
-                        current_time + dt_value * stage_time_fractions[0]
-                    )
-                    if has_driver_function:
-                        driver_function(
-                            current_time,
-                            driver_coeffs,
-                        )
-                    observables_function(
-                            state,
-                            parameters,
-                            proposed_drivers,
-                            proposed_observables,
-                            stage_time,
-                    )
-
-                    dxdt_fn(
-                            state,
-                            parameters,
-                            proposed_drivers,
-                            proposed_observables,
-                            stage_rhs,
-                            stage_time,
-                    )
+                dxdt_fn(
+                        state,
+                        parameters,
+                        proposed_drivers,
+                        proposed_observables,
+                        stage_rhs,
+                        stage_time,
+                )
 
             for idx in range(n):
                 stage_derivatives[0, idx] = stage_rhs[idx]
@@ -527,8 +504,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         # add state back in.
                         proposed_state[idx] *= solution_weights[0]
                         proposed_state[idx] += state[idx]
-                    if first_same_as_last and stage_idx == stage_count - 1:
-                        rhs_cache[idx] = stage_rhs[idx]
 
                 for idx in range(n):
                     residuals[stage_idx, idx] = stage_rhs[idx]

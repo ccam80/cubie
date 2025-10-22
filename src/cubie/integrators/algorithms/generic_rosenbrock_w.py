@@ -244,10 +244,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             #   Default behaviour:
             #       - Holds each stage rhs * dt until future stages need it.
             #       - Slice k stores the contribution consumed by stage k+1.
-            #   Reuse:
-            #       - rhs_cache: first slice (size n)
-            #           - Saves the FSAL rhs across steps when allowed.
-            #           - Cache lives after the loop, so live slices stay safe.
             # jacobian_accumulator: size (stage_count-1) * n, shared memory.
             #   Default behaviour:
             #       - Stores saved J*v products for later stage corrections.
@@ -263,15 +259,15 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             #       - Remains read-only for the entire stage loop.
             # stage_rhs: size n, per-thread local memory.
             #   Default behaviour:
-            #       - Starts as the stage rhs and later holds the J*v product.
-            #       - Lifetimes are disjoint, so reuse stays safe.
-            # proposed_state / proposed_drivers: size n each, global memory.
-            #   Default behaviour:
-            #       - Track the running solution and drivers after each stage.
-            #       - Updated only once a stage accepts, so nothing clashes.
+            #       - Starts as the stage rhs
+            #   Reuse:
+            #       - jacobian_stage_product:
+            #           - Holds the J*v product. from evaluation to
+            #           accumulation
+            #           - Lifetimes are disjoint, so reuse stays safe.
             # ----------------------------------------------------------- #
             stage_rhs = cuda.local.array(n, numba_precision)
-            jacobian_stage_product = stage_rhs # lifetimes are disjoint - reuse
+            jacobian_stage_product = stage_rhs
 
             dt_value = dt_scalar
             current_time = time_scalar
@@ -281,12 +277,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             jacobian_product_accumulator = shared[jac_start:jac_end]
             cached_auxiliaries = shared[aux_start:aux_end]
 
+            idt = numba_precision(1.0) / dt_value
+
             if multistage:
                 # Alias "increment" array over first stage accumulator -
                 # their lifetimes are disjoint.
                 stage_increment = jacobian_product_accumulator[:n]
-                # Alias inter-step rhs cache over first stage accumulator
-                rhs_cache = stage_accumulator[:n]
             else:
                 stage_increment = cuda.local.array(n, numba_precision)
 
@@ -309,93 +305,67 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             # --------------------------------------------------------------- #
             #            Stage 0: may use cached values                       #
             # --------------------------------------------------------------- #
-            if multistage:
-                first_step = first_step_flag != int16(0)
-                prev_state_accepted = accepted_flag != int16(0)
-                use_cached_rhs = (
-                    first_same_as_last
-                    and not first_step
-                    and prev_state_accepted
-                )
-
-                if first_same_as_last:
-                    # Almost always true - perhaps we can branch better for a
-                    # cold cache? If this looks like a bottleneck, we can add a
-                    # "warm_caches" fn to run in loop first and remove branch.
-                    if use_cached_rhs:
-                        for idx in range(n):
-                            stage_rhs[idx] = rhs_cache[idx]  # cache spent
-                    else:
-                        dxdt_fn(
-                            state,
-                            parameters,
-                            drivers_buffer,
-                            observables,
-                            stage_rhs,
-                            current_time,
-                        )
-
-                elif can_reuse_accepted_start:
-                    # Get dxdt at time=0 and use that to calculate gradient
-                    dxdt_fn(
-                        state,
-                        parameters,
-                        drivers_buffer,
-                        observables,
-                        stage_rhs,
-                        current_time,
-                    )
-
-                else:
-                    # We're not at time = 0, recalculate rhs
-                    stage_time = (
-                        current_time + dt_value * stage_time_fractions[0]
-                    )
-                    if has_driver_function:
-                        driver_function(
-                            current_time,
-                            driver_coeffs,
-                            proposed_drivers,
-                        )
-                    observables_function(
-                            state,
-                            parameters,
-                            proposed_drivers,
-                            proposed_observables,
-                            stage_time,
-                    )
-
-                    dxdt_fn(
-                            state,
-                            parameters,
-                            proposed_drivers,
-                            proposed_observables,
-                            stage_rhs,
-                            stage_time,
-                    )
-
-
-                for idx in range(n):
-                    stage_rhs[idx] = dt_value * stage_rhs[idx]
-
-                status_code |= linear_solver(
+            if can_reuse_accepted_start:
+                # Get dxdt at time=0 and use that to calculate gradient
+                dxdt_fn(
                     state,
                     parameters,
                     drivers_buffer,
-                    cached_auxiliaries,
-                    stage_time,
-                    dt_value,
+                    observables,
                     stage_rhs,
-                    stage_increment,
+                    current_time,
                 )
 
-                for idx in range(n):
-                    increment = stage_increment[idx]
-                    # It's janky, but we're going to stash the increment
-                    # here until the stage accumulator frees up again.
-                    proposed_state[idx] = increment
-                    if has_error:
-                        error[idx] += increment * error_weights[0]
+            else:
+                # We're not at time = 0, recalculate rhs
+                stage_time = (
+                    current_time + dt_value * stage_time_fractions[0]
+                )
+                if has_driver_function:
+                    driver_function(
+                        current_time,
+                        driver_coeffs,
+                        proposed_drivers,
+                    )
+                observables_function(
+                        state,
+                        parameters,
+                        proposed_drivers,
+                        proposed_observables,
+                        stage_time,
+                )
+
+                dxdt_fn(
+                        state,
+                        parameters,
+                        proposed_drivers,
+                        proposed_observables,
+                        stage_rhs,
+                        stage_time,
+                )
+
+
+            for idx in range(n):
+                stage_rhs[idx] = dt_value * stage_rhs[idx]
+
+            status_code |= linear_solver(
+                state,
+                parameters,
+                drivers_buffer,
+                cached_auxiliaries,
+                stage_time,
+                dt_value,
+                stage_rhs,
+                stage_increment,
+            )
+
+            for idx in range(n):
+                increment = stage_increment[idx]
+                # It's janky, but we're going to stash the increment
+                # here until the stage accumulator frees up again.
+                proposed_state[idx] = increment
+                if has_error:
+                    error[idx] += increment * error_weights[0]
 
             cached_jvp(
                 state,
@@ -432,11 +402,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         jacobian_product_accumulator[idx] = typed_zero
                     for successor_offset in range(successor_range):
                         succsr_idx = stage_idx + successor_offset
-                        state_coeff = stage_rhs_coeffs[succsr_idx][prev_idx]
-                        jacobian_coeff = jacobian_update_coeffs[succsr_idx][
-                            prev_idx
-                        ]
                         base = (succsr_idx - 1) * n + idx
+
+                        state_coeff = stage_rhs_coeffs[succsr_idx][prev_idx]
+                        jacobian_coeff = (
+                            jacobian_update_coeffs[succsr_idx][prev_idx]
+                        )
+
                         stage_accumulator[base] += (state_coeff * increment_n)
                         jacobian_product_accumulator[base] += (
                             jacobian_coeff * jacobian_value
@@ -494,8 +466,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         # add state back in.
                         proposed_state[idx] *= solution_weights[0]
                         proposed_state[idx] += state[idx]
-                    if first_same_as_last and stage_idx == stage_count - 1:
-                        rhs_cache[idx] = rhs_value
 
                 status_code |= linear_solver(
                     state,

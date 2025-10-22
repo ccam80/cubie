@@ -167,6 +167,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
 
             for idx in range(n):
                 increment_value = proposed_state[idx]
+                solver_scratch[idx] = increment_value
                 stage_increments[0, idx] = increment_value
                 residuals[0, idx] = solver_scratch[idx + n]
 

@@ -264,131 +264,68 @@ ALIAS_CASES = [
         id="rosenbrock-w6s4os",
     ),
 ]
+STEP_OVERRIDES = {'dt': 0.001953125, # try an exactly-representable dt
+                  'dt_min': 1e-6,
+                  'newton_tolerance': 1e-7,
+                  'krylov_tolerance': 1e-7,
+                  "atol": 1e-6,
+                  "rtol": 1e-6,
+                  "output_types": ["state"],
+                  'saved_state_indices': [0, 1, 2]}
 
-STEP_CASES = [
-    pytest.param(
+STEP_CASES = [pytest.param(
         {
             "algorithm": "euler",
             "step_controller": "fixed",
-            "dt": 0.0025,
-            "dt_min": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="euler",
     ),
     pytest.param(
         {
             "algorithm": "backwards_euler",
             "step_controller": "fixed",
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="backwards_euler",
     ),
     pytest.param(
         {
             "algorithm": "backwards_euler_pc",
             "step_controller": "fixed",
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="backwards_euler_pc",
     ),
     pytest.param(
         {
             "algorithm": "crank_nicolson",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 1e-6,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="crank_nicolson",
     ),
     pytest.param(
         {
             "algorithm": "rosenbrock",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 1e-6,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="rosenbrock",
     ),
     pytest.param(
         {
             "algorithm": "erk",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 0.0025,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
         },
-        {},
         id="erk",
     ),
     pytest.param(
         {
             "algorithm": "dirk",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 1e-6,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="dirk",
     ),
     pytest.param(
         {
             "algorithm": "ros3p",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 1e-6,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="rosenbrock-ros3p",
         marks=pytest.mark.specific_algos,
     ),
@@ -396,17 +333,7 @@ STEP_CASES = [
         {
             "algorithm": "rosenbrock_w6s4os",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 1e-6,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="rosenbrock-w6s4os",
         marks=pytest.mark.specific_algos,
     ),
@@ -414,15 +341,7 @@ STEP_CASES = [
         {
             "algorithm": "dormand-prince-54",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 0.0025,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
         },
-        {},
         id="erk-dormand-prince-54",
         marks=pytest.mark.specific_algos,
     ),
@@ -430,15 +349,7 @@ STEP_CASES = [
         {
             "algorithm": "dopri54",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 0.0025,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
         },
-        {},
         id="erk-dopri54",
         marks=pytest.mark.specific_algos,
     ),
@@ -446,15 +357,7 @@ STEP_CASES = [
         {
             "algorithm": "cash-karp-54",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 0.0025,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
         },
-        {},
         id="erk-cash-karp-54",
         marks=pytest.mark.specific_algos,
     ),
@@ -462,15 +365,7 @@ STEP_CASES = [
         {
             "algorithm": "fehlberg-45",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 0.0025,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
         },
-        {},
         id="erk-fehlberg-45",
         marks=pytest.mark.specific_algos,
     ),
@@ -478,15 +373,7 @@ STEP_CASES = [
         {
             "algorithm": "bogacki-shampine-32",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 0.0025,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
         },
-        {},
         id="erk-bogacki-shampine-32",
         marks=pytest.mark.specific_algos,
     ),
@@ -494,13 +381,7 @@ STEP_CASES = [
         {
             "algorithm": "heun-21",
             "step_controller": "fixed",
-            "dt_min": 0.0025,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
         },
-        {},
         id="erk-heun-21",
         marks=pytest.mark.specific_algos,
     ),
@@ -508,13 +389,7 @@ STEP_CASES = [
         {
             "algorithm": "ralston-33",
             "step_controller": "fixed",
-            "dt_min": 0.0025,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
         },
-        {},
         id="erk-ralston-33",
         marks=pytest.mark.specific_algos,
     ),
@@ -522,13 +397,7 @@ STEP_CASES = [
         {
             "algorithm": "classical-rk4",
             "step_controller": "fixed",
-            "dt_min": 0.0025,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
         },
-        {},
         id="erk-classical-rk4",
         marks=pytest.mark.specific_algos,
     ),
@@ -536,14 +405,7 @@ STEP_CASES = [
         {
             "algorithm": "implicit_midpoint",
             "step_controller": "fixed",
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="dirk-implicit-midpoint",
         marks=pytest.mark.specific_algos,
     ),
@@ -551,14 +413,7 @@ STEP_CASES = [
         {
             "algorithm": "trapezoidal_dirk",
             "step_controller": "fixed",
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="dirk-trapezoidal",
         marks=pytest.mark.specific_algos,
     ),
@@ -566,17 +421,7 @@ STEP_CASES = [
         {
             "algorithm": "sdirk_2_2",
             "step_controller": "pi",
-            "atol": 1e-6,
-            "rtol": 1e-6,
-            "dt_min": 1e-6,
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="dirk-sdirk-2-2",
         marks=pytest.mark.specific_algos,
     ),
@@ -584,93 +429,54 @@ STEP_CASES = [
         {
             "algorithm": "lobatto_iiic_3",
             "step_controller": "fixed",
-            "dt": 0.0025,
-            "dt_save": 0.2,
-            "output_types": ["state"],
-            "saved_state_indices": [0, 1, 2],
-            "newton_tolerance": 1e-7,
-            "krylov_tolerance": 1e-7,
         },
-        {},
         id="dirk-lobatto-iiic-3",
         marks=pytest.mark.specific_algos,
     ),
 ]
 
-
-def _cache_case(**kwargs: Any) -> dict[str, Any]:
-    """Return overrides for cache reuse scenarios."""
-
-    base = {
-        "dt": 0.0025,
-        "dt_min": 0.0025,
-        "dt_save": 0.2,
-        "output_types": ["state"],
-        "saved_state_indices": [0, 1, 2],
-    }
-    base.update(kwargs)
-    return base
-
-
 CACHE_REUSE_CASES = [
     pytest.param(
-        _cache_case(algorithm="heun-21", step_controller="fixed"),
+        {
+            "algorithm": "heun-21",
+            "step_controller": "fixed"
+        },
         id="erk-heun-21-cache",
-        marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        _cache_case(algorithm="ralston-33", step_controller="fixed"),
+        {
+            "algorithm": "ralston-33",
+            "step_controller": "fixed"
+        },
         id="erk-ralston-33-cache",
-        marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        _cache_case(
-            algorithm="trapezoidal_dirk",
-            step_controller="fixed",
-            newton_tolerance=1e-7,
-            krylov_tolerance=1e-7,
-        ),
+        {
+            "algorithm": "trapezoidal_dirk",
+            "step_controller": "fixed"
+        },
         id="dirk-trapezoidal-cache",
-        marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        _cache_case(
-            algorithm="sdirk_2_2",
-            step_controller="pi",
-            atol=1e-6,
-            rtol=1e-6,
-            dt_min=1e-6,
-            newton_tolerance=1e-7,
-            krylov_tolerance=1e-7,
-        ),
+        {
+            "algorithm": "sdirk_2_2",
+            "step_controller": "pi"
+        },
         id="dirk-sdirk-2-2-cache",
-        marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        _cache_case(
-            algorithm="ros3p",
-            step_controller="pi",
-            atol=1e-6,
-            rtol=1e-6,
-            dt_min=1e-6,
-            newton_tolerance=1e-7,
-            krylov_tolerance=1e-7,
-        ),
+        {
+            "algorithm": "ros3p",
+            "step_controller": "pi"
+        },
         id="rosenbrock-ros3p-cache",
-        marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        _cache_case(
-            algorithm="rosenbrock_w6s4os",
-            step_controller="pi",
-            atol=1e-6,
-            rtol=1e-6,
-            dt_min=1e-6,
-            newton_tolerance=1e-7,
-            krylov_tolerance=1e-7,
-        ),
+        {
+            "algorithm": "rosenbrock_w6s4os",
+            "step_controller": "pi"
+        },
         id="rosenbrock-w6s4os-cache",
-        marks=pytest.mark.specific_algos,
     ),
 ]
 
@@ -1244,11 +1050,16 @@ def cpu_step_results(
     )
 
 
-# Cached reuse validation
+@pytest.mark.parametrize(
+    "solver_settings_override2",
+    [STEP_OVERRIDES],
+    ids=[""],
+    indirect=True,
+)
 @pytest.mark.parametrize(
     "solver_settings_override",
     CACHE_REUSE_CASES,
-    indirect=["solver_settings_override"],
+    indirect=True,
 )
 def test_stage_cache_reuse(
     solver_settings,
@@ -1320,9 +1131,14 @@ def test_stage_cache_reuse(
     assert np.any(delta > precision(1e-10))
 
 
-#All-in-one step test to share fixture setup at the expense of readability
 @pytest.mark.parametrize(
-    "solver_settings_override, system_override",
+        "solver_settings_override2",
+        [STEP_OVERRIDES],
+        ids=[""],
+        indirect=True
+)
+@pytest.mark.parametrize(
+    "solver_settings_override",
     STEP_CASES,
     indirect=True,
 )
@@ -1437,7 +1253,7 @@ def test_algorithm(
         assert callable(system.get_solver_helper)
     elif properties is not None:
         assert step_object.dt == pytest.approx(
-            solver_settings["dt_min"],
+            solver_settings["dt"],
             rel=tolerance.rel_tight,
             abs=tolerance.abs_tight,
         )
@@ -1502,7 +1318,7 @@ def test_algorithm(
                 abs=tolerance.abs_tight,
             ), "newton_damping update"
     else:
-        new_dt = float(solver_settings["dt_min"]) * 0.5
+        new_dt = float(solver_settings["dt"]) * 0.5
         recognised = step_object.update({"dt": new_dt})
         assert "dt" in recognised, "dt recognised"
         assert step_object.dt == pytest.approx(
@@ -1538,11 +1354,6 @@ def test_algorithm(
             rtol=tolerances["rtol"],
             atol=tolerances["atol"],
         ), "error matches"
-
-    # This is not going to work; the CPU solvers perform better and tend to
-    # converge more rapidly.
-    # assert device_step_results.niters == cpu_step_results.niters, \
-    #     "niters match"
 
 
 def test_rosenbrock_solver_helper_cache_refresh(system) -> None:

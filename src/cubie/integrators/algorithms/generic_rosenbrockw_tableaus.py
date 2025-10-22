@@ -43,7 +43,7 @@ def _ros3p_tableau() -> RosenbrockTableau:
         (0.0, 0.0, 0.0),
         (-igamma ** 2, 0.0, 0.0),
         (
-            -igamma * (1.0 + igamma * (-2.0 + 0.5 * igamma)),
+            -igamma * (1.0 + igamma * (2.0 - 0.5 * igamma)),
             -igamma * (2.0 - 0.5 * igamma),
             0.0,
         ),

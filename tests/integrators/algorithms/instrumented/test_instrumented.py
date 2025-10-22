@@ -8,19 +8,21 @@ from tests.integrators.algorithms.test_step_algorithms import (
 )
 
 from .conftest import print_comparison
+from ..test_step_algorithms import STEP_OVERRIDES
 
+STEP_SETTINGS = STEP_OVERRIDES.update({'max_linear_iters': 3,
+      'max_newton_iters': 3,
+      'newton_max_backtracks': 3,
+      'linear_max_iters': 3,})
 
 @pytest.mark.parametrize(
     "solver_settings_override2",
-    [{'max_linear_iters': 3,
-      'max_newton_iters': 3,
-      'newton_max_backtracks': 3,
-      'dt': 0.0025}],
-    ids=["3iters"],
+    [STEP_SETTINGS],
+    ids=[""],
     indirect=True,
 )
 @pytest.mark.parametrize(
-    "solver_settings_override, system_override",
+    "solver_settings_override",
     STEP_CASES,
     indirect=True,
 )
