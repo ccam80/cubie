@@ -29,7 +29,7 @@ def test_instrumented_gpu_vs_cpu(
     instrumented_step_results,
     device_step_results,
 ):
-    """Print instrumented CPU and GPU arrays for manual inspection."""
+    """Print instrumented CPU and GPU arrays for two consecutive steps."""
 
     print_comparison(
         instrumented_cpu_step_results,
