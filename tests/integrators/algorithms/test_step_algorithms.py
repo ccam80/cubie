@@ -5,7 +5,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from numba import cuda, from_dtype
+from numba import cuda, from_dtype, int16
 from numpy.testing import assert_allclose
 
 from cubie.integrators.algorithms import get_algorithm_step
@@ -876,6 +876,8 @@ def device_step_results(
         observables_function(state, params_vec, drivers_vec, observables_vec,
                              precision(0.0))
         shared[:] = precision(0.0)
+        first_step_flag = int16(1)
+        accepted_flag = int16(1)
         result = step_function(
             state_vec,
             proposed_vec,
@@ -888,6 +890,8 @@ def device_step_results(
             error_vec,
             dt_scalar,
             time_scalar,
+            first_step_flag,
+            accepted_flag,
             shared,
             persistent,
         )
@@ -1039,6 +1043,8 @@ def _execute_step_twice(
             error_vec_first,
             dt_scalar,
             zero,
+            int16(1),
+            int16(1),
             shared,
             persistent,
         )
@@ -1065,6 +1071,8 @@ def _execute_step_twice(
             error_vec_second,
             dt_scalar,
             dt_scalar,
+            int16(0),
+            int16(1),
             shared,
             persistent,
         )

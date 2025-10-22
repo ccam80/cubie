@@ -4,7 +4,7 @@ from typing import Callable, Optional
 
 import attrs
 import numpy as np
-from numba import cuda, int32
+from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -240,6 +240,8 @@ class DIRKStep(ODEImplicitStep):
                 numba_precision[:, :, :],
                 numba_precision,
                 numba_precision,
+                int16,
+                int16,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -275,6 +277,8 @@ class DIRKStep(ODEImplicitStep):
             linear_preconditioned_vectors,
             dt_scalar,
             time_scalar,
+            first_step_flag,
+            accepted_flag,
             shared,
             persistent_local,
         ):
@@ -309,15 +313,11 @@ class DIRKStep(ODEImplicitStep):
             #            Stage 0: operates out of supplied buffers            #
             # --------------------------------------------------------------- #
 
-            values_in_cache = False
-            prev_state_accepted = True
-            if first_same_as_last:
-                for cache_idx in range(n):
-                    if stage_rhs[cache_idx] != typed_zero:
-                        values_in_cache = True
-                    if state[cache_idx] != proposed_state[cache_idx]:
-                        prev_state_accepted = False
-            use_cached_rhs = values_in_cache and prev_state_accepted
+            first_step = first_step_flag != int16(0)
+            prev_state_accepted = accepted_flag != int16(0)
+            use_cached_rhs = (
+                first_same_as_last and not first_step and prev_state_accepted
+            )
 
             stage_time = current_time + dt_value * stage_time_fractions[0]
             diagonal_coeff = diagonal_coeffs[0]

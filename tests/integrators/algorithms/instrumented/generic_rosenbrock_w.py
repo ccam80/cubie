@@ -4,7 +4,7 @@ from typing import Callable, Optional, Tuple
 
 import attrs
 import numpy as np
-from numba import cuda, int32
+from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -233,6 +233,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 numba_precision[:, :, :],
                 numba_precision,
                 numba_precision,
+                int16,
+                int16,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -268,6 +270,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             linear_preconditioned_vectors,
             dt_scalar,
             time_scalar,
+            first_step_flag,
+            accepted_flag,
             shared,
             persistent_local,
         ):
@@ -318,15 +322,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             #            Stage 0: may use cached values                       #
             # --------------------------------------------------------------- #
             if multistage:
-                values_in_cache = False
-                prev_state_accepted = True
-                if first_same_as_last:
-                    for cache_idx in range(n):
-                        if rhs_cache[cache_idx] != typed_zero:
-                            values_in_cache = True
-                        if state[cache_idx] != proposed_state[cache_idx]:
-                            prev_state_accepted = False
-                use_cached_rhs = values_in_cache and prev_state_accepted
+                first_step = first_step_flag != int16(0)
+                prev_state_accepted = accepted_flag != int16(0)
+                use_cached_rhs = (
+                    first_same_as_last
+                    and not first_step
+                    and prev_state_accepted
+                )
 
                 if first_same_as_last:
                     if use_cached_rhs:

@@ -3,7 +3,7 @@
 from typing import Callable, Optional
 
 import numpy as np
-from numba import cuda, int32
+from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms import ImplicitStepConfig
@@ -190,6 +190,8 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:, :, :],
                 numba_precision,
                 numba_precision,
+                int16,
+                int16,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -225,6 +227,8 @@ class CrankNicolsonStep(ODEImplicitStep):
             linear_preconditioned_vectors,
             dt_scalar,
             time_scalar,
+            first_step_flag,
+            accepted_flag,
             shared,
             persistent_local,
         ):

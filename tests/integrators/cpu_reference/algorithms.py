@@ -4,7 +4,6 @@ from typing import Any, Callable, Optional, Sequence, Union
 
 import numpy as np
 
-from cubie.integrators import IntegratorReturnCodes
 from cubie.integrators.algorithms import (
     BackwardsEulerPCStep,
     BackwardsEulerStep,
@@ -1384,6 +1383,8 @@ class CPURosenbrockWStep(CPUStep):
             newton_damping=newton_damping,
             newton_max_backtracks=newton_max_backtracks,
         )
+        self._increment_cache = np.zeros(self._state_size, dtype=self.precision)
+
     @property
     def C_matrix(self) -> Optional[Array]:
         """Return the Jacobian update coefficients."""
@@ -1531,7 +1532,7 @@ class CPURosenbrockWStep(CPUStep):
             stage_increment, linear_converged, linear_iters = self.linear_solve(
                 lhs,
                 rhs,
-                initial_guess=None,
+                initial_guess=self._increment_cache,
                 **linear_kwargs,
             )
             state_accum = state_accum + (
@@ -1565,6 +1566,7 @@ class CPURosenbrockWStep(CPUStep):
             drivers_end,
             end_time,
         )
+        self._increment_cache = stage_increment
         status = self._status(True, 0)
         stage_derivative_output = (
             logging.stage_derivatives if logging else None

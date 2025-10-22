@@ -4,7 +4,7 @@ from typing import Callable, Optional, Tuple
 
 import attrs
 import numpy as np
-from numba import cuda, int32
+from numba import cuda, int16, int32
 
 from cubie._utils import PrecisionDType
 from cubie.integrators.algorithms.base_algorithm_step import (
@@ -213,6 +213,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision,
                 numba_precision,
+                int16,
+                int16,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -231,6 +233,8 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             error,
             dt_scalar,
             time_scalar,
+            first_step_flag,
+            accepted_flag,
             shared,
             persistent_local,
         ):
@@ -274,15 +278,13 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             #            Stage 0: may use cached values                       #
             # --------------------------------------------------------------- #
             if multistage:
-                values_in_cache = False
-                prev_state_accepted = True
-                if first_same_as_last:
-                    for cache_idx in range(n):
-                        if rhs_cache[cache_idx] != typed_zero:
-                            values_in_cache = True
-                        if state[cache_idx] != proposed_state[cache_idx]:
-                            prev_state_accepted = False
-                use_cached_rhs = values_in_cache and prev_state_accepted
+                first_step = first_step_flag != int16(0)
+                prev_state_accepted = accepted_flag != int16(0)
+                use_cached_rhs = (
+                    first_same_as_last
+                    and not first_step
+                    and prev_state_accepted
+                )
 
                 if first_same_as_last:
                     # Almost always true - perhaps we can branch better for a
@@ -321,6 +323,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         driver_function(
                             current_time,
                             driver_coeffs,
+                            proposed_drivers,
                         )
                     observables_function(
                             state,
@@ -342,7 +345,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
 
                 for idx in range(n):
                     stage_rhs[idx] = dt_value * stage_rhs[idx]
-                    proposed_state[idx] = typed_zero
 
                 status_code |= linear_solver(
                     state,
@@ -493,10 +495,9 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                         jacobian_stage_product,
                     )
             # ----------------------------------------------------------- #
-            final_time = end_time
             if has_driver_function:
                 driver_function(
-                    final_time,
+                    end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
@@ -506,7 +507,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 proposed_observables,
-                final_time,
+                end_time,
             )
 
             return status_code

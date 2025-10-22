@@ -16,7 +16,8 @@ Array = NDArray[np.floating]
 def _loop_override(**kwargs):
     base = {
         "dt": 0.0025,
-        "dt_save": 0.2,
+        "dt_save": 0.0025,
+        "duration":0.025,
         "output_types": ["state"],
         "saved_state_indices": [0, 1, 2],
     }
@@ -347,8 +348,8 @@ def  test_loop(
     tolerance,
 ):
     # Be a little looser for odd controller/algo changes
-    atol=tolerance.abs_loose * 5
-    rtol=tolerance.rel_loose * 5
+    atol=tolerance.abs_tight
+    rtol=tolerance.rel_tight
     assert_integration_outputs(
         reference=cpu_loop_outputs,
         device=device_loop_outputs,

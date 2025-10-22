@@ -2,7 +2,7 @@
 
 from typing import Callable, Optional
 
-from numba import cuda
+from numba import cuda, int16
 
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
 from cubie.integrators.algorithms.base_algorithm_step import StepCache
@@ -66,6 +66,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 numba_precision[:],
                 numba_precision,
                 numba_precision,
+                int16,
+                int16,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -84,6 +86,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             error,  # Non-adaptive algorithms receive a zero-length slice.
             dt_scalar,
             time_scalar,
+            first_step_flag,
+            accepted_flag,
             shared,
             persistent_local,
         ):
