@@ -65,6 +65,14 @@ class InstrumentedKernel:
     shared_bytes: int
     persistent_len: int
     numba_precision: type
+    num_steps: int
+
+
+@pytest.fixture(scope="session")
+def num_steps() -> int:
+    """Number of consecutive step executions for instrumentation."""
+
+    return 3
 
 INSTRUMENTATION_DEVICE_FIELDS = (
     "residuals",
@@ -132,6 +140,7 @@ class DeviceInstrumentedResult:
     linear_preconditioned_vectors: Optional[np.ndarray] = None
     status: Optional[int] = None
     niters: Optional[int] = None
+    stage_count: Optional[int] = None
     extra_vectors: Dict[str, np.ndarray] = field(default_factory=dict)
 
 @dataclass(frozen=True)
@@ -281,6 +290,7 @@ def instrumented_step_kernel(
     precision: np.dtype,
     driver_array,
     step_inputs,
+    num_steps,
 ) -> InstrumentedKernel:
     """Compile a CUDA kernel that executes the instrumented step."""
 
@@ -293,103 +303,117 @@ def instrumented_step_kernel(
         None if driver_array is None else driver_array.evaluation_function
     )
     observables_function = system.observables_function
-    state = np.asarray(step_inputs["state"], dtype=precision)
-    params = np.asarray(step_inputs["parameters"], dtype=precision)
-    driver_coefficients = np.asarray(
-        step_inputs["driver_coefficients"], dtype=precision
-    )
 
     @cuda.jit
     def kernel(
         state_vec,
-        proposed_vec,
+        proposed_matrix,
         params_vec,
         driver_coeffs_vec,
         drivers_vec,
-        proposed_drivers_vec,
+        proposed_drivers_matrix,
         observables_vec,
-        proposed_observables_vec,
-        error_vec,
-        residuals_mat,
-        jacobian_updates_mat,
-        stage_states_mat,
-        stage_derivatives_mat,
-        stage_observables_mat,
-        stage_drivers_mat,
-        stage_increments_mat,
-        newton_initial_guesses,
-        newton_iteration_guesses,
-        newton_residuals,
-        newton_squared_norms,
-        newton_iteration_scale,
-        linear_initial_guesses,
-        linear_iteration_guesses,
-        linear_residuals,
-        linear_squared_norms,
-        linear_preconditioned_vectors,
-        first_step_flag,
+        proposed_observables_matrix,
+        error_matrix,
+        residuals_tensor,
+        jacobian_updates_tensor,
+        stage_states_tensor,
+        stage_derivatives_tensor,
+        stage_observables_tensor,
+        stage_drivers_tensor,
+        stage_increments_tensor,
+        newton_initial_guesses_tensor,
+        newton_iteration_guesses_tensor,
+        newton_residuals_tensor,
+        newton_squared_norms_tensor,
+        newton_iteration_scale_tensor,
+        linear_initial_guesses_tensor,
+        linear_iteration_guesses_tensor,
+        linear_residuals_tensor,
+        linear_squared_norms_tensor,
+        linear_preconditioned_vectors_tensor,
+        status_vec,
         dt_scalar,
         time_scalar,
-        status_vec,
     ) -> None:
         idx = cuda.grid(1)
         if idx > 0:
             return
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
+        zero = numba_precision(0.0)
+        shared_length = shared.shape[0]
+        for cache_idx in range(shared_length):
+            shared[cache_idx] = zero
+        current_time = time_scalar
         if driver_function is not None:
-            driver_function(precision(0.0), driver_coefficients, drivers_vec)
+            driver_function(current_time, driver_coeffs_vec, drivers_vec)
         observables_function(
-            state,
-            params_vec,
-            drivers_vec,
-            observables_vec,
-            precision(0.0),
-        )
-        shared[:] = precision(0.0)
-        first_step_flag = int16(1)
-        accepted_flag = int16(1)
-        result = step_function(
             state_vec,
-            proposed_vec,
             params_vec,
-            driver_coeffs_vec,
             drivers_vec,
-            proposed_drivers_vec,
             observables_vec,
-            proposed_observables_vec,
-            error_vec,
-            residuals_mat,
-            jacobian_updates_mat,
-            stage_states_mat,
-            stage_derivatives_mat,
-            stage_observables_mat,
-            stage_drivers_mat,
-            stage_increments_mat,
-            newton_initial_guesses,
-            newton_iteration_guesses,
-            newton_residuals,
-            newton_squared_norms,
-            newton_iteration_scale,
-            linear_initial_guesses,
-            linear_iteration_guesses,
-            linear_residuals,
-            linear_squared_norms,
-            linear_preconditioned_vectors,
-            dt_scalar,
-            time_scalar,
-            first_step_flag,
-            accepted_flag,
-            shared,
-            persistent,
+            current_time,
         )
-        status_vec[0] = result
+        accepted_flag = int16(1)
+        state_length = state_vec.shape[0]
+        driver_length = drivers_vec.shape[0]
+        observable_length = observables_vec.shape[0]
+        for step_idx in range(num_steps):
+            first_step_flag = int16(1) if step_idx == 0 else int16(0)
+            result = step_function(
+                state_vec,
+                proposed_matrix[step_idx],
+                params_vec,
+                driver_coeffs_vec,
+                drivers_vec,
+                proposed_drivers_matrix[step_idx],
+                observables_vec,
+                proposed_observables_matrix[step_idx],
+                error_matrix[step_idx],
+                residuals_tensor[step_idx],
+                jacobian_updates_tensor[step_idx],
+                stage_states_tensor[step_idx],
+                stage_derivatives_tensor[step_idx],
+                stage_observables_tensor[step_idx],
+                stage_drivers_tensor[step_idx],
+                stage_increments_tensor[step_idx],
+                newton_initial_guesses_tensor[step_idx],
+                newton_iteration_guesses_tensor[step_idx],
+                newton_residuals_tensor[step_idx],
+                newton_squared_norms_tensor[step_idx],
+                newton_iteration_scale_tensor[step_idx],
+                linear_initial_guesses_tensor[step_idx],
+                linear_iteration_guesses_tensor[step_idx],
+                linear_residuals_tensor[step_idx],
+                linear_squared_norms_tensor[step_idx],
+                linear_preconditioned_vectors_tensor[step_idx],
+                dt_scalar,
+                current_time,
+                first_step_flag,
+                accepted_flag,
+                shared,
+                persistent,
+            )
+            status_vec[step_idx] = result
+            if step_idx + 1 >= num_steps:
+                continue
+            for elem in range(state_length):
+                state_vec[elem] = proposed_matrix[step_idx, elem]
+            for drv_idx in range(driver_length):
+                drivers_vec[drv_idx] = proposed_drivers_matrix[step_idx, drv_idx]
+            for obs_idx in range(observable_length):
+                observables_vec[obs_idx] = proposed_observables_matrix[
+                    step_idx, obs_idx
+                ]
+            current_time = current_time + dt_scalar
 
     return InstrumentedKernel(
         kernel,
         shared_bytes,
         persistent_len,
         numba_precision,
+        num_steps,
     )
 
 
@@ -400,52 +424,83 @@ def _copy_device_instrumentation(
     device_buffers,
     host_buffers,
     d_status,
-) -> DeviceInstrumentedResult:
-    """Return ``DeviceInstrumentedResult`` populated from device buffers."""
+    *,
+    num_steps: int,
+) -> List[DeviceInstrumentedResult]:
+    """Return ``DeviceInstrumentedResult`` items copied from device buffers."""
 
-    status_value = int(d_status.copy_to_host()[0])
-    host_results = {}
+    status_values = d_status.copy_to_host()
+    host_results: Dict[str, np.ndarray] = {}
     for name, device_array in device_buffers.items():
         host_array = getattr(host_buffers, name)
         host_results[name] = device_array.copy_to_host(host_array)
 
-    newton_initial_guesses_host = host_results["newton_initial_guesses"]
-    newton_iteration_guesses_host = host_results["newton_iteration_guesses"]
-    newton_residuals_host = host_results["newton_residuals"]
-    newton_squared_norms_host = host_results["newton_squared_norms"]
-    newton_iteration_scale_host = host_results["newton_iteration_scale"]
-    linear_initial_guesses_host = host_results["linear_initial_guesses"]
-    linear_iteration_guesses_host = host_results["linear_iteration_guesses"]
-    linear_residuals_host = host_results["linear_residuals"]
-    linear_squared_norms_host = host_results["linear_squared_norms"]
-    linear_preconditioned_vectors_host = host_results[
-        "linear_preconditioned_vectors"
-    ]
-    return DeviceInstrumentedResult(
-        state=d_proposed.copy_to_host(),
-        observables=d_proposed_observables.copy_to_host(),
-        error=d_error.copy_to_host(),
-        residuals=host_results["residuals"].copy(),
-        jacobian_updates=host_results["jacobian_updates"].copy(),
-        stage_states=host_results["stage_states"].copy(),
-        stage_derivatives=host_results["stage_derivatives"].copy(),
-        stage_observables=host_results["stage_observables"].copy(),
-        stage_drivers=host_results["stage_drivers"].copy(),
-        stage_increments=host_results["stage_increments"].copy(),
-        newton_initial_guesses=newton_initial_guesses_host,
-        newton_iteration_guesses=newton_iteration_guesses_host,
-        newton_residuals=newton_residuals_host,
-        newton_squared_norms=newton_squared_norms_host,
-        newton_iteration_scale=newton_iteration_scale_host,
-        linear_initial_guesses=linear_initial_guesses_host,
-        linear_iteration_guesses=linear_iteration_guesses_host,
-        linear_residuals=linear_residuals_host,
-        linear_squared_norms=linear_squared_norms_host,
-        linear_preconditioned_vectors=linear_preconditioned_vectors_host,
-        status=status_value & STATUS_MASK,
-        niters=(status_value >> 16) & STATUS_MASK,
-        extra_vectors={},
-    )
+    proposed_states = d_proposed.copy_to_host()
+    proposed_observables = d_proposed_observables.copy_to_host()
+    error_matrix = d_error.copy_to_host()
+
+    results: List[DeviceInstrumentedResult] = []
+    for step_idx in range(num_steps):
+        status_value = int(status_values[step_idx])
+        result = DeviceInstrumentedResult(
+            state=np.asarray(proposed_states[step_idx]).copy(),
+            observables=np.asarray(proposed_observables[step_idx]).copy(),
+            error=np.asarray(error_matrix[step_idx]).copy(),
+            residuals=np.asarray(host_results["residuals"][step_idx]).copy(),
+            jacobian_updates=np.asarray(
+                host_results["jacobian_updates"][step_idx]
+            ).copy(),
+            stage_states=np.asarray(host_results["stage_states"][step_idx]).copy(),
+            stage_derivatives=np.asarray(
+                host_results["stage_derivatives"][step_idx]
+            ).copy(),
+            stage_observables=np.asarray(
+                host_results["stage_observables"][step_idx]
+            ).copy(),
+            stage_drivers=np.asarray(
+                host_results["stage_drivers"][step_idx]
+            ).copy(),
+            stage_increments=np.asarray(
+                host_results["stage_increments"][step_idx]
+            ).copy(),
+            newton_initial_guesses=np.asarray(
+                host_results["newton_initial_guesses"][step_idx]
+            ).copy(),
+            newton_iteration_guesses=np.asarray(
+                host_results["newton_iteration_guesses"][step_idx]
+            ).copy(),
+            newton_residuals=np.asarray(
+                host_results["newton_residuals"][step_idx]
+            ).copy(),
+            newton_squared_norms=np.asarray(
+                host_results["newton_squared_norms"][step_idx]
+            ).copy(),
+            newton_iteration_scale=np.asarray(
+                host_results["newton_iteration_scale"][step_idx]
+            ).copy(),
+            linear_initial_guesses=np.asarray(
+                host_results["linear_initial_guesses"][step_idx]
+            ).copy(),
+            linear_iteration_guesses=np.asarray(
+                host_results["linear_iteration_guesses"][step_idx]
+            ).copy(),
+            linear_residuals=np.asarray(
+                host_results["linear_residuals"][step_idx]
+            ).copy(),
+            linear_squared_norms=np.asarray(
+                host_results["linear_squared_norms"][step_idx]
+            ).copy(),
+            linear_preconditioned_vectors=np.asarray(
+                host_results["linear_preconditioned_vectors"][step_idx]
+            ).copy(),
+            status=status_value & STATUS_MASK,
+            niters=(status_value >> 16) & STATUS_MASK,
+            stage_count=int(host_buffers.stage_count),
+            extra_vectors={},
+        )
+        results.append(result)
+
+    return results
 
 
 @pytest.fixture(scope="session")
@@ -457,11 +512,12 @@ def instrumented_step_results(
     system,
     precision,
 ) -> List[DeviceInstrumentedResult]:
-    """Execute the instrumented CUDA step twice and collect host arrays."""
+    """Execute the instrumented CUDA step loop and collect host arrays."""
 
     kernel = instrumented_step_kernel.function
     shared_bytes = instrumented_step_kernel.shared_bytes
     numba_precision = instrumented_step_kernel.numba_precision
+    num_steps = instrumented_step_kernel.num_steps
     n_states = system.sizes.states
     n_observables = system.sizes.observables
     stage_count_attr = getattr(
@@ -487,12 +543,12 @@ def instrumented_step_results(
     d_params = cuda.to_device(params)
     d_driver_coeffs = cuda.to_device(driver_coefficients)
 
-    def _run_step(
+    def _run_steps(
         current_state,
         current_drivers,
         current_observables,
         time_value,
-    ):
+    ) -> List[DeviceInstrumentedResult]:
         host_buffers = create_instrumentation_host_buffers(
             precision=precision,
             stage_count=stage_count,
@@ -502,18 +558,23 @@ def instrumented_step_results(
             newton_max_iters=max_newton_iters,
             newton_max_backtracks=max_newton_backtracks,
             linear_max_iters=linear_max_iters,
+            num_steps=num_steps,
         )
-        status = np.zeros(1, dtype=np.int32)
+        status = np.zeros(num_steps, dtype=np.int32)
 
         d_state = cuda.to_device(current_state)
-        d_proposed = cuda.to_device(np.zeros_like(current_state))
+        d_proposed = cuda.to_device(
+            np.zeros((num_steps, current_state.shape[0]), dtype=precision)
+        )
         d_drivers = cuda.to_device(current_drivers)
-        d_proposed_drivers = cuda.to_device(np.zeros_like(current_drivers))
+        d_proposed_drivers = cuda.to_device(
+            np.zeros((num_steps, current_drivers.shape[0]), dtype=precision)
+        )
         d_observables = cuda.to_device(current_observables)
         d_proposed_observables = cuda.to_device(
-            np.zeros_like(current_observables)
+            np.zeros((num_steps, current_observables.shape[0]), dtype=precision)
         )
-        d_error = cuda.to_device(np.zeros(n_states, dtype=precision))
+        d_error = cuda.to_device(np.zeros((num_steps, n_states), dtype=precision))
         device_buffers = {
             name: cuda.to_device(getattr(host_buffers, name))
             for name in INSTRUMENTATION_DEVICE_FIELDS
@@ -547,42 +608,29 @@ def instrumented_step_results(
             device_buffers["linear_residuals"],
             device_buffers["linear_squared_norms"],
             device_buffers["linear_preconditioned_vectors"],
+            d_status,
             dt_value,
             numba_precision(time_value),
-            d_status,
         )
         cuda.synchronize()
 
-        result = _copy_device_instrumentation(
+        return _copy_device_instrumentation(
             d_proposed,
             d_proposed_observables,
             d_error,
             device_buffers,
             host_buffers,
             d_status,
+            num_steps=num_steps,
         )
-        next_state = np.array(result.state, dtype=precision, copy=True)
-        next_drivers = d_proposed_drivers.copy_to_host()
-        next_observables = np.array(
-            result.observables, dtype=precision, copy=True
-        )
-        return result, next_state, next_drivers, next_observables
 
     initial_state = np.asarray(step_inputs["state"], dtype=precision)
-    first_result, first_state, first_drivers, first_observables = _run_step(
+    return _run_steps(
         initial_state,
         drivers,
         observables,
         precision(0.0),
     )
-    second_result, _, _, _ = _run_step(
-        first_state,
-        first_drivers,
-        first_observables,
-        dt_value,
-    )
-
-    return [first_result, second_result]
 
 
 @pytest.fixture(scope="session")
@@ -593,8 +641,9 @@ def instrumented_cpu_step_results(
     cpu_driver_evaluator,
     instrumented_step_object,
     instrumented_step_configuration: ResolvedInstrumentedStep,
+    num_steps,
 ) -> List[InstrumentedStepResult]:
-    """Execute the CPU reference step with instrumentation enabled twice."""
+    """Execute the CPU reference step with instrumentation enabled."""
 
     def _copy_array(values):
         if values is None:
@@ -672,32 +721,27 @@ def instrumented_cpu_step_results(
         newton_max_backtracks=solver_settings["newton_max_backtracks"],
     )
 
-    first_result = stepper(
-        state=state,
-        params=params,
-        dt=solver_settings["dt"],
-        time=0.0,
-    )
-    if not isinstance(first_result, InstrumentedStepResult):
-        raise TypeError(
-            "Expected InstrumentedStepResult from CPU reference step."
+    current_state = state.copy()
+    time_value = 0.0
+    results: List[InstrumentedStepResult] = []
+    for step_idx in range(num_steps):
+        result = stepper(
+            state=current_state,
+            params=params,
+            dt=solver_settings["dt"],
+            time=time_value,
         )
+        if not isinstance(result, InstrumentedStepResult):
+            raise TypeError(
+                "Expected InstrumentedStepResult from CPU reference step."
+            )
+        results.append(_copy_result(result))
+        current_state = np.asarray(
+            result.state, dtype=cpu_system.precision
+        ).copy()
+        time_value = time_value + solver_settings["dt"]
 
-    second_state = np.asarray(
-        first_result.state, dtype=cpu_system.precision
-    ).copy()
-    second_result = stepper(
-        state=second_state,
-        params=params,
-        dt=solver_settings["dt"],
-        time=solver_settings["dt"],
-    )
-    if not isinstance(second_result, InstrumentedStepResult):
-        raise TypeError(
-            "Expected InstrumentedStepResult from CPU reference step."
-        )
-
-    return [_copy_result(first_result), _copy_result(second_result)]
+    return results
 
 
 def _format_array(values: np.ndarray) -> str:
@@ -976,7 +1020,7 @@ def print_comparison(cpu_result, gpu_result, device_result) -> None:
         _add_entry(
             "stage_count",
             cpu_step.stage_count,
-            gpu_step.residuals.shape[0],
+            gpu_step.stage_count,
             None,
             index,
         )

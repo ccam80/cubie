@@ -11,6 +11,8 @@ class InstrumentationHostBuffers:
 
     Attributes
     ----------
+    When ``num_steps`` exceeds one, arrays include a leading dimension
+    that stores successive step diagnostics.
     stage_count:
         Number of stages in the tableau being instrumented.
     residuals:
@@ -73,6 +75,7 @@ def create_instrumentation_host_buffers(
     *,
     precision: np.dtype,
     stage_count: int,
+    num_steps: int = 1,
     state_size: int,
     observable_size: int,
     driver_size: int,
@@ -88,6 +91,8 @@ def create_instrumentation_host_buffers(
         Floating point dtype used for integrator state arrays.
     stage_count:
         Number of stages requested by the tableau.
+    num_steps:
+        Number of successive steps captured by the instrumentation buffers.
     state_size:
         Dimension of the state vector.
     observable_size:
@@ -108,6 +113,7 @@ def create_instrumentation_host_buffers(
     """
 
     resolved_stage_count = int(stage_count)
+    step_slots = max(1, int(num_steps))
     state_dim = int(state_size)
     observable_dim = int(observable_size)
     driver_dim = int(driver_size)
@@ -118,38 +124,50 @@ def create_instrumentation_host_buffers(
     linear_slots = resolved_stage_count * newton_iters
     dtype = np.dtype(precision)
 
-    residuals = np.zeros((resolved_stage_count, state_dim), dtype=dtype)
+    def _step_shape(*base: int) -> tuple[int, ...]:
+        base_shape = tuple(int(value) for value in base)
+        if step_slots == 1:
+            return base_shape
+        return (step_slots,) + base_shape
+
+    residuals = np.zeros(_step_shape(resolved_stage_count, state_dim), dtype=dtype)
     jacobian_updates = np.zeros_like(residuals)
     stage_states = np.zeros_like(residuals)
     stage_derivatives = np.zeros_like(residuals)
     stage_observables = np.zeros(
-        (resolved_stage_count, observable_dim),
+        _step_shape(resolved_stage_count, observable_dim),
         dtype=dtype,
     )
-    stage_drivers = np.zeros((resolved_stage_count, driver_dim), dtype=dtype)
+    stage_drivers = np.zeros(
+        _step_shape(resolved_stage_count, driver_dim),
+        dtype=dtype,
+    )
     stage_increments = np.zeros_like(residuals)
     newton_initial_guesses = np.zeros_like(residuals)
     newton_iteration_guesses = np.zeros(
-        (resolved_stage_count, newton_slots, state_dim),
+        _step_shape(resolved_stage_count, newton_slots, state_dim),
         dtype=dtype,
     )
     newton_residuals = np.zeros_like(newton_iteration_guesses)
     newton_squared_norms = np.zeros(
-        (resolved_stage_count, newton_slots),
+        _step_shape(resolved_stage_count, newton_slots),
         dtype=dtype,
     )
     newton_iteration_scale = np.zeros(
-        (resolved_stage_count, newton_iters),
+        _step_shape(resolved_stage_count, newton_iters),
         dtype=dtype,
     )
-    linear_initial_guesses = np.zeros((linear_slots, state_dim), dtype=dtype)
+    linear_initial_guesses = np.zeros(
+        _step_shape(linear_slots, state_dim),
+        dtype=dtype,
+    )
     linear_iteration_guesses = np.zeros(
-        (linear_slots, linear_iters, state_dim),
+        _step_shape(linear_slots, linear_iters, state_dim),
         dtype=dtype,
     )
     linear_residuals = np.zeros_like(linear_iteration_guesses)
     linear_squared_norms = np.zeros(
-        (linear_slots, linear_iters),
+        _step_shape(linear_slots, linear_iters),
         dtype=dtype,
     )
     linear_preconditioned_vectors = np.zeros_like(linear_iteration_guesses)
