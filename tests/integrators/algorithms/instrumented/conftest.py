@@ -66,8 +66,6 @@ class InstrumentedKernel:
     persistent_len: int
     numba_precision: type
     num_steps: int
-    # Device array of per-step dt values to avoid capturing host closures
-    dts_device: object = field(default=None)
 
 
 @pytest.fixture(scope="session")
@@ -549,7 +547,6 @@ def instrumented_step_results(
     shared_bytes = instrumented_step_kernel.shared_bytes
     numba_precision = instrumented_step_kernel.numba_precision
     num_steps = instrumented_step_kernel.num_steps
-    dts = instrumented_step_kernel
     n_states = system.sizes.states
     n_observables = system.sizes.observables
     stage_count_attr = getattr(
