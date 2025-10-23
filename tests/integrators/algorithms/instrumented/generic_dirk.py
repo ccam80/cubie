@@ -387,9 +387,10 @@ class DIRKStep(ODEImplicitStep):
                 jacobian_updates[0, idx] = typed_zero
                 stage_increments[0, idx] = typed_zero
             for obs_idx in range(observable_count):
-                stage_observables[0, obs_idx] = observables[obs_idx]
+                stage_observables[0, obs_idx] = proposed_observables[obs_idx]
             for driver_idx in range(proposed_drivers_out.shape[1]):
-                proposed_drivers_out[0, driver_idx] = drivers_buffer[driver_idx]
+                proposed_drivers_out[0, driver_idx] = proposed_drivers[
+                    driver_idx]
 
 
             solution_weight = solution_weights[0]
