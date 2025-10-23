@@ -19,7 +19,7 @@ DEFAULT_OVERRIDES = {
     'newton_tolerance': 1e-7,
     'krylov_tolerance': 1e-7,
     'atol': 1e-5,
-    'rtol': 1e-5,
+    'rtol': 1e-6,
     'output_types': ["state"],
     'saved_state_indices': [0, 1, 2],
 }

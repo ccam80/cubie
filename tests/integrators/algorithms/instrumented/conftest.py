@@ -66,6 +66,8 @@ class InstrumentedKernel:
     persistent_len: int
     numba_precision: type
     num_steps: int
+    # Device array of per-step dt values to avoid capturing host closures
+    dts_device: object = field(default=None)
 
 
 @pytest.fixture(scope="session")
@@ -309,7 +311,6 @@ def instrumented_step_kernel(
     driver_array,
     step_inputs,
     num_steps,
-    dts,
 ) -> InstrumentedKernel:
     """Compile a CUDA kernel that executes the instrumented step."""
 
@@ -322,6 +323,7 @@ def instrumented_step_kernel(
         None if driver_array is None else driver_array.evaluation_function
     )
     observables_function = system.observables_function
+
 
     @cuda.jit
     def kernel(
@@ -352,7 +354,7 @@ def instrumented_step_kernel(
         linear_squared_norms_tensor,
         linear_preconditioned_vectors_tensor,
         status_vec,
-        dt_scalar,
+        dts_array,
         time_scalar,
     ) -> None:
         idx = cuda.grid(1)
@@ -380,7 +382,8 @@ def instrumented_step_kernel(
         observable_length = observables_vec.shape[0]
         for step_idx in range(num_steps):
             first_step_flag = int16(1) if step_idx == 0 else int16(0)
-            dt_scalar = dts[step_idx]
+            # Read dt for this step from device array
+            dt_scalar = numba_precision(dts_array[step_idx])
             result = step_function(
                 state_vec,
                 proposed_matrix[step_idx],
@@ -432,6 +435,8 @@ def instrumented_step_kernel(
                     ]
                 accepted_flag = int16(1)
                 current_time = current_time + dt_scalar
+
+    # Create device array of per-step dt values to avoid capturing host closures
 
     return InstrumentedKernel(
         kernel,
@@ -536,6 +541,7 @@ def instrumented_step_results(
     solver_settings,
     system,
     precision,
+    dts,
 ) -> List[DeviceInstrumentedResult]:
     """Execute the instrumented CUDA step loop and collect host arrays."""
 
@@ -543,6 +549,7 @@ def instrumented_step_results(
     shared_bytes = instrumented_step_kernel.shared_bytes
     numba_precision = instrumented_step_kernel.numba_precision
     num_steps = instrumented_step_kernel.num_steps
+    dts = instrumented_step_kernel
     n_states = system.sizes.states
     n_observables = system.sizes.observables
     stage_count_attr = getattr(
@@ -563,8 +570,7 @@ def instrumented_step_results(
     )
     drivers = np.asarray(step_inputs["drivers"], dtype=precision)
     observables = np.zeros(system.sizes.observables, dtype=precision)
-    dt_value = precision(solver_settings["dt"])
-
+    d_dts = cuda.to_device(dts)
     d_params = cuda.to_device(params)
     d_driver_coeffs = cuda.to_device(driver_coefficients)
 
@@ -634,7 +640,7 @@ def instrumented_step_results(
             device_buffers["linear_squared_norms"],
             device_buffers["linear_preconditioned_vectors"],
             d_status,
-            dt_value,
+            d_dts,
             numba_precision(time_value),
         )
         cuda.synchronize()
