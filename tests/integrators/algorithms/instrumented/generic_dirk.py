@@ -383,9 +383,9 @@ class DIRKStep(ODEImplicitStep):
             for idx in range(n):
                 stage_derivatives[0, idx] = stage_rhs[idx]
                 stage_states[0, idx] = stage_base[idx]
-                residuals[0, idx] = typed_zero
+                residuals[0, idx] = solver_scratch[idx + n]
                 jacobian_updates[0, idx] = typed_zero
-                stage_increments[0, idx] = typed_zero
+                stage_increments[0, idx] = stage_increment[idx]
             for obs_idx in range(observable_count):
                 stage_observables[0, obs_idx] = proposed_observables[obs_idx]
             for driver_idx in range(proposed_drivers_out.shape[1]):

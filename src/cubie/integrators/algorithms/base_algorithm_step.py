@@ -158,7 +158,7 @@ class ButcherTableau:
     def can_reuse_accepted_start(self) -> bool:
         """Return ``True`` when an accepted step can reuse the start state."""
 
-        return bool(self.c and self.c[0] == 0.0)
+        return bool(self.c and (self.c[0] == 0.0))
 
 
 @attrs.define

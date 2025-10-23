@@ -72,6 +72,12 @@ class CPUAdaptiveController:
     def is_adaptive(self) -> bool:
         return self.kind != "fixed"
 
+    @property
+    def prev_dt(self) -> np.floating:
+        """Return the previous step size used by the controller."""
+
+        return self._prev_dt
+
     def error_norm(self, state_prev: Array, state_new: Array, error: Array) -> float:
         error = np.maximum(np.abs(error), 1e-12)
         scale = self.atol + self.rtol * np.maximum(
@@ -97,7 +103,7 @@ class CPUAdaptiveController:
             error=error_vector,
         )
 
-        accept = errornorm > 1.0
+        accept = errornorm >= self.precision(1.0)
 
         current_dt = self.dt
         gain = self._gain(
@@ -169,12 +175,13 @@ class CPUAdaptiveController:
         elif self.kind == "gustafsson":
             one = precision(1.0)
             two = precision(2.0)
+            niters_eff = precision(max(niters, 1))
             M = self.max_newton_iters
             dt_prev = max(precision(1e-16), self._prev_dt)
             nrm2_prev = max(precision(1e-16), self._prev_nrm2)
             fac = min(
                 self.gamma,
-                ((one + two * M) * self.gamma) / (niters + two * M),
+                ((one + two * M) * self.gamma) / (niters_eff + two * M),
             )
             gain_basic = precision(
                 self.safety * fac * (errornorm ** expo_fraction)

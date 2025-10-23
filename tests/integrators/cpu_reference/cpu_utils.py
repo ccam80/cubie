@@ -2,7 +2,7 @@
 
 import math
 from dataclasses import dataclass, field
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 from numba import njit
@@ -23,60 +23,162 @@ def _ensure_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
         raise ValueError("Expected a one-dimensional array of samples.")
     return array
 
-@njit
-def dot_product(
-    left: Array,
-    right: Array,
+def resolve_precision_signature(
     precision: np.dtype,
-) -> np.floating:
+) -> tuple[np.dtype, type[np.floating]]:
+    """Return a canonical ``(dtype, scalar_type)`` tuple for ``precision``."""
+
+    dtype = np.dtype(precision)
+    scalar_type = dtype.type  # type: ignore[assignment]
+    return dtype, scalar_type
+
+
+@njit(cache=True)
+def _dot_product_impl(left: Array, right: Array) -> np.floating:
+    """Return the dot product of ``left`` and ``right``."""
+
+    size = left.shape[0]
+    total = left.dtype.type(0.0)
+    for index in range(size):
+        total = total + left[index] * right[index]
+    return total
+
+
+def dot_product(left: Array, right: Array, precision: np.dtype) -> np.floating:
     """Return the dot product of ``left`` and ``right`` in ``precision``."""
 
-    product = np.multiply(left, right)
-    return product.sum(dtype=precision)
+    left_array = np.asarray(left, dtype=precision)
+    right_array = np.asarray(right, dtype=precision)
+    return _dot_product_impl(left_array, right_array)
 
-@njit
-def squared_norm(vector: Array, precision: np.dtype) -> np.floating:
+
+@njit(cache=True)
+def _squared_norm_impl(vector: Array) -> np.floating:
+    """Return the squared Euclidean norm of ``vector``."""
+
+    size = vector.shape[0]
+    total = vector.dtype.type(0.0)
+    for index in range(size):
+        value = vector[index]
+        total = total + value * value
+    return total
+
+
+def squared_norm(vector: Array,precision: np.dtype) -> np.floating:
     """Return the squared Euclidean norm of ``vector`` in ``precision``."""
 
-    squared = np.multiply(vector, vector)
-    return squared.sum(dtype=precision)
+    array = np.asarray(vector, dtype=precision)
+    return _squared_norm_impl(array)
 
-@njit
-def euclidean_norm(vector: Sequence[float] | Array, *, precision: np.dtype) -> np.floating:
+
+@njit(cache=True)
+def _euclidean_norm_impl(vector: Array) -> np.floating:
+    """Return the Euclidean norm of ``vector``."""
+
+    return np.sqrt(_squared_norm_impl(vector))
+
+
+def euclidean_norm(
+    vector: Sequence[float] | Array,precision: np.dtype
+) -> np.floating:
     """Return the Euclidean norm of ``vector`` in ``precision``."""
 
-    squared = np.multiply(vector, vector)
-    sum = squared.sum(dtype=precision)
-    return np.sqrt(sum)
+    array = np.asarray(vector, dtype=precision)
+    return _euclidean_norm_impl(array)
 
+@njit(cache=True)
+def _matrix_vector_product(matrix: Array, vector: Array, out: Array) -> None:
+    """Store ``matrix @ vector`` into ``out`` without allocating."""
 
-def _neumann_preconditioner_matrix(
-    operator_apply: Callable[[Array], Array],
-    dimension: int,
-    precision: np.dtype,
-    order: int,
-) -> Array:
-    """Return the truncated Neumann series for ``operator_apply``."""
+    rows, cols = matrix.shape
+    for row in range(rows):
+        total = matrix.dtype.type(0.0)
+        for col in range(cols):
+            total = total + matrix[row, col] * vector[col]
+        out[row] = total
 
-    identity = np.eye(dimension, dtype=precision)
-    operator_matrix = np.zeros_like(identity)
-    for column in range(dimension):
-        basis = identity[:, column].copy()
-        operator_matrix[:, column] = np.asarray(
-            operator_apply(basis),
-            dtype=precision,
-        )
+@njit(cache=True)
+def _compute_neumann_preconditioner(matrix: Array, order: int) -> Array:
+    """Return the truncated Neumann series for ``matrix``."""
 
+    identity = np.eye(matrix.shape[0], dtype=matrix.dtype)
     neumann = identity.copy()
     if order <= 0:
         return neumann
 
-    residual = identity - operator_matrix
+    residual = identity - matrix
     power = identity.copy()
     for _ in range(order):
         power = power @ residual
         neumann = neumann + power
     return neumann
+
+
+@njit(cache=True)
+def _log_krylov_iteration(
+    instrumented: bool,
+    stage_index: int,
+    index: int,
+    iterate: Array,
+    residual: Array,
+    squared_norm: np.floating,
+    direction: Array,
+    logging_iteration_guesses: Optional[Array],
+    logging_residuals: Optional[Array],
+    logging_squared_norms: Optional[Array],
+    logging_preconditioned_vectors: Optional[Array],
+) -> None:
+    """Record iteration diagnostics when instrumentation buffers are present."""
+
+    if not instrumented or index < 0:
+        return
+    if (
+        logging_iteration_guesses is not None
+        and index < logging_iteration_guesses.shape[1]
+    ):
+        logging_iteration_guesses[stage_index, index, :] = iterate
+    if logging_residuals is not None and index < logging_residuals.shape[1]:
+        logging_residuals[stage_index, index, :] = residual
+    if (
+        logging_squared_norms is not None
+        and index < logging_squared_norms.shape[1]
+    ):
+        logging_squared_norms[stage_index, index] = squared_norm
+    if (
+        logging_preconditioned_vectors is not None
+        and index < logging_preconditioned_vectors.shape[1]
+    ):
+        logging_preconditioned_vectors[stage_index, index, :] = direction
+
+
+@njit(cache=True)
+def _log_newton_iteration(
+    instrumented: bool,
+    stage_index: int,
+    index: int,
+    candidate: Array,
+    residual: Array,
+    squared_norm: np.floating,
+    logging_iteration_guesses: Optional[Array],
+    logging_residuals: Optional[Array],
+    logging_squared_norms: Optional[Array],
+) -> None:
+    """Record Newton diagnostics when logging buffers are available."""
+
+    if not instrumented or index < 0:
+        return
+    if (
+        logging_iteration_guesses is not None
+        and index < logging_iteration_guesses.shape[1]
+    ):
+        logging_iteration_guesses[stage_index, index, :] = candidate
+    if logging_residuals is not None and index < logging_residuals.shape[1]:
+        logging_residuals[stage_index, index, :] = residual
+    if (
+        logging_squared_norms is not None
+        and index < logging_squared_norms.shape[1]
+    ):
+        logging_squared_norms[stage_index, index] = squared_norm
 
 
 @dataclass
@@ -123,8 +225,285 @@ class InstrumentedStepResult:
 StepResultLike = StepResult | InstrumentedStepResult
 
 
+@njit(cache=True)
+def _krylov_solve_dense_impl(
+    rhs: Array,
+    operator_matrix: Array,
+    tolerance: np.floating,
+    max_iterations: int,
+    initial_guess: Array,
+    has_initial_guess: bool,
+    neumann_order: int,
+    minimal_residual: bool,
+    instrumented: bool,
+    logging_initial_guess: Optional[Array],
+    logging_iteration_guesses: Optional[Array],
+    logging_residuals: Optional[Array],
+    logging_squared_norms: Optional[Array],
+    logging_preconditioned_vectors: Optional[Array],
+    stage_index: int,
+) -> tuple[Array, bool, int]:
+    """Return the Krylov solution for a dense operator matrix."""
+
+    solution = np.empty_like(rhs)
+    if has_initial_guess:
+        solution[:] = initial_guess
+    else:
+        zero = operator_matrix.dtype.type(0.0)
+        for index in range(solution.shape[0]):
+            solution[index] = zero
+
+    if instrumented and logging_initial_guess is not None:
+        logging_initial_guess[stage_index, :] = solution
+
+    tol_squared = tolerance * tolerance
+    iteration_limit = max_iterations
+
+    operator_buffer = np.empty_like(rhs)
+    residual = np.empty_like(rhs)
+    _matrix_vector_product(operator_matrix, solution, operator_buffer)
+    for index in range(residual.shape[0]):
+        residual[index] = rhs[index] - operator_buffer[index]
+    residual_squared = _dot_product_impl(residual, residual)
+    if residual_squared <= tol_squared:
+        return solution, True, 0
+
+    preconditioner_matrix = _compute_neumann_preconditioner(
+        operator_matrix,
+        neumann_order,
+    )
+    direction = np.empty_like(rhs)
+
+    converged = False
+    iteration = 0
+
+    while iteration < iteration_limit:
+        iteration += 1
+
+        _matrix_vector_product(preconditioner_matrix, residual, direction)
+        _matrix_vector_product(operator_matrix, direction, operator_buffer)
+
+        if minimal_residual:
+            numerator = _dot_product_impl(operator_buffer, residual)
+            denominator = _dot_product_impl(operator_buffer, operator_buffer)
+        else:
+            numerator = _dot_product_impl(residual, direction)
+            denominator = _dot_product_impl(operator_buffer, direction)
+
+        if denominator == operator_matrix.dtype.type(0.0):
+            return solution, False, iteration
+
+        alpha = operator_matrix.dtype.type(numerator / denominator)
+        if converged:
+            alpha = operator_matrix.dtype.type(0.0)
+
+        for index in range(solution.shape[0]):
+            solution[index] = solution[index] + alpha * direction[index]
+            residual[index] = residual[index] - alpha * operator_buffer[index]
+        residual_squared = _dot_product_impl(residual, residual)
+
+        _log_krylov_iteration(
+            instrumented=instrumented,
+            stage_index=stage_index,
+            index=iteration - 1,
+            iterate=solution,
+            residual=residual,
+            squared_norm=residual_squared,
+            direction=direction,
+            logging_iteration_guesses=logging_iteration_guesses,
+            logging_residuals=logging_residuals,
+            logging_squared_norms=logging_squared_norms,
+            logging_preconditioned_vectors=logging_preconditioned_vectors,
+        )
+
+        if residual_squared <= tol_squared:
+            converged = True
+            break
+
+    return solution, converged, iteration
+
+
+def newton_solve(
+    initial_guess: Array,
+    precision: np.dtype,
+    residual_fn: Callable[[Array], Array],
+    jacobian_fn: Callable[[Array], Array],
+    linear_solver: Callable[..., tuple[Array, bool, int]],
+    newton_tol: np.floating,
+    newton_max_iters: int,
+    newton_damping: np.floating,
+    newton_max_backtracks: int,
+    stage_index: int = 0,
+    instrumented: bool = False,
+    newton_initial_guesses: Optional[Array] = None,
+    newton_iteration_guesses: Optional[Array] = None,
+    newton_residuals: Optional[Array] = None,
+    newton_squared_norms: Optional[Array] = None,
+    newton_iteration_scale: Optional[Array] = None,
+    linear_initial_guesses: Optional[Array] = None,
+    linear_iteration_guesses: Optional[Array] = None,
+    linear_residuals: Optional[Array] = None,
+    linear_squared_norms: Optional[Array] = None,
+    linear_preconditioned_vectors: Optional[Array] = None,
+) -> tuple[Array, bool, int]:
+    """Return the Newton update for ``residual_fn`` starting at ``initial_guess``.
+
+    Parameters
+    ----------
+    initial_guess
+        Starting candidate for the Newton iteration.
+    precision
+        Floating-point dtype used for all computations and logging buffers.
+    residual_fn
+        Callable returning the residual vector for a candidate state.
+    jacobian_fn
+        Callable returning the Jacobian matrix for a candidate state.
+    linear_solver
+        Callable solving the linear system produced on each iteration.
+    newton_tol
+        Convergence tolerance on the residual norm.
+    newton_max_iters
+        Maximum number of Newton updates to attempt.
+    newton_damping
+        Multiplicative factor applied to the step size during backtracking.
+    newton_max_backtracks
+        Maximum number of damping attempts per iteration.
+    stage_index
+        Index of the stage recorded in the logging buffers.
+    instrumented
+        When ``True`` the logging arrays are populated with diagnostics.
+    newton_initial_guesses
+        Optional tensor recording the starting iterate per stage.
+    newton_iteration_guesses
+        Optional tensor recording iterates per Newton update.
+    newton_residuals
+        Optional tensor recording residual vectors per Newton update.
+    newton_squared_norms
+        Optional matrix storing squared residual norms per update.
+    newton_iteration_scale
+        Optional matrix storing accepted damping factors per iteration.
+    linear_initial_guesses
+        Optional tensor recording initial guesses for the linear solver.
+    linear_iteration_guesses
+        Optional tensor recording per-iteration linear iterates.
+    linear_residuals
+        Optional tensor recording per-iteration linear residual vectors.
+    linear_squared_norms
+        Optional matrix storing per-iteration linear residual norms.
+    linear_preconditioned_vectors
+        Optional tensor storing preconditioned vectors per linear iteration.
+
+    Returns
+    -------
+    tuple[Array, bool, int]
+        Final iterate, convergence flag, and iteration count.
+    """
+
+    dtype, scalar_type = resolve_precision_signature(precision)
+    tol_value = scalar_type(newton_tol)
+    damping_value = scalar_type(newton_damping)
+    iteration_limit = int(newton_max_iters)
+    backtrack_limit = int(newton_max_backtracks)
+
+    state = np.asarray(initial_guess, dtype=dtype).copy()
+    residual = np.asarray(residual_fn(state), dtype=dtype)
+    norm = euclidean_norm(residual, precision=dtype)
+    norm_squared = norm * norm
+
+    if instrumented and newton_initial_guesses is not None:
+        newton_initial_guesses[stage_index, :] = state
+
+    log_index = 0
+    _log_newton_iteration(
+        instrumented=instrumented,
+        stage_index=stage_index,
+        index=log_index,
+        candidate=state,
+        residual=residual,
+        squared_norm=norm_squared,
+        logging_iteration_guesses=newton_iteration_guesses,
+        logging_residuals=newton_residuals,
+        logging_squared_norms=newton_squared_norms,
+    )
+    log_index += 1
+
+    if norm <= tol_value:
+        return state, True, 0
+
+    for iteration in range(iteration_limit):
+        jacobian = np.asarray(jacobian_fn(state), dtype=dtype)
+
+        linear_kwargs: dict[str, Any] = {}
+        if instrumented:
+            slot = stage_index * max(iteration_limit, 1) + iteration
+            linear_kwargs = {
+                "stage_index": slot,
+                "instrumented": True,
+                "logging_initial_guess": linear_initial_guesses,
+                "logging_iteration_guesses": linear_iteration_guesses,
+                "logging_residuals": linear_residuals,
+                "logging_squared_norms": linear_squared_norms,
+                "logging_preconditioned_vectors": (
+                    linear_preconditioned_vectors
+                ),
+            }
+
+        direction, converged, _ = linear_solver(
+            jacobian,
+            -residual,
+            **linear_kwargs,
+        )
+        if not converged:
+            return state, False, iteration + 1
+
+        step = np.asarray(direction, dtype=dtype)
+        scale = scalar_type(1.0)
+        accepted = False
+
+        for _ in range(backtrack_limit + 1):
+            trial_state = state + scale * step
+            trial_residual = np.asarray(residual_fn(trial_state), dtype=dtype)
+            trial_norm = euclidean_norm(trial_residual, precision=dtype)
+            trial_squared = trial_norm * trial_norm
+
+            _log_newton_iteration(
+                instrumented=instrumented,
+                stage_index=stage_index,
+                index=log_index,
+                candidate=trial_state,
+                residual=trial_residual,
+                squared_norm=trial_squared,
+                logging_iteration_guesses=newton_iteration_guesses,
+                logging_residuals=newton_residuals,
+                logging_squared_norms=newton_squared_norms,
+            )
+            log_index += 1
+
+            if trial_norm <= tol_value:
+                return trial_state, True, iteration + 1
+            if trial_norm < norm:
+                state = trial_state
+                residual = trial_residual
+                norm = trial_norm
+                norm_squared = trial_squared
+                accepted = True
+                break
+            scale = scalar_type(scale * damping_value)
+
+        if not accepted:
+            return state, False, iteration + 1
+
+        if (
+            instrumented
+            and newton_iteration_scale is not None
+            and iteration < newton_iteration_scale.shape[1]
+        ):
+            newton_iteration_scale[stage_index, iteration] = scale
+
+    return state, False, iteration_limit
+
+
 def make_step_result(
-    *,
     instrument: bool,
     state: Array,
     observables: Array,
@@ -153,8 +532,9 @@ def make_step_result(
 ) -> StepResultLike:
     """Return a step result container with optional instrumentation."""
 
+    iter_count = max(0, min(int(niters) + 1, STATUS_MASK))
     if not instrument:
-        return StepResult(state, observables, error, status, niters)
+        return StepResult(state, observables, error, status, iter_count)
 
     resolved_stage_count = int(stage_count or 0)
     extras = {} if extra_vectors is None else dict(extra_vectors)
@@ -168,7 +548,7 @@ def make_step_result(
         stage_drivers=stage_drivers,
         stage_increments=stage_increments,
         status=status,
-        niters=niters,
+        niters=iter_count,
         stage_count=resolved_stage_count,
         stage_states=stage_states,
         stage_derivatives=stage_derivatives,
@@ -195,7 +575,7 @@ def _encode_solver_status(converged: bool, niters: int) -> int:
         if converged
         else IntegratorReturnCodes.MAX_NEWTON_ITERATIONS_EXCEEDED
     )
-    iter_count = max(0, min(int(niters), STATUS_MASK))
+    iter_count = max(0, min(int(niters) + 1, STATUS_MASK))
     return (iter_count << 16) | (int(base_code) & STATUS_MASK)
 
 
@@ -209,7 +589,6 @@ class DriverEvaluator:
         t0: float,
         wrap: bool,
         precision: np.dtype,
-        *,
         boundary_condition: Optional[str] = "not-a-knot",
     ) -> None:
         coeffs = (
@@ -301,12 +680,11 @@ class DriverEvaluator:
         )
 
 def krylov_solve(
+    operator_matrix: Array,
     rhs: Array,
-    operator_apply: Callable[[Array], Array],
     tolerance: np.floating,
     max_iterations: int,
     precision: np.dtype,
-    preconditioner: Optional[Callable[[Array], Array]] = None,
     neumann_order: int = 2,
     correction_type: str = "minimal_residual",
     initial_guess: Optional[Array] = None,
@@ -318,32 +696,29 @@ def krylov_solve(
     logging_preconditioned_vectors: Optional[Array] = None,
     stage_index: int = 0,
 ) -> tuple[Array, bool, int]:
-    """Solve ``operator_apply(x) = rhs`` using matrix-free Krylov iterations.
+    """Solve ``operator_matrix @ x = rhs`` using dense Krylov iterations.
 
     Parameters
     ----------
+    operator_matrix
+        Dense linear operator expressed as a matrix.
     rhs
         Right-hand side vector.
-    operator_apply
-        Callable returning the operator applied to its argument.
     tolerance
         Convergence tolerance on the residual norm.
     max_iterations
         Maximum iteration count for the descent loop. Zero is permitted.
     precision
         Floating-point precision to use for the iteration.
-    preconditioner
-        Optional callable returning a preconditioned residual direction. If
-        ``None`` the truncated Neumann series of order ``neumann_order`` is
-        used.
     neumann_order
-        Order of the truncated Neumann series used when ``preconditioner`` is
-        ``None``.
+        Order of the truncated Neumann-series left preconditioner.
     correction_type
         Descent update to apply. ``"steepest_descent"`` or
         ``"minimal_residual"``.
     initial_guess
         Optional starting iterate for the solve. Defaults to the zero vector.
+    instrumented
+        When ``True`` the logging arrays are populated on each iteration.
     logging_initial_guess
         Optional array recording the starting iterate. Expected shape is
         ``(stage_slots, n)`` where ``n`` matches ``rhs``.
@@ -359,8 +734,6 @@ def krylov_solve(
     logging_preconditioned_vectors
         Optional tensor recording preconditioned residual directions. Expected
         shape is ``(stage_slots, max_iterations, n)``.
-    instrumented
-        When ``True`` the logging arrays are populated on each iteration.
     stage_index
         Stage slot identifying the row in the logging arrays that should be
         updated when ``instrumented`` is ``True``.
@@ -376,132 +749,51 @@ def krylov_solve(
             "Correction type must be 'steepest_descent' or 'minimal_residual'."
         )
 
-    vector = np.asarray(rhs, dtype=precision)
+    dtype, scalar_type = resolve_precision_signature(precision)
+    matrix = np.asarray(operator_matrix, dtype=dtype)
+    vector = np.asarray(rhs, dtype=dtype)
+
+    minimal_residual = correction_type == "minimal_residual"
+    tol_value = scalar_type(tolerance)
+    iteration_limit = int(max_iterations)
+    order = int(neumann_order)
 
     if initial_guess is None:
-        solution = np.zeros_like(vector)
+        guess = np.zeros_like(vector)
     else:
-        solution = np.asarray(initial_guess, dtype=precision)
+        guess = np.asarray(initial_guess, dtype=dtype)
 
-    state_dim = vector.shape[0]
-    if instrumented and logging_initial_guess is not None:
-        logging_initial_guess[stage_index, :] = solution
-
-    tol_value = precision(tolerance)
-    tol_squared = tol_value * tol_value
-    iteration_limit = int(max_iterations)
-
-    applied = np.asarray(operator_apply(solution), dtype=precision)
-    residual = vector - applied
-    residual_squared = dot_product(residual, residual, precision=precision)
-    if residual_squared <= tol_squared:
-        return solution, True, 0
-
-    if preconditioner is None:
-        neumann_matrix = _neumann_preconditioner_matrix(
-            operator_apply,
-            vector.shape[0],
-            precision,
-            int(neumann_order),
-        )
-
-        def default_preconditioner(vector: Array) -> Array:
-            return neumann_matrix @ vector
-
-        preconditioner_fn = default_preconditioner
-    else:
-        preconditioner_fn = preconditioner
-
-    converged = False
-    iteration = 0
-
-    def _log_iteration(
-        index: int,
-        iterate: Array,
-        residual_vec: Array,
-        squared_norm: np.floating,
-        preconditioned_vec: Array,
-    ) -> None:
-        if not instrumented or index < 0:
-            return
-        if logging_iteration_guesses is not None and index < logging_iteration_guesses.shape[1]:
-            logging_iteration_guesses[stage_index, index, :] = iterate
-        if logging_residuals is not None and index < logging_residuals.shape[1]:
-            logging_residuals[stage_index, index, :] = residual_vec
-        if logging_squared_norms is not None and index < logging_squared_norms.shape[1]:
-            logging_squared_norms[stage_index, index] = squared_norm
-        if (
-            logging_preconditioned_vectors is not None
-            and index < logging_preconditioned_vectors.shape[1]
-        ):
-            logging_preconditioned_vectors[stage_index, index, :] = (
-                preconditioned_vec
-            )
-
-    while iteration < iteration_limit:
-        iteration += 1
-        direction = np.asarray(preconditioner_fn(residual), dtype=precision)
-
-        operator_direction = np.asarray(
-            operator_apply(direction),
-            dtype=precision,
-        )
-
-        if correction_type == "steepest_descent":
-            numerator = dot_product(
-                residual,
-                direction,
-                precision=precision,
-            )
-            denominator = dot_product(
-                operator_direction,
-                direction,
-                precision=precision,
-            )
-        else:
-            numerator = dot_product(
-                operator_direction,
-                residual,
-                precision=precision,
-            )
-            denominator = dot_product(
-                operator_direction,
-                operator_direction,
-                precision=precision,
-            )
-
-        if denominator == 0.0:
-            return solution, False, iteration
-
-        alpha = precision(numerator / denominator)
-        if converged:
-            alpha = precision(0.0)
-
-        solution = solution + alpha * direction
-        residual = residual - alpha * operator_direction
-        residual_squared = dot_product(
-            residual,
-            residual,
-            precision=precision,
-        )
-        _log_iteration(
-            iteration - 1,
-            solution,
-            residual,
-            residual_squared,
-            direction,
-        )
-        if residual_squared <= tol_squared:
-            converged = True
-            break
-
-    return solution, converged, iteration
+    initial_provided = initial_guess is not None
+    solution, converged, iteration = _krylov_solve_dense_impl(
+        vector,
+        matrix,
+        tol_value,
+        iteration_limit,
+        guess,
+        initial_provided,
+        order,
+        minimal_residual,
+        instrumented,
+        logging_initial_guess,
+        logging_iteration_guesses,
+        logging_residuals,
+        logging_squared_norms,
+        logging_preconditioned_vectors,
+        int(stage_index),
+    )
+    return (
+        np.asarray(solution, dtype=dtype),
+        bool(converged),
+        int(iteration),
+    )
 
 
 __all__ = [
     "Array",
     "DriverEvaluator",
     "STATUS_MASK",
+    "resolve_precision_signature",
+    "newton_solve",
     "dot_product",
     "euclidean_norm",
     "StepResult",

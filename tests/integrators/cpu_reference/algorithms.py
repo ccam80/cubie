@@ -38,14 +38,15 @@ from .cpu_utils import (
     Array,
     DriverEvaluator,
     StepResultLike,
-    euclidean_norm,
     make_step_result,
+    newton_solve,
     _encode_solver_status,
     krylov_solve,
 )
 
 from ..algorithms.instrumented import InstrumentationHostBuffers
 LoggingBuffers = InstrumentationHostBuffers
+
 
 class CPUStep:
     """Base class for CPU reference integrator steps."""
@@ -237,7 +238,7 @@ class CPUStep:
         """Return keyword arguments enabling Newton logging when requested."""
 
         if logging is None:
-            return {"instrumented": False}
+            return {"instrumented": False, "stage_index": stage_index}
         return {
             "stage_index": stage_index,
             "instrumented": True,
@@ -418,121 +419,6 @@ class CPUStep:
         )
         return observables, jacobian
 
-    def newton_solve(
-        self,
-        initial_guess: Array,
-        *,
-        stage_index: int = 0,
-        instrumented: bool = False,
-        newton_initial_guesses: Optional[Array] = None,
-        newton_iteration_guesses: Optional[Array] = None,
-        newton_residuals: Optional[Array] = None,
-        newton_squared_norms: Optional[Array] = None,
-        newton_iteration_scale: Optional[Array] = None,
-        linear_initial_guesses: Optional[Array] = None,
-        linear_iteration_guesses: Optional[Array] = None,
-        linear_residuals: Optional[Array] = None,
-        linear_squared_norms: Optional[Array] = None,
-        linear_preconditioned_vectors: Optional[Array] = None,
-    ) -> tuple[Array, bool, int]:
-        state = self.ensure_array(initial_guess, copy=True)
-        residual = self.residual(state)
-        norm = euclidean_norm(residual, precision=self.precision)
-        norm_squared = norm * norm
-        if instrumented and newton_initial_guesses is not None:
-            newton_initial_guesses[stage_index, :] = state
-
-        newton_log_index = 0
-
-        def _log_newton(
-            index: int,
-            candidate: Array,
-            residual_vec: Array,
-            squared_norm: np.floating,
-        ) -> None:
-            if not instrumented or index < 0:
-                return
-            if (
-                newton_iteration_guesses is not None
-                and index < newton_iteration_guesses.shape[1]
-            ):
-                newton_iteration_guesses[stage_index, index, :] = candidate
-            if newton_residuals is not None and index < newton_residuals.shape[1]:
-                newton_residuals[stage_index, index, :] = residual_vec
-            if (
-                newton_squared_norms is not None
-                and index < newton_squared_norms.shape[1]
-            ):
-                newton_squared_norms[stage_index, index] = squared_norm
-
-        _log_newton(newton_log_index, state, residual, norm_squared)
-        newton_log_index += 1
-
-        if norm <= self._newton_tol:
-            return state, True, 0
-
-        for iteration in range(self._newton_max_iters):
-            jacobian = self.jacobian(state)
-            linear_kwargs = {}
-            if instrumented:
-                slot = stage_index * max(self._newton_max_iters, 1) + iteration
-                linear_kwargs = {
-                    "stage_index": slot,
-                    "instrumented": True,
-                    "logging_initial_guess": linear_initial_guesses,
-                    "logging_iteration_guesses": linear_iteration_guesses,
-                    "logging_residuals": linear_residuals,
-                    "logging_squared_norms": linear_squared_norms,
-                    "logging_preconditioned_vectors": (
-                        linear_preconditioned_vectors
-                    ),
-                }
-
-            direction, converged, _ = self.linear_solve(
-                jacobian,
-                -residual,
-                **linear_kwargs,
-            )
-            if not converged:
-                return state, False, iteration + 1
-
-            step = np.asarray(direction, dtype=self.precision)
-            scale = self.precision(1.0)
-            accepted = False
-
-            for _ in range(self._newton_max_backtracks + 1):
-                trial_state = state + scale * step
-                trial_residual = self.residual(trial_state)
-                trial_norm = euclidean_norm(
-                    trial_residual,
-                    precision=self.precision,
-                )
-                trial_squared = trial_norm * trial_norm
-                _log_newton(newton_log_index, trial_state, trial_residual, trial_squared)
-                newton_log_index += 1
-                if trial_norm <= self._newton_tol:
-                    return trial_state, True, iteration + 1
-                if trial_norm < norm:
-                    state = trial_state
-                    residual = trial_residual
-                    norm = trial_norm
-                    norm_squared = trial_squared
-                    accepted = True
-                    break
-                scale = scale * self._newton_damping
-
-            if not accepted:
-                return state, False, iteration + 1
-
-            if (
-                instrumented
-                and newton_iteration_scale is not None
-                and iteration < newton_iteration_scale.shape[1]
-            ):
-                newton_iteration_scale[stage_index, iteration] = scale
-
-        return state, False, self._newton_max_iters
-
     def linear_solve(
         self,
         matrix: Array,
@@ -550,12 +436,9 @@ class CPUStep:
         coefficients = np.asarray(matrix, dtype=self.precision)
         vector = np.asarray(rhs, dtype=self.precision)
 
-        def operator_apply(candidate: Array) -> Array:
-            return coefficients @ candidate
-
         solution, converged, niters = krylov_solve(
+            coefficients,
             vector,
-            operator_apply=operator_apply,
             tolerance=self._linear_tol,
             max_iterations=self._linear_max_iters,
             precision=self.precision,
@@ -792,7 +675,18 @@ class CPUBackwardEulerStep(CPUStep):
             stage_index=0,
             logging=logging,
         )
-        increment, converged, niters = self.newton_solve(guess, **newton_kwargs)
+        increment, converged, niters = newton_solve(
+            guess,
+            precision=self.precision,
+            residual_fn=self.residual,
+            jacobian_fn=self.jacobian,
+            linear_solver=self.linear_solve,
+            newton_tol=self._newton_tol,
+            newton_max_iters=self._newton_max_iters,
+            newton_damping=self._newton_damping,
+            newton_max_backtracks=self._newton_max_backtracks,
+            **newton_kwargs,
+        )
         next_state = state_vector + increment
 
         observables = self.observables(
@@ -986,7 +880,18 @@ class CPUCrankNicolsonStep(CPUStep):
             logging=logging,
         )
 
-        increment, converged, niters = self.newton_solve(guess, **newton_kwargs)
+        increment, converged, niters = newton_solve(
+            guess,
+            precision=self.precision,
+            residual_fn=self.residual,
+            jacobian_fn=self.jacobian,
+            linear_solver=self.linear_solve,
+            newton_tol=self._newton_tol,
+            newton_max_iters=self._newton_max_iters,
+            newton_damping=self._newton_damping,
+            newton_max_backtracks=self._newton_max_backtracks,
+            **newton_kwargs,
+        )
         next_state = self._cn_previous_state + increment
 
         observables = self.observables(
@@ -1209,7 +1114,6 @@ class CPUDIRKStep(CPUStep):
         self._dirk_time = self.precision(0.0)
         self._dirk_dt_coeff = self.precision(0.0)
         self._dirk_increment = np.zeros(self._state_size, dtype=self.precision)
-        self._dirk_has_increment = False
 
     def residual(self, candidate: Array) -> Array:
         base_state = self._dirk_reference
@@ -1272,9 +1176,10 @@ class CPUDIRKStep(CPUStep):
 
         all_converged = True
         total_iters = 0
-        guess = self._dirk_increment
 
         for stage_index in range(stage_count):
+            guess = self._dirk_increment
+
             stage_state = state_vector.copy()
             for dependency in range(stage_index):
                 stage_state = stage_state + (
@@ -1308,8 +1213,6 @@ class CPUDIRKStep(CPUStep):
                         observables_stage
                     )
                     logging.stage_drivers[stage_index, :] = drivers_stage
-                if stage_index == stage_count - 1:
-                    self._dirk_has_increment = False
                 continue
 
             base_state = stage_state.copy()
@@ -1327,8 +1230,16 @@ class CPUDIRKStep(CPUStep):
                 logging=logging,
             )
 
-            increment, converged, niters = self.newton_solve(
+            increment, converged, niters = newton_solve(
                 guess,
+                precision=self.precision,
+                residual_fn=self.residual,
+                jacobian_fn=self.jacobian,
+                linear_solver=self.linear_solve,
+                newton_tol=self._newton_tol,
+                newton_max_iters=self._newton_max_iters,
+                newton_damping=self._newton_damping,
+                newton_max_backtracks=self._newton_max_backtracks,
                 **newton_kwargs,
             )
 
