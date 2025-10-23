@@ -725,7 +725,7 @@ def instrumented_cpu_step_results(
     time_value = 0.0
     results: List[InstrumentedStepResult] = []
     for step_idx in range(num_steps):
-        result = stepper(
+        result = stepper.step(
             state=current_state,
             params=params,
             dt=solver_settings["dt"],

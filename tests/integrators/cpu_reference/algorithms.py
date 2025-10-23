@@ -30,7 +30,6 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
 )
 
 from tests.integrators.algorithms.instrumented import (
-    InstrumentationHostBuffers,
     create_instrumentation_host_buffers,
 )
 
@@ -45,10 +44,8 @@ from .cpu_utils import (
     krylov_solve,
 )
 
-StepCallable = Callable[..., StepResultLike]
-
+from ..algorithms.instrumented import InstrumentationHostBuffers
 LoggingBuffers = InstrumentationHostBuffers
-
 
 class CPUStep:
     """Base class for CPU reference integrator steps."""
@@ -95,6 +92,47 @@ class CPUStep:
         self.tableau = tableau
         self.instrument = instrument
 
+        # Cached tableau-derived values (computed once at init)
+        self._stage_count: Optional[int] = None
+        self._first_same_as_last: Optional[bool] = None
+        self._a_matrix: Optional[Array] = None
+        self._b_weights: Optional[Array] = None
+        self._c_nodes: Optional[Array] = None
+        self._error_weights: Optional[Array] = None
+        # Optional fields for Rosenbrock-W style tableaus
+        self._C_matrix: Optional[Array] = None
+        self._gamma: Optional[np.floating[Any]] = None
+
+        tb = self.tableau
+        if tb is not None:
+            # Metadata
+            self._stage_count = getattr(tb, "stage_count", None)
+            self._first_same_as_last = getattr(tb, "first_same_as_last", None)
+            # Core RK vectors/matrices
+            a_values = getattr(tb, "a", None)
+            if a_values is not None:
+                typed_rows = tb.typed_rows(a_values, self.precision)
+                self._a_matrix = np.asarray(typed_rows, dtype=self.precision)
+            b_values = getattr(tb, "b", None)
+            if b_values is not None:
+                typed_vec = tb.typed_vector(b_values, self.precision)
+                self._b_weights = np.asarray(typed_vec, dtype=self.precision)
+            c_values = getattr(tb, "c", None)
+            if c_values is not None:
+                typed_vec = tb.typed_vector(c_values, self.precision)
+                self._c_nodes = np.asarray(typed_vec, dtype=self.precision)
+            # Embedded error weights
+            err = tb.error_weights(self.precision)
+            if err is not None:
+                self._error_weights = np.asarray(err, dtype=self.precision)
+            # Rosenbrock-W extensions if present
+            C_values = getattr(tb, "C", None)
+            if C_values is not None:
+                typed_rows = tb.typed_rows(C_values, self.precision)
+                self._C_matrix = np.asarray(typed_rows, dtype=self.precision)
+            if hasattr(tb, "gamma"):
+                self._gamma = self.precision(getattr(tb, "gamma"))
+
     def _tableau_rows(
         self, values: Optional[Sequence[Sequence[float]]]
     ) -> Optional[Array]:
@@ -121,7 +159,7 @@ class CPUStep:
 
         if self.tableau is None:
             return None
-        return getattr(self.tableau, "stage_count", None)
+        return self._stage_count
 
     @property
     def first_same_as_last(self) -> Optional[bool]:
@@ -129,7 +167,7 @@ class CPUStep:
 
         if self.tableau is None:
             return None
-        return getattr(self.tableau, "first_same_as_last", None)
+        return self._first_same_as_last
 
     @property
     def a_matrix(self) -> Optional[Array]:
@@ -137,7 +175,7 @@ class CPUStep:
 
         if self.tableau is None:
             return None
-        return self._tableau_rows(getattr(self.tableau, "a", None))
+        return self._a_matrix
 
     @property
     def b_weights(self) -> Optional[Array]:
@@ -145,7 +183,7 @@ class CPUStep:
 
         if self.tableau is None:
             return None
-        return self._tableau_vector(getattr(self.tableau, "b", None))
+        return self._b_weights
 
     @property
     def c_nodes(self) -> Optional[Array]:
@@ -153,7 +191,7 @@ class CPUStep:
 
         if self.tableau is None:
             return None
-        return self._tableau_vector(getattr(self.tableau, "c", None))
+        return self._c_nodes
 
     @property
     def error_weights(self) -> Optional[Array]:
@@ -161,10 +199,20 @@ class CPUStep:
 
         if self.tableau is None:
             return None
-        weights = self.tableau.error_weights(self.precision)
-        if weights is None:
+        return self._error_weights
+
+    # Optional Rosenbrock-W helpers exposed for subclasses
+    @property
+    def C_matrix(self) -> Optional[Array]:
+        if self.tableau is None:
             return None
-        return np.asarray(weights, dtype=self.precision)
+        return self._C_matrix
+
+    @property
+    def gamma(self) -> Optional[np.floating[Any]]:
+        if self.tableau is None:
+            return None
+        return self._gamma
 
     def _create_logging_buffers(self, stage_count: int) -> LoggingBuffers:
         """Return logging buffers sized for ``stage_count`` stages."""
@@ -238,9 +286,6 @@ class CPUStep:
             ),
         }
 
-    def __call__(self, **kwargs: object) -> StepResultLike:
-        return self.step(**kwargs)
-
     def step(self, **_: object) -> StepResultLike:
         """Execute a single integration step."""
 
@@ -306,7 +351,7 @@ class CPUStep:
 
     def ensure_array(
         self,
-        vector: Optional[Sequence[float] | Array],
+        vector: Optional[Union[Sequence[float], Array]],
         *,
         copy: bool = False,
     ) -> Array:
@@ -319,7 +364,7 @@ class CPUStep:
             return array.copy()
         return array
 
-    def drivers(self, time: np.floating) -> Array:
+    def drivers(self, time: float) -> Array:
         return self.driver_evaluator(self.precision(time))
 
     def mass_matrix_apply(self, vector: Array) -> Array:
@@ -330,7 +375,7 @@ class CPUStep:
         state: Array,
         params: Array,
         drivers: Array,
-        time: np.floating,
+        time: float,
     ) -> Array:
         return self.evaluator.observables(state, params, drivers, time)
 
@@ -340,7 +385,7 @@ class CPUStep:
         params: Array,
         drivers: Array,
         observables: Array,
-        time: np.floating,
+        time: float,
     ) -> Array:
         derivative, _ = self.evaluator.rhs(
             state,
@@ -356,7 +401,7 @@ class CPUStep:
         state: Array,
         params: Array,
         drivers: Array,
-        time: np.floating,
+        time: float,
     ) -> tuple[Array, Array]:
         observables = self.evaluator.observables(
             state,
@@ -950,7 +995,7 @@ class CPUCrankNicolsonStep(CPUStep):
             drivers_next,
             next_time,
         )
-        backward_result = self._backward(
+        backward_result = self._backward.step(
             state=state_vector,
             params=params_array,
             dt=dt_value,
@@ -1387,20 +1432,13 @@ class CPURosenbrockWStep(CPUStep):
 
     @property
     def C_matrix(self) -> Optional[Array]:
-        """Return the Jacobian update coefficients."""
+        """Return the Jacobian update coefficients (cached)."""
 
-        tableau = self.tableau
-        if tableau is None or not hasattr(tableau, "C"):
-            return None
-        C_values = getattr(tableau, "C")
-        if C_values is None:
-            return None
-        typed_rows = tableau.typed_rows(C_values, self.precision)
-        return np.asarray(typed_rows, dtype=self.precision)
+        return super().C_matrix
 
     @property
     def gamma(self) -> Optional[np.floating[Any]]:
-        """Return the stage Jacobian shift."""
+        """Return the stage Jacobian shift (cached)."""
 
         tableau = self.tableau
         if tableau is None or not hasattr(tableau, "gamma"):
@@ -1661,13 +1699,14 @@ class CPUBackwardEulerPCStep(CPUStep):
             current_time,
         )
         predictor = dt_value * derivative_now
-        return self._corrector(
+        return self._corrector.step(
             state=state_vector,
             params=params_array,
             dt=dt_value,
             initial_guess=predictor,
             time=current_time,
         )
+
 
 _STEP_CONSTRUCTOR_TO_CLASS = {
     ExplicitEulerStep: CPUExplicitEulerStep,
@@ -1804,7 +1843,7 @@ def get_ref_stepper(
     instrument: bool = False,
     newton_damping: float = 0.5,
     newton_max_backtracks: int = 8,
-) -> StepCallable:
+) -> CPUStep:
     """Return a configured CPU reference stepper for ``algorithm``."""
 
     factory = get_ref_step_factory(algorithm, tableau=tableau)

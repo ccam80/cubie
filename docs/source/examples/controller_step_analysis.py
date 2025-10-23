@@ -657,7 +657,7 @@ def run_reference_loop_with_history(
 
         timenow = perf_counter()
 
-        result = stepper(
+        result = stepper.step(
             state=state,
             params=params,
             dt=dt,

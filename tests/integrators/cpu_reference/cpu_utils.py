@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from numba import njit
 from numpy.typing import NDArray
 
 from cubie.integrators import IntegratorReturnCodes
@@ -22,34 +23,31 @@ def _ensure_array(vector: Sequence[float] | Array, dtype: np.dtype) -> Array:
         raise ValueError("Expected a one-dimensional array of samples.")
     return array
 
-
+@njit
 def dot_product(
-    left: Sequence[float] | Array,
-    right: Sequence[float] | Array,
-    *,
+    left: Array,
+    right: Array,
     precision: np.dtype,
 ) -> np.floating:
     """Return the dot product of ``left`` and ``right`` in ``precision``."""
 
-    left_vector = np.asarray(left, dtype=precision)
-    right_vector = np.asarray(right, dtype=precision)
-    product = np.multiply(left_vector, right_vector, dtype=precision)
+    product = np.multiply(left, right)
     return product.sum(dtype=precision)
 
-
-def squared_norm(vector: Sequence[float] | Array, *, precision: np.dtype) -> np.floating:
+@njit
+def squared_norm(vector: Array, precision: np.dtype) -> np.floating:
     """Return the squared Euclidean norm of ``vector`` in ``precision``."""
 
-    typed = np.asarray(vector, dtype=precision)
-    squared = np.multiply(typed, typed, dtype=precision)
+    squared = np.multiply(vector, vector)
     return squared.sum(dtype=precision)
 
-
+@njit
 def euclidean_norm(vector: Sequence[float] | Array, *, precision: np.dtype) -> np.floating:
     """Return the Euclidean norm of ``vector`` in ``precision``."""
 
-    squared = squared_norm(vector, precision=precision)
-    return np.sqrt(squared, dtype=precision)
+    squared = np.multiply(vector, vector)
+    sum = squared.sum(dtype=precision)
+    return np.sqrt(sum)
 
 
 def _neumann_preconditioner_matrix(
@@ -302,10 +300,8 @@ class DriverEvaluator:
             boundary_condition=self.boundary_condition,
         )
 
-
 def krylov_solve(
     rhs: Array,
-    *,
     operator_apply: Callable[[Array], Array],
     tolerance: np.floating,
     max_iterations: int,

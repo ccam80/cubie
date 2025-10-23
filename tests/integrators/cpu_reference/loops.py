@@ -165,7 +165,7 @@ def run_reference_loop(
             else:
                 fixed_step_count += 1
 
-        result = stepper(
+        result = stepper.step(
             state=state,
             params=params,
             dt=dt,

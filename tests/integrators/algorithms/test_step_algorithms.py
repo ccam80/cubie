@@ -968,14 +968,14 @@ def _execute_cpu_step_twice(
         newton_max_backtracks=solver_settings["newton_max_backtracks"],
     )
 
-    first_result = stepper(
+    first_result = stepper.step(
         state=state,
         params=params,
         dt=dt,
         time=0.0,
     )
 
-    second_result = stepper(
+    second_result = stepper.step(
         state=first_result.state.astype(precision, copy=True),
         params=params,
         dt=dt,
@@ -1034,7 +1034,7 @@ def cpu_step_results(
         newton_max_backtracks=solver_settings["newton_max_backtracks"],
     )
 
-    result = stepper(
+    result = stepper.step(
         state=state,
         params=params,
         dt=dt,
