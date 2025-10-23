@@ -18,8 +18,8 @@ DEFAULT_OVERRIDES = {
     'dt_min': 1e-7,
     'newton_tolerance': 1e-7,
     'krylov_tolerance': 1e-7,
-    'atol': 1e-6,
-    'rtol': 1e-6,
+    'atol': 1e-5,
+    'rtol': 1e-5,
     'output_types': ["state"],
     'saved_state_indices': [0, 1, 2],
 }

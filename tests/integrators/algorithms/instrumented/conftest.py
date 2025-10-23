@@ -1,6 +1,6 @@
 import inspect
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union, Tuple
 
 import numpy as np
 import pytest
@@ -73,6 +73,24 @@ def num_steps() -> int:
     """Number of consecutive step executions for instrumentation."""
 
     return 11
+
+@pytest.fixture(scope="session")
+def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tuple[int, ...]:
+    """random time."""
+    twenty_randoms = (1e-2, 1e-3, 1e-4, 1e-5, 1e-2, 1e-2, 1e-3, 5e-3, 5e-4,
+                      5e-5, 1e-2, 1e-3, 1e-4, 1e-5, 1e-2, 1e-2, 1e-3, 5e-3,
+                      5e-4, 5e-5)
+    twenty_randoms = tuple(precision(step) for step in twenty_randoms)
+    haserror=True
+    hastableau = getattr(instrumented_step_object, "tableau")
+    if hastableau is not None:
+        haserror = instrumented_step_object.tableau.has_error_estimate
+    if ((solver_settings["algorithm"] in ["euler", "backwards_euler",
+            "backwards_euler_pc"]) or not haserror):
+        dts = (solver_settings["dt"], ) * num_steps
+    else:
+        dts = twenty_randoms[:num_steps]
+    return dts
 
 INSTRUMENTATION_DEVICE_FIELDS = (
     "residuals",
@@ -291,6 +309,7 @@ def instrumented_step_kernel(
     driver_array,
     step_inputs,
     num_steps,
+    dts,
 ) -> InstrumentedKernel:
     """Compile a CUDA kernel that executes the instrumented step."""
 
@@ -361,6 +380,7 @@ def instrumented_step_kernel(
         observable_length = observables_vec.shape[0]
         for step_idx in range(num_steps):
             first_step_flag = int16(1) if step_idx == 0 else int16(0)
+            dt_scalar = dts[step_idx]
             result = step_function(
                 state_vec,
                 proposed_matrix[step_idx],
@@ -396,17 +416,22 @@ def instrumented_step_kernel(
                 persistent,
             )
             status_vec[step_idx] = result
-            if step_idx + 1 >= num_steps:
-                continue
-            for elem in range(state_length):
-                state_vec[elem] = proposed_matrix[step_idx, elem]
-            for drv_idx in range(driver_length):
-                drivers_vec[drv_idx] = proposed_drivers_matrix[step_idx, drv_idx]
-            for obs_idx in range(observable_length):
-                observables_vec[obs_idx] = proposed_observables_matrix[
-                    step_idx, obs_idx
-                ]
-            current_time = current_time + dt_scalar
+
+            if step_idx == 5 or step_idx == 8:
+                accepted_flag = int16(0)
+            else:
+                if step_idx + 1 >= num_steps:
+                    continue
+                for elem in range(state_length):
+                    state_vec[elem] = proposed_matrix[step_idx, elem]
+                for drv_idx in range(driver_length):
+                    drivers_vec[drv_idx] = proposed_drivers_matrix[step_idx, drv_idx]
+                for obs_idx in range(observable_length):
+                    observables_vec[obs_idx] = proposed_observables_matrix[
+                        step_idx, obs_idx
+                    ]
+                accepted_flag = int16(1)
+                current_time = current_time + dt_scalar
 
     return InstrumentedKernel(
         kernel,
@@ -642,6 +667,7 @@ def instrumented_cpu_step_results(
     instrumented_step_object,
     instrumented_step_configuration: ResolvedInstrumentedStep,
     num_steps,
+    dts
 ) -> List[InstrumentedStepResult]:
     """Execute the CPU reference step with instrumentation enabled."""
 
@@ -721,6 +747,9 @@ def instrumented_cpu_step_results(
         newton_max_backtracks=solver_settings["newton_max_backtracks"],
     )
 
+
+
+
     current_state = state.copy()
     time_value = 0.0
     results: List[InstrumentedStepResult] = []
@@ -728,7 +757,7 @@ def instrumented_cpu_step_results(
         result = stepper.step(
             state=current_state,
             params=params,
-            dt=solver_settings["dt"],
+            dt=dts[step_idx],
             time=time_value,
         )
         if not isinstance(result, InstrumentedStepResult):
@@ -736,10 +765,12 @@ def instrumented_cpu_step_results(
                 "Expected InstrumentedStepResult from CPU reference step."
             )
         results.append(_copy_result(result))
-        current_state = np.asarray(
-            result.state, dtype=cpu_system.precision
-        ).copy()
-        time_value = time_value + solver_settings["dt"]
+        if step_idx != 5 and step_idx != 8: #simulate rejections at two
+        # arbitrary points
+            current_state = np.asarray(
+                result.state, dtype=cpu_system.precision
+            ).copy()
+            time_value = time_value + dts[step_idx]
 
     return results
 

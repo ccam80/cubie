@@ -635,7 +635,7 @@ class CPUExplicitEulerStep(CPUStep):
         dt: Optional[float] = None,
         time: float = 0.0,
     ) -> StepResultLike:
-        state_vector = self.ensure_array(state, copy=True)
+        state_vector = self.ensure_array(state)
         params_array = self.ensure_array(params)
         dt_value = self.precision(dt)
         current_time = self.precision(time)
@@ -1076,7 +1076,7 @@ class CPUERKStep(CPUStep):
         dt: Optional[float] = None,
         time: float = 0.0,
     ) -> StepResultLike:
-        state_vector = self.ensure_array(state, copy=True)
+        state_vector = self.ensure_array(state)
         params_array = self.ensure_array(params)
         dt_value = self.precision(dt)
         current_time = self.precision(time)
@@ -1250,7 +1250,7 @@ class CPUDIRKStep(CPUStep):
         dt: Optional[float] = None,
         time: float = 0.0,
     ) -> StepResultLike:
-        state_vector = self.ensure_array(state, copy=True)
+        state_vector = self.ensure_array(state)
         params_array = self.ensure_array(params)
         dt_value = self.precision(dt)
         current_time = self.precision(time)

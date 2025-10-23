@@ -92,6 +92,8 @@ class ExplicitEulerStep(ODEExplicitStep):
                 numba_precision[:, :, :],
                 numba_precision[:, :, :],
                 numba_precision[:, :],
+                numba_precision[:],
+                numba_precision[:, :],
                 numba_precision,
                 numba_precision,
                 int16,

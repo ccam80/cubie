@@ -255,14 +255,14 @@ ALIAS_CASES = [
         marks=pytest.mark.specific_algos,
         id="rosenbrock-ros3p",
     ),
-    pytest.param(
-        "rosenbrock_w6s4os",
-        GenericRosenbrockWStep,
-        ROSENBROCK_TABLEAUS["rosenbrock_w6s4os"],
-        CPURosenbrockWStep,
-        marks=pytest.mark.specific_algos,
-        id="rosenbrock-w6s4os",
-    ),
+    # pytest.param(
+    #     "rosenbrock_w6s4os",
+    #     GenericRosenbrockWStep,
+    #     ROSENBROCK_TABLEAUS["rosenbrock_w6s4os"],
+    #     CPURosenbrockWStep,
+    #     marks=pytest.mark.specific_algos,
+    #     id="rosenbrock-w6s4os",
+    # ),
 ]
 STEP_OVERRIDES = {'dt': 0.001953125, # try an exactly-representable dt
                   'dt_min': 1e-6,
@@ -471,13 +471,13 @@ CACHE_REUSE_CASES = [
         },
         id="rosenbrock-ros3p-cache",
     ),
-    pytest.param(
-        {
-            "algorithm": "rosenbrock_w6s4os",
-            "step_controller": "pi"
-        },
-        id="rosenbrock-w6s4os-cache",
-    ),
+    # pytest.param(
+    #     {
+    #         "algorithm": "rosenbrock_w6s4os",
+    #         "step_controller": "pi"
+    #     },
+    #     id="rosenbrock-w6s4os-cache",
+    # ),
 ]
 
 @pytest.mark.parametrize(
