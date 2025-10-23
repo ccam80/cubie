@@ -828,7 +828,7 @@ def _execute_step_twice(
         for cache_idx in range(shared.shape[0]):
             shared[cache_idx] = zero
 
-        driver_function(zero, driver_coefficients, drivers_current_vec)
+        driver_function(zero, driver_coeffs_vec, drivers_current_vec)
         observables_function(
             state_vec,
             params_vec,

@@ -224,6 +224,7 @@ class GustafssonController(BaseAdaptiveStepController):
                 Non-zero when the step is rejected at the minimum size.
             """
 
+            current_dt = dt[0]
             dt_prev = max(local_temp[0], precision(1e-16))
             err_prev = max(local_temp[1], precision(1e-16))
 
@@ -259,10 +260,10 @@ class GustafssonController(BaseAdaptiveStepController):
                     and (gain <= deadband_max)
                 )
                 gain = selp(within_deadband, unity_gain, gain)
-            dt_new_raw = dt[0] * gain
+            dt_new_raw = current_dt * gain
             dt[0] = clamp(dt_new_raw, dt_min, dt_max)
 
-            local_temp[0] = dt[0]
+            local_temp[0] = current_dt
             local_temp[1] = nrm2
             ret = int32(0) if dt_new_raw > dt_min else int32(8)
             return ret

@@ -20,7 +20,7 @@ from cubie.integrators.algorithms.generic_rosenbrockw_tableaus import (
     ROSENBROCK_W6S4OS_TABLEAU,
     RosenbrockTableau,
 )
-from .matrix_free_solvers import linear_solver_cached_factory
+from .matrix_free_solvers import inst_linear_solver_cached_factory
 
 
 ROSENBROCK_DEFAULTS = StepControlDefaults(
@@ -145,15 +145,12 @@ class GenericRosenbrockWStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        linear_solver = linear_solver_cached_factory(
-            linear_operator,
-            n=n,
-            preconditioner=preconditioner,
-            correction_type=correction_type,
-            tolerance=krylov_tolerance,
-            max_iters=max_linear_iters,
-            precision=config.precision,
-        )
+        linear_solver = inst_linear_solver_cached_factory(linear_operator, n=n,
+                                                          preconditioner=preconditioner,
+                                                          correction_type=correction_type,
+                                                          tolerance=krylov_tolerance,
+                                                          max_iters=max_linear_iters,
+                                                          precision=config.precision)
 
         return linear_solver, prepare_jacobian, cached_jvp
 

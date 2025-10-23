@@ -1,10 +1,10 @@
-import inspect
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Union, Tuple
+from typing import Dict, List, Optional, Union, Tuple, Any
 
 import numpy as np
 import pytest
 from numba import cuda, from_dtype, int16
+from numba.core.types import int32
 
 from cubie.integrators.algorithms import (
     BackwardsEulerPCStep,
@@ -17,7 +17,9 @@ from cubie.integrators.algorithms import (
     GenericRosenbrockWStep,
     resolve_alias,
     resolve_supplied_tableau,
+    BaseAlgorithmStep,
 )
+from cubie._utils import split_applicable_settings
 
 from .backwards_euler import (
     BackwardsEulerStep as InstrumentedBackwardsEulerStep,
@@ -46,7 +48,7 @@ from tests.integrators.algorithms.instrumented import (
     create_instrumentation_host_buffers,
 )
 
-STEP_CONSTRUCTOR_TO_INSTRUMENTED: Dict[type, Callable[..., object]] = {
+STEP_CONSTRUCTOR_TO_INSTRUMENTED: Dict[type, BaseAlgorithmStep] = {
     ExplicitEulerStep: InstrumentedExplicitEulerStep,
     BackwardsEulerStep: InstrumentedBackwardsEulerStep,
     BackwardsEulerPCStep: InstrumentedBackwardsEulerPCStep,
@@ -57,15 +59,68 @@ STEP_CONSTRUCTOR_TO_INSTRUMENTED: Dict[type, Callable[..., object]] = {
 }
 
 
-@dataclass
-class InstrumentedKernel:
-    """CUDA kernel wrapper and launch metadata for instrumented steps."""
+def get_instrumented_step(
+    precision: type,
+    settings: Optional[Dict[str, object]] = None,
+    warn_on_unused: bool = True,
+    **kwargs: Any,
+) -> BaseAlgorithmStep:
+    """Factory mirroring ``get_algorithm_step`` but returning instrumented step.
 
-    function: Callable
-    shared_bytes: int
-    persistent_len: int
-    numba_precision: type
-    num_steps: int
+    This is a near-direct copy of the public ``get_algorithm_step`` logic with a
+    single change: after resolving the algorithm constructor we map it to the
+    instrumented implementation using ``STEP_CONSTRUCTOR_TO_INSTRUMENTED`` and
+    then filter and instantiate that class.
+    """
+
+    algorithm_settings: Dict[str, object] = {}
+    if settings is not None:
+        algorithm_settings.update(settings)
+    algorithm_settings.update(kwargs)
+
+    algorithm_value = algorithm_settings.pop("algorithm", None)
+    if algorithm_value is None:
+        raise ValueError("Algorithm settings must include 'algorithm'.")
+
+    if isinstance(algorithm_value, str):
+        try:
+            algorithm_type, resolved_tableau = resolve_alias(algorithm_value)
+        except KeyError as exc:
+            raise ValueError(f"Unknown algorithm '{algorithm_value}'.") from exc
+    elif isinstance(algorithm_value, ButcherTableau):
+        algorithm_type, resolved_tableau = resolve_supplied_tableau(
+            algorithm_value
+        )
+    else:
+        raise TypeError(
+            "Expected algorithm name or ButcherTableau instance, "
+            f"received {type(algorithm_value).__name__}."
+        )
+
+    algorithm_settings["precision"] = precision
+
+    try:
+        step_class = STEP_CONSTRUCTOR_TO_INSTRUMENTED[algorithm_type]
+    except KeyError as error:
+        raise ValueError(
+            f"No instrumented implementation registered for {algorithm_type}."
+        ) from error
+
+    filtered, missing, unused = split_applicable_settings(
+        step_class,
+        algorithm_settings,
+        warn_on_unused=warn_on_unused,
+    )
+    if missing:
+        missing_keys = ", ".join(sorted(missing))
+        raise ValueError(
+            f"{step_class.__name__} requires settings for: {missing_keys}"
+        )
+
+    if resolved_tableau is not None:
+        filtered["tableau"] = resolved_tableau
+
+    return step_class(**filtered)
 
 
 @pytest.fixture(scope="session")
@@ -118,12 +173,12 @@ def step_inputs(
     precision,
     initial_state,
     solver_settings,
-    cpu_driver_evaluator,
+    driver_array,
 ) -> dict:
     """State, parameters, and drivers for a single step execution."""
     width = system.num_drivers
     driver_coefficients = np.array(
-        cpu_driver_evaluator.coefficients, dtype=precision, copy=True
+        driver_array.coefficients, dtype=precision, copy=True
     )
     return {
         "state": initial_state,
@@ -161,169 +216,72 @@ class DeviceInstrumentedResult:
     stage_count: Optional[int] = None
     extra_vectors: Dict[str, np.ndarray] = field(default_factory=dict)
 
-@dataclass(frozen=True)
-class ResolvedInstrumentedStep:
-    """Instrumented step constructor and tableau resolved from settings."""
-
-    step_class: Callable[..., object]
-    tableau: Optional[ButcherTableau]
-
-
-def _resolve_instrumented_step_configuration(
-    algorithm: str,
-    tableau: Optional[Union[str, ButcherTableau]],
-) -> ResolvedInstrumentedStep:
-    """Return the instrumented constructor and tableau for ``algorithm``."""
-
-    try:
-        step_constructor, resolved_tableau = resolve_alias(algorithm.lower())
-    except KeyError as error:
-        raise ValueError(
-            f"Unknown instrumented algorithm '{algorithm}'."
-        ) from error
-
-    tableau_value = resolved_tableau
-    if isinstance(tableau, str):
-        try:
-            override_constructor, tableau_override = resolve_alias(
-            tableau.lower()
-        )
-        except KeyError as error:
-            raise ValueError(
-                f"Unknown {step_constructor.__name__} tableau '{tableau}'."
-            ) from error
-        if tableau_override is None:
-            raise ValueError(
-                f"Alias '{tableau}' does not reference a tableau."
-            )
-        if override_constructor is not step_constructor:
-            raise ValueError(
-                "Tableau alias does not match the requested algorithm type."
-            )
-        tableau_value = tableau_override
-    elif isinstance(tableau, ButcherTableau):
-        override_constructor, tableau_override = resolve_supplied_tableau(
-            tableau
-        )
-        if override_constructor is not step_constructor:
-            raise ValueError(
-                "Tableau instance does not match the requested algorithm type."
-            )
-        tableau_value = tableau_override
-    elif tableau is not None:
-        raise TypeError(
-            "Expected tableau alias or ButcherTableau instance, "
-            f"received {type(tableau).__name__}."
-        )
-
-    try:
-        step_class = STEP_CONSTRUCTOR_TO_INSTRUMENTED[step_constructor]
-    except KeyError as error:
-        raise ValueError(
-            f"No instrumented implementation registered for {algorithm}."
-        ) from error
-
-    return ResolvedInstrumentedStep(
-        step_class=step_class,
-        tableau=tableau_value,
-    )
-
-
-@pytest.fixture(scope="session")
-def instrumented_step_configuration(
-    solver_settings,
-) -> ResolvedInstrumentedStep:
-    """Resolve the instrumented step constructor and tableau."""
-
-    return _resolve_instrumented_step_configuration(
-        solver_settings["algorithm"],
-        solver_settings.get("tableau"),
-    )
-
-
-@pytest.fixture(scope="session")
-def instrumented_step_class(
-    instrumented_step_configuration: ResolvedInstrumentedStep,
-) -> Callable[..., object]:
-    """Return the instrumented step class resolved for the algorithm."""
-
-    return instrumented_step_configuration.step_class
-
-
 @pytest.fixture(scope="session")
 def instrumented_step_object(
-    instrumented_step_class: Callable[..., object],
     system,
-    solver_settings,
-    precision: np.dtype,
-    driver_array,
-    instrumented_step_configuration: ResolvedInstrumentedStep,
+    algorithm_settings,
+    precision,
 ):
     """Instantiate the configured instrumented step implementation."""
 
-    driver_function = (
-        None if driver_array is None else driver_array.evaluation_function
-    )
-    step_kwargs = {
-        "precision": precision,
-        "n": system.sizes.states,
-        "dt": solver_settings["dt"],
-        "dxdt_function": system.dxdt_function,
-        "observables_function": system.observables_function,
-        "driver_function": driver_function,
-        "get_solver_helper_fn": system.get_solver_helper,
-        "preconditioner_order": solver_settings["preconditioner_order"],
-        "krylov_tolerance": solver_settings["krylov_tolerance"],
-        "max_linear_iters": solver_settings["max_linear_iters"],
-        "linear_correction_type": solver_settings["correction_type"],
-        "newton_tolerance": solver_settings["newton_tolerance"],
-        "max_newton_iters": solver_settings["max_newton_iters"],
-        "newton_damping": solver_settings["newton_damping"],
-        "newton_max_backtracks": solver_settings["newton_max_backtracks"],
-    }
-    tableau = instrumented_step_configuration.tableau
-    if tableau is not None:
-        step_kwargs["tableau"] = tableau
-
-    signature = inspect.signature(instrumented_step_class)
-    filtered_kwargs = {}
-    for name, parameter in signature.parameters.items():
-        if name == "self":
-            continue
-        if name in step_kwargs:
-            filtered_kwargs[name] = step_kwargs[name]
-        elif parameter.default is inspect._empty:
-            raise TypeError(
-                f"Missing required argument '{name}' for "
-                f"{instrumented_step_class.__name__}."
-            )
-    return instrumented_step_class(**filtered_kwargs)
+    # Use the mirrored factory to instantiate the instrumented implementation.
+    # We pass the whole solver_settings mapping so the factory can filter
+    # arguments identically to the production path.
+    return get_instrumented_step(precision, algorithm_settings)
 
 
 @pytest.fixture(scope="session")
-def instrumented_step_kernel(
+def instrumented_step_results(
     instrumented_step_object,
-    system,
-    solver_settings,
-    precision: np.dtype,
-    driver_array,
     step_inputs,
+    solver_settings,
+    system,
+    precision,
+    dts,
     num_steps,
-) -> InstrumentedKernel:
-    """Compile a CUDA kernel that executes the instrumented step."""
+    driver_array,
+) -> List[DeviceInstrumentedResult]:
+    """Execute the instrumented CUDA step loop and collect host arrays.
 
+    Fetch shared memory and sizing values from instrumented_step_object.
+    """
+
+    # Bind step-specific functions/values in the same way as device_step_results
     step_function = instrumented_step_object.step_function
     numba_precision = from_dtype(precision)
     shared_elems = instrumented_step_object.shared_memory_required
     shared_bytes = precision(0).itemsize * shared_elems
     persistent_len = max(1, instrumented_step_object.persistent_local_required)
-    driver_function = (
-        None if driver_array is None else driver_array.evaluation_function
-    )
+    driver_function = None if driver_array is None else driver_array.evaluation_function
+    # use system-provided observables function
     observables_function = system.observables_function
 
+    n_states = system.sizes.states
+    n_observables = system.sizes.observables
+    stage_count_attr = getattr(
+        getattr(instrumented_step_object, "tableau", None),
+        "stage_count",
+        None,
+    )
+    if stage_count_attr is None:
+        stage_count_attr = getattr(instrumented_step_object, "stage_count", 0)
+    stage_count = int32(stage_count_attr or 1)
+    max_newton_iters = int32(solver_settings["max_newton_iters"])
+    max_newton_backtracks = int32(solver_settings["newton_max_backtracks"])
+    linear_max_iters = int32(solver_settings["max_linear_iters"])
 
-    @cuda.jit
+    params = np.asarray(step_inputs["parameters"], dtype=precision)
+    driver_coefficients = np.asarray(
+        step_inputs["driver_coefficients"], dtype=precision
+    )
+    drivers = np.asarray(step_inputs["drivers"], dtype=precision)
+    observables = np.zeros(system.sizes.observables, dtype=precision)
+    d_dts = cuda.to_device(dts)
+    d_params = cuda.to_device(params)
+    d_driver_coeffs = cuda.to_device(driver_coefficients)
+
+    # Define the CUDA kernel inside the results fixture so closures match device fixture
+    @cuda.jit(debug=True)
     def kernel(
         state_vec,
         proposed_matrix,
@@ -361,10 +319,10 @@ def instrumented_step_kernel(
         shared = cuda.shared.array(0, dtype=numba_precision)
         persistent = cuda.local.array(persistent_len, dtype=numba_precision)
         zero = numba_precision(0.0)
-        shared_length = shared.shape[0]
-        for cache_idx in range(shared_length):
+        for cache_idx in range(shared_elems):
             shared[cache_idx] = zero
         current_time = time_scalar
+        # Call driver/evaluator and observables similarly to device fixture
         if driver_function is not None:
             driver_function(current_time, driver_coeffs_vec, drivers_vec)
         observables_function(
@@ -373,7 +331,8 @@ def instrumented_step_kernel(
             drivers_vec,
             observables_vec,
             current_time,
-        )
+            )
+
         accepted_flag = int16(1)
         state_length = state_vec.shape[0]
         driver_length = drivers_vec.shape[0]
@@ -434,15 +393,108 @@ def instrumented_step_kernel(
                 accepted_flag = int16(1)
                 current_time = current_time + dt_scalar
 
-    # Create device array of per-step dt values to avoid capturing host closures
 
-    return InstrumentedKernel(
-        kernel,
-        shared_bytes,
-        persistent_len,
-        numba_precision,
-        num_steps,
+    # Inline the previously nested _run_steps function: allocate buffers, launch kernel, copy results
+    initial_state = np.asarray(step_inputs["state"], dtype=precision)
+
+    host_buffers = create_instrumentation_host_buffers(
+        precision=precision,
+        stage_count=stage_count,
+        state_size=n_states,
+        observable_size=n_observables,
+        driver_size=drivers.shape[0],
+        newton_max_iters=max_newton_iters,
+        newton_max_backtracks=max_newton_backtracks,
+        linear_max_iters=linear_max_iters,
+        num_steps=num_steps,
     )
+    status = np.zeros(num_steps, dtype=np.int32)
+
+    d_state = cuda.to_device(initial_state)
+    d_proposed = cuda.to_device(
+        np.zeros((num_steps, initial_state.shape[0]), dtype=precision)
+    )
+    d_drivers = cuda.to_device(drivers)
+    d_proposed_drivers = cuda.to_device(
+        np.zeros((num_steps, drivers.shape[0]), dtype=precision)
+    )
+    d_observables = cuda.to_device(observables)
+    d_proposed_observables = cuda.to_device(
+        np.zeros((num_steps, observables.shape[0]), dtype=precision)
+    )
+    d_error = cuda.to_device(np.zeros((num_steps, n_states), dtype=precision))
+    device_buffers = {
+        name: cuda.to_device(getattr(host_buffers, name))
+        for name in INSTRUMENTATION_DEVICE_FIELDS
+    }
+    d_status = cuda.to_device(status)
+
+    # Unpack device buffers into local variables to avoid dict-closure issues
+    # when passing them to the kernel and to mirror the device fixture's
+    # ordering/scope exactly.
+    d_residuals = device_buffers["residuals"]
+    d_jacobian_updates = device_buffers["jacobian_updates"]
+    d_stage_states = device_buffers["stage_states"]
+    d_stage_derivatives = device_buffers["stage_derivatives"]
+    d_stage_observables = device_buffers["stage_observables"]
+    d_stage_drivers = device_buffers["stage_drivers"]
+    d_stage_increments = device_buffers["stage_increments"]
+    d_newton_initial_guesses = device_buffers["newton_initial_guesses"]
+    d_newton_iteration_guesses = device_buffers["newton_iteration_guesses"]
+    d_newton_residuals = device_buffers["newton_residuals"]
+    d_newton_squared_norms = device_buffers["newton_squared_norms"]
+    d_newton_iteration_scale = device_buffers["newton_iteration_scale"]
+    d_linear_initial_guesses = device_buffers["linear_initial_guesses"]
+    d_linear_iteration_guesses = device_buffers["linear_iteration_guesses"]
+    d_linear_residuals = device_buffers["linear_residuals"]
+    d_linear_squared_norms = device_buffers["linear_squared_norms"]
+    d_linear_preconditioned_vectors = device_buffers["linear_preconditioned_vectors"]
+
+    # Launch kernel (single block/grid as before) and synchronize
+    kernel[1, 1, 0, shared_bytes](
+        d_state,
+        d_proposed,
+        d_params,
+        d_driver_coeffs,
+        d_drivers,
+        d_proposed_drivers,
+        d_observables,
+        d_proposed_observables,
+        d_error,
+        d_residuals,
+        d_jacobian_updates,
+        d_stage_states,
+        d_stage_derivatives,
+        d_stage_observables,
+        d_stage_drivers,
+        d_stage_increments,
+        d_newton_initial_guesses,
+        d_newton_iteration_guesses,
+        d_newton_residuals,
+        d_newton_squared_norms,
+        d_newton_iteration_scale,
+        d_linear_initial_guesses,
+        d_linear_iteration_guesses,
+        d_linear_residuals,
+        d_linear_squared_norms,
+        d_linear_preconditioned_vectors,
+        d_status,
+        d_dts,
+        numba_precision(0.0),
+    )
+    cuda.synchronize()
+
+    results = _copy_device_instrumentation(
+        d_proposed,
+        d_proposed_observables,
+        d_error,
+        device_buffers,
+        host_buffers,
+        d_status,
+        num_steps=num_steps,
+    )
+
+    return results
 
 
 def _copy_device_instrumentation(
@@ -532,143 +584,12 @@ def _copy_device_instrumentation(
 
 
 @pytest.fixture(scope="session")
-def instrumented_step_results(
-    instrumented_step_kernel: InstrumentedKernel,
-    instrumented_step_object,
-    step_inputs,
-    solver_settings,
-    system,
-    precision,
-    dts,
-) -> List[DeviceInstrumentedResult]:
-    """Execute the instrumented CUDA step loop and collect host arrays."""
-
-    kernel = instrumented_step_kernel.function
-    shared_bytes = instrumented_step_kernel.shared_bytes
-    numba_precision = instrumented_step_kernel.numba_precision
-    num_steps = instrumented_step_kernel.num_steps
-    n_states = system.sizes.states
-    n_observables = system.sizes.observables
-    stage_count_attr = getattr(
-        getattr(instrumented_step_object, "tableau", None),
-        "stage_count",
-        None,
-    )
-    if stage_count_attr is None:
-        stage_count_attr = getattr(instrumented_step_object, "stage_count", 0)
-    stage_count = int(stage_count_attr or 0)
-    max_newton_iters = int(solver_settings["max_newton_iters"])
-    max_newton_backtracks = int(solver_settings["newton_max_backtracks"])
-    linear_max_iters = int(solver_settings["max_linear_iters"])
-
-    params = np.asarray(step_inputs["parameters"], dtype=precision)
-    driver_coefficients = np.asarray(
-        step_inputs["driver_coefficients"], dtype=precision
-    )
-    drivers = np.asarray(step_inputs["drivers"], dtype=precision)
-    observables = np.zeros(system.sizes.observables, dtype=precision)
-    d_dts = cuda.to_device(dts)
-    d_params = cuda.to_device(params)
-    d_driver_coeffs = cuda.to_device(driver_coefficients)
-
-    def _run_steps(
-        current_state,
-        current_drivers,
-        current_observables,
-        time_value,
-    ) -> List[DeviceInstrumentedResult]:
-        host_buffers = create_instrumentation_host_buffers(
-            precision=precision,
-            stage_count=stage_count,
-            state_size=n_states,
-            observable_size=n_observables,
-            driver_size=current_drivers.shape[0],
-            newton_max_iters=max_newton_iters,
-            newton_max_backtracks=max_newton_backtracks,
-            linear_max_iters=linear_max_iters,
-            num_steps=num_steps,
-        )
-        status = np.zeros(num_steps, dtype=np.int32)
-
-        d_state = cuda.to_device(current_state)
-        d_proposed = cuda.to_device(
-            np.zeros((num_steps, current_state.shape[0]), dtype=precision)
-        )
-        d_drivers = cuda.to_device(current_drivers)
-        d_proposed_drivers = cuda.to_device(
-            np.zeros((num_steps, current_drivers.shape[0]), dtype=precision)
-        )
-        d_observables = cuda.to_device(current_observables)
-        d_proposed_observables = cuda.to_device(
-            np.zeros((num_steps, current_observables.shape[0]), dtype=precision)
-        )
-        d_error = cuda.to_device(np.zeros((num_steps, n_states), dtype=precision))
-        device_buffers = {
-            name: cuda.to_device(getattr(host_buffers, name))
-            for name in INSTRUMENTATION_DEVICE_FIELDS
-        }
-        d_status = cuda.to_device(status)
-
-        kernel[1, 1, 0, shared_bytes](
-            d_state,
-            d_proposed,
-            d_params,
-            d_driver_coeffs,
-            d_drivers,
-            d_proposed_drivers,
-            d_observables,
-            d_proposed_observables,
-            d_error,
-            device_buffers["residuals"],
-            device_buffers["jacobian_updates"],
-            device_buffers["stage_states"],
-            device_buffers["stage_derivatives"],
-            device_buffers["stage_observables"],
-            device_buffers["stage_drivers"],
-            device_buffers["stage_increments"],
-            device_buffers["newton_initial_guesses"],
-            device_buffers["newton_iteration_guesses"],
-            device_buffers["newton_residuals"],
-            device_buffers["newton_squared_norms"],
-            device_buffers["newton_iteration_scale"],
-            device_buffers["linear_initial_guesses"],
-            device_buffers["linear_iteration_guesses"],
-            device_buffers["linear_residuals"],
-            device_buffers["linear_squared_norms"],
-            device_buffers["linear_preconditioned_vectors"],
-            d_status,
-            d_dts,
-            numba_precision(time_value),
-        )
-        cuda.synchronize()
-
-        return _copy_device_instrumentation(
-            d_proposed,
-            d_proposed_observables,
-            d_error,
-            device_buffers,
-            host_buffers,
-            d_status,
-            num_steps=num_steps,
-        )
-
-    initial_state = np.asarray(step_inputs["state"], dtype=precision)
-    return _run_steps(
-        initial_state,
-        drivers,
-        observables,
-        precision(0.0),
-    )
-
-
-@pytest.fixture(scope="session")
 def instrumented_cpu_step_results(
     solver_settings,
     cpu_system: CPUODESystem,
     step_inputs,
     cpu_driver_evaluator,
     instrumented_step_object,
-    instrumented_step_configuration: ResolvedInstrumentedStep,
     num_steps,
     dts
 ) -> List[InstrumentedStepResult]:
@@ -719,7 +640,8 @@ def instrumented_cpu_step_results(
             extra_vectors=extras,
         )
 
-    tableau = instrumented_step_configuration.tableau
+    # Use the tableau resolved for the instrumented step object
+    tableau = getattr(instrumented_step_object, "tableau", None)
     state = np.asarray(
         step_inputs["state"], dtype=cpu_system.precision
     )

@@ -19,9 +19,9 @@ from cubie.integrators.algorithms.ode_implicitstep import (
     ImplicitStepConfig,
     ODEImplicitStep,
 )
-from .matrix_free_solvers import (
-    linear_solver_factory,
-    newton_krylov_solver_factory,
+from tests.integrators.algorithms.instrumented.matrix_free_solvers import (
+    inst_linear_solver_factory,
+    inst_newton_krylov_solver_factory,
 )
 
 
@@ -139,30 +139,22 @@ class DIRKStep(ODEImplicitStep):
         max_linear_iters = config.max_linear_iters
         correction_type = config.linear_correction_type
 
-        linear_solver = linear_solver_factory(
-            operator,
-            n=n,
-            preconditioner=preconditioner,
-            correction_type=correction_type,
-            tolerance=krylov_tolerance,
-            max_iters=max_linear_iters,
-        )
+        linear_solver = inst_linear_solver_factory(operator, n=n,
+                                                   preconditioner=preconditioner,
+                                                   correction_type=correction_type,
+                                                   tolerance=krylov_tolerance,
+                                                   max_iters=max_linear_iters)
 
         newton_tolerance = config.newton_tolerance
         max_newton_iters = config.max_newton_iters
         newton_damping = config.newton_damping
         newton_max_backtracks = config.newton_max_backtracks
 
-        nonlinear_solver = newton_krylov_solver_factory(
-            residual_function=residual,
-            linear_solver=linear_solver,
-            n=n,
-            tolerance=newton_tolerance,
-            max_iters=max_newton_iters,
-            damping=newton_damping,
-            max_backtracks=newton_max_backtracks,
-            precision=precision,
-        )
+        nonlinear_solver = inst_newton_krylov_solver_factory(
+            residual_function=residual, linear_solver=linear_solver, n=n,
+            tolerance=newton_tolerance, max_iters=max_newton_iters,
+            damping=newton_damping, max_backtracks=newton_max_backtracks,
+            precision=precision)
 
         return nonlinear_solver
 

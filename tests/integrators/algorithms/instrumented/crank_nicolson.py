@@ -14,8 +14,8 @@ from cubie.integrators.algorithms.base_algorithm_step import (
 from cubie.integrators.algorithms.ode_implicitstep import ODEImplicitStep
 
 from .matrix_free_solvers import (
-    linear_solver_factory,
-    newton_krylov_solver_factory,
+    inst_linear_solver_factory,
+    inst_newton_krylov_solver_factory,
 )
 
 
@@ -121,26 +121,19 @@ class CrankNicolsonStep(ODEImplicitStep):
             preconditioner_order=preconditioner_order,
         )
 
-        linear_solver = linear_solver_factory(
-            operator,
-            n=n,
-            preconditioner=preconditioner,
-            correction_type=config.linear_correction_type,
-            tolerance=config.krylov_tolerance,
-            max_iters=config.max_linear_iters,
-            precision=config.precision,
-        )
+        linear_solver = inst_linear_solver_factory(operator, n=n,
+                                                   preconditioner=preconditioner,
+                                                   correction_type=config.linear_correction_type,
+                                                   tolerance=config.krylov_tolerance,
+                                                   max_iters=config.max_linear_iters,
+                                                   precision=config.precision)
 
-        nonlinear_solver = newton_krylov_solver_factory(
-            residual_function=residual,
-            linear_solver=linear_solver,
-            n=n,
+        nonlinear_solver = inst_newton_krylov_solver_factory(
+            residual_function=residual, linear_solver=linear_solver, n=n,
             tolerance=config.newton_tolerance,
-            max_iters=config.max_newton_iters,
-            damping=config.newton_damping,
+            max_iters=config.max_newton_iters, damping=config.newton_damping,
             max_backtracks=config.newton_max_backtracks,
-            precision=config.precision,
-        )
+            precision=config.precision)
         return nonlinear_solver
 
     def build_step(

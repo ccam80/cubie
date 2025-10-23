@@ -9,7 +9,7 @@ from cubie._utils import ALLOWED_PRECISIONS, PrecisionDType
 from cubie.cuda_simsafe import activemask, all_sync, selp
 
 
-def linear_solver_factory(
+def inst_linear_solver_factory(
     operator_apply: Callable,
     n: int,
     preconditioner: Optional[Callable] = None,
@@ -141,7 +141,7 @@ def linear_solver_factory(
     return linear_solver
 
 
-def linear_solver_cached_factory(
+def inst_linear_solver_cached_factory(
     operator_apply: Callable,
     n: int,
     preconditioner: Optional[Callable] = None,
@@ -276,7 +276,7 @@ def linear_solver_cached_factory(
     return linear_solver_cached
 
 
-def newton_krylov_solver_factory(
+def inst_newton_krylov_solver_factory(
     residual_function: Callable,
     linear_solver: Callable,
     n: int,
@@ -291,11 +291,12 @@ def newton_krylov_solver_factory(
     precision_dtype = np.dtype(precision)
     if precision_dtype not in ALLOWED_PRECISIONS:
         raise ValueError("precision must be float16, float32, or float64.")
-    dtype = from_dtype(precision_dtype)
-    tol_squared = dtype(tolerance * tolerance)
-    typed_zero = dtype(0.0)
-    typed_one = dtype(1.0)
-    typed_damping = dtype(damping)
+
+    numba_precision = from_dtype(precision)
+    tol_squared = numba_precision(tolerance * tolerance)
+    typed_zero = numba_precision(0.0)
+    typed_one = numba_precision(1.0)
+    typed_damping = numba_precision(damping)
     status_active = int32(-1)
 
     # no cover: start
@@ -338,7 +339,7 @@ def newton_krylov_solver_factory(
         norm2_prev = typed_zero
         linear_slot_base = int32(stage_index * max_iters)
         log_index = int32(0)
-        residual_copy = cuda.local.array(n, dtype)
+        residual_copy = cuda.local.array(n, numba_precision)
         for i in range(n):
             residual_value = residual[i]
             norm2_prev += residual_value * residual_value
@@ -359,8 +360,8 @@ def newton_krylov_solver_factory(
 
         iters_count = int32(0)
         mask = activemask()
-        state_snapshot = cuda.local.array(n, dtype)
-        residual_snapshot = cuda.local.array(n, dtype)
+        state_snapshot = cuda.local.array(n,numba_precision)
+        residual_snapshot = cuda.local.array(n, numba_precision)
         snapshot_ready = False
 
         for _ in range(max_iters):
@@ -467,8 +468,6 @@ def newton_krylov_solver_factory(
     return newton_krylov_solver
 
 
-__all__ = [
-    "linear_solver_factory",
-    "linear_solver_cached_factory",
-    "newton_krylov_solver_factory",
+__all__ = ["inst_linear_solver_factory", "inst_linear_solver_cached_factory",
+           "inst_newton_krylov_solver_factory",
 ]
