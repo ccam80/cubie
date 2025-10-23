@@ -57,6 +57,8 @@ class CPUODESystem:
         self._dx_symbols: Set[sp.Symbol] = set(self._dx_index.keys())
 
         self._compile_expressions()
+        # Prepare fast-path caches (symbol slots, evaluation plans, jacobian slots)
+        self._prepare_fast_paths()
 
     def _compile_expressions(self) -> None:
         """Compile symbolic expressions into fast numerical functions."""
@@ -109,6 +111,121 @@ class CPUODESystem:
             self._dx_symbols, skip=self._observable_symbols
         )
 
+    def _prepare_fast_paths(self) -> None:
+        """Precompute symbol slots, constant base buffer, and evaluation plans.
+
+        This avoids per-call dictionary construction and expensive symbol lookups.
+        """
+        # Build a dense symbol slot mapping covering base symbols and all equation LHS.
+        # Order categories by their integer index for stable, deterministic layout.
+        def sorted_symbols(index_map: Dict[sp.Symbol, int]) -> list[sp.Symbol]:
+            return [sym for sym, _ in sorted(index_map.items(), key=lambda kv: kv[1])]
+
+        symbol_order: list[sp.Symbol] = []
+        symbol_to_slot: Dict[sp.Symbol, int] = {}
+
+        def add_symbols(symbols: list[sp.Symbol]) -> None:
+            for sym in symbols:
+                if sym not in symbol_to_slot:
+                    symbol_to_slot[sym] = len(symbol_order)
+                    symbol_order.append(sym)
+
+        add_symbols(sorted_symbols(self._state_index))
+        add_symbols(sorted_symbols(self._parameter_index))
+        # Constants are immutable; include them early so their slots are fixed and prefilled.
+        add_symbols(sorted_symbols(self._constant_index))
+        add_symbols(sorted_symbols(self._driver_index))
+        # Ensure all equation LHS (observables, dx, and intermediates) have slots.
+        add_symbols([lhs for lhs, _ in self._equations])
+        # Include time symbol at the end.
+        add_symbols([TIME_SYMBOL])
+
+        self._sym_order = symbol_order
+        self._sym_slots = symbol_to_slot
+        nslots = len(symbol_order)
+
+        # Map array indices (state/param/driver/observable) -> slots for fast vectorized fill
+        def slots_for(index_map: Dict[sp.Symbol, int]) -> np.ndarray:
+            # Build array where position is the category index and value is slot index
+            arr = np.empty(len(index_map), dtype=np.int64)
+            for sym, idx in index_map.items():
+                arr[idx] = symbol_to_slot[sym]
+            return arr
+
+        self._state_slots = slots_for(self._state_index)
+        self._param_slots = slots_for(self._parameter_index)
+        self._driver_slots = slots_for(self._driver_index)
+        self._observable_slots = (
+            slots_for(self._observable_index) if self._observable_index else np.empty(0, dtype=np.int64)
+        )
+        # LHS slots for quick assignment during equation evaluation
+        self._lhs_slots = {lhs: symbol_to_slot[lhs] for lhs, _ in self._equations}
+
+        # Build a base buffer with constants prefilled; other entries zero-initialized.
+        base = np.zeros(nslots, dtype=self.precision)
+        const_values = self.system.constants.values_dict
+        for sym in self._constant_index.keys():
+            base[symbol_to_slot[sym]] = self.precision(const_values[str(sym)])
+        self._base_value_buffer = base
+
+        # Precompute evaluation plans: specialized for arity 0/1/2/Many to avoid tuple handling
+        # Plan entry: (lhs_slot:int, target_idx:Optional[int], fn:callable|number, kind:int, s0:int, s1:int, sN:tuple[int,...]|None)
+        def build_plan(eval_order: list[sp.Symbol], target_index: Dict[sp.Symbol, int]):
+            plan = []
+            for lhs in eval_order:
+                lhs_slot = symbol_to_slot[lhs]
+                t_idx = target_index.get(lhs)
+                compiled_fn = self._compiled_equations[lhs]
+                arg_syms = self._equation_symbols[lhs]
+                if not arg_syms:
+                    plan.append((lhs_slot, t_idx, compiled_fn, 0, -1, -1, None))
+                elif len(arg_syms) == 1:
+                    plan.append((lhs_slot, t_idx, compiled_fn, 1, symbol_to_slot[arg_syms[0]], -1, None))
+                elif len(arg_syms) == 2:
+                    plan.append((lhs_slot, t_idx, compiled_fn, 2, symbol_to_slot[arg_syms[0]], symbol_to_slot[arg_syms[1]], None))
+                else:
+                    # store as a small Python tuple of slots to avoid creating temp arrays per-call
+                    slots = tuple(symbol_to_slot[s] for s in arg_syms)
+                    plan.append((lhs_slot, t_idx, compiled_fn, 3, -1, -1, slots))
+            return plan
+
+        self._obs_eval_plan = build_plan(self._observable_eval_order, self._observable_index)
+        self._dx_eval_plan = build_plan(self._dx_eval_order, self._dx_index)
+
+        # Cache jacobian eval plan mirroring _jacobian_symbols with arity specialization
+        # Jacobian entry: (kind:int, fn:callable|number, s0:int, s1:int, sN:tuple[int,...]|None)
+        self._jacobian_plan = []
+        for row_syms, row_fns in zip(self._jacobian_symbols, self._compiled_jacobian):
+            row_plan = []
+            for expr_syms, compiled_entry in zip(row_syms, row_fns):
+                if not expr_syms:
+                    row_plan.append((0, compiled_entry, -1, -1, None))
+                elif len(expr_syms) == 1:
+                    row_plan.append((1, compiled_entry, self._sym_slots[expr_syms[0]], -1, None))
+                elif len(expr_syms) == 2:
+                    row_plan.append((2, compiled_entry, self._sym_slots[expr_syms[0]], self._sym_slots[expr_syms[1]], None))
+                else:
+                    slots = tuple(self._sym_slots[s] for s in expr_syms)
+                    row_plan.append((3, compiled_entry, -1, -1, slots))
+            self._jacobian_plan.append(row_plan)
+
+        # Precompute symbol-values reconstruction layouts (with and without observables)
+        def sv_layout(include_observables: bool):
+            syms: list[sp.Symbol] = []
+            # States, Parameters, Constants, Drivers in index order for determinism
+            syms.extend(sorted_symbols(self._state_index))
+            syms.extend(sorted_symbols(self._parameter_index))
+            syms.extend(sorted_symbols(self._constant_index))
+            syms.extend(sorted_symbols(self._driver_index))
+            if include_observables and self._observable_index:
+                syms.extend(sorted_symbols(self._observable_index))
+            syms.append(TIME_SYMBOL)
+            slots = [symbol_to_slot[s] for s in syms]
+            return syms, slots
+
+        self._sv_syms_with_obs, self._sv_slots_with_obs = sv_layout(True)
+        self._sv_syms_no_obs, self._sv_slots_no_obs = sv_layout(False)
+
     def _resolve_dependencies(
         self,
         targets: Set[sp.Symbol],
@@ -142,49 +259,56 @@ class CPUODESystem:
         ordered = [lhs for lhs, _ in self._equations if lhs in closure]
         return ordered
 
-    def _get_symbol_values(
+    def _alloc_buffer(self) -> np.ndarray:
+        """Return a fresh working buffer seeded with constants."""
+        return self._base_value_buffer.copy()
+
+    def _fill_value_buffer(
         self,
+        buffer: np.ndarray,
         state: Array,
         params: Array,
         drivers: Array,
         time_scalar: float,
         observables: Optional[Array] = None,
-    ) -> Dict[sp.Symbol, float]:
+    ) -> None:
+        """Fill dynamic entries of the buffer from input arrays and time."""
         precision = self.precision
-        values: Dict[sp.Symbol, float] = {}
-        values.update(
-            {
-                **{
-                    sym: precision(state[index])
-                    for sym, index in self._state_index.items()
-                },
-                **{
-                    sym: precision(params[index])
-                    for sym, index in self._parameter_index.items()
-                },
-                **{
-                    sym: precision(
-                        self.system.constants.values_dict[str(sym)]
-                    )
-                    for sym in self._constant_index.keys()
-                },
-                **{
-                    sym: precision(drivers[index])
-                    for sym, index in self._driver_index.items()
-                },
-            }
+        # Vectorized assignment with dtype conversion only when needed
+        if self._state_slots.size:
+            state_arr = state if isinstance(state, np.ndarray) and state.dtype == precision else np.asarray(state, dtype=precision)
+            buffer[self._state_slots] = state_arr
+        if self._param_slots.size:
+            params_arr = params if isinstance(params, np.ndarray) and params.dtype == precision else np.asarray(params, dtype=precision)
+            buffer[self._param_slots] = params_arr
+        if self._driver_slots.size:
+            drivers_arr = drivers if isinstance(drivers, np.ndarray) and drivers.dtype == precision else np.asarray(drivers, dtype=precision)
+            buffer[self._driver_slots] = drivers_arr
+        if observables is not None and self._observable_slots.size:
+            obs_arr = observables if isinstance(observables, np.ndarray) and observables.dtype == precision else np.asarray(observables, dtype=precision)
+            buffer[self._observable_slots] = obs_arr
+        # Time scalar
+        buffer[self._sym_slots[TIME_SYMBOL]] = (
+            time_scalar if isinstance(time_scalar, precision) else precision(time_scalar)
         )
 
-        if observables is not None:
-            values.update(
-                {
-                    sym: precision(observables[index])
-                    for sym, index in self._observable_index.items()
-                }
-            )
+    def _build_symbol_values_dict(
+        self,
+        buffer: np.ndarray,
+        *,
+        include_observables: bool,
+    ) -> Dict[sp.Symbol, float]:
+        """Reconstruct the symbol->value dict matching previous semantics.
 
-        values[TIME_SYMBOL] = self.precision(time_scalar)
-        return values
+        Includes base symbols (states, params, constants, drivers, time), optionally observables,
+        and any evaluated dx symbols will be added by the callers after equation evaluation.
+        """
+        # Fast path using precomputed layouts
+        if include_observables:
+            syms, slots = self._sv_syms_with_obs, self._sv_slots_with_obs
+        else:
+            syms, slots = self._sv_syms_no_obs, self._sv_slots_no_obs
+        return {s: buffer[i] for s, i in zip(syms, slots)}
 
     def observables(
         self,
@@ -195,29 +319,68 @@ class CPUODESystem:
     ) -> Array:
         """Evaluate the observable expressions for the current state."""
 
-        observables = self._observable_template.copy()
-        symbol_values = self._get_symbol_values(
+        # Prepare working buffer seeded with constants; fill dynamic inputs.
+        work = self._alloc_buffer()
+        self._fill_value_buffer(
+            work,
             state,
             params,
             drivers,
             time_scalar,
         )
 
-        for lhs in self._observable_eval_order:
-            argsymbols = self._equation_symbols[lhs]
-            if argsymbols:
-                args = tuple(symbol_values[sym] for sym in argsymbols)
-                value = self.precision(
-                    self._compiled_equations[lhs](*args)
-                )
+        observables = self._observable_template.copy()
+        w = work  # local alias for faster access in hot loops
+        # Evaluate observables and any dependencies in a precomputed order
+        for lhs_slot, target_idx, fn, kind, s0, s1, sN in self._obs_eval_plan:
+            if kind == 0:
+                value = fn  # constant numeric
+            elif kind == 1:
+                value = fn(w[s0])
+            elif kind == 2:
+                value = fn(w[s0], w[s1])
             else:
-                value = self.precision(self._compiled_equations[lhs])
-
-            symbol_values[lhs] = value
-            if lhs in self._observable_index:
-                observables[self._observable_index[lhs]] = value
+                # kind 3: variadic via direct indexing, avoid temp array allocation
+                value = fn(*(w[idx] for idx in sN))
+            w[lhs_slot] = value
+            if target_idx is not None:
+                observables[target_idx] = value
 
         return observables
+
+    def _compute_rhs_buffer(
+        self,
+        state: Array,
+        params: Array,
+        drivers: Array,
+        observables: Array,
+        time_scalar: float,
+    ) -> tuple[Array, np.ndarray]:
+        """Internal helper to compute dxdt and return the working buffer used."""
+        work = self._alloc_buffer()
+        self._fill_value_buffer(
+            work,
+            state,
+            params,
+            drivers,
+            time_scalar,
+            observables=observables,
+        )
+        dxdt = self._state_template.copy()
+        w = work  # local alias for faster access in hot loops
+        for lhs_slot, target_idx, fn, kind, s0, s1, sN in self._dx_eval_plan:
+            if kind == 0:
+                value = fn
+            elif kind == 1:
+                value = fn(w[s0])
+            elif kind == 2:
+                value = fn(w[s0], w[s1])
+            else:
+                value = fn(*(w[idx] for idx in sN))
+            w[lhs_slot] = value
+            if target_idx is not None:
+                dxdt[target_idx] = value
+        return dxdt, work
 
     def rhs(
         self,
@@ -229,28 +392,20 @@ class CPUODESystem:
     ) -> tuple[Array, Dict[sp.Symbol, float]]:
         """Evaluate ``dx/dt`` using pre-computed observables."""
 
-        dxdt = self._state_template.copy()
-        symbol_values = self._get_symbol_values(
+        dxdt, work = self._compute_rhs_buffer(
             state,
             params,
             drivers,
+            observables,
             time_scalar,
-            observables=observables,
         )
 
-        for lhs in self._dx_eval_order:
-            argsymbols = self._equation_symbols[lhs]
-            if argsymbols:
-                args = tuple(symbol_values[sym] for sym in argsymbols)
-                value = self.precision(
-                    self._compiled_equations[lhs](*args)
-                )
-            else:
-                value = self.precision(self._compiled_equations[lhs])
-
-            symbol_values[lhs] = value
-            if lhs in self._dx_index:
-                dxdt[self._dx_index[lhs]] = value
+        # Rebuild symbol_values dict to preserve previous external behavior
+        symbol_values = self._build_symbol_values_dict(work, include_observables=True)
+        # Add evaluated dx/intermediate symbols encountered in the dx plan
+        for lhs_slot, _, _, _, _, _, _ in self._dx_eval_plan:
+            sym = self._sym_order[lhs_slot]
+            symbol_values[sym] = work[lhs_slot]
 
         return dxdt, symbol_values
 
@@ -265,7 +420,8 @@ class CPUODESystem:
         if not self._compiled_jacobian:
             return np.zeros((self.n_states, self.n_states), dtype=self.precision)
 
-        _, symbol_values = self.rhs(
+        # Reuse the fast buffer path and avoid building a symbol dict
+        _, work = self._compute_rhs_buffer(
             state,
             params,
             drivers,
@@ -276,17 +432,17 @@ class CPUODESystem:
         jac_cols = len(self._compiled_jacobian[0]) if jac_rows > 0 else 0
         jacobian = np.zeros((jac_rows, jac_cols), dtype=self.precision)
 
-        for i, (row, row_symbols) in enumerate(
-            zip(self._compiled_jacobian, self._jacobian_symbols)
-        ):
-            for j, (compiled_entry, expr_symbols) in enumerate(
-                zip(row, row_symbols)
-            ):
-                if expr_symbols:
-                    args = tuple(symbol_values[sym] for sym in expr_symbols)
-                    jacobian[i, j] = self.precision(compiled_entry(*args))
+        w = work  # local alias for speed
+        for i, row_plan in enumerate(self._jacobian_plan):
+            for j, (kind, fn, s0, s1, sN) in enumerate(row_plan):
+                if kind == 0:
+                    jacobian[i, j] = fn
+                elif kind == 1:
+                    jacobian[i, j] = fn(w[s0])
+                elif kind == 2:
+                    jacobian[i, j] = fn(w[s0], w[s1])
                 else:
-                    jacobian[i, j] = compiled_entry
+                    jacobian[i, j] = fn(*(w[idx] for idx in sN))
         return jacobian
 
 

@@ -1310,7 +1310,7 @@ class CPUDIRKStep(CPUStep):
                 logging.stage_increments[stage_index, :] = increment
                 logging.stage_observables[stage_index, :] = observables_stage
                 logging.stage_drivers[stage_index, :] = drivers_stage
-            self._dirk_increment = increment
+            self._dirk_increment = increment / diag_coeff
 
         state_accum = np.zeros_like(state_vector)
         error_accum = np.zeros_like(state_vector)

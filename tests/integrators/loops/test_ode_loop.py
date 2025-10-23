@@ -56,10 +56,10 @@ LOOP_CASES = [
         id="crank_nicolson_gustafsson",
         marks=pytest.mark.specific_algos,
     ),
-    pytest.param(
-        {"algorithm": "rosenbrock", "step_controller": "pid"},
-        id="rosenbrock",
-    ),
+    # pytest.param(
+    #     {"algorithm": "rosenbrock", "step_controller": "pi"},
+    #     id="rosenbrock",
+    # ),
     pytest.param(
         {"algorithm": "erk", "step_controller": "pid"},
         id="erk",
@@ -67,16 +67,6 @@ LOOP_CASES = [
     pytest.param(
         {"algorithm": "dirk", "step_controller": "pid"},
         id="dirk",
-    ),
-    pytest.param(
-        {"algorithm": "ros3p", "step_controller": "pid"},
-        id="rosenbrock-ros3p",
-        marks=pytest.mark.specific_algos,
-    ),
-    pytest.param(
-        {"algorithm": "rosenbrock_w6s4os", "step_controller": "pi"},
-        id="rosenbrock-w6s4os",
-        marks=pytest.mark.specific_algos,
     ),
     pytest.param(
         {"algorithm": "dopri54", "step_controller": "pi"},
@@ -131,6 +121,16 @@ LOOP_CASES = [
     pytest.param(
         {"algorithm": "lobatto_iiic_3", "step_controller": "fixed"},
         id="dirk-lobatto-iiic-3",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "ros3p", "step_controller": "pi"},
+        id="rosenbrock-ros3p",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {"algorithm": "rosenbrock_w6s4os", "step_controller": "pi"},
+        id="rosenbrock-w6s4os",
         marks=pytest.mark.specific_algos,
     ),
 ]

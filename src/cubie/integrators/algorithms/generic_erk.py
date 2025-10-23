@@ -96,21 +96,21 @@ class ERKStep(ODEExplicitStep):
         config = self.compile_settings
         tableau = config.tableau
 
+        typed_zero = numba_precision(0.0)
         stage_count = tableau.stage_count
-        has_driver_function = driver_function is not None
+        accumulator_length = max(stage_count - 1, 0) * n
 
-        stage_count = tableau.stage_count
+        has_driver_function = driver_function is not None
+        first_same_as_last = self.first_same_as_last
         multistage = stage_count > 1
         has_error = self.is_adaptive
+
         stage_rhs_coeffs = tableau.typed_rows(tableau.a, numba_precision)
         solution_weights = tableau.typed_vector(tableau.b, numba_precision)
-        typed_zero = numba_precision(0.0)
         error_weights = tableau.error_weights(numba_precision)
         if error_weights is None or not has_error:
             error_weights = tuple(typed_zero for _ in range(stage_count))
         stage_time_fractions = tableau.typed_vector(tableau.c, numba_precision)
-        accumulator_length = max(stage_count - 1, 0) * n
-        first_same_as_last = self.first_same_as_last
 
         # no cover: start
         @cuda.jit(
@@ -199,14 +199,10 @@ class ERKStep(ODEExplicitStep):
             # ----------------------------------------------------------- #
             #            Stage 0: may use cached values                   #
             # ----------------------------------------------------------- #
-            values_in_cache = False
+            use_cached_rhs = ((not first_step_flag) and accepted_flag and
+                              first_same_as_last)
             if multistage:
-                if first_same_as_last:
-                    for cache_idx in range(n):
-                        if stage_cache[cache_idx] != typed_zero:
-                            values_in_cache = True
-
-                if first_same_as_last and values_in_cache:
+                if use_cached_rhs:
                     for idx in range(n):
                         stage_rhs[idx] = stage_cache[idx]
                 else:
@@ -257,7 +253,6 @@ class ERKStep(ODEExplicitStep):
                         contribution = state_coeff * increment
                         stage_accumulator[base + idx] += contribution
 
-
                 stage_offset = (stage_idx - 1) * n
                 stage_time = (
                     current_time + dt_value * stage_time_fractions[stage_idx]
@@ -268,9 +263,7 @@ class ERKStep(ODEExplicitStep):
                         state[idx] + stage_accumulator[stage_offset + idx]
                     )
 
-                stage_state = stage_accumulator[
-                    stage_offset:stage_offset + n
-                ]
+                stage_state = stage_accumulator[stage_offset:stage_offset + n]
 
                 stage_drivers = proposed_drivers
                 if has_driver_function:

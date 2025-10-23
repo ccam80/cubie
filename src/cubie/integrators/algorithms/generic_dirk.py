@@ -420,6 +420,8 @@ class DIRKStep(ODEImplicitStep):
                 for idx in range(n):
                     stage_base[idx] += state[idx]
 
+                diagonal_coeff = diagonal_coeffs[stage_idx]
+
                 if stage_implicit[stage_idx]:
                     status_code |= nonlinear_solver(
                         stage_increment,
@@ -432,7 +434,6 @@ class DIRKStep(ODEImplicitStep):
                         solver_scratch,
                     )
 
-                    diagonal_coeff = diagonal_coeffs[stage_idx]
                     for idx in range(n):
                         stage_base[idx] += diagonal_coeff * stage_increment[idx]
 
@@ -463,10 +464,9 @@ class DIRKStep(ODEImplicitStep):
                         error[idx] += error_weight * increment
 
             # --------------------------------------------------------------- #
-            final_time = end_time
             if has_driver_function:
                 driver_function(
-                    final_time,
+                    end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
@@ -476,7 +476,7 @@ class DIRKStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 proposed_observables,
-                final_time,
+                end_time,
             )
 
             # RHS auto-cached through aliasing to solver scratch

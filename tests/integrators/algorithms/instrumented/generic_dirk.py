@@ -327,7 +327,7 @@ class DIRKStep(ODEImplicitStep):
                 proposed_state[idx] = state[idx]
 
             # Only caching achievable is reusing rhs for FSAL
-            if first_same_as_last and use_cached_rhs:
+            if use_cached_rhs:
                 # RHS is aliased onto solver scratch cache at step-end already
                 pass
 
@@ -520,10 +520,9 @@ class DIRKStep(ODEImplicitStep):
                         error[idx] += error_weight * increment
 
             # --------------------------------------------------------------- #
-            final_time = end_time
             if has_driver_function:
                 driver_function(
-                    final_time,
+                    end_time,
                     driver_coeffs,
                     proposed_drivers,
                 )
@@ -533,7 +532,7 @@ class DIRKStep(ODEImplicitStep):
                 parameters,
                 proposed_drivers,
                 proposed_observables,
-                final_time,
+                end_time,
             )
 
             #Cache end-step values as appropriate
