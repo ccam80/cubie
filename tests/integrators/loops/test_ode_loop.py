@@ -16,6 +16,7 @@ Array = NDArray[np.floating]
 DEFAULT_OVERRIDES = {
     'dt': 0.001953125,  # try an exactly-representable dt
     'dt_min': 1e-7,
+    'dt_max': 0.5,
     'newton_tolerance': 1e-7,
     'krylov_tolerance': 1e-7,
     'atol': 1e-5,
