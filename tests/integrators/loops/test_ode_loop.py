@@ -51,12 +51,14 @@ LOOP_CASES = [
         id="crank_nicolson_i",
         marks=pytest.mark.specific_algos,
     ),
-    pytest.param(
-        {"algorithm": "crank_nicolson", "step_controller": "gustafsson"},
-        id="crank_nicolson_gustafsson",
-        marks=pytest.mark.specific_algos,
-    ),
+    #    Gustaffson controller will diverge due to different niters with a
+    #    matrix-based solver vs matrix-free newton-krylov.
     # pytest.param(
+    #     {"algorithm": "crank_nicolson", "step_controller": "gustafsson"},
+    #     id="crank_nicolson_gustafsson",
+    #     marks=pytest.mark.specific_algos,
+    # ),
+    # pytest.param( # Rosenbrock is not correct at this stage (24/10)
     #     {"algorithm": "rosenbrock", "step_controller": "pi"},
     #     id="rosenbrock",
     # ),

@@ -135,6 +135,7 @@ class CPUAdaptiveController:
         niters: int,
         current_dt: float,
     ) -> float:
+
         precision = self.precision
         expo_fraction = precision(
             precision(1.0)
@@ -173,6 +174,8 @@ class CPUAdaptiveController:
             )
 
         elif self.kind == "gustafsson":
+            if niters == 0:
+                raise ValueError("Gustafsson gain requires niters > 0")
             one = precision(1.0)
             two = precision(2.0)
             niters_eff = precision(max(niters, 1))
