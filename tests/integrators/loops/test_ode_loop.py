@@ -81,7 +81,7 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "fehlberg-45", "step_controller": "pi"},
+        {"algorithm": "fehlberg-45", "step_controller": "i"},
         id="erk-fehlberg-45",
         marks=pytest.mark.specific_algos,
     ),
