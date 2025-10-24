@@ -761,9 +761,6 @@ class CPUCrankNicolsonStep(CPUStep):
         self._cn_previous_state = np.zeros(
             self._state_size, dtype=self.precision
         )
-        self._cn_previous_derivative = np.zeros(
-            self._state_size, dtype=self.precision
-        )
         self._cn_params = np.zeros(0, dtype=self.precision)
         self._cn_drivers_next = np.zeros(0, dtype=self.precision)
         self._cn_next_time = self.precision(0.0)
@@ -789,11 +786,9 @@ class CPUCrankNicolsonStep(CPUStep):
 
     def residual(self, candidate: Array) -> Array:
         increment = candidate
-        base_increment = self._cn_dt * self._cn_stage_coefficient
         stage_state = (
             self._cn_base_state
-            + increment
-            - base_increment * self._cn_previous_derivative
+            + self._cn_stage_coefficient * increment
         )
         observables = self.observables(
             stage_state,
@@ -811,16 +806,13 @@ class CPUCrankNicolsonStep(CPUStep):
         beta = self.precision(1.0)
         gamma = self.precision(1.0)
         mass_term = self.mass_matrix_apply(increment)
-        trapezoid_rhs = self._cn_previous_derivative + derivative
-        scale = self._cn_dt * self._cn_stage_coefficient
-        return beta * mass_term - gamma * scale * trapezoid_rhs
+        scale = self._cn_dt
+        return beta * mass_term - gamma * scale * derivative
 
     def jacobian(self, candidate: Array) -> Array:
-        base_increment = self._cn_dt * self._cn_stage_coefficient
         stage_state = (
             self._cn_base_state
-            + candidate
-            - base_increment * self._cn_previous_derivative
+            + self._cn_stage_coefficient * candidate
         )
         _, jacobian = self.observables_and_jac(
             stage_state,
@@ -862,7 +854,6 @@ class CPUCrankNicolsonStep(CPUStep):
 
         drivers_next = self.drivers(next_time)
         self._cn_previous_state = state_vector
-        self._cn_previous_derivative = derivative_now
         self._cn_params = params_array
         self._cn_drivers_next = drivers_next
         self._cn_next_time = next_time
@@ -892,7 +883,9 @@ class CPUCrankNicolsonStep(CPUStep):
             newton_max_backtracks=self._newton_max_backtracks,
             **newton_kwargs,
         )
-        next_state = self._cn_previous_state + increment
+        stage_increment = self._cn_stage_coefficient * increment
+        next_state = self._cn_base_state + stage_increment
+        full_increment = next_state - self._cn_previous_state
 
         observables = self.observables(
             next_state,
@@ -904,7 +897,7 @@ class CPUCrankNicolsonStep(CPUStep):
             state=state_vector,
             params=params_array,
             dt=dt_value,
-            initial_guess=increment,
+            initial_guess=full_increment,
             time=current_time,
         )
         error = next_state - backward_result.state
@@ -923,7 +916,7 @@ class CPUCrankNicolsonStep(CPUStep):
             )
             logging.stage_observables[0, :] = observables
             logging.stage_drivers[0, :] = drivers_next
-            logging.stage_increments[0, :] = increment
+            logging.stage_increments[0, :] = full_increment
         result_kwargs = self._logging_result_kwargs(logging)
         result_kwargs["stage_derivatives"] = (
             logging.stage_derivatives if logging else None
@@ -1112,13 +1105,14 @@ class CPUDIRKStep(CPUStep):
         self._dirk_params = np.zeros(0, dtype=self.precision)
         self._dirk_drivers = np.zeros(0, dtype=self.precision)
         self._dirk_time = self.precision(0.0)
-        self._dirk_dt_coeff = self.precision(0.0)
+        self._dirk_dt = self.precision(0.0)
+        self._dirk_diag_coeff = self.precision(0.0)
         self._dirk_increment = np.zeros(self._state_size, dtype=self.precision)
 
     def residual(self, candidate: Array) -> Array:
         base_state = self._dirk_reference
         increment = candidate
-        stage_state = base_state + increment
+        stage_state = base_state + self._dirk_diag_coeff * increment
         observables = self.observables(
             stage_state,
             self._dirk_params,
@@ -1134,17 +1128,18 @@ class CPUDIRKStep(CPUStep):
         )
         beta = self.precision(1.0)
         mass_term = self.mass_matrix_apply(increment)
-        return beta * mass_term - self._dirk_dt_coeff * derivative
+        return beta * mass_term - self._dirk_dt * derivative
 
     def jacobian(self, candidate: Array) -> Array:
-        stage_state = self._dirk_reference + candidate
+        stage_state = self._dirk_reference + self._dirk_diag_coeff * candidate
         _, jacobian = self.observables_and_jac(
             stage_state,
             self._dirk_params,
             self._dirk_drivers,
             self._dirk_time,
         )
-        return self._identity - self._dirk_dt_coeff * jacobian
+        scale = self._dirk_dt * self._dirk_diag_coeff
+        return self._identity - scale * jacobian
 
     def step(
         self,
@@ -1220,7 +1215,8 @@ class CPUDIRKStep(CPUStep):
             self._dirk_params = params_array
             self._dirk_drivers = drivers_stage
             self._dirk_time = stage_time
-            self._dirk_dt_coeff = dt_value * diag_coeff
+            self._dirk_dt = dt_value
+            self._dirk_diag_coeff = diag_coeff
 
             if logging:
                 logging.stage_states[stage_index, :] = stage_state
@@ -1243,7 +1239,7 @@ class CPUDIRKStep(CPUStep):
                 **newton_kwargs,
             )
 
-            solved_state = base_state + increment
+            solved_state = base_state + diag_coeff * increment
             all_converged = all_converged and converged
             total_iters += niters
             observables_stage = self.observables(
@@ -1263,10 +1259,12 @@ class CPUDIRKStep(CPUStep):
             if logging:
                 logging.stage_states[stage_index, :] = solved_state
                 logging.residuals[stage_index, :] = self.residual(increment)
-                logging.stage_increments[stage_index, :] = increment
+                logging.stage_increments[stage_index, :] = (
+                    diag_coeff * increment
+                )
                 logging.stage_observables[stage_index, :] = observables_stage
                 logging.stage_drivers[stage_index, :] = drivers_stage
-            self._dirk_increment = increment / diag_coeff
+            self._dirk_increment = increment
 
         state_accum = np.zeros_like(state_vector)
         error_accum = np.zeros_like(state_vector)
