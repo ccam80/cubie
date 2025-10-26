@@ -409,7 +409,7 @@ def newton_solve(
     residual = np.asarray(residual_fn(state), dtype=dtype)
     norm = euclidean_norm(residual, precision=dtype)
     norm_squared = norm * norm
-
+    direction = np.zeros_like(residual)
     if instrumented and newton_initial_guesses is not None:
         newton_initial_guesses[stage_index, :] = state
 
@@ -438,6 +438,7 @@ def newton_solve(
             slot = stage_index * max(iteration_limit, 1) + iteration
             linear_kwargs = {
                 "stage_index": slot,
+                "initial_guess": direction,
                 "instrumented": True,
                 "logging_initial_guess": linear_initial_guesses,
                 "logging_iteration_guesses": linear_iteration_guesses,
