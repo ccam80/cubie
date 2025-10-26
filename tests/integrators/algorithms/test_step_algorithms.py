@@ -1142,7 +1142,6 @@ def test_stage_cache_reuse(
     STEP_CASES,
     indirect=True,
 )
-
 def test_algorithm(
        step_object_mutable,
        solver_settings,

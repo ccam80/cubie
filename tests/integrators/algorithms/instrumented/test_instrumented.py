@@ -10,10 +10,12 @@ from tests.integrators.algorithms.test_step_algorithms import (
 from .conftest import print_comparison
 from ..test_step_algorithms import STEP_OVERRIDES
 
-STEP_SETTINGS = STEP_OVERRIDES.update({'max_linear_iters': 3,
+STEP_SETTINGS = STEP_OVERRIDES.copy()
+STEP_SETTINGS.update(
+     {'max_linear_iters': 3,
       'max_newton_iters': 3,
-      'newton_max_backtracks': 3,
-      'linear_max_iters': 3,})
+      'newton_max_backtracks': 2,
+    })
 
 @pytest.mark.parametrize(
     "solver_settings_override2",

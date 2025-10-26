@@ -72,7 +72,7 @@ LOOP_CASES = [
         id="dirk",
     ),
     pytest.param(
-        {"algorithm": "dopri54", "step_controller": "pi"},
+        {"algorithm": "dopri54", "step_controller": "pid"},
         id="erk-dopri54",
         marks=pytest.mark.specific_algos,
     ),
@@ -117,7 +117,7 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "sdirk_2_2", "step_controller": "pi"},
+        {"algorithm": "sdirk_2_2", "step_controller": "pid"},
         id="dirk-sdirk-2-2",
         marks=pytest.mark.specific_algos,
     ),
