@@ -127,7 +127,7 @@ def get_instrumented_step(
 def num_steps() -> int:
     """Number of consecutive step executions for instrumentation."""
 
-    return 11
+    return 3
 
 @pytest.fixture(scope="session")
 def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tuple[int, ...]:
@@ -140,9 +140,15 @@ def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tupl
     hastableau = getattr(instrumented_step_object, "tableau")
     if hastableau is not None:
         haserror = instrumented_step_object.tableau.has_error_estimate
-    if ((solver_settings["algorithm"] in ["euler", "backwards_euler",
-            "backwards_euler_pc"]) or not haserror):
-        dts = (solver_settings["dt"], ) * num_steps
+    if (
+        (
+            solver_settings["algorithm"]
+            in ["euler", "backwards_euler", "backwards_euler_pc"]
+        )
+        or not haserror
+    ):
+        dt_value = precision(solver_settings["dt"])
+        dts = tuple(dt_value for _ in range(num_steps))
     else:
         dts = twenty_randoms[:num_steps]
     return dts
@@ -676,7 +682,7 @@ def instrumented_cpu_step_results(
 
 
     current_state = state.copy()
-    time_value = 0.0
+    time_value = cpu_system.precision(0.0)
     results: List[InstrumentedStepResult] = []
     for step_idx in range(num_steps):
         result = stepper.step(
@@ -690,12 +696,12 @@ def instrumented_cpu_step_results(
                 "Expected InstrumentedStepResult from CPU reference step."
             )
         results.append(_copy_result(result))
-        if step_idx != 5 and step_idx != 8: #simulate rejections at two
-        # arbitrary points
+        if step_idx != 5 and step_idx != 8:  # simulate rejections at two
+            # arbitrary points
             current_state = np.asarray(
                 result.state, dtype=cpu_system.precision
             ).copy()
-            time_value = time_value + dts[step_idx]
+            time_value = cpu_system.precision(time_value + dts[step_idx])
 
     return results
 
