@@ -44,27 +44,12 @@ def inst_linear_solver_factory(
         rhs,
         x,
         slot_index,
-        instrumentation_2d,
-        instrumentation_3d,
+        linear_initial_guesses,
+        linear_iteration_guesses,
+        linear_residuals,
+        linear_squared_norms,
+        linear_preconditioned_vectors,
     ):
-        residuals = instrumentation_2d[0]
-        jacobian_updates = instrumentation_2d[1]
-        stage_states = instrumentation_2d[2]
-        stage_derivatives = instrumentation_2d[3]
-        stage_observables = instrumentation_2d[4]
-        stage_drivers = instrumentation_2d[5]
-        stage_increments = instrumentation_2d[6]
-        newton_initial_guesses = instrumentation_2d[7]
-        newton_squared_norms = instrumentation_2d[8]
-        newton_iteration_scale = instrumentation_2d[9]
-        linear_initial_guesses = instrumentation_2d[10]
-        linear_squared_norms = instrumentation_2d[11]
-        newton_iteration_guesses = instrumentation_3d[0]
-        newton_residuals = instrumentation_3d[1]
-        linear_iteration_guesses = instrumentation_3d[2]
-        linear_residuals = instrumentation_3d[3]
-        linear_preconditioned_vectors = instrumentation_3d[4]
-
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
@@ -192,27 +177,12 @@ def inst_linear_solver_cached_factory(
         rhs,
         x,
         slot_index,
-        instrumentation_2d,
-        instrumentation_3d,
+        linear_initial_guesses,
+        linear_iteration_guesses,
+        linear_residuals,
+        linear_squared_norms,
+        linear_preconditioned_vectors,
     ):
-        residuals = instrumentation_2d[0]
-        jacobian_updates = instrumentation_2d[1]
-        stage_states = instrumentation_2d[2]
-        stage_derivatives = instrumentation_2d[3]
-        stage_observables = instrumentation_2d[4]
-        stage_drivers = instrumentation_2d[5]
-        stage_increments = instrumentation_2d[6]
-        newton_initial_guesses = instrumentation_2d[7]
-        newton_squared_norms = instrumentation_2d[8]
-        newton_iteration_scale = instrumentation_2d[9]
-        linear_initial_guesses = instrumentation_2d[10]
-        linear_squared_norms = instrumentation_2d[11]
-        newton_iteration_guesses = instrumentation_3d[0]
-        newton_residuals = instrumentation_3d[1]
-        linear_iteration_guesses = instrumentation_3d[2]
-        linear_residuals = instrumentation_3d[3]
-        linear_preconditioned_vectors = instrumentation_3d[4]
-
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
@@ -341,27 +311,17 @@ def inst_newton_krylov_solver_factory(
         base_state,
         shared_scratch,
         stage_index,
-        instrumentation_2d,
-        instrumentation_3d,
+        newton_initial_guesses,
+        newton_iteration_guesses,
+        newton_residuals,
+        newton_squared_norms,
+        newton_iteration_scale,
+        linear_initial_guesses,
+        linear_iteration_guesses,
+        linear_residuals,
+        linear_squared_norms,
+        linear_preconditioned_vectors,
     ):
-        residuals = instrumentation_2d[0]
-        jacobian_updates = instrumentation_2d[1]
-        stage_states = instrumentation_2d[2]
-        stage_derivatives = instrumentation_2d[3]
-        stage_observables = instrumentation_2d[4]
-        stage_drivers = instrumentation_2d[5]
-        stage_increments = instrumentation_2d[6]
-        newton_initial_guesses = instrumentation_2d[7]
-        newton_squared_norms = instrumentation_2d[8]
-        newton_iteration_scale = instrumentation_2d[9]
-        linear_initial_guesses = instrumentation_2d[10]
-        linear_squared_norms = instrumentation_2d[11]
-        newton_iteration_guesses = instrumentation_3d[0]
-        newton_residuals = instrumentation_3d[1]
-        linear_iteration_guesses = instrumentation_3d[2]
-        linear_residuals = instrumentation_3d[3]
-        linear_preconditioned_vectors = instrumentation_3d[4]
-
         delta = shared_scratch[:n]
         residual = shared_scratch[n: 2 * n]
 
@@ -420,8 +380,11 @@ def inst_newton_krylov_solver_factory(
                     residual,
                     delta,
                     linear_slot_base + iter_slot,
-                    instrumentation_2d,
-                    instrumentation_3d,
+                    linear_initial_guesses,
+                    linear_iteration_guesses,
+                    linear_residuals,
+                    linear_squared_norms,
+                    linear_preconditioned_vectors,
                 )
                 if lin_return != int32(0):
                     status = int32(lin_return)

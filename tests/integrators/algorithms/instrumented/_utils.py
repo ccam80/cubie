@@ -1,33 +1,8 @@
 """Utilities shared across instrumentation-enabled integrator tests."""
 
 from dataclasses import dataclass
-from typing import Dict, Mapping, Tuple
 
 import numpy as np
-
-
-INSTRUMENTATION_2D_FIELDS: Tuple[str, ...] = (
-    "residuals",
-    "jacobian_updates",
-    "stage_states",
-    "stage_derivatives",
-    "stage_observables",
-    "stage_drivers",
-    "stage_increments",
-    "newton_initial_guesses",
-    "newton_squared_norms",
-    "newton_iteration_scale",
-    "linear_initial_guesses",
-    "linear_squared_norms",
-)
-
-INSTRUMENTATION_3D_FIELDS: Tuple[str, ...] = (
-    "newton_iteration_guesses",
-    "newton_residuals",
-    "linear_iteration_guesses",
-    "linear_residuals",
-    "linear_preconditioned_vectors",
-)
 
 
 @dataclass(slots=True)
@@ -74,16 +49,9 @@ class InstrumentationHostBuffers:
         Residual norms recorded during Krylov iterations.
     linear_preconditioned_vectors:
         Preconditioned vectors from Krylov iterations.
-    step_slots:
-        Number of successive steps captured per diagnostic array.
-    grouped_2d_shapes:
-        Maximum extents tracked for two-dimensional diagnostics.
-    grouped_3d_shapes:
-        Maximum extents tracked for three-dimensional diagnostics.
     """
 
     stage_count: int
-    step_slots: int
     residuals: np.ndarray
     jacobian_updates: np.ndarray
     stage_states: np.ndarray
@@ -101,65 +69,6 @@ class InstrumentationHostBuffers:
     linear_residuals: np.ndarray
     linear_squared_norms: np.ndarray
     linear_preconditioned_vectors: np.ndarray
-    grouped_2d_shapes: Dict[str, Tuple[int, ...]]
-    grouped_3d_shapes: Dict[str, Tuple[int, ...]]
-
-    def copy_grouped_from_device(
-        self,
-        grouped_2d: Mapping[str, np.ndarray],
-        grouped_3d: Mapping[str, np.ndarray],
-    ) -> None:
-        """Copy grouped device diagnostics into the host buffers.
-
-        Parameters
-        ----------
-        grouped_2d:
-            Mapping of instrumentation field names to device arrays sized to
-            the tracked two-dimensional extents. Arrays may include a leading
-            ``num_steps`` axis.
-        grouped_3d:
-            Mapping of instrumentation field names to device arrays sized to
-            the tracked three-dimensional extents. Arrays may include a
-            leading ``num_steps`` axis.
-
-        Notes
-        -----
-        The copied views honour the stored maximum extents while handling the
-        optional leading ``num_steps`` axis, keeping the exposed host arrays
-        shaped exactly as callers expect.
-        """
-
-        for field in INSTRUMENTATION_2D_FIELDS:
-            base_shape = self.grouped_2d_shapes[field]
-            target = getattr(self, field)
-            source = grouped_2d[field]
-            self._copy_grouped_field(target, source, base_shape)
-        for field in INSTRUMENTATION_3D_FIELDS:
-            base_shape = self.grouped_3d_shapes[field]
-            target = getattr(self, field)
-            source = grouped_3d[field]
-            self._copy_grouped_field(target, source, base_shape)
-
-    def _copy_grouped_field(
-        self,
-        target: np.ndarray,
-        source: np.ndarray,
-        base_shape: Tuple[int, ...],
-    ) -> None:
-        """Slice ``source`` to ``target`` and copy the values."""
-
-        target_shape = target.shape
-        slices = []
-        if target.ndim == len(base_shape) + 1:
-            slices.append(slice(0, target_shape[0]))
-        elif source.ndim == len(base_shape) + 1:
-            slices.append(slice(0, self.step_slots))
-        for dim in base_shape:
-            slices.append(slice(0, dim))
-        sliced = source[tuple(slices)]
-        if sliced.shape != target_shape:
-            sliced = np.reshape(sliced, target_shape)
-        np.copyto(target, sliced)
 
 
 def create_instrumentation_host_buffers(
@@ -200,8 +109,7 @@ def create_instrumentation_host_buffers(
     Returns
     -------
     InstrumentationHostBuffers
-        Buffer container with arrays ready for instrumentation writes and the
-        grouped shape metadata required for device transfers.
+        Buffer container with arrays ready for instrumentation writes.
     """
 
     resolved_stage_count = int(stage_count)
@@ -216,7 +124,7 @@ def create_instrumentation_host_buffers(
     linear_slots = resolved_stage_count * newton_iters
     dtype = np.dtype(precision)
 
-    def _step_shape(*base: int) -> Tuple[int, ...]:
+    def _step_shape(*base: int) -> tuple[int, ...]:
         base_shape = tuple(int(value) for value in base)
         if step_slots == 1:
             return base_shape
@@ -264,51 +172,8 @@ def create_instrumentation_host_buffers(
     )
     linear_preconditioned_vectors = np.zeros_like(linear_iteration_guesses)
 
-    grouped_2d_shapes: Dict[str, Tuple[int, ...]] = {
-        "residuals": (resolved_stage_count, state_dim),
-        "jacobian_updates": (resolved_stage_count, state_dim),
-        "stage_states": (resolved_stage_count, state_dim),
-        "stage_derivatives": (resolved_stage_count, state_dim),
-        "stage_observables": (resolved_stage_count, observable_dim),
-        "stage_drivers": (resolved_stage_count, driver_dim),
-        "stage_increments": (resolved_stage_count, state_dim),
-        "newton_initial_guesses": (resolved_stage_count, state_dim),
-        "newton_squared_norms": (resolved_stage_count, newton_slots),
-        "newton_iteration_scale": (resolved_stage_count, newton_iters),
-        "linear_initial_guesses": (linear_slots, state_dim),
-        "linear_squared_norms": (linear_slots, linear_iters),
-    }
-    grouped_3d_shapes: Dict[str, Tuple[int, ...]] = {
-        "newton_iteration_guesses": (
-            resolved_stage_count,
-            newton_slots,
-            state_dim,
-        ),
-        "newton_residuals": (
-            resolved_stage_count,
-            newton_slots,
-            state_dim,
-        ),
-        "linear_iteration_guesses": (
-            linear_slots,
-            linear_iters,
-            state_dim,
-        ),
-        "linear_residuals": (
-            linear_slots,
-            linear_iters,
-            state_dim,
-        ),
-        "linear_preconditioned_vectors": (
-            linear_slots,
-            linear_iters,
-            state_dim,
-        ),
-    }
-
     return InstrumentationHostBuffers(
         stage_count=resolved_stage_count,
-        step_slots=step_slots,
         residuals=residuals,
         jacobian_updates=jacobian_updates,
         stage_states=stage_states,
@@ -326,6 +191,4 @@ def create_instrumentation_host_buffers(
         linear_residuals=linear_residuals,
         linear_squared_norms=linear_squared_norms,
         linear_preconditioned_vectors=linear_preconditioned_vectors,
-        grouped_2d_shapes=grouped_2d_shapes,
-        grouped_3d_shapes=grouped_3d_shapes,
     )

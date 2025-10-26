@@ -147,7 +147,7 @@ def dts(num_steps, solver_settings, precision, instrumented_step_object) -> Tupl
         dts = twenty_randoms[:num_steps]
     return dts
 
-INSTRUMENTATION_GROUPED_2D_FIELDS = (
+INSTRUMENTATION_DEVICE_FIELDS = (
     "residuals",
     "jacobian_updates",
     "stage_states",
@@ -156,17 +156,14 @@ INSTRUMENTATION_GROUPED_2D_FIELDS = (
     "stage_drivers",
     "stage_increments",
     "newton_initial_guesses",
+    "newton_iteration_guesses",
+    "newton_residuals",
     "newton_squared_norms",
     "newton_iteration_scale",
     "linear_initial_guesses",
-    "linear_squared_norms",
-)
-
-INSTRUMENTATION_GROUPED_3D_FIELDS = (
-    "newton_iteration_guesses",
-    "newton_residuals",
     "linear_iteration_guesses",
     "linear_residuals",
+    "linear_squared_norms",
     "linear_preconditioned_vectors",
 )
 
@@ -295,8 +292,23 @@ def instrumented_step_results(
         observables_vec,
         proposed_observables_matrix,
         error_matrix,
-        grouped_2d_tensor,
-        grouped_3d_tensor,
+        residuals_tensor,
+        jacobian_updates_tensor,
+        stage_states_tensor,
+        stage_derivatives_tensor,
+        stage_observables_tensor,
+        stage_drivers_tensor,
+        stage_increments_tensor,
+        newton_initial_guesses_tensor,
+        newton_iteration_guesses_tensor,
+        newton_residuals_tensor,
+        newton_squared_norms_tensor,
+        newton_iteration_scale_tensor,
+        linear_initial_guesses_tensor,
+        linear_iteration_guesses_tensor,
+        linear_residuals_tensor,
+        linear_squared_norms_tensor,
+        linear_preconditioned_vectors_tensor,
         status_vec,
         dts_array,
         time_scalar,
@@ -339,8 +351,23 @@ def instrumented_step_results(
                 observables_vec,
                 proposed_observables_matrix[step_idx],
                 error_matrix[step_idx],
-                grouped_2d_tensor[step_idx],
-                grouped_3d_tensor[step_idx],
+                residuals_tensor[step_idx],
+                jacobian_updates_tensor[step_idx],
+                stage_states_tensor[step_idx],
+                stage_derivatives_tensor[step_idx],
+                stage_observables_tensor[step_idx],
+                stage_drivers_tensor[step_idx],
+                stage_increments_tensor[step_idx],
+                newton_initial_guesses_tensor[step_idx],
+                newton_iteration_guesses_tensor[step_idx],
+                newton_residuals_tensor[step_idx],
+                newton_squared_norms_tensor[step_idx],
+                newton_iteration_scale_tensor[step_idx],
+                linear_initial_guesses_tensor[step_idx],
+                linear_iteration_guesses_tensor[step_idx],
+                linear_residuals_tensor[step_idx],
+                linear_squared_norms_tensor[step_idx],
+                linear_preconditioned_vectors_tensor[step_idx],
                 dt_scalar,
                 current_time,
                 first_step_flag,
@@ -382,53 +409,6 @@ def instrumented_step_results(
         num_steps=num_steps,
     )
     status = np.zeros(num_steps, dtype=np.int32)
-    dtype = np.dtype(precision)
-
-    def _aligned_shape(values: np.ndarray) -> Tuple[int, ...]:
-        shape = tuple(int(dim) for dim in values.shape)
-        if not shape:
-            return (num_steps,)
-        if shape[0] == num_steps:
-            return shape
-        if num_steps == 1:
-            return (num_steps,) + shape
-        raise ValueError("Instrumentation buffer step count mismatch.")
-
-    def _max_extents(arrays: List[np.ndarray]) -> Tuple[int, ...]:
-        if not arrays:
-            return ()
-        shapes = [_aligned_shape(values) for values in arrays]
-        axis_count = len(shapes[0]) - 1
-        extents = [0] * axis_count
-        for shape in shapes:
-            if len(shape) - 1 != axis_count:
-                raise ValueError("Instrumentation buffer rank mismatch.")
-            for axis_index in range(axis_count):
-                extent = shape[axis_index + 1]
-                if extent > extents[axis_index]:
-                    extents[axis_index] = extent
-        return tuple(extents)
-
-    grouped_2d_arrays = [
-        getattr(host_buffers, name) for name in INSTRUMENTATION_GROUPED_2D_FIELDS
-    ]
-    grouped_3d_arrays = [
-        getattr(host_buffers, name) for name in INSTRUMENTATION_GROUPED_3D_FIELDS
-    ]
-    grouped_2d_extents = _max_extents(grouped_2d_arrays)
-    grouped_3d_extents = _max_extents(grouped_3d_arrays)
-
-    grouped_2d_shape = (
-        num_steps,
-        len(INSTRUMENTATION_GROUPED_2D_FIELDS),
-    ) + grouped_2d_extents
-    grouped_3d_shape = (
-        num_steps,
-        len(INSTRUMENTATION_GROUPED_3D_FIELDS),
-    ) + grouped_3d_extents
-
-    grouped_2d_host = np.zeros(grouped_2d_shape, dtype=dtype)
-    grouped_3d_host = np.zeros(grouped_3d_shape, dtype=dtype)
 
     d_state = cuda.to_device(initial_state)
     d_proposed = cuda.to_device(
@@ -443,9 +423,32 @@ def instrumented_step_results(
         np.zeros((num_steps, observables.shape[0]), dtype=precision)
     )
     d_error = cuda.to_device(np.zeros((num_steps, n_states), dtype=precision))
-    d_grouped_2d = cuda.to_device(grouped_2d_host)
-    d_grouped_3d = cuda.to_device(grouped_3d_host)
+    device_buffers = {
+        name: cuda.to_device(getattr(host_buffers, name))
+        for name in INSTRUMENTATION_DEVICE_FIELDS
+    }
     d_status = cuda.to_device(status)
+
+    # Unpack device buffers into local variables to avoid dict-closure issues
+    # when passing them to the kernel and to mirror the device fixture's
+    # ordering/scope exactly.
+    d_residuals = device_buffers["residuals"]
+    d_jacobian_updates = device_buffers["jacobian_updates"]
+    d_stage_states = device_buffers["stage_states"]
+    d_stage_derivatives = device_buffers["stage_derivatives"]
+    d_stage_observables = device_buffers["stage_observables"]
+    d_stage_drivers = device_buffers["stage_drivers"]
+    d_stage_increments = device_buffers["stage_increments"]
+    d_newton_initial_guesses = device_buffers["newton_initial_guesses"]
+    d_newton_iteration_guesses = device_buffers["newton_iteration_guesses"]
+    d_newton_residuals = device_buffers["newton_residuals"]
+    d_newton_squared_norms = device_buffers["newton_squared_norms"]
+    d_newton_iteration_scale = device_buffers["newton_iteration_scale"]
+    d_linear_initial_guesses = device_buffers["linear_initial_guesses"]
+    d_linear_iteration_guesses = device_buffers["linear_iteration_guesses"]
+    d_linear_residuals = device_buffers["linear_residuals"]
+    d_linear_squared_norms = device_buffers["linear_squared_norms"]
+    d_linear_preconditioned_vectors = device_buffers["linear_preconditioned_vectors"]
 
     # Launch kernel (single block/grid as before) and synchronize
     kernel[1, 1, 0, shared_bytes](
@@ -458,8 +461,23 @@ def instrumented_step_results(
         d_observables,
         d_proposed_observables,
         d_error,
-        d_grouped_2d,
-        d_grouped_3d,
+        d_residuals,
+        d_jacobian_updates,
+        d_stage_states,
+        d_stage_derivatives,
+        d_stage_observables,
+        d_stage_drivers,
+        d_stage_increments,
+        d_newton_initial_guesses,
+        d_newton_iteration_guesses,
+        d_newton_residuals,
+        d_newton_squared_norms,
+        d_newton_iteration_scale,
+        d_linear_initial_guesses,
+        d_linear_iteration_guesses,
+        d_linear_residuals,
+        d_linear_squared_norms,
+        d_linear_preconditioned_vectors,
         d_status,
         d_dts,
         numba_precision(0.0),
@@ -470,8 +488,7 @@ def instrumented_step_results(
         d_proposed,
         d_proposed_observables,
         d_error,
-        d_grouped_2d,
-        d_grouped_3d,
+        device_buffers,
         host_buffers,
         d_status,
         num_steps=num_steps,
@@ -484,8 +501,7 @@ def _copy_device_instrumentation(
     d_proposed,
     d_proposed_observables,
     d_error,
-    grouped_2d,
-    grouped_3d,
+    device_buffers,
     host_buffers,
     d_status,
     *,
@@ -494,14 +510,10 @@ def _copy_device_instrumentation(
     """Return ``DeviceInstrumentedResult`` items copied from device buffers."""
 
     status_values = d_status.copy_to_host()
-    host_buffers.copy_grouped_from_device(grouped_2d, grouped_3d)
-    field_names = (
-        *INSTRUMENTATION_GROUPED_2D_FIELDS,
-        *INSTRUMENTATION_GROUPED_3D_FIELDS,
-    )
-    host_results: Dict[str, np.ndarray] = {
-        name: getattr(host_buffers, name) for name in field_names
-    }
+    host_results: Dict[str, np.ndarray] = {}
+    for name, device_array in device_buffers.items():
+        host_array = getattr(host_buffers, name)
+        host_results[name] = device_array.copy_to_host(host_array)
 
     proposed_states = d_proposed.copy_to_host()
     proposed_observables = d_proposed_observables.copy_to_host()

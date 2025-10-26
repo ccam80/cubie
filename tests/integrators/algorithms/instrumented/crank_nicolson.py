@@ -170,8 +170,23 @@ class CrankNicolsonStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:],
                 numba_precision[:],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
                 numba_precision[:, :, :],
-                numba_precision[:, :, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
                 numba_precision,
                 numba_precision,
                 int16,
@@ -192,8 +207,23 @@ class CrankNicolsonStep(ODEImplicitStep):
             observables,
             proposed_observables,
             error,
-            instrumentation_2d,
-            instrumentation_3d,
+            residuals,
+            jacobian_updates,
+            stage_states,
+            stage_derivatives,
+            stage_observables,
+            stage_drivers,
+            stage_increments,
+            newton_initial_guesses,
+            newton_iteration_guesses,
+            newton_residuals,
+            newton_squared_norms,
+            newton_iteration_scale,
+            linear_initial_guesses,
+            linear_iteration_guesses,
+            linear_residuals,
+            linear_squared_norms,
+            linear_preconditioned_vectors,
             dt_scalar,
             time_scalar,
             first_step_flag,
@@ -201,24 +231,6 @@ class CrankNicolsonStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            residuals = instrumentation_2d[0]
-            jacobian_updates = instrumentation_2d[1]
-            stage_states = instrumentation_2d[2]
-            stage_derivatives = instrumentation_2d[3]
-            stage_observables = instrumentation_2d[4]
-            stage_drivers = instrumentation_2d[5]
-            stage_increments = instrumentation_2d[6]
-            newton_initial_guesses = instrumentation_2d[7]
-            newton_squared_norms = instrumentation_2d[8]
-            newton_iteration_scale = instrumentation_2d[9]
-            linear_initial_guesses = instrumentation_2d[10]
-            linear_squared_norms = instrumentation_2d[11]
-            newton_iteration_guesses = instrumentation_3d[0]
-            newton_residuals = instrumentation_3d[1]
-            linear_iteration_guesses = instrumentation_3d[2]
-            linear_residuals = instrumentation_3d[3]
-            linear_preconditioned_vectors = instrumentation_3d[4]
-
             typed_zero = numba_precision(0.0)
             status_mask = int32(0xFFFF)
             stage_rhs = cuda.local.array(n, numba_precision)
@@ -318,8 +330,16 @@ class CrankNicolsonStep(ODEImplicitStep):
                 base_state,
                 solver_scratch,
                 int32(0),
-                instrumentation_2d,
-                instrumentation_3d,
+                newton_initial_guesses,
+                newton_iteration_guesses,
+                newton_residuals,
+                newton_squared_norms,
+                newton_iteration_scale,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
 
             for idx in range(n):
@@ -346,8 +366,16 @@ class CrankNicolsonStep(ODEImplicitStep):
                 state,
                 solver_scratch,
                 int32(0),
-                instrumentation_2d,
-                instrumentation_3d,
+                dummy_newton_initial_guesses,
+                dummy_newton_iteration_guesses,
+                dummy_newton_residuals,
+                dummy_newton_squared_norms,
+                dummy_newton_iteration_scale,
+                dummy_linear_initial_guesses,
+                dummy_linear_iteration_guesses,
+                dummy_linear_residuals,
+                dummy_linear_squared_norms,
+                dummy_linear_preconditioned_vectors,
             )
             status |= be_status & status_mask
 

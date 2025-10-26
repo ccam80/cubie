@@ -213,8 +213,21 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision[:, :],
                 numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
                 numba_precision[:, :, :],
-                numba_precision[:, :, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :, :],
+                numba_precision[:, :],
+                numba_precision[:, :, :],
                 numba_precision,
                 numba_precision,
                 int16,
@@ -235,8 +248,23 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             observables,
             proposed_observables,
             error,
-            instrumentation_2d,
-            instrumentation_3d,
+            residuals,
+            jacobian_updates,
+            stage_states,
+            stage_derivatives,
+            stage_observables,
+            stage_drivers_out,
+            stage_increments,
+            newton_initial_guesses,
+            newton_iteration_guesses,
+            newton_residuals,
+            newton_squared_norms,
+            newton_iteration_scale,
+            linear_initial_guesses,
+            linear_iteration_guesses,
+            linear_residuals,
+            linear_squared_norms,
+            linear_preconditioned_vectors,
             dt_scalar,
             time_scalar,
             first_step_flag,
@@ -244,24 +272,6 @@ class GenericRosenbrockWStep(ODEImplicitStep):
             shared,
             persistent_local,
         ):
-            residuals = instrumentation_2d[0]
-            jacobian_updates = instrumentation_2d[1]
-            stage_states = instrumentation_2d[2]
-            stage_derivatives = instrumentation_2d[3]
-            stage_observables = instrumentation_2d[4]
-            stage_drivers_out = instrumentation_2d[5]
-            stage_increments = instrumentation_2d[6]
-            newton_initial_guesses = instrumentation_2d[7]
-            newton_squared_norms = instrumentation_2d[8]
-            newton_iteration_scale = instrumentation_2d[9]
-            linear_initial_guesses = instrumentation_2d[10]
-            linear_squared_norms = instrumentation_2d[11]
-            newton_iteration_guesses = instrumentation_3d[0]
-            newton_residuals = instrumentation_3d[1]
-            linear_iteration_guesses = instrumentation_3d[2]
-            linear_residuals = instrumentation_3d[3]
-            linear_preconditioned_vectors = instrumentation_3d[4]
-
             stage_rhs = cuda.local.array(n, numba_precision)
             jacobian_stage_product = stage_rhs # lifetimes are disjoint - reuse
 
@@ -366,8 +376,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 stage_rhs,
                 stage_increment,
                 initial_linear_slot,
-                instrumentation_2d,
-                instrumentation_3d,
+                linear_initial_guesses,
+                linear_iteration_guesses,
+                linear_residuals,
+                linear_squared_norms,
+                linear_preconditioned_vectors,
             )
             status_code |= solver_ret
 
@@ -503,8 +516,11 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     stage_rhs,
                     stage_increment,
                     stage_linear_slot,
-                    instrumentation_2d,
-                    instrumentation_3d,
+                    linear_initial_guesses,
+                    linear_iteration_guesses,
+                    linear_residuals,
+                    linear_squared_norms,
+                    linear_preconditioned_vectors,
                 )
                 status_code |= solver_ret
 
