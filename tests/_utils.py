@@ -502,6 +502,7 @@ def assert_integration_outputs(
             state_ref,
             rtol=rtol,
             atol=atol,
+            verbose=True,
             err_msg="state mismatch.\n"
             f"device: {state_dev}\nreference: {state_ref}",
         )

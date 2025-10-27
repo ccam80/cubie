@@ -15,6 +15,9 @@ STEP_SETTINGS.update(
      {'max_linear_iters': 3,
       'max_newton_iters': 3,
       'newton_max_backtracks': 2,
+      'krylov_tolerance': 1e-7,
+      'newton_tolerance': 1e-8,
+      'correction_type': 'minimal_residual'
     })
 
 @pytest.mark.parametrize(
