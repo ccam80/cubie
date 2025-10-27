@@ -429,7 +429,9 @@ def run_device_loop(
             return
 
         shared = cuda.shared.array(0, dtype=numba_precision)
+        shared[:] = numba_precision(0.0)
         local = cuda.local.array(localmem_required, dtype=numba_precision)
+        local[:] = numba_precision(0.0)
         status_arr[0] = loop_fn(
             init_vec,
             params_vec,
@@ -500,6 +502,7 @@ def assert_integration_outputs(
             state_ref,
             rtol=rtol,
             atol=atol,
+            verbose=True,
             err_msg="state mismatch.\n"
             f"device: {state_dev}\nreference: {state_ref}",
         )

@@ -117,6 +117,7 @@ class SingleIntegratorRunCore(CUDAFactory):
             self._algo_step.controller_defaults.step_controller.copy())
         controller_settings.update(step_control_settings)
         controller_settings["n"] = system_sizes.states
+        controller_settings["algorithm_order"] = self._algo_step.order
 
         self._step_controller = get_controller(
             precision=precision,
@@ -324,6 +325,8 @@ class SingleIntegratorRunCore(CUDAFactory):
                 {"threads_per_step": self._algo_step.threads_per_step}
             )
 
+        updates_dict["algorithm_order"] = self._algo_step.order
+
         ctrl_rcgnzd = self._switch_controllers(updates_dict)
         ctrl_rcgnzd |= self._step_controller.update(updates_dict, silent=True)
         if ctrl_rcgnzd:
@@ -393,6 +396,7 @@ class SingleIntegratorRunCore(CUDAFactory):
         for key, value in algo_defaults.items():
             if key not in updates_dict:
                 updates_dict[key] = value
+        updates_dict["algorithm_order"] = self._algo_step.order
         return set("algorithm")
 
     def _switch_controllers(self, updates_dict):
@@ -405,6 +409,8 @@ class SingleIntegratorRunCore(CUDAFactory):
         if new_controller != self.compile_settings.step_controller:
             old_settings = self._step_controller.settings_dict
             old_settings["step_controller"] = new_controller
+            old_settings["algorithm_order"] = updates_dict.get(
+                "algorithm_order", self._algo_step.order)
             self._step_controller = get_controller(
                     precision=precision,
                     settings=old_settings,

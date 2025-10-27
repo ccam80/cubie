@@ -66,7 +66,7 @@ def _settings_to_dict(settings_source):
             "output_types": ["state","time", "observables","mean"]
         },
         {
-            "algorithm": "crank_nicolson",
+            "algorithm": "bogacki-shampine-32",
             "step_controller": "pi",
             "atol": 1e-5,
             "rtol": 1e-5,
@@ -128,13 +128,13 @@ class TestSingleIntegratorRun:
             abs=tolerance.abs_tight,
         )
 
-        dt_min = solver_settings["dt_min"]
-        assert run.dt_min == pytest.approx(
-            dt_min,
-            rel=tolerance.rel_tight,
-            abs=tolerance.abs_tight,
-        )
         if run.is_adaptive:
+            dt_min = solver_settings["dt_min"]
+            assert run.dt_min == pytest.approx(
+                dt_min,
+                rel=tolerance.rel_tight,
+                abs=tolerance.abs_tight,
+            )
             assert run.dt_max == pytest.approx(
                 solver_settings["dt_max"],
                 rel=tolerance.rel_tight,
@@ -142,12 +142,12 @@ class TestSingleIntegratorRun:
             )
         else:
             assert run.dt_max == pytest.approx(
-                dt_min,
+                run.dt_min,
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             )
             assert run.dt == pytest.approx(
-                dt_min,
+                solver_settings["dt"],
                 rel=tolerance.rel_tight,
                 abs=tolerance.abs_tight,
             )
@@ -465,6 +465,8 @@ def test_default_step_controller_settings_applied(
         else:
             assert actual == expected
     assert run._step_controller.n == system.sizes.states
+    if run.algorithm_order is not None:
+        assert run.algorithm_order == run._algo_step.order
 
 
 @pytest.mark.parametrize(
@@ -516,3 +518,4 @@ def test_step_controller_overrides_take_precedence(
     assert controller_settings["min_gain"] == pytest.approx(
         override_settings["min_gain"]
     )
+    assert controller_settings["algorithm_order"] == run._algo_step.order

@@ -1,6 +1,6 @@
 """Containers describing ODE system metadata used by factories."""
 
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 import attrs
 import numpy as np
@@ -9,7 +9,13 @@ from numpy import float32
 import numba
 
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
-from cubie._utils import PrecisionDType, precision_converter, precision_validator
+from cubie._utils import (
+    PrecisionDType,
+    getype_validator,
+    inrangetype_validator,
+    precision_converter,
+    precision_validator,
+)
 from cubie.odesystems.SystemValues import SystemValues
 
 
@@ -106,6 +112,19 @@ class ODEData:
     num_drivers: int = attrs.field(
         validator=attrs.validators.instance_of(int), default=1
     )
+    _beta: float = attrs.field(
+        default=1.0,
+        validator=inrangetype_validator(float, -32678, 32677),
+    )
+    _gamma: float = attrs.field(
+        default=1.0,
+        validator=inrangetype_validator(float, -32678, 32677),
+    )
+    preconditioner_order: int = attrs.field(
+        default=0,
+        validator=getype_validator(int, 0),
+    )
+    _mass: Any = attrs.field(default=None, eq=False)
 
     @property
     def num_states(self) -> int:
@@ -147,6 +166,21 @@ class ODEData:
     def simsafe_precision(self) -> type:
         """Precision promoted for CUDA simulator compatibility."""
         return simsafe_dtype(self.precision)
+
+    @property
+    def beta(self) -> float:
+        """Return the cached solver shift parameter."""
+        return self.precision(self._beta)
+
+    @property
+    def gamma(self) -> float:
+        """Return the cached solver Jacobian weight."""
+        return self.precision(self._gamma)
+
+    @property
+    def mass(self) -> Any:
+        """Return the cached solver mass matrix."""
+        return self._mass
 
     @classmethod
     def from_BaseODE_initargs(

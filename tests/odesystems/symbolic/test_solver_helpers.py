@@ -11,7 +11,6 @@ from cubie.odesystems.symbolic.solver_helpers import (
     generate_neumann_preconditioner_code,
     generate_prepare_jac_code,
     generate_stage_residual_code,
-    generate_residual_end_state_code,
 )
 
 
@@ -66,11 +65,11 @@ def operator_kernel(precision):
 
     def make_kernel(op):
         @cuda.jit
-        def kernel(h, vec, out):
+        def kernel(t, h, a_ij, vec, out):
             state = cuda.local.array(n, precision)
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            op(state, parameters, drivers, h, vec, out)
+            op(state, parameters, drivers, t, h, a_ij, vec, out)
 
         return kernel
 
@@ -149,6 +148,7 @@ def cached_jvp_kernel(cached_system, precision):
             state_values,
             parameter_values,
             driver_values,
+            t,
             vec,
             out_cached,
         ):
@@ -164,8 +164,16 @@ def cached_jvp_kernel(cached_system, precision):
             for idx in range(n_drivers):
                 drivers[idx] = driver_values[idx]
 
-            prepare(state, parameters, drivers, cached_aux)
-            cached_jvp(state, parameters, drivers, cached_aux, vec, out_cached)
+            prepare(state, parameters, drivers, t, cached_aux)
+            cached_jvp(
+                state,
+                parameters,
+                drivers,
+                cached_aux,
+                t,
+                vec,
+                out_cached,
+            )
 
         return kernel
 
@@ -216,7 +224,9 @@ def cached_operator_kernel(cached_system, precision):
             state_values,
             parameter_values,
             driver_values,
+            t,
             h,
+            a_ij,
             vec,
             out,
         ):
@@ -232,8 +242,8 @@ def cached_operator_kernel(cached_system, precision):
             for idx in range(n_drivers):
                 drivers[idx] = driver_values[idx]
 
-            prepare(state, parameters, drivers, cached_aux)
-            op(state, parameters, drivers, cached_aux, h, vec, out)
+            prepare(state, parameters, drivers, t, cached_aux)
+            op(state, parameters, drivers, cached_aux, t, h, a_ij, vec, out)
 
         return kernel
 
@@ -265,7 +275,7 @@ def test_operator_apply_dense(
     kernel = operator_kernel(op)
     v = np.array([1.0, -1.0], dtype=precision)
     out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(h), v, out)
+    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     expected = beta * M @ v - gamma * h * J @ v
     assert np.allclose(
@@ -314,6 +324,7 @@ def test_cached_jvp_matches_jacobian(
         state_values,
         parameter_values,
         driver_values,
+        precision(0.0),
         vec,
         out_cached,
     )
@@ -384,7 +395,9 @@ def test_cached_operator_apply_dense(
         state_values,
         parameter_values,
         driver_values,
+        precision(0.0),
         precision(h),
+        precision(1.0),
         vec,
         out,
     )
@@ -454,12 +467,12 @@ def neumann_kernel(precision):
 
     def make_kernel(pre):
         @cuda.jit
-        def kernel(h, vec, out):
+        def kernel(t, h, a_ij, vec, out):
             state = cuda.local.array(n, precision)
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             scratch = cuda.local.array(n, precision)
-            pre(state, parameters, drivers, h, vec, out, scratch)
+            pre(state, parameters, drivers, t, h, a_ij, vec, out, scratch)
 
         return kernel
 
@@ -510,7 +523,9 @@ def neumann_cached_kernel(cached_system, precision):
             state_values,
             parameter_values,
             driver_values,
+            t,
             h,
+            a_ij,
             vec,
             out,
         ):
@@ -527,13 +542,15 @@ def neumann_cached_kernel(cached_system, precision):
             for idx in range(n_drivers):
                 drivers[idx] = driver_values[idx]
 
-            prepare(state, parameters, drivers, cached_aux)
+            prepare(state, parameters, drivers, t, cached_aux)
             pre(
                 state,
                 parameters,
                 drivers,
                 cached_aux,
+                t,
                 h,
+                a_ij,
                 vec,
                 out,
                 jvp,
@@ -575,7 +592,7 @@ def test_neumann_preconditioner_expression(
     v = np.array([0.7, -1.3], dtype=precision)
     out = np.zeros(2, dtype=precision)
 
-    kernel[1, 1](precision(h), v, out)
+    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, out)
 
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     beta_inv = 1.0 / beta
@@ -642,7 +659,9 @@ def test_neumann_preconditioner_cached_expression(
         state_values,
         parameter_values,
         driver_values,
+        precision(0.0),
         precision(h),
+        precision(1.0),
         vec,
         out,
     )
@@ -697,28 +716,6 @@ def residual_system():
 
 
 @pytest.fixture(scope="function")
-def end_residual_factory(residual_system, precision):
-    def factory(beta, gamma, M):
-        base = cuda.to_device(np.array([0.5, -0.5], dtype=precision))
-        fname = f"residual_end_factory_{abs(hash(M.tobytes()))}"
-        code = generate_residual_end_state_code(
-            residual_system.equations,
-            residual_system.indices,
-            M=M,
-            func_name=fname,
-        )
-        res_fac = residual_system.gen_file.import_function(fname, code)
-        return res_fac(
-            residual_system.constants.values_dict,
-            from_dtype(residual_system.precision),
-            beta=beta,
-            gamma=gamma,
-        )
-
-    return factory
-
-
-@pytest.fixture(scope="function")
 def stage_residual_factory(residual_system, precision):
     def factory(beta, gamma, a_ii, M):
         base = cuda.to_device(np.array([0.25, -0.25], dtype=precision))
@@ -746,49 +743,14 @@ def residual_kernel(precision):
 
     def make_kernel(residual):
         @cuda.jit
-        def kernel(h, aij, vec, base_state, out):
+        def kernel(t, h, aij, vec, base_state, out):
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            residual(vec, parameters, drivers, h, aij, base_state, out)
+            residual(vec, parameters, drivers, t, h, aij, base_state, out)
 
         return kernel
 
     return make_kernel
-
-
-@pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
-@pytest.mark.parametrize(
-    "beta,gamma,h,M",
-    [
-        (1.0, 1.0, 1.0, np.eye(2)),
-        (1.0, 1.0, 1.0, np.diag([2.0, 3.0])),
-        (0.5, 2.0, 1.0, np.array([[1.0, 0.5], [0.5, 2.0]])),
-    ],
-)
-def test_residual_end_state(
-    beta,
-    gamma,
-    h,
-    M,
-    end_residual_factory,
-    residual_kernel,
-    precision,
-    tolerance,
-):
-    residual = end_residual_factory(beta, gamma, M)
-    kernel = residual_kernel(residual)
-    state = np.array([1.0, -1.0], dtype=precision)
-    base = np.array([0.5, -0.5], dtype=precision)
-    out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(h), precision(1.0), state, base, out)
-    J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
-    expected = beta * M @ (state - base) - gamma * h * (J @ state)
-    assert np.allclose(
-        out,
-        expected,
-        atol=tolerance.abs_tight,
-        rtol=tolerance.rel_tight,
-    )
 
 
 @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
@@ -816,7 +778,7 @@ def test_stage_residual(
     stage = np.array([0.5, -0.3], dtype=precision)
     base = np.array([0.25, -0.25], dtype=precision)
     out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(h), precision(a_ii), stage, base, out)
+    kernel[1, 1](precision(0.0), precision(h), precision(a_ii), stage, base, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     eval_point = base + a_ii * stage
     expected = beta * (M @ stage) - gamma * h * (J @ eval_point)

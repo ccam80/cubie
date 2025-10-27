@@ -157,6 +157,41 @@ class TestControllers:
             abs=tolerance.abs_tight,
         )
 
+
+@pytest.mark.parametrize(
+    (
+        "solver_settings_override",
+        "solver_settings_override2",
+    ),
+    [
+        (
+            {"algorithm": "rosenbrock"},
+            {"step_controller": "pi", "atol": 1e-3, "rtol": 0.0},
+        ),
+    ],
+    indirect=True,
+)
+def test_pi_controller_uses_tableau_order(
+    step_controller,
+    cpu_step_controller,
+    step_controller_settings,
+    step_object,
+    device_step_results,
+    cpu_step_results,
+    tolerance,
+):
+    """Adaptive controller gains should follow the algorithm tableau order."""
+
+    expected_order = step_object.order
+    assert expected_order > 1
+    assert step_controller_settings["algorithm_order"] == expected_order
+    assert step_controller.algorithm_order == expected_order
+    assert device_step_results.dt == pytest.approx(
+        cpu_step_results.dt,
+        rel=tolerance.rel_tight,
+        abs=tolerance.abs_tight,
+    )
+
     @pytest.mark.parametrize(
         'solver_settings_override, step_setup',
         (

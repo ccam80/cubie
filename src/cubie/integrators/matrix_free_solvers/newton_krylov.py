@@ -30,7 +30,8 @@ def newton_krylov_solver_factory(
     ----------
     residual_function
         Matrix-free residual evaluator with signature
-        ``(state, parameters, drivers, h, a_ij, base_state, residual)``.
+        ``(stage_increment, parameters, drivers, t, h, a_ij, base_state,
+        residual)``.
     linear_solver
         Matrix-free linear solver created by :func:`linear_solver_factory`.
     n
@@ -77,9 +78,10 @@ def newton_krylov_solver_factory(
     # no cover: start
     @cuda.jit(device=True, inline=True)
     def newton_krylov_solver(
-        state,
+        stage_increment,
         parameters,
         drivers,
+        t,
         h,
         a_ij,
         base_state,
@@ -89,12 +91,14 @@ def newton_krylov_solver_factory(
 
         Parameters
         ----------
-        state
-            Current iterate; overwritten with the accepted solution.
+        stage_increment
+            Current Newton iterate representing the stage increment.
         parameters
             Model parameters forwarded to the residual evaluation.
         drivers
             External drivers forwarded to the residual evaluation.
+        t
+            Stage time forwarded to the residual and linear solver.
         h
             Timestep scaling factor supplied by the outer integrator.
         a_ij
@@ -102,9 +106,11 @@ def newton_krylov_solver_factory(
         base_state
             Reference state used when evaluating the residual.
         shared_scratch
-            Shared scratch buffer providing Newton direction and residual
-            storage. The first ``n`` entries store the Newton direction and the
-            next ``n`` entries store the residual.
+            Shared scratch buffer providing Newton direction, residual, and
+            evaluation state storage. The first ``n`` entries store the Newton
+            direction, the next ``n`` entries store the residual, and the final
+            ``n`` entries store the stage state ``base_state + a_ij *
+            stage_increment``.
 
         Returns
         -------
@@ -113,21 +119,26 @@ def newton_krylov_solver_factory(
 
         Notes
         -----
-        Scratch space requirements total two vectors of length ``n`` drawn from
-        ``shared_scratch``. ``delta`` is reset to zero before the first linear
-        solve so it can be reused as the Newton direction buffer. The linear
-        solver is invoked on the Jacobian system ``J * delta = rhs`` with
-        ``rhs`` stored in ``residual``. The tentative state updates are reverted
-        if no acceptable backtracking step is found.
+        Scratch space requirements total three vectors of length ``n`` drawn
+        from ``shared_scratch``. No need to zero scratch space before
+        passing - it's write-first in this function.
+        ``delta`` is reset to zero before the first linear solve so it can be
+        reused as the Newton direction buffer. ``eval_state`` stores the stage
+        state ``base_state + a_ij * stage_increment`` for the Jacobian
+        evaluations. The linear solver is invoked on the Jacobian system
+        ``J * delta = rhs`` with ``rhs`` stored in ``residual``. The tentative
+        state updates are reverted if no acceptable backtracking step is found.
         """
 
         delta = shared_scratch[:n]
         residual = shared_scratch[n: 2 * n]
+        eval_state = shared_scratch[2 * n: 3 * n]
 
         residual_function(
-            state,
+            stage_increment,
             parameters,
             drivers,
+            t,
             h,
             a_ij,
             base_state,
@@ -152,11 +163,15 @@ def newton_krylov_solver_factory(
 
             iters_count += int32(1)
             if status < 0:
+                for i in range(n):
+                    eval_state[i] = base_state[i] + a_ij * stage_increment[i]
                 lin_return = linear_solver(
-                    state,
+                    eval_state,
                     parameters,
                     drivers,
+                    t,
                     h,
+                    a_ij,
                     residual,
                     delta,
                 )
@@ -171,13 +186,14 @@ def newton_krylov_solver_factory(
                 if status < 0:
                     delta_scale = scale - scale_applied
                     for i in range(n):
-                        state[i] += delta_scale * delta[i]
+                        stage_increment[i] += delta_scale * delta[i]
                     scale_applied = scale
 
                     residual_function(
-                        state,
+                        stage_increment,
                         parameters,
                         drivers,
+                        t,
                         h,
                         a_ij,
                         base_state,
@@ -209,7 +225,7 @@ def newton_krylov_solver_factory(
 
             if (status < 0) and (not found_step):
                 for i in range(n):
-                    state[i] -= scale_applied * delta[i]
+                    stage_increment[i] -= scale_applied * delta[i]
                 status = int32(1)
 
         if status < 0:

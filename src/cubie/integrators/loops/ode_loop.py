@@ -9,7 +9,7 @@ from math import ceil
 from typing import Callable, Optional, Set
 
 import numpy as np
-from numba import cuda, int32
+from numba import cuda, int16, int32
 
 from cubie.CUDAFactory import CUDAFactory
 from cubie.cuda_simsafe import from_dtype as simsafe_dtype
@@ -285,6 +285,9 @@ class IVPLoop(CUDAFactory):
             controller_temp = persistent_local[controller_slice]
             algo_local = persistent_local[algorithm_slice]
 
+            first_step_flag = int16(1)
+            prev_step_accepted_flag = int16(1)
+
             for k in range(n_states):
                 state_buffer[k] = initial_states[k]
             for k in range(n_parameters):
@@ -385,9 +388,13 @@ class IVPLoop(CUDAFactory):
                         error,
                         dt_eff,
                         t,
+                        first_step_flag,
+                        prev_step_accepted_flag,
                         remaining_shared_scratch,
                         algo_local,
                     )
+
+                    first_step_flag = int16(0)
 
                     niters = (step_status >> 16) & status_mask
                     status |= step_status & status_mask
@@ -424,6 +431,12 @@ class IVPLoop(CUDAFactory):
                         new_obs = observables_proposal_buffer[i]
                         old_obs = observables_buffer[i]
                         observables_buffer[i] = selp(accept, new_obs, old_obs)
+
+                    prev_step_accepted_flag = selp(
+                        accept,
+                        int16(1),
+                        int16(0),
+                    )
 
                     # Predicated update of next_save; update if save is accepted.
                     do_save = accept and do_save

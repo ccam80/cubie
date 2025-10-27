@@ -30,7 +30,6 @@ class ODECache:
     neumann_preconditioner_cached: Optional[Union[Callable, int]] = attrs.field(
         default=-1
     )
-    end_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
     stage_residual: Optional[Union[Callable, int]] = attrs.field(default=-1)
     observables: Optional[Union[Callable, int]] = attrs.field(default=-1)
     prepare_jac: Optional[Union[Callable, int]] = attrs.field(default=-1)
@@ -199,7 +198,34 @@ class BaseODE(CUDAFactory):
         Pass ``silent=True`` when performing bulk updates that may include
         values for other components to suppress warnings about missing keys.
         """
-        return self.set_constants(updates_dict, silent=silent, **kwargs)
+
+        if updates_dict is None:
+            updates_dict = {}
+        updates = updates_dict.copy()
+        if kwargs:
+            updates.update(kwargs)
+        if updates == {}:
+            return set()
+
+        recognised = self.update_compile_settings(
+            updates,
+            silent=True,
+        )
+        recognised_constants = self.set_constants(
+            updates,
+            silent=True,
+        )
+        recognised |= recognised_constants
+
+        if not silent:
+            unrecognised = set(updates.keys()) - recognised
+            if unrecognised:
+                raise KeyError(
+                    "Unrecognized parameters in update: "
+                    f"{unrecognised}. These parameters were not updated.",
+                )
+
+        return recognised
 
     def set_constants(
         self,

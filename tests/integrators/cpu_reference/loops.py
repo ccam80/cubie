@@ -1,0 +1,234 @@
+"""CPU reference loop implementations for integrator tests."""
+
+from typing import Mapping, Optional, Sequence, Union
+
+import numpy as np
+
+from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
+
+from .algorithms import get_ref_stepper
+from .cpu_ode_system import CPUODESystem
+from .cpu_utils import Array, DriverEvaluator, STATUS_MASK, _ensure_array
+from .step_controllers import CPUAdaptiveController
+
+from tests._utils import calculate_expected_summaries
+
+
+def _collect_saved_outputs(
+    save_history: list[Array],
+    indices: Sequence[int],
+    dtype: np.dtype,
+) -> Array:
+    """Return the saved samples at ``indices`` as a dense array.
+
+    Parameters
+    ----------
+    save_history
+        Sequence of saved state or observable samples.
+    indices
+        Column indices to extract from each saved sample.
+    dtype
+        Target dtype for the dense output array.
+
+    Returns
+    -------
+    Array
+        Dense array containing the selected samples.
+    """
+
+    width = len(indices)
+    if width == 0:
+        return np.zeros((len(save_history), 0), dtype=dtype)
+    data = np.zeros((len(save_history), width), dtype=dtype)
+    for row, sample in enumerate(save_history):
+        data[row, :] = sample[indices]
+    return data
+
+
+def run_reference_loop(
+    evaluator: CPUODESystem,
+    inputs: Mapping[str, Array],
+    driver_evaluator: DriverEvaluator,
+    solver_settings,
+    output_functions,
+    controller: CPUAdaptiveController,
+    *,
+    tableau: Optional[Union[str, ButcherTableau]] = None,
+) -> Mapping[str, Array]:
+    """Execute a CPU loop mirroring :class:`IVPLoop` behaviour.
+
+    Parameters
+    ----------
+    evaluator
+        CPU-side ODE evaluator used for state updates.
+    inputs
+        Mapping providing initial conditions and parameters.
+    driver_evaluator
+        Callable returning driver samples for a requested time.
+    solver_settings
+        Settings dictionary describing the integration problem.
+    output_functions
+        Output configuration mirroring the device loop behaviour.
+    controller
+        Adaptive or fixed step controller used during the run.
+    tableau
+        Optional tableau override supplied as a name or instance.
+
+    Returns
+    -------
+    Mapping[str, Array]
+        Dictionary containing state, observable, summary, and status arrays.
+    """
+
+    precision = evaluator.precision
+
+    initial_state = inputs["initial_values"].astype(precision, copy=True)
+    params = inputs["parameters"].astype(precision, copy=True)
+    duration = precision(solver_settings["duration"])
+    warmup = precision(solver_settings["warmup"])
+    dt_save = precision(solver_settings["dt_save"])
+    dt_summarise = precision(solver_settings["dt_summarise"])
+
+    stepper = get_ref_stepper(
+        evaluator,
+        driver_evaluator,
+        solver_settings["algorithm"],
+        newton_tol=solver_settings["newton_tolerance"],
+        newton_max_iters=solver_settings["max_newton_iters"],
+        linear_tol=solver_settings["krylov_tolerance"],
+        linear_max_iters=solver_settings["max_linear_iters"],
+        linear_correction_type=solver_settings["correction_type"],
+        preconditioner_order=solver_settings["preconditioner_order"],
+        tableau=tableau,
+        newton_damping=solver_settings["newton_damping"],
+        newton_max_backtracks=solver_settings["newton_max_backtracks"],
+    )
+
+    saved_state_indices = _ensure_array(
+        solver_settings["saved_state_indices"], np.int32
+    )
+    saved_observable_indices = _ensure_array(
+        solver_settings["saved_observable_indices"], np.int32
+    )
+    summarised_state_indices = _ensure_array(
+        solver_settings["summarised_state_indices"], np.int32
+    )
+    summarised_observable_indices = _ensure_array(
+        solver_settings["summarised_observable_indices"], np.int32
+    )
+
+    save_time = output_functions.save_time
+    max_save_samples = int(np.ceil(duration / dt_save))
+
+    state = initial_state.copy()
+    state_history = [state.copy()]
+    observable_history: list[Array] = []
+    time_history: list[float] = []
+    t = precision(0.0)
+    drivers_initial = driver_evaluator(precision(t))
+    observables = evaluator.observables(
+        state,
+        params,
+        drivers_initial,
+        t,
+    )
+
+    if warmup > precision(0.0):
+        next_save_time = warmup
+    else:
+        next_save_time = dt_save
+        state_history = [state.copy()]
+        observable_history.append(observables.copy())
+        time_history = [t]
+
+    end_time = precision(warmup + duration)
+    fixed_steps_per_save = int(np.ceil(dt_save / controller.dt))
+    fixed_step_count = 0
+    equality_breaker = (
+        precision(1e-7)
+        if precision is np.float32
+        else precision(1e-14)
+    )
+    status_flags = 0
+
+    while t < end_time - equality_breaker:
+        dt = precision(min(controller.dt, end_time - t))
+        do_save = False
+        if controller.is_adaptive:
+            if t + dt + equality_breaker >= next_save_time:
+                dt = precision(next_save_time - t)
+                do_save = True
+        else:
+            if (fixed_step_count + 1) % fixed_steps_per_save == 0:
+                do_save = True
+                fixed_step_count = 0
+            else:
+                fixed_step_count += 1
+
+        result = stepper.step(
+            state=state,
+            params=params,
+            dt=dt,
+            time=precision(t),
+        )
+
+        step_status = int(result.status)
+        status_flags |= step_status & STATUS_MASK
+        accept = controller.propose_dt(
+            error_vector=result.error,
+            prev_state=state,
+            new_state=result.state,
+            niters=result.niters,
+        )
+        if not accept:
+            continue
+
+        state = result.state.copy()
+        observables = result.observables.copy()
+        t += precision(dt)
+
+        if do_save:
+            if len(state_history) < max_save_samples:
+                state_history.append(result.state.copy())
+                observable_history.append(result.observables.copy())
+                time_history.append(precision(next_save_time - warmup))
+            next_save_time += dt_save
+
+    state_output = _collect_saved_outputs(
+        state_history,
+        saved_state_indices,
+        precision,
+    )
+
+    observables_output = _collect_saved_outputs(
+        observable_history,
+        saved_observable_indices,
+        precision,
+    )
+    if save_time:
+        state_output = np.column_stack((state_output, np.asarray(time_history)))
+
+    summarise_every = int(np.ceil(dt_summarise / dt_save))
+
+    state_summary, observable_summary = calculate_expected_summaries(
+        state_output,
+        observables_output,
+        summarised_state_indices,
+        summarised_observable_indices,
+        summarise_every,
+        output_functions.compile_settings.output_types,
+        output_functions.summaries_output_height_per_var,
+        precision,
+    )
+    final_status = status_flags & STATUS_MASK
+
+    return {
+        "state": state_output,
+        "observables": observables_output,
+        "state_summaries": state_summary,
+        "observable_summaries": observable_summary,
+        "status": final_status,
+    }
+
+
+__all__ = ["run_reference_loop", "_collect_saved_outputs"]
