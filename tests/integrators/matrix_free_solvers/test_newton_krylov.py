@@ -175,7 +175,7 @@ def test_newton_krylov_failure(precision):
         out[0] = precision(1.0)
 
     @cuda.jit(device=True)
-    def operator(state, parameters, drivers, t, h, vec, out):
+    def operator(state, parameters, drivers, t, h, a_ij, vec, out):
         out[0] = vec[0]
 
     n = 1
@@ -269,7 +269,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         out[0] = precision(1.0)
 
     @cuda.jit(device=True)
-    def zero_operator(state, parameters, drivers, t, h, vec, out):
+    def zero_operator(state, parameters, drivers, t, h, a_ij, vec, out):
         # Linear operator always zero => inner solver cannot make progress
         out[0] = precision(0.0)
 
