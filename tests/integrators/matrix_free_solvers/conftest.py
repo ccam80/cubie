@@ -124,13 +124,13 @@ def system_setup(request, precision):
     temp_out = np.zeros(3, dtype=precision)
 
     @cuda.jit()
-    def operator_kernel(state, params, drivers, h, in_vec, out_vec):
-        operator(state, params, drivers, h, in_vec, out_vec)
+    def operator_kernel(state, params, drivers, time_scalar, h, in_vec, out_vec):
+        operator(state, params, drivers, time_scalar, h, in_vec, out_vec)
 
     for j in range(3):
         temp_in.fill(0)
         temp_in[j] = precision(1.0)
-        operator_kernel[1, 1](state_fp, params, drivers, h, temp_in, temp_out)
+        operator_kernel[1, 1](state_fp, params, drivers, zero_time, h, temp_in, temp_out)
         F[:, j] = temp_out
     mr_expected = np.linalg.solve(F, mr_rhs)
 
@@ -175,13 +175,23 @@ def neumann_kernel(precision):
     def factory(precond, n, h):
         @cuda.jit
         def kernel(state_init, residual, out):
+            time_scalar = precision(0.0)
             state = cuda.local.array(n, precision)
             for i in range(n):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             scratch = cuda.shared.array(n, precision)
-            precond(state, parameters, drivers, h, residual, out, scratch)
+            precond(
+                state,
+                parameters,
+                drivers,
+                time_scalar,
+                h,
+                residual,
+                out,
+                scratch,
+            )
 
         return kernel
 
@@ -206,12 +216,21 @@ def solver_kernel(precision):
     def factory(solver, n, h):
         @cuda.jit
         def kernel(state_init, rhs, x, flag):
+            time_scalar = precision(0.0)
             state = cuda.local.array(n, precision)
             for i in range(n):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            flag[0] = solver(state, parameters, drivers, h, rhs, x)
+            flag[0] = solver(
+                state,
+                parameters,
+                drivers,
+                time_scalar,
+                h,
+                rhs,
+                x,
+            )
 
         return kernel
 

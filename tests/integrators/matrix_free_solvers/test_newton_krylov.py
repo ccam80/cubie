@@ -18,11 +18,11 @@ def placeholder_system(precision):
     """Provide residual and operator for a scalar ODE step."""
 
     @cuda.jit(device=True)
-    def residual(state, parameters, drivers, h, a_ij, base_state, out):
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
         out[0] = state[0] - h * (base_state[0] + a_ij * state[0])
 
     @cuda.jit(device=True)
-    def operator(state, parameters, drivers, h, vec, out):
+    def operator(state, parameters, drivers, t, h, vec, out):
         out[0] = (precision(1.0) - h) * vec[0]
 
     base = cuda.to_device(np.array([1.0], dtype=precision))
@@ -53,7 +53,17 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         drivers = cuda.local.array(1, precision)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
-        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
+        time_scalar = precision(0.0)
+        flag[0] = solver(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            h,
+            a_ij,
+            base,
+            shared,
+        )
 
     h = precision(0.01)
     base_val = base_state.copy_to_host()[0]
@@ -124,7 +134,17 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         drivers = cuda.local.array(1, precision)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
-        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
+        time_scalar = precision(0.0)
+        flag[0] = solver(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            h,
+            a_ij,
+            base,
+            shared,
+        )
 
     base_vals = system_setup["base_state"].copy_to_host()
     expected_increment = expected - base_vals
@@ -151,11 +171,11 @@ def test_newton_krylov_failure(precision):
     """Solver returns NEWTON_BACKTRACKING_NO_SUITABLE_STEP when residual cannot be reduced."""
 
     @cuda.jit(device=True)
-    def residual(state, parameters, drivers, h, a_ij, base_state, out):
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
         out[0] = precision(1.0)
 
     @cuda.jit(device=True)
-    def operator(state, parameters, drivers, h, vec, out):
+    def operator(state, parameters, drivers, t, h, vec, out):
         out[0] = vec[0]
 
     n = 1
@@ -178,7 +198,17 @@ def test_newton_krylov_failure(precision):
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
-        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
+        time_scalar = precision(0.0)
+        flag[0] = solver(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            h,
+            a_ij,
+            base,
+            shared,
+        )
 
     out_flag = cuda.to_device(np.array([1], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
@@ -210,7 +240,17 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
         drivers = cuda.local.array(1, precision)
         a_ij = precision(1.0)
         shared = cuda.shared.array(scratch_len, precision)
-        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
+        time_scalar = precision(0.0)
+        flag[0] = solver(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            h,
+            a_ij,
+            base,
+            shared,
+        )
 
     h = precision(0.01)
     x = cuda.to_device(np.array([0.0], dtype=precision))  # ensures residual>tol
@@ -224,12 +264,12 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
     """Newton-Krylov returns MAX_LINEAR_ITERATIONS_EXCEEDED when inner solver fails."""
 
     @cuda.jit(device=True)
-    def residual(state, parameters, drivers, h, a_ij, base_state, out):
+    def residual(state, parameters, drivers, t, h, a_ij, base_state, out):
         # Simple residual: nonzero so that a linear solve is attempted
         out[0] = precision(1.0)
 
     @cuda.jit(device=True)
-    def zero_operator(state, parameters, drivers, h, vec, out):
+    def zero_operator(state, parameters, drivers, t, h, vec, out):
         # Linear operator always zero => inner solver cannot make progress
         out[0] = precision(0.0)
 
@@ -260,9 +300,21 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         a_ij = precision(1.0)
         base = cuda.local.array(1, precision)
         shared = cuda.shared.array(scratch_len, precision)
-        flag[0] = solver(state, params, drivers, h, a_ij, base, shared)
+        time_scalar = precision(0.0)
+        flag[0] = solver(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            h,
+            a_ij,
+            base,
+            shared,
+        )
 
     out_flag = cuda.to_device(np.array([0], dtype=np.int32))
     kernel[1, 1](out_flag, precision(0.01))
     status_code = int(out_flag.copy_to_host()[0]) & STATUS_MASK
-    assert status_code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
+    assert (
+        status_code == SolverRetCodes.MAX_LINEAR_ITERATIONS_EXCEEDED
+    )

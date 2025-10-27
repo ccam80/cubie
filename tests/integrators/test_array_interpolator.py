@@ -1,6 +1,5 @@
 """Tests for CUDA input-array interpolation helpers."""
 
-import math
 from typing import Tuple
 
 import numpy as np
@@ -94,13 +93,19 @@ def _cpu_evaluate(
         Evaluated input values at ``time``.
     """
 
+    precision = coefficients.dtype.type
     pad_clamped = (not wrap) and (boundary_condition == "clamped")
-    evaluation_start = start - (resolution if pad_clamped else 0.0)
-    inv_res = 1.0 / resolution
+    zero = precision(0.0)
+    one = precision(1.0)
+    time_value = precision(time)
+    start_value = precision(start)
+    resolution_value = precision(resolution)
+    evaluation_start = start_value - (resolution_value if pad_clamped else zero)
+    inv_res = one / resolution_value
     num_segments = coefficients.shape[0]
-    scaled = (time - evaluation_start) * inv_res
-    scaled_floor = math.floor(scaled)
-    idx = int(scaled_floor)
+    scaled = (time_value - evaluation_start) * inv_res
+    scaled_floor = precision(np.floor(scaled))
+    idx = int(scaled_floor.item())
 
     if wrap:
         segment = idx % num_segments
@@ -109,12 +114,13 @@ def _cpu_evaluate(
         tau = scaled - scaled_floor
         in_range = True
     else:
-        in_range = 0.0 <= scaled <= float(num_segments)
+        upper = precision(num_segments)
+        in_range = (zero <= scaled) and (scaled <= upper)
         segment = idx if idx >= 0 else 0
         if segment >= num_segments:
             segment = num_segments - 1
-        tau = scaled - float(segment)
-    zero_value = coefficients.dtype.type(0.0)
+        tau = scaled - precision(segment)
+    zero_value = precision(0.0)
     out = np.empty(coefficients.shape[1], dtype=coefficients.dtype)
     for input_index in range(coefficients.shape[1]):
         coeffs = coefficients[segment, input_index]

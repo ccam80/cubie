@@ -124,7 +124,7 @@ class ODEData:
         default=0,
         validator=getype_validator(int, 0),
     )
-    _mass: Any = attrs.field(default=None)
+    _mass: Any = attrs.field(default=None, eq=False)
 
     @property
     def num_states(self) -> int:
