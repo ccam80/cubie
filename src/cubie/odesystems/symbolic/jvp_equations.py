@@ -47,6 +47,7 @@ class JVPEquations:
     _non_jvp_order = attrs.field(init=False, repr=False)
     _non_jvp_exprs = attrs.field(init=False, repr=False)
     _jvp_terms = attrs.field(init=False, repr=False)
+    _jvp_symbols = attrs.field(init=False, repr=False)
     _dependencies = attrs.field(init=False, repr=False)
     _dependents = attrs.field(init=False, repr=False)
     _ops_cost = attrs.field(init=False, repr=False)
@@ -54,6 +55,9 @@ class JVPEquations:
     _jvp_closure_usage = attrs.field(init=False, repr=False)
     _cache_slot_limit = attrs.field(init=False, repr=False)
     _reference_counts = attrs.field(init=False, repr=False)
+    _order_index = attrs.field(init=False, repr=False)
+    _dependency_levels = attrs.field(init=False, repr=False)
+    _total_ops_cost = attrs.field(init=False, repr=False)
     _cache_selection = attrs.field(init=False, default=None, repr=False)
 
     def __attrs_post_init__(self) -> None:
@@ -62,17 +66,20 @@ class JVPEquations:
         non_jvp_order = []
         non_jvp_exprs = {}
         jvp_terms = {}
+        jvp_symbols = {}
         for lhs, rhs in ordered:
             lhs_str = str(lhs)
             if lhs_str.startswith("jvp["):
                 index = int(lhs_str.split("[")[1].split("]")[0])
                 jvp_terms[index] = rhs
+                jvp_symbols[index] = lhs
             else:
                 non_jvp_order.append(lhs)
                 non_jvp_exprs[lhs] = rhs
         self._non_jvp_order = tuple(non_jvp_order)
         self._non_jvp_exprs = non_jvp_exprs
         self._jvp_terms = jvp_terms
+        self._jvp_symbols = jvp_symbols
         if self.max_cached_terms is None:
             self._cache_slot_limit = 2 * len(jvp_terms)
         else:
@@ -117,6 +124,47 @@ class JVPEquations:
                 for dep in dependencies.get(sym, set()):
                     if dep in dependents:
                         stack.append(dep)
+        dependency_levels = {}
+        for sym in self._non_jvp_order:
+            visited = {sym}
+            frontier = set(dependents.get(sym, set()))
+            levels = []
+            while frontier:
+                current_level = set()
+                next_frontier = set()
+                for node in frontier:
+                    if node in visited:
+                        continue
+                    current_level.add(node)
+                    visited.add(node)
+                    if node in dependents:
+                        next_frontier.update(dependents[node])
+                if current_level:
+                    levels.append(frozenset(current_level))
+                frontier = next_frontier
+            dependency_levels[sym] = tuple(levels)
+        memo_total = {}
+
+        def total_cost(symbol):
+            if symbol in memo_total:
+                return memo_total[symbol]
+            cost = ops_cost.get(symbol, 0)
+            for dep in dependencies.get(symbol, set()):
+                cost += total_cost(dep)
+            memo_total[symbol] = cost
+            return cost
+
+        total_ops_cost = {}
+        for sym in self._non_jvp_order:
+            total_ops_cost[sym] = total_cost(sym)
+        for index, expr in self._jvp_terms.items():
+            lhs = self._jvp_symbols.get(index)
+            if lhs is None:
+                continue
+            cost = int(sp.count_ops(expr, visual=False))
+            for dep in expr.free_symbols:
+                cost += total_cost(dep)
+            total_ops_cost[lhs] = cost
         self._dependencies = dependencies
         self._dependents = dependents
         self._ops_cost = ops_cost
@@ -127,6 +175,11 @@ class JVPEquations:
             for sym in self._non_jvp_order
         }
         self._reference_counts = reference_counts
+        self._order_index = {
+            sym: idx for idx, sym in enumerate(self._non_jvp_order)
+        }
+        self._dependency_levels = dependency_levels
+        self._total_ops_cost = total_ops_cost
 
     @property
     def ordered_assignments(self) -> Tuple[Tuple[sp.Symbol, sp.Expr], ...]:
@@ -194,6 +247,25 @@ class JVPEquations:
 
         return self._reference_counts
 
+    @property
+    def order_index(self) -> Mapping[sp.Symbol, int]:
+        """Return evaluation order lookup for auxiliary assignments."""
+
+        return self._order_index
+
+    @property
+    def dependency_levels(
+        self,
+    ) -> Mapping[sp.Symbol, Tuple[frozenset, ...]]:
+        """Return dependents grouped by distance from each auxiliary symbol."""
+
+        return self._dependency_levels
+
+    @property
+    def total_ops_cost(self) -> Mapping[sp.Basic, int]:
+        """Return cumulative operation counts for auxiliaries and JVP outputs."""
+
+        return self._total_ops_cost
     def partition_assignments(
         self,
         cached_symbols: Iterable[sp.Symbol],

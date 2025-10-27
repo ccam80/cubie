@@ -575,6 +575,44 @@ def test_build_expression_costs_tracks_jvp_dependencies():
     assert equations.jvp_closure_usage[simple] == 1
 
 
+def test_equations_track_dependency_levels_and_costs():
+    """Collect dependent levels and cumulative costs for auxiliaries."""
+
+    x0, x1 = sp.symbols("x0 x1")
+    seed = sp.Symbol("cse1")
+    branch_a = sp.Symbol("cse7")
+    branch_b = sp.Symbol("cse10")
+    j_00 = sp.Symbol("j_00")
+    j_20 = sp.Symbol("j_20")
+    j_22 = sp.Symbol("j_22")
+    j_02 = sp.Symbol("j_02")
+    assignments = [
+        (seed, x0 + x1),
+        (branch_a, seed + x0),
+        (branch_b, seed * x1),
+        (j_00, branch_a + x0),
+        (j_20, branch_a + x1),
+        (j_22, branch_b + x0),
+        (j_02, branch_b + x1),
+        (sp.Symbol("jvp[0]"), j_00 * sp.Symbol("v[0]")),
+        (sp.Symbol("jvp[1]"), j_20 * sp.Symbol("v[1]")),
+        (sp.Symbol("jvp[2]"), j_22 * sp.Symbol("v[0]")),
+        (sp.Symbol("jvp[3]"), j_02 * sp.Symbol("v[1]")),
+    ]
+
+    equations = JVPEquations(assignments)
+
+    levels = equations.dependency_levels[seed]
+    assert len(levels) == 2
+    assert set(levels[0]) == {branch_a, branch_b}
+    assert set(levels[1]) == {j_00, j_20, j_22, j_02}
+
+    assert equations.order_index[seed] == 0
+    assert equations.total_ops_cost[branch_a] == 2
+    assert equations.total_ops_cost[j_00] == 3
+    assert equations.total_ops_cost[sp.Symbol("jvp[0]")] == 4
+
+
 @pytest.mark.parametrize("precision_override", [np.float64], indirect=True)
 @pytest.mark.parametrize(
     "beta,gamma,h,M",

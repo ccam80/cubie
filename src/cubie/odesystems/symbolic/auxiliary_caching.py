@@ -47,14 +47,6 @@ class CacheSelection:
     runtime_nodes = attrs.field(converter=tuple)
     prepare_nodes = attrs.field(converter=tuple)
     saved = attrs.field()
-
-
-def _order_index(equations: JVPEquations) -> Dict[sp.Symbol, int]:
-    """Return a lookup mapping symbols to their evaluation order index."""
-
-    return {sym: idx for idx, sym in enumerate(equations.non_jvp_order)}
-
-
 def _reachable_leaves(
     seed: sp.Symbol,
     dependents: Mapping[sp.Symbol, Set[sp.Symbol]],
@@ -97,14 +89,13 @@ def _prepare_nodes_for_leaves(
 def _simulate_cached_leaves(
     equations: JVPEquations,
     leaves: Sequence[sp.Symbol],
-    base_ref_counts: Mapping[sp.Symbol, int],
 ) -> Optional[Tuple[int, Set[sp.Symbol]]]:
     """Return saved operations and removed nodes for cached ``leaves``."""
 
     dependencies = equations.dependencies
     dependents = equations.dependents
     ops_cost = equations.ops_cost
-    ref_counts = dict(base_ref_counts)
+    ref_counts = dict(equations.reference_counts)
     removal = set()
     stack = list(leaves)
     while stack:
@@ -130,11 +121,10 @@ def _simulate_cached_leaves(
 
 def _collect_candidates(
     equations: JVPEquations,
-    order_idx: Mapping[sp.Symbol, int],
-    base_ref_counts: Mapping[sp.Symbol, int],
 ) -> List[CacheGroup]:
     """Return candidate cache groups explored from each seed symbol."""
 
+    order_idx = equations.order_index
     slot_limit = equations.cache_slot_limit
     if slot_limit <= 0:
         return []
@@ -156,7 +146,6 @@ def _collect_candidates(
                 simulation = _simulate_cached_leaves(
                     equations,
                     subset,
-                    base_ref_counts,
                 )
                 if simulation is None:
                     continue
@@ -187,7 +176,6 @@ def _collect_candidates(
 def _evaluate_leaves(
     equations: JVPEquations,
     leaves_key: frozenset,
-    base_ref_counts: Mapping[sp.Symbol, int],
     dependencies: Mapping[sp.Symbol, Set[sp.Symbol]],
     memo: Dict[
         frozenset,
@@ -205,7 +193,6 @@ def _evaluate_leaves(
     simulation = _simulate_cached_leaves(
         equations,
         tuple(leaves_key),
-        base_ref_counts,
     )
     if simulation is None:
         memo[leaves_key] = None
@@ -220,11 +207,10 @@ def _evaluate_leaves(
 def _search_group_combinations(
     equations: JVPEquations,
     candidates: Sequence[CacheGroup],
-    base_ref_counts: Mapping[sp.Symbol, int],
-    order_idx: Mapping[sp.Symbol, int],
 ) -> CacheSelection:
     """Return the optimal combination of cache groups."""
 
+    order_idx = equations.order_index
     slot_limit = equations.cache_slot_limit
     if not candidates or slot_limit <= 0:
         runtime_nodes = tuple(equations.non_jvp_order)
@@ -248,7 +234,6 @@ def _search_group_combinations(
         evaluation = _evaluate_leaves(
             equations,
             leaves_key,
-            base_ref_counts,
             dependencies,
             memo,
         )
@@ -336,14 +321,10 @@ def _search_group_combinations(
 def plan_auxiliary_cache(equations: JVPEquations) -> CacheSelection:
     """Compute and persist the auxiliary cache plan for ``equations``."""
 
-    order_idx = _order_index(equations)
-    base_ref_counts = equations.reference_counts
-    candidates = _collect_candidates(equations, order_idx, base_ref_counts)
+    candidates = _collect_candidates(equations)
     selection = _search_group_combinations(
         equations,
         candidates,
-        base_ref_counts,
-        order_idx,
     )
     equations.update_cache_selection(selection)
     return selection
