@@ -286,6 +286,7 @@ class DIRKStep(ODEImplicitStep):
             solver_scratch = shared[solver_start:solver_end]
             stage_rhs = solver_scratch[:n]
             increment_cache = solver_scratch[n:2*n]
+            # Third slice reserved for the solver eval_state buffer.
 
             #Alias stage base onto first stage accumulator - lifetimes disjoint
             if multistage:

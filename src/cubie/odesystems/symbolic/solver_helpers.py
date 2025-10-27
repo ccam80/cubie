@@ -23,14 +23,14 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
     "# AUTO-GENERATED CACHED LINEAR OPERATOR FACTORY\n"
     "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
     '    """Auto-generated cached linear operator.\n'
-    "    Computes out = beta * (M @ v) - gamma * h * (J @ v)\n"
+    "    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)\n"
     "    using cached auxiliary intermediates.\n"
     "    Returns device function:\n"
     "      operator_apply(\n"
-    "          state, parameters, drivers, cached_aux, t, h, v, out\n"
+    "          state, parameters, drivers, cached_aux, t, h, a_ij, v, out\n"
     "      )\n"
-    "    argument 'order' is ignored, included for compatibility with \n"
-    "    preconditioner API. \n"
+    "    argument 'order' is ignored, included for compatibility with\n"
+    "    preconditioner API.\n"
     '    """\n'
     "{const_lines}"
     "    @cuda.jit((precision[:],\n"
@@ -39,12 +39,13 @@ CACHED_OPERATOR_APPLY_TEMPLATE = (
     "               precision[:],\n"
     "               precision,\n"
     "               precision,\n"
+    "               precision,\n"
     "               precision[:],\n"
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
     "    def operator_apply(\n"
-    "        state, parameters, drivers, cached_aux, t, h, v, out\n"
+    "        state, parameters, drivers, cached_aux, t, h, a_ij, v, out\n"
     "    ):\n"
     "{body}\n"
     "    return operator_apply\n"
@@ -56,11 +57,11 @@ OPERATOR_APPLY_TEMPLATE = (
     "# AUTO-GENERATED LINEAR OPERATOR FACTORY\n"
     "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=None):\n"
     '    """Auto-generated linear operator.\n'
-    "    Computes out = beta * (M @ v) - gamma * h * (J @ v)\n"
+    "    Computes out = beta * (M @ v) - gamma * a_ij * h * (J @ v)\n"
     "    Returns device function:\n"
-    "      operator_apply(state, parameters, drivers, t, h, v, out)\n"
-    "    argument 'order' is ignored, included for compatibility with \n"
-    "    preconditioner API. \n"
+    "      operator_apply(state, parameters, drivers, t, h, a_ij, v, out)\n"
+    "    argument 'order' is ignored, included for compatibility with\n"
+    "    preconditioner API.\n"
     '    """\n'
     "{const_lines}"
     "    @cuda.jit((precision[:],\n"
@@ -68,11 +69,12 @@ OPERATOR_APPLY_TEMPLATE = (
     "               precision[:],\n"
     "               precision,\n"
     "               precision,\n"
+    "               precision,\n"
     "               precision[:],\n"
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def operator_apply(state, parameters, drivers, t, h, v, out):\n"
+    "    def operator_apply(state, parameters, drivers, t, h, a_ij, v, out):\n"
     "{body}\n"
     "    return operator_apply\n"
 )
@@ -228,6 +230,7 @@ def _build_operator_body(
     v = sp.IndexedBase("v")
     beta_sym = sp.Symbol("beta")
     gamma_sym = sp.Symbol("gamma")
+    a_ij_sym =  sp.Symbol("a_ij")
     h_sym = sp.Symbol("h")
 
     mass_assigns = []
@@ -241,7 +244,7 @@ def _build_operator_body(
             sym = sp.Symbol(f"m_{i}{j}")
             mass_assigns.append((sym, entry))
             mv += sym * v[j]
-        rhs = beta_sym * mv - gamma_sym * h_sym * jvp_terms[i]
+        rhs = beta_sym * mv - gamma_sym * a_ij_sym * h_sym * jvp_terms[i]
         out_updates.append((sp.Symbol(f"out[{i}]"), rhs))
 
     if use_cached_aux:
@@ -598,9 +601,9 @@ NEUMANN_TEMPLATE = (
     "# AUTO-GENERATED NEUMANN PRECONDITIONER FACTORY\n"
     "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
     '    """Auto-generated Neumann preconditioner.\n'
-    "    Approximates (beta*I - gamma*h*J)^[-1] via a truncated\n"
+    "    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated\n"
     "    Neumann series. Returns device function:\n"
-    "      preconditioner(state, parameters, drivers, t, h, v, out, jvp)\n"
+    "      preconditioner(state, parameters, drivers, t, h, a_ij, v, out, jvp)\n"
     "    where `jvp` is a caller-provided scratch buffer for J*v.\n"
     '    """\n'
     "    n = {n_out}\n"
@@ -612,18 +615,20 @@ NEUMANN_TEMPLATE = (
     "               precision[:],\n"
     "               precision,\n"
     "               precision,\n"
+    "               precision,\n"
     "               precision[:],\n"
     "               precision[:],\n"
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
-    "    def preconditioner(state, parameters, drivers, t, h, v, out, jvp):\n"
-    "        # Horner form: S[m] = v + T S[m-1], T = (gamma/beta) * h * J\n"
-    "        # Accumulator lives in `out`. Uses caller-provided `jvp` for "
-    "JVP.\n"
+    "    def preconditioner(\n"
+    "        state, parameters, drivers, t, h, a_ij, v, out, jvp\n"
+    "    ):\n"
+    "        # Horner form: S[m] = v + T S[m-1], T = ((gamma*a_ij)/beta) * h * J\n"
+    "        # Accumulator lives in `out`. Uses caller-provided `jvp` for JVP.\n"
     "        for i in range(n):\n"
     "            out[i] = v[i]\n"
-    "        h_eff = h * h_eff_factor\n"
+    "        h_eff = h * h_eff_factor * a_ij\n"
     "        for _ in range(order):\n"
     "{jv_body}\n"
     "            for i in range(n):\n"
@@ -639,10 +644,10 @@ NEUMANN_CACHED_TEMPLATE = (
     "# AUTO-GENERATED CACHED NEUMANN PRECONDITIONER FACTORY\n"
     "def {func_name}(constants, precision, beta=1.0, gamma=1.0, order=1):\n"
     '    """Cached Neumann preconditioner using stored auxiliaries.\n'
-    "    Approximates (beta*I - gamma*h*J)^[-1] via a truncated\n"
+    "    Approximates (beta*I - gamma*a_ij*h*J)^[-1] via a truncated\n"
     "    Neumann series with cached auxiliaries. Returns device function:\n"
     "      preconditioner(\n"
-    "          state, parameters, drivers, cached_aux, t, h, v, out, jvp\n"
+    "          state, parameters, drivers, cached_aux, t, h, a_ij, v, out, jvp\n"
     "      )\n"
     '    """\n'
     "    n = {n_out}\n"
@@ -655,17 +660,18 @@ NEUMANN_CACHED_TEMPLATE = (
     "               precision[:],\n"
     "               precision,\n"
     "               precision,\n"
+    "               precision,\n"
     "               precision[:],\n"
     "               precision[:],\n"
     "               precision[:]),\n"
     "              device=True,\n"
     "              inline=True)\n"
     "    def preconditioner(\n"
-    "        state, parameters, drivers, cached_aux, t, h, v, out, jvp\n"
+    "        state, parameters, drivers, cached_aux, t, h, a_ij, v, out, jvp\n"
     "    ):\n"
     "        for i in range(n):\n"
     "            out[i] = v[i]\n"
-    "        h_eff = h * h_eff_factor\n"
+    "        h_eff = h * h_eff_factor * a_ij\n"
     "        for _ in range(order):\n"
     "{jv_body}\n"
     "            for i in range(n):\n"

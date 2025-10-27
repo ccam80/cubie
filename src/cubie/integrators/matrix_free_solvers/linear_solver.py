@@ -82,6 +82,7 @@ def linear_solver_factory(
         drivers,
         t,
         h,
+        a_ij,
         rhs,
         x,
     ):
@@ -99,6 +100,8 @@ def linear_solver_factory(
             Stage time forwarded to the operator and preconditioner.
         h
             Step size used by the operator evaluation.
+        a_ij
+            Stage coefficient forwarded to the operator and preconditioner.
         rhs
             Right-hand side of the linear system. Overwritten with the current
             residual.
@@ -124,7 +127,7 @@ def linear_solver_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, t, h, x, temp)
+        operator_apply(state, parameters, drivers, t, h, a_ij, x, temp)
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -141,6 +144,7 @@ def linear_solver_factory(
                     drivers,
                     t,
                     h,
+                    a_ij,
                     rhs,
                     preconditioned_vec,
                     temp,
@@ -155,6 +159,7 @@ def linear_solver_factory(
                 drivers,
                 t,
                 h,
+                a_ij,
                 preconditioned_vec,
                 temp,
             )
@@ -227,6 +232,7 @@ def linear_solver_cached_factory(
         cached_aux,
         t,
         h,
+        a_ij,
         rhs,
         x,
     ):
@@ -235,7 +241,9 @@ def linear_solver_cached_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, cached_aux, t, h, x, temp)
+        operator_apply(
+            state, parameters, drivers, cached_aux, t, h, a_ij, x, temp
+        )
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -253,6 +261,7 @@ def linear_solver_cached_factory(
                     cached_aux,
                     t,
                     h,
+                    a_ij,
                     rhs,
                     preconditioned_vec,
                     temp,
@@ -268,6 +277,7 @@ def linear_solver_cached_factory(
                 cached_aux,
                 t,
                 h,
+                a_ij,
                 preconditioned_vec,
                 temp,
             )

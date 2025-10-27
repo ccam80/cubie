@@ -125,7 +125,16 @@ def system_setup(request, precision):
 
     @cuda.jit()
     def operator_kernel(state, params, drivers, time_scalar, h, in_vec, out_vec):
-        operator(state, params, drivers, time_scalar, h, in_vec, out_vec)
+        operator(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            h,
+            precision(1.0),
+            in_vec,
+            out_vec,
+        )
 
     for j in range(3):
         temp_in.fill(0)
@@ -188,6 +197,7 @@ def neumann_kernel(precision):
                 drivers,
                 time_scalar,
                 h,
+                precision(1.0),
                 residual,
                 out,
                 scratch,
@@ -228,6 +238,7 @@ def solver_kernel(precision):
                 drivers,
                 time_scalar,
                 h,
+                precision(1.0),
                 rhs,
                 x,
             )

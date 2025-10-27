@@ -41,6 +41,7 @@ def inst_linear_solver_factory(
         drivers,
         t,
         h,
+        a_ij,
         rhs,
         x,
         slot_index,
@@ -53,7 +54,7 @@ def inst_linear_solver_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, t, h, x, temp)
+        operator_apply(state, parameters, drivers, t, h, a_ij, x, temp)
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -76,6 +77,7 @@ def inst_linear_solver_factory(
                     drivers,
                     t,
                     h,
+                    a_ij,
                     rhs,
                     preconditioned_vec,
                     temp,
@@ -90,6 +92,7 @@ def inst_linear_solver_factory(
                 drivers,
                 t,
                 h,
+                a_ij,
                 preconditioned_vec,
                 temp,
             )
@@ -174,6 +177,7 @@ def inst_linear_solver_cached_factory(
         cached_aux,
         t,
         h,
+        a_ij,
         rhs,
         x,
         slot_index,
@@ -186,7 +190,9 @@ def inst_linear_solver_cached_factory(
         preconditioned_vec = cuda.local.array(n, precision_scalar)
         temp = cuda.local.array(n, precision_scalar)
 
-        operator_apply(state, parameters, drivers, cached_aux, t, h, x, temp)
+        operator_apply(
+            state, parameters, drivers, cached_aux, t, h, a_ij, x, temp
+        )
         acc = typed_zero
         for i in range(n):
             residual_value = rhs[i] - temp[i]
@@ -210,6 +216,7 @@ def inst_linear_solver_cached_factory(
                     cached_aux,
                     t,
                     h,
+                    a_ij,
                     rhs,
                     preconditioned_vec,
                     temp,
@@ -225,6 +232,7 @@ def inst_linear_solver_cached_factory(
                 cached_aux,
                 t,
                 h,
+                a_ij,
                 preconditioned_vec,
                 temp,
             )
@@ -302,7 +310,7 @@ def inst_newton_krylov_solver_factory(
     # no cover: start
     @cuda.jit(device=True, inline=True)
     def newton_krylov_solver(
-        state,
+        stage_increment,
         parameters,
         drivers,
         t,
@@ -324,9 +332,11 @@ def inst_newton_krylov_solver_factory(
     ):
         delta = shared_scratch[:n]
         residual = shared_scratch[n: 2 * n]
+        eval_state = shared_scratch[2 * n: 3 * n]
+
 
         residual_function(
-            state,
+            stage_increment,
             parameters,
             drivers,
             t,
@@ -346,10 +356,12 @@ def inst_newton_krylov_solver_factory(
             delta[i] = typed_zero
             residual[i] = -residual_value
             residual_copy[i] = residual_value
-            newton_initial_guesses[stage_index, i] = state[i]
+            newton_initial_guesses[stage_index, i] = stage_increment[i]
 
         for i in range(n):
-            newton_iteration_guesses[stage_index, log_index, i] = state[i]
+            newton_iteration_guesses[stage_index, log_index, i] = (
+                stage_increment[i]
+            )
             newton_residuals[stage_index, log_index, i] = residual_copy[i]
         newton_squared_norms[stage_index, log_index] = norm2_prev
         log_index += int32(1)
@@ -360,7 +372,7 @@ def inst_newton_krylov_solver_factory(
 
         iters_count = int32(0)
         mask = activemask()
-        state_snapshot = cuda.local.array(n,numba_precision)
+        stage_increment_snapshot = cuda.local.array(n, numba_precision)
         residual_snapshot = cuda.local.array(n, numba_precision)
         snapshot_ready = False
 
@@ -371,12 +383,15 @@ def inst_newton_krylov_solver_factory(
             iters_count += int32(1)
             if status < 0:
                 iter_slot = int(iters_count) - 1
+                for i in range(n):
+                    eval_state[i] = base_state[i] + a_ij * stage_increment[i]
                 lin_return = linear_solver(
-                    state,
+                    eval_state,
                     parameters,
                     drivers,
                     t,
                     h,
+                    a_ij,
                     residual,
                     delta,
                     linear_slot_base + iter_slot,
@@ -399,11 +414,11 @@ def inst_newton_krylov_solver_factory(
                 if status < 0:
                     delta_scale = scale - scale_applied
                     for i in range(n):
-                        state[i] += delta_scale * delta[i]
+                        stage_increment[i] += delta_scale * delta[i]
                     scale_applied = scale
 
                     residual_function(
-                        state,
+                        stage_increment,
                         parameters,
                         drivers,
                         t,
@@ -417,7 +432,7 @@ def inst_newton_krylov_solver_factory(
                     for i in range(n):
                         residual_value = residual[i]
                         norm2_new += residual_value * residual_value
-                        state_snapshot[i] = state[i]
+                        stage_increment_snapshot[i] = stage_increment[i]
                         residual_snapshot[i] = residual_value
                     snapshot_ready = True
 
@@ -441,7 +456,7 @@ def inst_newton_krylov_solver_factory(
 
             if (status < 0) and (not found_step):
                 for i in range(n):
-                    state[i] -= scale_applied * delta[i]
+                    stage_increment[i] -= scale_applied * delta[i]
                 status = int32(1)
 
             iter_slot = int(iters_count) - 1
@@ -449,7 +464,7 @@ def inst_newton_krylov_solver_factory(
                 if snapshot_ready:
                     for i in range(n):
                         newton_iteration_guesses[stage_index, log_index, i] = (
-                            state_snapshot[i]
+                            stage_increment_snapshot[i]
                         )
                         newton_residuals[stage_index, log_index, i] = (
                             residual_snapshot[i]

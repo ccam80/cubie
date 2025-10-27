@@ -296,7 +296,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def solver_shared_elements(self) -> int:
         """Return shared scratch dedicated to the Newton--Krylov solver."""
 
-        return self.compile_settings.n * 2
+        return self.compile_settings.n * 3
 
     @property
     def solver_local_elements(self) -> int:

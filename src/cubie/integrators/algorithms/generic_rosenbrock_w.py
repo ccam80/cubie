@@ -355,6 +355,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                 cached_auxiliaries,
                 stage_time,
                 dt_value,
+                numba_precision(1.0),
                 stage_rhs,
                 stage_increment,
             )
@@ -474,6 +475,7 @@ class GenericRosenbrockWStep(ODEImplicitStep):
                     cached_auxiliaries,
                     stage_time,
                     dt_value,
+                    numba_precision(1.0),
                     stage_rhs,
                     stage_increment,
                 )

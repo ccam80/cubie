@@ -65,11 +65,11 @@ def operator_kernel(precision):
 
     def make_kernel(op):
         @cuda.jit
-        def kernel(t, h, vec, out):
+        def kernel(t, h, a_ij, vec, out):
             state = cuda.local.array(n, precision)
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            op(state, parameters, drivers, t, h, vec, out)
+            op(state, parameters, drivers, t, h, a_ij, vec, out)
 
         return kernel
 
@@ -226,6 +226,7 @@ def cached_operator_kernel(cached_system, precision):
             driver_values,
             t,
             h,
+            a_ij,
             vec,
             out,
         ):
@@ -242,7 +243,7 @@ def cached_operator_kernel(cached_system, precision):
                 drivers[idx] = driver_values[idx]
 
             prepare(state, parameters, drivers, t, cached_aux)
-            op(state, parameters, drivers, cached_aux, t, h, vec, out)
+            op(state, parameters, drivers, cached_aux, t, h, a_ij, vec, out)
 
         return kernel
 
@@ -274,7 +275,7 @@ def test_operator_apply_dense(
     kernel = operator_kernel(op)
     v = np.array([1.0, -1.0], dtype=precision)
     out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(0.0), precision(h), v, out)
+    kernel[1, 1](precision(0.0), precision(h), precision(gamma), v, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     expected = beta * M @ v - gamma * h * J @ v
     assert np.allclose(
@@ -396,6 +397,7 @@ def test_cached_operator_apply_dense(
         driver_values,
         precision(0.0),
         precision(h),
+        precision(gamma),
         vec,
         out,
     )
@@ -465,12 +467,12 @@ def neumann_kernel(precision):
 
     def make_kernel(pre):
         @cuda.jit
-        def kernel(t, h, vec, out):
+        def kernel(t, h, a_ij, vec, out):
             state = cuda.local.array(n, precision)
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             scratch = cuda.local.array(n, precision)
-            pre(state, parameters, drivers, t, h, vec, out, scratch)
+            pre(state, parameters, drivers, t, h, a_ij, vec, out, scratch)
 
         return kernel
 
@@ -523,6 +525,7 @@ def neumann_cached_kernel(cached_system, precision):
             driver_values,
             t,
             h,
+            a_ij,
             vec,
             out,
         ):
@@ -547,6 +550,7 @@ def neumann_cached_kernel(cached_system, precision):
                 cached_aux,
                 t,
                 h,
+                a_ij,
                 vec,
                 out,
                 jvp,
@@ -588,7 +592,7 @@ def test_neumann_preconditioner_expression(
     v = np.array([0.7, -1.3], dtype=precision)
     out = np.zeros(2, dtype=precision)
 
-    kernel[1, 1](precision(0.0), precision(h), v, out)
+    kernel[1, 1](precision(0.0), precision(h), precision(gamma), v, out)
 
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     beta_inv = 1.0 / beta
@@ -657,6 +661,7 @@ def test_neumann_preconditioner_cached_expression(
         driver_values,
         precision(0.0),
         precision(h),
+        precision(gamma),
         vec,
         out,
     )

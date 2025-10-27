@@ -13,7 +13,7 @@ def placeholder_operator(precision):
     """Device operator applying a simple SPD matrix."""
 
     @cuda.jit(device=True)
-    def operator(state, parameters, drivers, t, h, vec, out):
+    def operator(state, parameters, drivers, t, h, a_ij, vec, out):
         out[0] = precision(4.0) * vec[0] + precision(1.0) * vec[1]
         out[1] = precision(1.0) * vec[0] + precision(3.0) * vec[1]
         out[2] = precision(2.0) * vec[2]
@@ -34,8 +34,9 @@ def test_neumann_preconditioner(
     """Validate Neumann preconditioner equals truncated series on the linear system.
 
     Uses the real generated preconditioner from system_setup and applies it to a
-    vector of ones. For the 'linear' system, J is diagonal with 0.5 entries, beta=gamma=1
-    and h=1, so the truncated series is sum_{k=0..order} (h*J)^k v.
+    vector of ones. For the 'linear' system, J is diagonal with 0.5 entries,
+    beta=1, stage coefficient a_ij=1, and h=1, so the truncated series is
+    sum_{k=0..order} (h*J)^k v.
     """
 
     n = system_setup["n"]
@@ -154,7 +155,7 @@ def test_linear_solver_max_iters_exceeded(solver_kernel, precision):
     """Linear solver returns MAX_LINEAR_ITERATIONS_EXCEEDED when operator is zero."""
 
     @cuda.jit(device=True)
-    def zero_operator(state, parameters, drivers, t, h, vec, out):
+    def zero_operator(state, parameters, drivers, t, h, a_ij, vec, out):
         # F z = 0 for all z -> no progress in line search
         for i in range(out.shape[0]):
             out[i] = precision(0.0)
