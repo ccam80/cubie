@@ -132,5 +132,5 @@ DIRK_TABLEAU_REGISTRY: Dict[str, DIRKTableau] = {
 }
 """Registry of named DIRK tableaus available to the integrator."""
 
-DEFAULT_DIRK_TABLEAU_NAME = "sdirk_2_2"
+DEFAULT_DIRK_TABLEAU_NAME = "lobatto_iiic_3"
 DEFAULT_DIRK_TABLEAU = DIRK_TABLEAU_REGISTRY[DEFAULT_DIRK_TABLEAU_NAME]
