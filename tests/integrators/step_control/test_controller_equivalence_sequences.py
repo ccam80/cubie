@@ -224,7 +224,7 @@ class TestControllerEquivalence:
 
                     mem_cpu = np.array(
                         [
-                            cpu_step_controller.dt,
+                            cpu_step_controller.prev_dt,
                             prev_norm,
                         ],
                         dtype=dtype,

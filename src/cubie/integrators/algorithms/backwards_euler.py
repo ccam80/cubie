@@ -2,7 +2,7 @@
 
 from typing import Callable, Optional
 
-from numba import cuda
+from numba import cuda, int16
 import numpy as np
 
 from cubie._utils import PrecisionDType
@@ -159,6 +159,8 @@ class BackwardsEulerStep(ODEImplicitStep):
                 numba_precision[:],
                 numba_precision,
                 numba_precision,
+                int16,
+                int16,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -173,10 +175,12 @@ class BackwardsEulerStep(ODEImplicitStep):
             drivers_buffer,
             proposed_drivers,
             observables,
-            proposed_observables,  # unused here
+            proposed_observables,
             error,  # Non-adaptive algorithms receive a zero-length slice.
             dt_scalar,
             time_scalar,
+            first_step_flag,
+            accepted_flag,
             shared,
             persistent_local,
         ):
@@ -218,9 +222,10 @@ class BackwardsEulerStep(ODEImplicitStep):
             int
                 Status code returned by the nonlinear solver.
             """
+            solver_scratch = shared[: solver_shared_elements]
 
             for i in range(n):
-                proposed_state[i] = state[i]
+                proposed_state[i] = solver_scratch[i]
 
             next_time = time_scalar + dt
             if has_driver_function:
@@ -230,19 +235,21 @@ class BackwardsEulerStep(ODEImplicitStep):
                     proposed_drivers,
                 )
 
-            solver_scratch = shared[: solver_shared_elements]
-
             status = solver_fn(
                 proposed_state,
                 parameters,
                 proposed_drivers,
+                next_time,
                 dt,
                 a_ij,
                 state,
                 solver_scratch,
             )
 
-            # calculate and save observables (wastes some compute)
+            for i in range(n):
+                solver_scratch[i] = proposed_state[i]
+                proposed_state[i] += state[i]
+
             observables_function(
                 proposed_state,
                 parameters,
@@ -250,6 +257,7 @@ class BackwardsEulerStep(ODEImplicitStep):
                 proposed_observables,
                 next_time,
             )
+
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)

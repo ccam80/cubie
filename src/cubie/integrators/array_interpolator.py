@@ -332,18 +332,19 @@ class ArrayInterpolator(CUDAFactory):
         Callable
             Device function which evaluates input polynomials at a given time.
         """
-
+        precision = self.precision
         order = self.order
         num_inputs = self.num_inputs
-        resolution = self.dt
-        inv_resolution = 1.0 / resolution
-        start_time = self.t0
+        resolution = precision(self.dt)
+        inv_resolution = precision(precision(1.0) / resolution)
+        start_time = precision(self.t0)
         num_segments = int32(self.num_segments)
         wrap = self.wrap
         boundary_condition = self.boundary_condition
         pad_clamped = (not wrap) and (boundary_condition == 'clamped')
         zero_value = self.precision(0.0)
-        evaluation_start = start_time - (resolution if pad_clamped else 0.0)
+        evaluation_start = precision(start_time - (
+            resolution if pad_clamped else precision(0.0)))
 
     # no cover: start
         @cuda.jit(device=True, inline=True)
@@ -370,7 +371,7 @@ class ArrayInterpolator(CUDAFactory):
 
             if wrap:
                 seg = int32(idx % num_segments)
-                tau = scaled - scaled_floor
+                tau = precision(scaled - scaled_floor)
                 in_range = True
             else:
                 in_range = (scaled >= 0.0) and (scaled <= num_segments)

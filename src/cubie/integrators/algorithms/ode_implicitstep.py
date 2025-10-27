@@ -18,6 +18,7 @@ from cubie.integrators.algorithms.base_algorithm_step import (
     StepCache, StepControlDefaults,
 )
 
+
 @attrs.define
 class ImplicitStepConfig(BaseStepConfig):
     """Configuration settings for implicit integration steps.
@@ -250,22 +251,13 @@ class ODEImplicitStep(BaseAlgorithmStep):
                     mass=mass,
                     preconditioner_order=preconditioner_order
             )
-        if self.is_multistage:
-            residual = get_fn(
-                    'stage_residual',
-                    beta=beta,
-                    gamma=gamma,
-                    mass=mass,
-                    preconditioner_order=preconditioner_order
-            )
-        else:
-            residual = get_fn(
-                    'end_residual',
-                    beta=beta,
-                    gamma=gamma,
-                    mass=mass,
-                    preconditioner_order=preconditioner_order,
-            )
+        residual = get_fn(
+            'stage_residual',
+            beta=beta,
+            gamma=gamma,
+            mass=mass,
+            preconditioner_order=preconditioner_order
+        )
         operator = get_fn(
                 'linear_operator',
                 beta=beta,
@@ -304,7 +296,7 @@ class ODEImplicitStep(BaseAlgorithmStep):
     def solver_shared_elements(self) -> int:
         """Return shared scratch dedicated to the Newton--Krylov solver."""
 
-        return self.compile_settings.n * 2
+        return self.compile_settings.n * 3
 
     @property
     def solver_local_elements(self) -> int:

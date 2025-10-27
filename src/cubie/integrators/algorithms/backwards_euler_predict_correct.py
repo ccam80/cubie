@@ -2,11 +2,10 @@
 
 from typing import Callable, Optional
 
-from numba import cuda
+from numba import cuda, int16
 
 from cubie.integrators.algorithms.backwards_euler import BackwardsEulerStep
-from cubie.integrators.algorithms.base_algorithm_step import StepCache, \
-    StepControlDefaults
+from cubie.integrators.algorithms.base_algorithm_step import StepCache
 
 
 class BackwardsEulerPCStep(BackwardsEulerStep):
@@ -67,6 +66,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 numba_precision[:],
                 numba_precision,
                 numba_precision,
+                int16,
+                int16,
                 numba_precision[:],
                 numba_precision[:],
             ),
@@ -85,6 +86,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
             error,  # Non-adaptive algorithms receive a zero-length slice.
             dt_scalar,
             time_scalar,
+            first_step_flag,
+            accepted_flag,
             shared,
             persistent_local,
         ):
@@ -137,7 +140,7 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 time_scalar,
             )
             for i in range(n):
-                proposed_state[i] = state[i] + dt * predictor[i]
+                proposed_state[i] = dt * predictor[i]
 
             next_time = time_scalar + dt
             if has_driver_function:
@@ -153,11 +156,15 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 proposed_state,
                 parameters,
                 proposed_drivers,
+                next_time,
                 dt,
                 a_ij,
                 state,
                 solver_scratch,
             )
+
+            for i in range(n):
+                proposed_state[i] += state[i]
 
             observables_function(
                 proposed_state,
@@ -166,6 +173,8 @@ class BackwardsEulerPCStep(BackwardsEulerStep):
                 proposed_observables,
                 next_time,
             )
+
+
             return status
 
         return StepCache(step=step, nonlinear_solver=solver_fn)

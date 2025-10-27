@@ -12,9 +12,7 @@ behaviour matches the reference implementation used in the tests.
 """
 
 from dataclasses import dataclass
-from pathlib import Path
-from time import perf_counter
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -31,7 +29,7 @@ from tests.integrators.cpu_reference import (
     DriverEvaluator,
     STATUS_MASK,
     _collect_saved_outputs,
-    get_ref_step_function,
+    get_ref_stepper,
 )
 from tests.system_fixtures import (
     build_large_nonlinear_system,
@@ -86,8 +84,18 @@ SYSTEM_LABELS: Dict[str, str] = {
 SYSTEM_ORDER: Tuple[str, ...] = tuple(SYSTEM_BUILDERS.keys())
 
 
+FEHLBERG_DEFAULT_OVERRIDES: Dict[str, float] = {
+    "dt": 0.001953125,
+    "dt_min": 1e-7,
+    "newton_tolerance": 1e-7,
+    "krylov_tolerance": 1e-7,
+    "atol": 1e-5,
+    "rtol": 1e-6,
+}
+
+
 def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
-    """Return the default solver configuration used by the tests.
+    """Return the Fehlberg-45 configuration used in the CPU tests.
 
     Parameters
     ----------
@@ -97,19 +105,21 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
     Returns
     -------
     dict
-        Default solver configuration mirroring ``tests.conftest``.
+        Default solver configuration mirroring ``tests.conftest`` with the
+        Fehlberg overrides from :mod:`tests.integrators.loops.test_ode_loop`.
     """
 
-    return {
-        "algorithm": "crank_nicolson",
+    defaults: Dict[str, Any] = {
+        "algorithm": "bogacki-shampine-32",
         "duration": precision(1.0),
         "warmup": precision(0.0),
-        "dt_min": precision(1e-6),
+        "dt": precision(0.01),
+        "dt_min": precision(1e-7),
         "dt_max": precision(1.0),
         "dt_save": precision(0.1),
         "dt_summarise": precision(0.2),
-        "atol": precision(1e-5),
-        "rtol": precision(1e-5),
+        "atol": precision(1e-6),
+        "rtol": precision(1e-6),
         "saved_state_indices": [0, 1],
         "saved_observable_indices": [0, 1],
         "summarised_state_indices": [0, 1],
@@ -121,11 +131,31 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
         "memory_manager": default_memmgr,
         "stream_group": "test_group",
         "mem_proportion": None,
-        "step_controller": "fixed",
+        "step_controller": "pi",
         "precision": precision,
         "driverspline_order": 3,
-        "driverspline_wrap": True,
+        "driverspline_wrap": False,
+        "krylov_tolerance": precision(1e-6),
+        "correction_type": "minimal_residual",
+        "newton_tolerance": precision(1e-6),
+        "preconditioner_order": 2,
+        "max_linear_iters": 5,
+        "max_newton_iters": 5,
+        "newton_damping": precision(0.85),
+        "newton_max_backtracks": 25,
+        "min_gain": precision(0.2),
+        "max_gain": precision(2.0),
+        "kp": precision(1 / 18),
+        "ki": precision(1 / 9),
+        "kd": precision(1 / 18),
+        "deadband_min": precision(1.0),
+        "deadband_max": precision(1.2),
     }
+    #
+    # for key, value in FEHLBERG_DEFAULT_OVERRIDES.items():
+    #     defaults[key] = precision(value)
+
+    return defaults
 
 
 def build_implicit_step_settings(
@@ -147,14 +177,15 @@ def build_implicit_step_settings(
     return {
         "atol": solver_settings["atol"],
         "rtol": solver_settings["rtol"],
-        "krylov_tolerance": 1e-5,
-        "correction_type": "minimal_residual",
-        "newton_tolerance": 1e-5,
-        "preconditioner_order": 2,
-        "max_linear_iters": 500,
-        "max_newton_iters": 500,
-        "newton_damping": 0.85,
-        "newton_max_backtracks": 25,
+        "krylov_tolerance": solver_settings["krylov_tolerance"],
+        "correction_type": solver_settings["correction_type"],
+        "newton_tolerance": solver_settings["newton_tolerance"],
+        "preconditioner_order": solver_settings["preconditioner_order"],
+        "max_linear_iters": solver_settings["max_linear_iters"],
+        "max_newton_iters": solver_settings["max_newton_iters"],
+        "newton_damping": solver_settings["newton_damping"],
+        "newton_max_backtracks": solver_settings["newton_max_backtracks"],
+        "tableau": solver_settings.get("tableau", "fehlberg-45"),
     }
 
 
@@ -183,20 +214,20 @@ def build_step_controller_settings(
     precision = solver_settings["precision"]
     base_settings: Dict[str, Any] = {
         "kind": solver_settings["step_controller"].lower(),
-        "dt": precision(solver_settings["dt_min"]),
+        "dt": precision(solver_settings["dt"]),
         "dt_min": precision(solver_settings["dt_min"]),
         "dt_max": precision(solver_settings["dt_max"]),
         "atol": precision(solver_settings["atol"]),
         "rtol": precision(solver_settings["rtol"]),
-        "order": 2,
-        "min_gain": precision(0.5),
-        "max_gain": precision(2.0),
-        "n": system.sizes.states,
-        "kp": precision(1 / 18),
-        "ki": precision(1 / 9),
-        "kd": precision(1 / 18),
-        "deadband_min": precision(1.0),
-        "deadband_max": precision(1.2),
+        "order": 5,
+        "min_gain": precision(solver_settings["min_gain"]),
+        "max_gain": precision(solver_settings["max_gain"]),
+        "kp": precision(solver_settings["kp"]),
+        "ki": precision(solver_settings["ki"]),
+        "kd": precision(solver_settings["kd"]),
+        "deadband_min": precision(solver_settings["deadband_min"]),
+        "deadband_max": precision(solver_settings["deadband_max"]),
+        "max_newton_iters": int(solver_settings["max_newton_iters"]),
     }
 
     if overrides:
@@ -206,6 +237,8 @@ def build_step_controller_settings(
             "dt_max",
             "atol",
             "rtol",
+            "min_gain",
+            "max_gain",
             "kp",
             "ki",
             "kd",
@@ -249,7 +282,7 @@ def build_driver_settings(
 
     dt_sample = precision(solver_settings["dt_save"]) / 2.0
     total_span = precision(solver_settings["duration"])
-    t0 = float(solver_settings["warmup"])
+    t0 = precision(solver_settings["warmup"])
     order = int(solver_settings["driverspline_order"])
 
     samples = int(np.ceil(total_span / dt_sample)) + 1
@@ -269,7 +302,7 @@ def build_driver_settings(
         for idx, name in enumerate(driver_names)
     }
     drivers_dict["dt"] = precision(dt_sample)
-    drivers_dict["wrap"] = solver_settings["driverspline_wrap"]
+    drivers_dict["wrap"] = bool(solver_settings["driverspline_wrap"])
     drivers_dict["order"] = order
     drivers_dict["t0"] = t0
 
@@ -325,6 +358,7 @@ def create_controller(
 
     controller = CPUAdaptiveController(
         kind=settings["kind"],
+        dt=settings["dt"],
         dt_min=settings["dt_min"],
         dt_max=settings["dt_max"],
         atol=settings["atol"],
@@ -344,7 +378,6 @@ def create_controller(
         controller.kp = settings["kp"]
         controller.ki = settings["ki"]
         controller.kd = settings["kd"]
-    controller.dt = settings["dt"]
     return controller
 
 
@@ -369,9 +402,7 @@ def create_driver_array(
 
     if driver_settings is None:
         return None
-    aryint = ArrayInterpolator(precision=precision, input_dict=driver_settings)
-    # aryint.plot_interpolated(np.linspace(0, 1, 1000))
-    return aryint
+    return ArrayInterpolator(precision=precision, input_dict=driver_settings)
 
 
 def create_driver_evaluator(
@@ -403,16 +434,16 @@ def create_driver_evaluator(
     order = int(solver_settings["driverspline_order"])
     if driver_array is None or width == 0:
         coeffs = np.zeros((1, width, order + 1), dtype=precision)
-        dt_value = float(solver_settings["dt_save"]) / 2.0
-        t0_value = float(solver_settings["warmup"])
+        dt_value = precision(solver_settings["dt_save"]) / 2.0
+        t0_value = precision(0.0)
         wrap_value = bool(solver_settings["driverspline_wrap"])
-        boundary = "not-a-knot"
+        boundary = None
     else:
         coeffs = np.array(
             driver_array.coefficients, dtype=precision, copy=True
         )
-        dt_value = float(driver_array.dt)
-        t0_value = float(driver_array.t0)
+        dt_value = precision(driver_array.dt)
+        t0_value = precision(driver_array.t0)
         wrap_value = bool(driver_array.wrap)
         boundary = driver_array.boundary_condition
 
@@ -590,8 +621,21 @@ def run_reference_loop_with_history(
     step_records: List[StepRecord] = []
 
     tableau = implicit_step_settings.get("tableau")
-    step_function = get_ref_step_function(
-        solver_settings["algorithm"], tableau=tableau
+    stepper = get_ref_stepper(
+        evaluator,
+        driver_fn,
+        solver_settings["algorithm"],
+        newton_tol=implicit_step_settings["newton_tolerance"],
+        newton_max_iters=implicit_step_settings["max_newton_iters"],
+        linear_tol=implicit_step_settings["krylov_tolerance"],
+        linear_max_iters=implicit_step_settings["max_linear_iters"],
+        linear_correction_type=implicit_step_settings["correction_type"],
+        preconditioner_order=implicit_step_settings["preconditioner_order"],
+        tableau=tableau,
+        newton_damping=implicit_step_settings.get("newton_damping"),
+        newton_max_backtracks=implicit_step_settings.get(
+            "newton_max_backtracks"
+        ),
     )
 
     saved_state_indices = np.asarray(
@@ -624,21 +668,27 @@ def run_reference_loop_with_history(
         time_history.append(float(t))
 
     end_time = precision(warmup + duration)
-    max_iters = implicit_step_settings["max_newton_iters"]
-    timesave=0
     equality_breaker = (
         precision(1e-7) if precision is np.float32 else precision(1e-14)
     )
+    fixed_steps_per_save = int(np.ceil(dt_save / controller.dt))
+    fixed_step_count = 0
     attempt_index = 0
 
     while t < end_time - equality_breaker:
         dt = precision(min(controller.dt, end_time - t))
         do_save = False
-        if t + dt + equality_breaker >= next_save_time:
-            dt = precision(next_save_time - t)
-            do_save = True
+        if controller.is_adaptive:
+            if t + dt + equality_breaker >= next_save_time:
+                dt = precision(next_save_time - t)
+                do_save = True
+        else:
+            if (fixed_step_count + 1) % fixed_steps_per_save == 0:
+                do_save = True
+                fixed_step_count = 0
+            else:
+                fixed_step_count += 1
 
-        # Sample driver values at proposal time (before performing the step)
         try:
             sampled = driver_fn(precision(t))
             sampled_tuple: Tuple[float, ...] = tuple(
@@ -647,35 +697,21 @@ def run_reference_loop_with_history(
         except Exception:
             sampled_tuple = ()
 
-        timenow = perf_counter()
-
-        result = step_function(
-            evaluator,
-            driver_fn,
+        result = stepper.step(
             state=state,
             params=params,
             dt=dt,
-            tol=implicit_step_settings["newton_tolerance"],
-            max_iters=max_iters,
             time=precision(t),
         )
 
         step_status = int(result.status)
         status_flags |= step_status & STATUS_MASK
-        try:
-            accept = controller.propose_dt(
-                error_vector=result.error,
-                prev_state=state,
-                new_state=result.state,
-                niters=result.niters,
-            )
-            if timenow - timesave > 5.0:
-                print(f"Going slow. t={t}, last step: {dt:.6f} s, accepted="
-                      f"{accept}")
-                timesave=timenow
-        except ValueError:
-            print(f"Failed to propose step size at t={t:.2f}, step={dt:.6f}")
-            break
+        accept = controller.propose_dt(
+            error_vector=result.error,
+            prev_state=state,
+            new_state=result.state,
+            niters=result.niters,
+        )
         step_records.append(
             StepRecord(
                 time=float(t),
@@ -691,11 +727,10 @@ def run_reference_loop_with_history(
             continue
 
         state = result.state.copy()
+        observables = result.observables.copy()
         t += precision(dt)
 
         if do_save:
-            print(f"Saving sample at t={t:.2f}, step={dt:.6f}")
-            timesave = perf_counter()
             if len(state_history) < max_save_samples:
                 state_history.append(result.state.copy())
                 observable_history.append(result.observables.copy())
@@ -720,9 +755,8 @@ def run_reference_loop_with_history(
 def plot_step_histories(
     controller: str,
     histories: Mapping[str, Sequence[StepRecord]],
-    output_dir: Path,
-) -> Path:
-    """Create the controller-specific figure and return the saved path.
+) -> None:
+    """Render the controller-specific figure showing accepted and rejected steps.
 
     Parameters
     ----------
@@ -731,13 +765,6 @@ def plot_step_histories(
         ``"gustafsson"``).
     histories
         Mapping from system name to recorded step histories.
-    output_dir
-        Directory in which the figure should be saved.
-
-    Returns
-    -------
-    pathlib.Path
-        Path to the saved figure file.
     """
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=False, sharey=False)
@@ -782,34 +809,12 @@ def plot_step_histories(
     )
     fig.tight_layout(rect=[0, 0.03, 1, 0.95])
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / (
-        f"controller_step_sizes_{controller.lower()}.png"
-    )
-    fig.savefig(output_path, dpi=200)
-    return output_path
+    plt.show()
 
 
-def run_analysis(
-    output_dir: Path,
-    save_figs: bool = True,
-) -> Tuple[List[Path], Dict[str, Dict[str, List[StepRecord]]]]:
-    """Execute integrations for every controller and system combination.
+def run_analysis() -> Dict[str, Dict[str, List[StepRecord]]]:
+    """Execute integrations for every controller and system combination."""
 
-    Parameters
-    ----------
-    output_dir
-        Directory in which plots should be saved.
-    save_figs
-        Whether to render and save matplotlib figures.
-
-    Returns
-    -------
-    tuple
-        Saved figure paths and the recorded step histories.
-    """
-
-    saved_paths: List[Path] = []
     all_histories: Dict[str, Dict[str, List[StepRecord]]] = {}
     for controller in ("i", "pi", "pid", "gustafsson"):
         controller_histories: Dict[str, List[StepRecord]] = {}
@@ -884,159 +889,15 @@ def run_analysis(
             controller_histories[system_name] = histories
 
         all_histories[controller] = controller_histories
-        if save_figs:
-            output_path = plot_step_histories(
-                controller, controller_histories, output_dir
-            )
-            saved_paths.append(output_path)
-
-    return saved_paths, all_histories
+        plot_step_histories(controller, controller_histories)
 
 
-def plot_driver_histories(
-    all_histories: Mapping[str, Mapping[str, Sequence[StepRecord]]],
-    *,
-    driver_index: int = 0,
-) -> List[plt.Figure]:
-    """Plot a selected driver value against time for each system.
 
-    Parameters
-    ----------
-    all_histories
-        Mapping of controller -> system -> list of StepRecord.
-    driver_index
-        Which driver to plot (0-based). Only records with sufficient
-        driver_values length are used.
-
-    Returns
-    -------
-    list[matplotlib.figure.Figure]
-        Created figures, one per system that has drivers.
-    """
-    figs: List[plt.Figure] = []
-    for system_name in SYSTEM_ORDER:
-        # Collect all records for this system across controllers
-        system_records: List[StepRecord] = []
-        for controller_hist in all_histories.values():
-            system_records.extend(controller_hist.get(system_name, []))
-        # Determine if this system has any driver records
-        has_driver = any(
-            len(rec.driver_values) > driver_index for rec in system_records
-        )
-        if not has_driver:
-            continue
-        fig, ax = plt.subplots(figsize=(10, 4))
-        for controller, histories in all_histories.items():
-            records = [
-                r
-                for r in histories.get(system_name, [])
-                if len(r.driver_values) > driver_index
-            ]
-            if not records:
-                continue
-            times = [r.time for r in records]
-            dvals = [r.driver_values[driver_index] for r in records]
-            ax.scatter(
-                times,
-                dvals,
-                s=14,
-                alpha=0.6,
-                label=controller,
-            )
-        ax.set_title(
-            f"Driver {driver_index} values vs time for {system_name} system"
-        )
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Driver value")
-        ax.grid(True, linestyle=":", linewidth=0.6)
-        ax.legend(loc="best")
-        figs.append(fig)
-    return figs
-
-
-def main(
-    save_figs: bool = True, output_dir: Union[str, Path] = "docs/source/_static"
-) -> Tuple[List[Path], Dict[str, Dict[str, List[StepRecord]]]]:
-    """Run the analysis pipeline and return the generated figure paths.
-
-    Parameters
-    ----------
-    save_figs
-        Whether to render and save matplotlib figures.
-    output_dir
-        Directory used for saved figures.
-
-    Returns
-    -------
-    tuple
-        Tuple of saved figure paths and recorded histories.
-    """
-
-    output_path = Path(output_dir)
-    return run_analysis(output_path, save_figs)
+def main() -> Dict[str, Dict[str, List[StepRecord]]]:
+    """Run the analysis pipeline and return the recorded histories."""
+    return run_analysis()
 
 
 if __name__ == "__main__":
-    generated, all_histories = main(save_figs=False)
-    print("Generated figures:")
-    for path in generated:
-        print(f"  - {path}")
-
-    # Step-size history composite figures (per system, controllers as subplots)
-    allfigs: List[plt.Figure] = []
-    allaxes: List[NDArray[np.object_]] = []
-    for j, system_name in enumerate(SYSTEM_ORDER):
-        fig, axes = plt.subplots(
-            2,
-            2,
-            figsize=(12, 8),
-            sharex=False,
-            sharey=False,
-            layout="constrained",
-        )
-        axes = axes.ravel()
-        fig.suptitle(f"{system_name} system")
-        allfigs.append(fig)
-        allaxes.append(axes)
-        xtype = 'index'
-        for i, (controller, histories) in enumerate(all_histories.items()):
-            records = histories.get(system_name, [])
-            axis = allaxes[j][i]
-            axis.set_yscale("log")
-            accepted = [record for record in records if record.accepted]
-            rejected = [record for record in records if not record.accepted]
-            if accepted:
-                if xtype == 'index':
-                    xdata = [record.attempt_index for record in accepted]
-                else:
-                    xdata = [record.time for record in accepted]
-                axis.scatter(
-                    xdata,
-                    [record.step_size for record in accepted],
-                    color="tab:blue",
-                    alpha=0.7,
-                    marker="o",
-                    s=18,
-                )
-            if rejected:
-                if xtype == 'index':
-                    xdata = [record.attempt_index for record in rejected]
-                else:
-                    xdata = [record.time for record in rejected]
-                axis.scatter(
-                    xdata,
-                    [record.step_size for record in rejected],
-                    color="tab:red",
-                    alpha=0.7,
-                    marker="x",
-                    s=18,
-                )
-            axis.set_title(controller)
-            axis.set_xlabel("Time (s)")
-            axis.set_ylabel("Step size (s)")
-            axis.set_xlim(auto=True)
-            axis.set_ylim(auto=True)
-            axis.grid(True, linestyle=":", linewidth=0.6)
-    # driver_figs = plot_driver_histories(all_histories, driver_index=0)
-    plt.show()
+    main()
 

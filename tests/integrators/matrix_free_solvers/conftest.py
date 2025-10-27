@@ -3,8 +3,8 @@ import pytest
 from numba import cuda, from_dtype
 
 from cubie.odesystems.symbolic.solver_helpers import (
-    generate_residual_end_state_code,
     generate_neumann_preconditioner_code,
+    generate_stage_residual_code,
 )
 from cubie.odesystems.symbolic.symbolicODE import create_ODE_system
 
@@ -77,9 +77,9 @@ def system_setup(request, precision):
     neumann_factory = sym_system.gen_file.import_function(
         "neumann_preconditioner_factory", neumann_code
     )
-    code = generate_residual_end_state_code(sym_system.equations, sym_system.indices)
+    code = generate_stage_residual_code(sym_system.equations, sym_system.indices)
     res_factory = sym_system.gen_file.import_function(
-        "end_residual", code
+        "stage_residual", code
     )
     residual_func = res_factory(
         sym_system.constants.values_dict,
@@ -124,13 +124,22 @@ def system_setup(request, precision):
     temp_out = np.zeros(3, dtype=precision)
 
     @cuda.jit()
-    def operator_kernel(state, params, drivers, h, in_vec, out_vec):
-        operator(state, params, drivers, h, in_vec, out_vec)
+    def operator_kernel(state, params, drivers, time_scalar, h, in_vec, out_vec):
+        operator(
+            state,
+            params,
+            drivers,
+            time_scalar,
+            h,
+            precision(1.0),
+            in_vec,
+            out_vec,
+        )
 
     for j in range(3):
         temp_in.fill(0)
         temp_in[j] = precision(1.0)
-        operator_kernel[1, 1](state_fp, params, drivers, h, temp_in, temp_out)
+        operator_kernel[1, 1](state_fp, params, drivers, zero_time, h, temp_in, temp_out)
         F[:, j] = temp_out
     mr_expected = np.linalg.solve(F, mr_rhs)
 
@@ -148,7 +157,7 @@ def system_setup(request, precision):
         "operator": operator,
         "residual": residual_func,
         "base_state": base_state,
-        "state_init": cuda.to_device(state_init_host),
+        "state_init": cuda.to_device(state_init_host - base_host),
         "preconditioner": make_precond,
         "mr_rhs": mr_rhs,
         "mr_expected": mr_expected,
@@ -175,13 +184,24 @@ def neumann_kernel(precision):
     def factory(precond, n, h):
         @cuda.jit
         def kernel(state_init, residual, out):
+            time_scalar = precision(0.0)
             state = cuda.local.array(n, precision)
             for i in range(n):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
             scratch = cuda.shared.array(n, precision)
-            precond(state, parameters, drivers, h, residual, out, scratch)
+            precond(
+                state,
+                parameters,
+                drivers,
+                time_scalar,
+                h,
+                precision(1.0),
+                residual,
+                out,
+                scratch,
+            )
 
         return kernel
 
@@ -206,12 +226,22 @@ def solver_kernel(precision):
     def factory(solver, n, h):
         @cuda.jit
         def kernel(state_init, rhs, x, flag):
+            time_scalar = precision(0.0)
             state = cuda.local.array(n, precision)
             for i in range(n):
                 state[i] = state_init[i]
             parameters = cuda.local.array(1, precision)
             drivers = cuda.local.array(1, precision)
-            flag[0] = solver(state, parameters, drivers, h, rhs, x)
+            flag[0] = solver(
+                state,
+                parameters,
+                drivers,
+                time_scalar,
+                h,
+                precision(1.0),
+                rhs,
+                x,
+            )
 
         return kernel
 

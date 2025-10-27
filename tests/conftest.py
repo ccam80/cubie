@@ -318,7 +318,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "duration": precision(1.0),
         "warmup": precision(0.0),
         "dt": precision(0.01),
-        "dt_min": precision(0.01),
+        "dt_min": precision(1e-7),
         "dt_max": precision(1.0),
         "dt_save": precision(0.1),
         "dt_summarise": precision(0.2),
@@ -891,9 +891,7 @@ def cpu_loop_runner(
             precision=precision,
             step_controller_settings=step_controller_settings,
         )
-        tableau = getattr(
-            step_object, "tableau", solver_settings.get("tableau")
-        )
+        tableau = getattr(step_object, "tableau", None)
         return run_reference_loop(
             evaluator=cpu_system,
             inputs=inputs,
@@ -933,9 +931,7 @@ def cpu_loop_outputs(
         precision=precision,
         step_controller_settings=step_controller_settings,
     )
-    tableau = getattr(
-        step_object, "tableau", solver_settings.get("tableau")
-    )
+    tableau = getattr(step_object, "tableau", None)
     return run_reference_loop(
         evaluator=cpu_system,
         inputs=inputs,

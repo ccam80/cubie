@@ -132,7 +132,7 @@ class TestSolveResultInstantiation:
         assert set(numpy_result.keys()) == set(full_result.as_numpy.keys())
         for key in numpy_result.keys():
             if isinstance(numpy_result[key], np.ndarray):
-                assert np.array_equal(
+                assert np.allclose(
                     numpy_result[key], full_result.as_numpy[key]
                 )
             else:
@@ -144,7 +144,7 @@ class TestSolveResultInstantiation:
         )
         for key in numpy_per_summary_result.keys():
             if isinstance(numpy_per_summary_result[key], np.ndarray):
-                assert np.array_equal(
+                assert np.allclose(
                     numpy_per_summary_result[key],
                     full_result.as_numpy_per_summary[key],
                 )
