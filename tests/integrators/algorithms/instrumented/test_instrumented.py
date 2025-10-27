@@ -16,7 +16,7 @@ STEP_SETTINGS.update(
       'max_newton_iters': 3,
       'newton_max_backtracks': 2,
       'krylov_tolerance': 1e-7,
-      'newton_tolerance': 1e-8,
+      'newton_tolerance': 1e-7,
       'correction_type': 'minimal_residual'
     })
 

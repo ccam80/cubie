@@ -22,8 +22,8 @@ def placeholder_system(precision):
         out[0] = state[0] - h * (base_state[0] + a_ij * state[0])
 
     @cuda.jit(device=True)
-    def operator(state, parameters, drivers, t, h, vec, out):
-        out[0] = (precision(1.0) - h) * vec[0]
+    def operator(state, parameters, drivers, t, h, a_ij, vec, out):
+        out[0] = (precision(1.0) - h * a_ij)  * vec[0]
 
     base = cuda.to_device(np.array([1.0], dtype=precision))
     return residual, operator, base
@@ -45,7 +45,7 @@ def test_newton_krylov_placeholder(placeholder_system, precision, tolerance):
         max_iters=16,
     )
 
-    scratch_len = 2 * n
+    scratch_len = 3 * n
 
     @cuda.jit
     def kernel(state, base, flag, h):
@@ -126,7 +126,7 @@ def test_newton_krylov_symbolic(system_setup, precision, precond_order, toleranc
         max_iters=1000,
     )
 
-    scratch_len = 2 * n
+    scratch_len = 3 * n
 
     @cuda.jit
     def kernel(state, base, flag, h):
@@ -188,7 +188,7 @@ def test_newton_krylov_failure(precision):
         max_iters=2,
     )
 
-    scratch_len = 2 * n
+    scratch_len = 3 * n
 
     @cuda.jit
     def kernel(flag, h):
@@ -232,7 +232,7 @@ def test_newton_krylov_max_newton_iters_exceeded(placeholder_system, precision):
         max_iters=0,  # force no Newton iterations
     )
 
-    scratch_len = 2 * n
+    scratch_len = 3 * n
 
     @cuda.jit
     def kernel(state, base, flag, h):
@@ -290,7 +290,7 @@ def test_newton_krylov_linear_solver_failure_propagates(precision):
         max_iters=4,
     )
 
-    scratch_len = 2 * n
+    scratch_len = 3 * n
 
     @cuda.jit
     def kernel(flag, h):

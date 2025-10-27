@@ -275,7 +275,7 @@ def test_operator_apply_dense(
     kernel = operator_kernel(op)
     v = np.array([1.0, -1.0], dtype=precision)
     out = np.zeros(2, dtype=precision)
-    kernel[1, 1](precision(0.0), precision(h), precision(gamma), v, out)
+    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, out)
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     expected = beta * M @ v - gamma * h * J @ v
     assert np.allclose(
@@ -397,7 +397,7 @@ def test_cached_operator_apply_dense(
         driver_values,
         precision(0.0),
         precision(h),
-        precision(gamma),
+        precision(1.0),
         vec,
         out,
     )
@@ -592,7 +592,7 @@ def test_neumann_preconditioner_expression(
     v = np.array([0.7, -1.3], dtype=precision)
     out = np.zeros(2, dtype=precision)
 
-    kernel[1, 1](precision(0.0), precision(h), precision(gamma), v, out)
+    kernel[1, 1](precision(0.0), precision(h), precision(1.0), v, out)
 
     J = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=precision)
     beta_inv = 1.0 / beta
@@ -661,7 +661,7 @@ def test_neumann_preconditioner_cached_expression(
         driver_values,
         precision(0.0),
         precision(h),
-        precision(gamma),
+        precision(1.0),
         vec,
         out,
     )

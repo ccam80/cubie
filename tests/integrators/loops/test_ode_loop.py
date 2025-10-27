@@ -68,7 +68,7 @@ LOOP_CASES = [
         id="erk",
     ),
     pytest.param(
-        {"algorithm": "dirk", "step_controller": "pi"},
+        {"algorithm": "dirk", "step_controller": "fixed"},
         id="dirk",
     ),
     pytest.param(
