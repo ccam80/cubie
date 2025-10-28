@@ -496,17 +496,6 @@ def assert_integration_outputs(
     observables_ref = reference.observables
     observables_dev = device.observables
 
-    if flags.save_state:
-        assert_allclose(
-            state_dev,
-            state_ref,
-            rtol=rtol,
-            atol=atol,
-            verbose=True,
-            err_msg="state mismatch.\n"
-            f"device: {state_dev}\nreference: {state_ref}",
-        )
-
     if output_functions.save_time:
         assert_allclose(
             time_dev,
@@ -516,6 +505,19 @@ def assert_integration_outputs(
             err_msg="time mismatch.\n"
             f"device: {time_dev}\nreference: {time_ref}",
         )
+
+    if flags.save_state:
+            assert_allclose(
+                state_dev,
+                state_ref,
+                rtol=rtol,
+                atol=atol,
+                verbose=True,
+                err_msg="state mismatch.\n"
+                f"device: {state_dev}\nreference: {state_ref}\ndelta (ref - "
+                        f"dev): {state_ref - state_dev}\n",
+            )
+
 
     if flags.save_observables:
         assert_allclose(

@@ -17,11 +17,12 @@ DEFAULT_OVERRIDES = {
     'dt': 0.001953125,  # try an exactly-representable dt
     'dt_min': 1e-7,
     'dt_max': 0.5,
+    'dt_save': 0.1,
     'newton_tolerance': 1e-7,
     'krylov_tolerance': 1e-7,
     'atol': 1e-5,
     'rtol': 1e-6,
-    'output_types': ["state"],
+    'output_types': ["state", "time"],
     'saved_state_indices': [0, 1, 2],
 }
 
@@ -117,7 +118,7 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "sdirk_2_2", "step_controller": "i"},
+        {"algorithm": "sdirk_2_2", "step_controller": "pi"},
         id="dirk-sdirk-2-2",
         marks=pytest.mark.specific_algos,
     ),

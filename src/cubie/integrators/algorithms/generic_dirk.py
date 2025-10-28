@@ -324,7 +324,7 @@ class DIRKStep(ODEImplicitStep):
 
             for idx in range(n):
                 stage_base[idx] = state[idx]
-                proposed_state[idx] = state[idx]
+                proposed_state[idx] = typed_zero
 
             # Only caching achievable is reusing rhs for FSAL
             if use_cached_rhs:
@@ -383,11 +383,15 @@ class DIRKStep(ODEImplicitStep):
             error_weight = error_weights[0]
             for idx in range(n):
                 rhs_value = stage_rhs[idx]
-                increment = dt_value * rhs_value
-                proposed_state[idx] += solution_weight * increment
+                proposed_state[idx] += solution_weight * rhs_value
+                if not multistage:
+                    proposed_state[idx] *= dt_value
+                    proposed_state[idx] += state[idx]
                 if has_error:
-                    error[idx] += error_weight * increment
-
+                    error[idx] += error_weight * rhs_value
+                    if not multistage:
+                        error[idx] *= dt_value
+                            
             for idx in range(accumulator_length):
                 stage_accumulator[idx] = typed_zero
 
@@ -461,12 +465,17 @@ class DIRKStep(ODEImplicitStep):
                 error_weight = error_weights[stage_idx]
                 for idx in range(n):
                     rhs_value = stage_rhs[idx]
-                    increment = dt_value * rhs_value
-                    proposed_state[idx] += solution_weight * increment
+                    proposed_state[idx] += solution_weight * rhs_value
                     if has_error:
-                        error[idx] += error_weight * increment
+                        error[idx] += error_weight * rhs_value
 
             # --------------------------------------------------------------- #
+
+            for idx in range(n):
+                proposed_state[idx] *= dt_value
+                proposed_state[idx] += state[idx]
+                error[idx] *= dt_value
+
             if has_driver_function:
                 driver_function(
                     end_time,

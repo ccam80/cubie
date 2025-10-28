@@ -110,7 +110,7 @@ def build_solver_settings(precision: type[np.floating[Any]]) -> Dict[str, Any]:
     """
 
     defaults: Dict[str, Any] = {
-        "algorithm": "bogacki-shampine-32",
+        "algorithm": "sdirk_2_2",
         "duration": precision(1.0),
         "warmup": precision(0.0),
         "dt": precision(0.01),
@@ -185,7 +185,7 @@ def build_implicit_step_settings(
         "max_newton_iters": solver_settings["max_newton_iters"],
         "newton_damping": solver_settings["newton_damping"],
         "newton_max_backtracks": solver_settings["newton_max_backtracks"],
-        "tableau": solver_settings.get("tableau", "fehlberg-45"),
+        "tableau": solver_settings.get("tableau", "sdirk_2_2"),
     }
 
 
@@ -738,7 +738,7 @@ def run_reference_loop_with_history(
             next_save_time += dt_save
 
     state_output = _collect_saved_outputs(
-        state_history, saved_state_indices, precision
+        state_history, max_save_samples, saved_state_indices, precision
     )
     if save_time and time_history:
         state_output = np.column_stack(
