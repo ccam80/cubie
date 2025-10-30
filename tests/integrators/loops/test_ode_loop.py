@@ -118,7 +118,7 @@ LOOP_CASES = [
         marks=pytest.mark.specific_algos,
     ),
     pytest.param(
-        {"algorithm": "sdirk_2_2", "step_controller": "pi"},
+        {"algorithm": "sdirk_2_2", "step_controller": "i"},
         id="dirk-sdirk-2-2",
         marks=pytest.mark.specific_algos,
     ),
