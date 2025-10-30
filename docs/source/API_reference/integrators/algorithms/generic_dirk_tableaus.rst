@@ -37,6 +37,12 @@ Available aliases
    * - ``"sdirk_2_2"``
      - Alexander's L-stable SDIRK pair with embedded error weights.
      - [Alexander1977]_
+   * - ``"l_stable_dirk_3"``
+     - Three-stage, third-order L-stable SDIRK scheme with stiff accuracy.
+     - [MOOSELStableDirk3]_
+   * - ``"l_stable_sdirk_4"``
+     - Hairer--Wanner five-stage, fourth-order L-stable SDIRK tableau.
+     - [HairerWanner1996]_
 
 Tableau container
 -----------------
@@ -57,3 +63,9 @@ References
    Integration* (2nd ed.). Springer, 2006.
 .. [Alexander1977] R. Alexander. "Diagonally implicit Runge--Kutta methods for stiff
    ODEs." *SIAM J. Numer. Anal.* 14(6), 1977.
+.. [MOOSELStableDirk3] Idaho National Laboratory. "LStableDirk3 time integrator."
+   *MOOSE Framework Documentation*. https://mooseframework.inl.gov/source/
+   timeintegrators/LStableDirk3.html.
+.. [HairerWanner1996] E. Hairer and G. Wanner. *Solving Ordinary Differential
+   Equations II: Stiff and Differential-Algebraic Problems* (2nd ed.). Springer,
+   1996.

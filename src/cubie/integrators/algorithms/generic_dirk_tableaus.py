@@ -3,6 +3,7 @@
 from typing import Dict, Tuple
 
 import attrs
+import math
 
 from cubie.integrators.algorithms.base_algorithm_step import ButcherTableau
 
@@ -102,6 +103,14 @@ Integration* (2nd ed.). Springer.
 """
 
 SQRT2 = 2 ** 0.5
+SQRT6 = 6 ** 0.5
+
+ARCTAN_TERM = math.atan(SQRT2 / 4.0) / 3.0
+L_STABLE_DIRK3_GAMMA = (
+    -SQRT2 * math.cos(ARCTAN_TERM) / 2.0
+    + SQRT6 * math.sin(ARCTAN_TERM) / 2.0
+    + 1.0
+)
 SDIRK_2_2_TABLEAU = DIRKTableau(
     a=(
         ((2.0 - SQRT2) / 2.0, 0.0),
@@ -124,11 +133,120 @@ Alexander, R. (1977). Diagonally implicit Runge--Kutta methods for
 stiff ODEs. *SIAM Journal on Numerical Analysis*, 14(6), 1006-1021.
 """
 
+L_STABLE_DIRK3_TABLEAU = DIRKTableau(
+    a=(
+        (L_STABLE_DIRK3_GAMMA, 0.0, 0.0),
+        ((1.0 - L_STABLE_DIRK3_GAMMA) / 2.0, L_STABLE_DIRK3_GAMMA, 0.0),
+        (
+            (
+                -6.0 * L_STABLE_DIRK3_GAMMA ** 2
+                + 16.0 * L_STABLE_DIRK3_GAMMA
+                - 1.0
+            )
+            / 4.0,
+            (
+                6.0 * L_STABLE_DIRK3_GAMMA ** 2
+                - 20.0 * L_STABLE_DIRK3_GAMMA
+                + 5.0
+            )
+            / 4.0,
+            L_STABLE_DIRK3_GAMMA,
+        ),
+    ),
+    b=(
+        (
+            -6.0 * L_STABLE_DIRK3_GAMMA ** 2
+            + 16.0 * L_STABLE_DIRK3_GAMMA
+            - 1.0
+        )
+        / 4.0,
+        (
+            6.0 * L_STABLE_DIRK3_GAMMA ** 2
+            - 20.0 * L_STABLE_DIRK3_GAMMA
+            + 5.0
+        )
+        / 4.0,
+        L_STABLE_DIRK3_GAMMA,
+    ),
+    c=(
+        L_STABLE_DIRK3_GAMMA,
+        (1.0 + L_STABLE_DIRK3_GAMMA) / 2.0,
+        1.0,
+    ),
+    order=3,
+)
+"""Three-stage, third-order L-stable DIRK method with stiff accuracy.
+
+The tableau follows the coefficients published in MOOSE's
+``LStableDirk3`` time integrator, derived from Alexander's family of
+L-stable singly diagonally implicit schemes. All stages share the
+diagonal value :math:`\gamma`, and the last row equals the weight
+vector, so the method is stiffly accurate.
+
+References
+----------
+MOOSE Framework documentation. "LStableDirk3" time integrator.
+https://mooseframework.inl.gov/source/timeintegrators/LStableDirk3.html
+"""
+
+QUARTER = 0.25
+L_STABLE_SDIRK4_TABLEAU = DIRKTableau(
+    a=(
+        (QUARTER, 0.0, 0.0, 0.0, 0.0),
+        (0.5, QUARTER, 0.0, 0.0, 0.0),
+        (17.0 / 50.0, -1.0 / 25.0, QUARTER, 0.0, 0.0),
+        (
+            371.0 / 1360.0,
+            137.0 / 2720.0,
+            15.0 / 544.0,
+            QUARTER,
+            0.0,
+        ),
+        (
+            25.0 / 24.0,
+            -49.0 / 48.0,
+            125.0 / 16.0,
+            -85.0 / 12.0,
+            QUARTER,
+        ),
+    ),
+    b=(
+        25.0 / 24.0,
+        -49.0 / 48.0,
+        125.0 / 16.0,
+        -85.0 / 12.0,
+        QUARTER,
+    ),
+    c=(
+        QUARTER,
+        3.0 / 4.0,
+        11.0 / 20.0,
+        817.0 / 1360.0,
+        1.0,
+    ),
+    order=4,
+)
+"""Hairer--Wanner L-stable SDIRK tableau of order four.
+
+The five-stage scheme delivers fourth-order accuracy with stiff
+accuracy, reusing :math:`\gamma = 1/4` on the diagonal. The tableau
+matches the coefficients tabulated in Hairer and Wanner's *Solving
+Ordinary Differential Equations II* (Table 6.5).
+
+References
+----------
+Hairer, E., & Wanner, G. (1996). *Solving Ordinary Differential
+Equations II: Stiff and Differential-Algebraic Problems* (2nd ed.).
+Springer.
+"""
+
 DIRK_TABLEAU_REGISTRY: Dict[str, DIRKTableau] = {
     "implicit_midpoint": IMPLICIT_MIDPOINT_TABLEAU,
     "trapezoidal_dirk": TRAPEZOIDAL_DIRK_TABLEAU,
     "lobatto_iiic_3": LOBATTO_IIIC_3_TABLEAU,
     "sdirk_2_2": SDIRK_2_2_TABLEAU,
+    "l_stable_dirk_3": L_STABLE_DIRK3_TABLEAU,
+    "l_stable_sdirk_4": L_STABLE_SDIRK4_TABLEAU,
 }
 """Registry of named DIRK tableaus available to the integrator."""
 

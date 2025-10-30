@@ -248,6 +248,22 @@ ALIAS_CASES = [
         id="dirk-lobatto-iiic-3",
     ),
     pytest.param(
+        "l_stable_dirk_3",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["l_stable_dirk_3"],
+        CPUDIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="dirk-l-stable-3",
+    ),
+    pytest.param(
+        "l_stable_sdirk_4",
+        DIRKStep,
+        DIRK_TABLEAU_REGISTRY["l_stable_sdirk_4"],
+        CPUDIRKStep,
+        marks=pytest.mark.specific_algos,
+        id="dirk-l-stable-4",
+    ),
+    pytest.param(
         "ros3p",
         GenericRosenbrockWStep,
         ROSENBROCK_TABLEAUS["ros3p"],
@@ -431,6 +447,22 @@ STEP_CASES = [pytest.param(
             "step_controller": "fixed",
         },
         id="dirk-lobatto-iiic-3",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "l_stable_dirk_3",
+            "step_controller": "pi",
+        },
+        id="dirk-l-stable-3",
+        marks=pytest.mark.specific_algos,
+    ),
+    pytest.param(
+        {
+            "algorithm": "l_stable_sdirk_4",
+            "step_controller": "pi",
+        },
+        id="dirk-l-stable-4",
         marks=pytest.mark.specific_algos,
     ),
 ]
