@@ -339,6 +339,7 @@ def solver_settings(solver_settings_override, solver_settings_override2,
         "precision": precision,
         "driverspline_order": 3,
         "driverspline_wrap": False,
+        "driverspline_boundary_condition": "clamped",
         "krylov_tolerance": precision(1e-6),
         "correction_type": "minimal_residual",
         "newton_tolerance": precision(1e-6),
@@ -431,6 +432,9 @@ def driver_settings(
     drivers_dict["dt"] = precision(dt_sample)
     drivers_dict["wrap"] = solver_settings["driverspline_wrap"]
     drivers_dict["order"] = order
+    drivers_dict["boundary_condition"] = solver_settings[
+        "driverspline_boundary_condition"
+    ]
     drivers_dict["t0"] = t0
 
     if driver_settings_override:

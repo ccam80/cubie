@@ -288,6 +288,10 @@ class IVPLoop(CUDAFactory):
             first_step_flag = int16(1)
             prev_step_accepted_flag = int16(1)
 
+
+            # --------------------------------------------------------------- #
+            #                       Seed t=0 values                           #
+            # --------------------------------------------------------------- #
             for k in range(n_states):
                 state_buffer[k] = initial_states[k]
             for k in range(n_parameters):
@@ -357,6 +361,9 @@ class IVPLoop(CUDAFactory):
 
             mask = activemask()
 
+            # --------------------------------------------------------------- #
+            #                        Main Loop                                #
+            # --------------------------------------------------------------- #
             for _ in range(max_steps):
                 finished = save_idx >= n_output_samples
 

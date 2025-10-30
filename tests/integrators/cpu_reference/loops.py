@@ -122,9 +122,9 @@ def run_reference_loop(
     max_save_samples = int(np.ceil(duration / dt_save))
 
     state = initial_state.copy()
-    state_history = [state.copy()]
-    observable_history: list[Array] = []
-    time_history: list[float] = []
+    state_history = []
+    observable_history = []
+    time_history = []
     t = precision(0.0)
     drivers_initial = driver_evaluator(precision(t))
     observables = evaluator.observables(
@@ -151,9 +151,10 @@ def run_reference_loop(
         else precision(1e-14)
     )
     status_flags = 0
+    save_idx = 0
 
-    while t < end_time - equality_breaker:
-        dt = precision(min(controller.dt, end_time - t))
+    while save_idx < max_save_samples:
+        dt = controller.dt
         do_save = False
         if controller.is_adaptive:
             if t + dt + equality_breaker >= next_save_time:
@@ -194,6 +195,7 @@ def run_reference_loop(
                 observable_history.append(result.observables.copy())
                 time_history.append(precision(t - warmup))
             next_save_time += dt_save
+            save_idx += 1
 
     state_output = _collect_saved_outputs(
         state_history,
